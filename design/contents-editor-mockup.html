@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>longbox — contents editor mockup (v3)</title>
+<style>
+  :root {
+    --bg:#0a0b0d; --bg2:#0f1115; --panel:#15171b; --panel2:#1b1e24;
+    --line:#262a31; --hover:#2a2e36;
+    --tx:#e8eaef; --tx2:#9aa1ad; --tx3:#697080;
+    --accent:#7089e6; --accent-ink:#0d0e11; --accentSoft:rgba(112,137,230,.14);
+    --good:#5fb88a; --warn:#d6a44f; --adult:#e0687a;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--tx); font:14px/1.5 system-ui; padding:34px 40px 80px; }
+  .mono { font-family:ui-monospace,Consolas,monospace; }
+  h1 { font:600 22px/1.2 system-ui; margin:0 0 6px; }
+  .sub { color:var(--tx3); font-size:12.5px; max-width:880px; }
+  h2 { font:600 15px/1.2 system-ui; margin:40px 0 4px; color:var(--accent); }
+  .note { color:var(--tx3); font-size:12px; margin-bottom:12px; max-width:880px; }
+  .frame { border:1px solid var(--line); border-radius:12px; background:var(--bg2); padding:18px; max-width:1000px; }
+  .eyebrow { font:700 9px/1 ui-monospace,monospace; letter-spacing:.12em; color:var(--tx3); }
+
+  /* ---- row grammar v3 ----
+     [slot 14px: read-dot | chevron] [label: one left-flowing text] ... [right]
+     · the read dot LIVES IN the lead slot — no extra column to break the text
+     · translations render inside a GROUP: a continuous guide line + tinted bg,
+       not a lone └; their own small dot + badge follow the line
+     · right cluster has FIXED sub-columns: badge · pages(56px) · actions      */
+  .hd { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
+  .hd .t { font:600 16px/1 system-ui; }
+  .pill { display:inline-flex; align-items:center; gap:6px; height:28px; padding:0 10px; border:1px solid var(--line); border-radius:8px; background:var(--panel); font:500 11.5px/1 system-ui; color:var(--tx2); }
+  .btn { display:inline-flex; align-items:center; gap:6px; height:28px; padding:0 11px; border:1px solid var(--line); border-radius:8px; background:var(--panel); font:600 11.5px/1 system-ui; color:var(--tx); }
+  .btn.acc { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+  .btn.ghost { background:transparent; color:var(--tx2); }
+  .btn.danger { color:var(--adult); border-color:rgba(224,104,122,.4); }
+  .ico { width:24px; height:24px; border:1px solid var(--line); border-radius:6px; background:var(--panel); display:inline-flex; align-items:center; justify-content:center; color:var(--tx2); font-size:12px; flex:none; }
+
+  .split { display:flex; gap:16px; align-items:flex-start; }
+  .clist { flex:0 1 480px; min-width:410px; display:flex; flex-direction:column; gap:3px; }
+  .row { display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:8px; border:1px solid transparent; }
+  .row:hover { background:var(--panel2); }
+  .row.open { background:var(--accentSoft); border-color:rgba(112,137,230,.35); }
+  .slot { width:14px; flex:none; display:inline-flex; align-items:center; justify-content:center; color:var(--tx3); font-size:11px; }
+  .dot { width:10px; height:10px; border-radius:50%; background:var(--tx3); flex:none; }
+  .dot.g { background:var(--good); } .dot.w { background:var(--warn); }
+  .dot.s { width:8px; height:8px; }
+  .ttl { flex:1; min-width:0; font:500 13px/1.3 system-ui; color:var(--tx); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .num { font:600 13px/1 ui-monospace,monospace; }
+  .right { margin-left:auto; display:inline-flex; gap:8px; align-items:center; flex:none; }
+  .badge { display:inline-flex; gap:5px; align-items:center; font:500 10.5px/1 system-ui; color:var(--tx2); background:var(--panel2); border:1px solid var(--line); padding:3px 7px; border-radius:5px; }
+  .badge b { color:var(--accent); font:700 9px/1 ui-monospace,monospace; }
+  .trcount { font:500 10px/1 ui-monospace,monospace; color:var(--accent); border:1px solid rgba(112,137,230,.4); padding:3px 7px; border-radius:5px; flex:none; }
+  .pgcol { width:56px; text-align:right; font:500 10.5px/1 ui-monospace,monospace; color:var(--good); flex:none; }
+  .pgcol.off { color:var(--tx3); }
+  .acts { display:inline-flex; gap:5px; flex:none; }
+
+  /* the translations GROUP: guide line + tint — nesting you can't miss */
+  .grp { margin-left:19px; padding-left:14px; border-left:2px solid var(--line); display:flex; flex-direction:column; gap:2px; }
+  .grp .row { background:color-mix(in srgb, var(--panel) 45%, transparent); }
+  .grp .row:hover { background:var(--panel2); }
+  .grp .row.open { background:var(--accentSoft); }
+
+  .pane { flex:1; border:1px solid var(--line); border-radius:10px; background:var(--panel); overflow:hidden; }
+  .phead { display:flex; align-items:center; gap:9px; padding:9px 12px; border-bottom:1px solid var(--line); font:500 11px/1 ui-monospace,monospace; color:var(--tx2); }
+  .pgrid { padding:12px; display:flex; flex-wrap:wrap; gap:10px; }
+  .tile { width:84px; aspect-ratio:2/3; border-radius:6px; background:linear-gradient(160deg,#23262e,#181a20); border:1px solid var(--line); position:relative; }
+  .tile .n { position:absolute; bottom:4px; right:5px; font:700 9px/1 ui-monospace,monospace; color:#fff; background:rgba(0,0,0,.55); padding:2px 5px; border-radius:4px; }
+  .tile.sel { outline:2px solid var(--accent); outline-offset:1px; }
+  .tile.sel::before { content:"✓"; position:absolute; top:5px; left:5px; width:18px; height:18px; border-radius:5px; background:var(--accent); color:var(--accent-ink); font:700 11px/18px system-ui; text-align:center; }
+  .tile.add { border-style:dashed; background:transparent; display:flex; align-items:center; justify-content:center; color:var(--accent); font:600 22px/1 system-ui; cursor:pointer; }
+
+  .form { margin:4px 0 4px 24px; padding:12px; border:1px solid var(--line); border-radius:9px; background:var(--panel); display:flex; flex-direction:column; gap:8px; }
+  .frow { display:flex; gap:8px; align-items:flex-end; }
+  .fld { display:flex; flex-direction:column; gap:4px; }
+  .in { background:var(--panel2); border:1px solid var(--line); border-radius:7px; padding:7px 9px; color:var(--tx); font:500 12px/1.3 system-ui; }
+  .in::placeholder { color:var(--tx3); }
+  .lbl { font:700 8.5px/1 ui-monospace,monospace; letter-spacing:.1em; color:var(--tx3); }
+  .hintline { font:400 10.5px/1.4 system-ui; color:var(--tx3); }
+
+  .menu { border:1px solid var(--line); border-radius:9px; background:var(--panel2); box-shadow:0 16px 40px rgba(0,0,0,.55); padding:5px; width:260px; }
+  .mi { display:flex; gap:9px; align-items:center; padding:7px 9px; border-radius:6px; font:500 12px/1.3 system-ui; color:var(--tx2); }
+  .mi:hover { background:var(--hover); color:var(--tx); }
+  .mi .c { margin-left:auto; font:500 10px/1 ui-monospace,monospace; color:var(--tx3); }
+
+  .dock { width:344px; border:1px solid var(--line); border-radius:12px; background:var(--bg2); overflow:hidden; flex:none; }
+  .dtabs { display:flex; border-bottom:1px solid var(--line); }
+  .dtabs span { flex:1; text-align:center; padding:10px 0; font:600 11.5px/1 system-ui; color:var(--tx3); border-bottom:2px solid transparent; }
+  .dtabs .on { color:var(--accent); border-color:var(--accent); }
+  .dsec { padding:12px 14px; border-bottom:1px solid var(--line); }
+  .dock .row { padding:6px 4px; gap:8px; }
+  .dock .ttl { font-size:12px; }
+  .dock .grp { margin-left:10px; padding-left:10px; }
+
+  .dec { max-width:900px; }
+  .dec li { margin-bottom:9px; color:var(--tx2); font-size:13px; }
+  .dec b { color:var(--tx); }
+</style>
+</head>
+<body>
+
+<h1>Contents editor — mockup v3</h1>
+<p class="sub">longbox is a <b>media vault</b>. A title's lower block is <b>CONTENTS</b>: entries with
+ONE free-text label ("5", "5.5 Prequel", "2024 Artworks", "Extra"), grouped only when one label has
+several translations. Row: <span class="mono">[dot|chevron] [label…] ····· [badge] [pages]</span> —
+the read dot sits IN the lead slot, so the text column never shifts; translations live inside a
+guide-lined, tinted group.</p>
+
+<!-- ============ FRAME A ============ -->
+<h2>A · View mode</h2>
+<div class="frame">
+  <div class="hd">
+    <span class="t">Contents</span><span class="mono" style="color:var(--tx3);font-size:12px">6</span>
+    <span class="pill">LANG <b class="mono" style="color:var(--tx)">All</b> ▾</span>
+    <span class="pill">GROUP <b class="mono" style="color:var(--tx)">All</b> ▾</span>
+    <div style="flex:1"></div><span class="ico">✎</span>
+  </div>
+  <div class="split">
+    <div class="clist">
+      <div class="row"><span class="slot">˅</span><span class="ttl"><span class="num">1</span> Lucid Dreams</span><span class="trcount">2 translations</span></div>
+      <div class="grp">
+        <div class="row open"><span class="slot"><span class="dot g s"></span></span><span class="badge"><b>EN</b> hentainexus</span><span class="ttl"></span>
+          <span class="right"><span class="pgcol">40 pg</span></span></div>
+        <div class="row"><span class="slot"><span class="dot s"></span></span><span class="badge"><b>RU</b></span><span class="ttl"></span>
+          <span class="right"><span class="pgcol">38 pg</span></span></div>
+      </div>
+      <div class="row"><span class="slot"><span class="dot w"></span></span><span class="ttl"><span class="num">2</span> Fragrant Dreams</span>
+        <span class="right"><span class="badge"><b>EN</b> hentainexus</span><span class="pgcol">35 pg</span></span></div>
+      <div class="row"><span class="slot"><span class="dot"></span></span><span class="ttl"><span class="num">2024</span> Artworks</span>
+        <span class="right"><span class="badge"><b>pixiv</b></span><span class="pgcol">128 pg</span></span></div>
+      <div class="row"><span class="slot"><span class="dot"></span></span><span class="ttl"><span class="num">Extra</span> Cover works</span>
+        <span class="right"><span class="pgcol off"></span></span></div>
+    </div>
+    <div class="pane">
+      <div class="phead">1 · EN — 40 pages<div style="flex:1"></div><span class="mono">S M L</span></div>
+      <div class="pgrid">
+        <div class="tile"><span class="n">1</span></div><div class="tile"><span class="n">2</span></div>
+        <div class="tile"><span class="n">3</span></div><div class="tile"><span class="n">4</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ FRAME B ============ -->
+<h2>B · Edit mode</h2>
+<p class="note">Same rows; edit mode adds drag handles and ONE aligned action column
+(✎ edit · ⬇ attach · − file · × entry). Pages sit in a fixed 56px column, so every button lands on
+the same vertical. ✎ expands the inline form (single LABEL field + language/group/source link).</p>
+<div class="frame">
+  <div class="hd">
+    <span class="t">Contents</span><span class="mono" style="color:var(--tx3);font-size:12px">6</span>
+    <div style="flex:1"></div>
+    <span class="btn ghost">+ Add entry</span><span class="btn ghost">Sort №</span><span class="btn acc">Done</span>
+  </div>
+
+  <div class="clist" style="min-width:0;flex:1">
+    <div class="row"><span class="slot">⋮⋮</span><span class="ttl"><span class="num">1</span> Lucid Dreams</span><span class="trcount">2 translations</span></div>
+    <div class="grp">
+      <!-- translations drag TOO: drop one onto another label (or edit its
+           LABEL) and it moves to that group — grouping is derived, not stored -->
+      <div class="row"><span class="slot">⋮⋮</span><span class="badge"><b>EN</b> hentainexus</span><span class="ttl"></span>
+        <span class="right"><span class="pgcol">40 pg</span><span class="acts"><span class="ico">✎</span><span class="ico">⬇</span><span class="ico">−</span><span class="ico" style="color:var(--adult)">×</span></span></span></div>
+      <div class="row"><span class="slot">⋮⋮</span><span class="badge"><b>RU</b></span><span class="ttl"></span>
+        <span class="right"><span class="pgcol">38 pg</span><span class="acts"><span class="ico">✎</span><span class="ico">⬇</span><span class="ico">−</span><span class="ico" style="color:var(--adult)">×</span></span></span></div>
+    </div>
+
+    <div class="row open"><span class="slot">⋮⋮</span><span class="ttl"><span class="num">2024</span> Artworks</span>
+      <span class="right"><span class="badge"><b>pixiv</b></span><span class="pgcol">128 pg</span><span class="acts"><span class="ico" style="border-color:var(--accent);color:var(--accent)">✎</span><span class="ico">⬇</span><span class="ico">−</span><span class="ico" style="color:var(--adult)">×</span></span></span></div>
+
+    <div class="form">
+      <div class="frow">
+        <div class="fld" style="flex:1"><span class="lbl">LABEL *</span><input class="in" style="width:100%" value="2024 Artworks"></div>
+      </div>
+      <div class="frow">
+        <div class="fld"><span class="lbl">LANGUAGE</span><input class="in" style="width:90px" placeholder="EN"></div>
+        <div class="fld" style="flex:1"><span class="lbl">GROUP / SOURCE NAME</span><input class="in" style="width:100%" value="pixiv"></div>
+      </div>
+      <div class="frow">
+        <div class="fld" style="flex:1"><span class="lbl">SOURCE LINK</span><input class="in mono" style="width:100%;font-size:11px" value="https://www.pixiv.net/users/1024922"></div>
+      </div>
+      <div class="frow" style="justify-content:flex-end"><span class="btn ghost">Cancel</span><span class="btn acc">Save</span></div>
+    </div>
+
+    <div class="row"><span class="slot">⋮⋮</span><span class="ttl"><span class="num">Extra</span> Cover works</span>
+      <span class="right"><span class="pgcol off"></span><span class="acts"><span class="ico">✎</span><span class="ico">⬇</span><span class="ico" style="color:var(--adult)">×</span></span></span></div>
+  </div>
+</div>
+
+<!-- ============ FRAME C ============ -->
+<h2>C · Pages pane in edit mode — add images, move between entries</h2>
+<p class="note"><b>Add images…</b> appends local files to this entry's archive (created on first add —
+a bare row becomes an image set). <b>Move to…</b> re-homes the selection into another entry.
+Appended/moved files continue the target's numbering, so the order is predictable.</p>
+<div class="frame">
+  <div class="split">
+    <div class="pane" style="flex:1.4">
+      <div class="phead">2024 Artworks — 128 pages · <span style="color:var(--accent)">3 selected</span>
+        <div style="flex:1"></div>
+        <span class="btn ghost">+ Add images…</span>
+        <span class="btn">Move to… ▾</span>
+        <span class="btn danger">Delete 3</span>
+      </div>
+      <div class="pgrid">
+        <div class="tile sel"><span class="n">1</span></div><div class="tile"><span class="n">2</span></div>
+        <div class="tile sel"><span class="n">3</span></div><div class="tile sel"><span class="n">4</span></div>
+        <div class="tile"><span class="n">5</span></div>
+        <div class="tile add" title="Add images to this entry">+</div>
+      </div>
+    </div>
+    <div>
+      <div class="eyebrow" style="margin:4px 0 6px">MOVE TO — target entry</div>
+      <div class="menu">
+        <!-- targets are CONCRETE entries: a label with several translations
+             expands into them, each translation is its own archive -->
+        <div class="mi" style="color:var(--tx3)"><span class="mono">1</span> Lucid Dreams</div>
+        <div class="mi" style="padding-left:24px"><span class="badge"><b>EN</b> hentainexus</span><span class="c">40 pg</span></div>
+        <div class="mi" style="padding-left:24px"><span class="badge"><b>RU</b></span><span class="c">38 pg</span></div>
+        <div class="mi"><span class="mono">Extra</span> Cover works <span class="c">+ creates file</span></div>
+        <div class="mi" style="color:var(--accent)">+ New entry from selection…</div>
+      </div>
+      <p class="note" style="margin-top:10px;width:260px">A target without an archive gets one.
+      "New entry from selection" opens the entry form pre-bound to the moved pages — split a dump
+      of images into sets in one motion.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============ FRAME D ============ -->
+<h2>D · Browser dock — the same fields, the same list, NO reading state</h2>
+<p class="note">The dock manages capture and downloads — reading state is a library concern and does
+not render here. Entries show: label · lang/group badge · file state (✓ pages / % / nothing).
+SOURCE LINK pre-fills from the active page, hand-editable. One capture action replaces the old
+"Add visible"/"Teach rows" pair.</p>
+<div class="frame" style="display:flex;gap:22px">
+  <div class="dock">
+    <div class="dtabs"><span>Metadata</span><span class="on">Contents</span></div>
+
+    <div class="dsec">
+      <div class="eyebrow">ADD ENTRY</div>
+      <div class="frow" style="margin-top:8px">
+        <div class="fld" style="flex:1"><span class="lbl">LABEL *</span><input class="in" style="width:100%" placeholder="5 / 2024 Artworks / Extra"></div>
+      </div>
+      <div class="frow" style="margin-top:8px">
+        <div class="fld"><span class="lbl">LANGUAGE</span><input class="in" style="width:74px" placeholder="EN"></div>
+        <div class="fld" style="flex:1"><span class="lbl">GROUP / SOURCE NAME</span><input class="in" style="width:100%" placeholder="translator / site"></div>
+      </div>
+      <div class="frow" style="margin-top:8px">
+        <div class="fld" style="flex:1"><span class="lbl">SOURCE LINK · from this page</span><input class="in mono" style="width:100%;font-size:10.5px" value="https://hentainexus.com/view/12345"></div>
+      </div>
+      <div class="frow" style="margin-top:8px;justify-content:flex-end">
+        <span class="btn ghost" title="Create the entry row without arming a download">Add row only</span>
+        <span class="btn acc" title="Create the entry AND arm the next browser download into it">Add + arm download</span>
+      </div>
+    </div>
+
+    <div class="dsec" style="border-bottom:none">
+      <div class="eyebrow" style="margin-bottom:6px">ENTRIES · 6</div>
+      <div class="row"><span class="slot">˅</span><span class="ttl"><span class="num">1</span> Lucid Dreams</span><span class="trcount">2</span></div>
+      <div class="grp">
+        <div class="row"><span class="badge"><b>EN</b> hentainexus</span><span class="ttl"></span>
+          <span class="right"><span class="pgcol">✓ 40 pg</span></span></div>
+        <div class="row"><span class="badge"><b>RU</b></span><span class="ttl"></span>
+          <span class="right"><span class="pgcol">✓ 38 pg</span></span></div>
+      </div>
+      <div class="row"><span class="slot"></span><span class="ttl"><span class="num">2024</span> Artworks</span>
+        <span class="right"><span class="badge"><b>pixiv</b></span><span class="pgcol" style="color:var(--accent)">37%</span></span></div>
+      <div class="row"><span class="slot"></span><span class="ttl"><span class="num">Extra</span> Cover works</span>
+        <span class="right"><span class="pgcol off"></span></span></div>
+    </div>
+  </div>
+
+  <div class="dec" style="flex:1">
+    <div class="eyebrow" style="margin-bottom:8px">DECISIONS (v3)</div>
+    <ul class="dec" style="padding-left:18px;margin:0">
+      <li><b>Lead slot, not a dot column</b> — one 14px slot holds the read dot (rows), the chevron
+        (group headers) or the drag handle (edit mode). The label text starts at the same x in every
+        row; reading state can't shift anything.</li>
+      <li><b>Nesting is a GROUP, not a glyph</b> — translations render inside a container with a
+        continuous guide line and a tinted background. Their read dots are smaller and sit on the
+        line's rhythm; the lang/group badge is the row's name.</li>
+      <li><b>Fixed right columns</b> — badge · pages (56px, right-aligned) · actions. Buttons land on
+        one vertical in every row; empty page counts render blank, never a dash.</li>
+      <li><b>The label is ONE free-text field</b> — "5", "5.5 Prequel", "2024 Artworks", "Extra"; smart
+        sort parses the leading number. Field set everywhere: LABEL · LANGUAGE · GROUP · SOURCE LINK;
+        the dock pre-fills SOURCE LINK from the active page (editable).</li>
+      <li><b>The dock shows no reading state</b> — it manages capture/downloads; dots stay in the
+        library. Entry edits never re-key the row (id stable → archive, read state, provenance bound).</li>
+      <li><b>Add images / Move pages</b> — append into the entry archive (created on demand), renamed
+        to continue numbering; moves rewrite both archives atomically. Move targets are CONCRETE
+        entries: labels with several translations expand into them. Page reorder stays out of scope.</li>
+      <li><b>Re-grouping an entry</b> — a group IS its label, nothing else is stored: drag a
+        translation onto another label's row (or just edit LABEL in ✎) and it joins that group;
+        the tree recomputes. Works in both directions — out of a group and into one.</li>
+      <li><b>Dock capture removed</b> — the "read the chapter list off the page" capture (Add
+        visible / Teach rows) is dropped entirely: untested across sites, unclear value. Entries are
+        created manually or by downloads; “Add + arm download” merges creation with arming (details
+        live in button tooltips, not panel copy).</li>
+    </ul>
+  </div>
+</div>
+
+</body>
+</html>

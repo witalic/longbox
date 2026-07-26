@@ -1,0 +1,13 @@
+{
+  "name": "longbox-shell",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Electron shell: spawns the FastAPI sidecar and loads the UI it serves at /app/",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^33.2.0"
+  }
+}

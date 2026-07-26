@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>longbox — window chrome mockup (v2 · frame + card)</title>
+<style>
+  :root {
+    --chrome:#0c0d10;          /* THE frame: one surface, no internal lines */
+    --card:#14161b;            /* the content card */
+    --panel:#1b1e24; --panel2:#22262e;
+    --line:#2a2e37;            /* hairlines INSIDE the card only */
+    --tx:#e8eaef; --tx2:#9aa1ad; --tx3:#697080;
+    --accent:#7089e6; --accent-ink:#0d0e11; --accentSoft:rgba(112,137,230,.16);
+    --good:#5fb88a;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#07080a; color:var(--tx); font:14px/1.5 system-ui; padding:34px 40px 80px; }
+  .mono { font-family:ui-monospace,Consolas,monospace; }
+  h1 { font:600 22px/1.2 system-ui; margin:0 0 6px; }
+  .sub { color:var(--tx3); font-size:12.5px; max-width:900px; }
+  h2 { font:600 15px/1.2 system-ui; margin:40px 0 4px; color:var(--accent); }
+  .note { color:var(--tx3); font-size:12px; margin-bottom:12px; max-width:900px; }
+
+  /* ===== the window: a CHROME FRAME with a floating CONTENT CARD =====
+     Zero chrome separator lines. The frame (top band, nav rail, filter rail,
+     bottom gutter) is ONE dark surface; the content is a lighter rounded card
+     inset by an 8px gutter. Structure reads from surface contrast alone. */
+  .win { width:1000px; height:560px; border-radius:10px; overflow:hidden; background:var(--chrome);
+         display:flex; flex-direction:column; box-shadow:0 30px 80px rgba(0,0,0,.65); }
+
+  /* --- top band (40px): logo · tabs · drag · ˅ · native — one surface --- */
+  .band { height:40px; flex:none; display:flex; align-items:center; }
+  .logo { width:24px; height:24px; margin:0 10px 0 12px; border-radius:7px; background:linear-gradient(165deg,#8194f4,#3e4eb2); box-shadow:inset 0 1px 0 rgba(255,255,255,.28); display:flex; align-items:center; justify-content:center; flex:none; }
+  .logo svg { width:13px; height:13px; }
+  /* tabs: quiet PILLS, not fake browser trapezoids — active = card color */
+  .tab { height:28px; margin-right:4px; display:inline-flex; align-items:center; gap:7px; padding:0 11px; border-radius:7px; font:500 12px/1 system-ui; color:var(--tx3); }
+  .tab.on { background:var(--card); color:var(--tx); }
+  .tab:hover:not(.on) { background:rgba(255,255,255,.05); }
+  .tab .sw { width:14px; height:19px; border-radius:3px; background:linear-gradient(150deg,#3a2530,#512b3a); }
+  .tab .x { color:var(--tx3); font-size:10px; margin-left:2px; }
+  .drag { flex:1; }
+  .sysbtn { width:46px; height:40px; display:inline-flex; align-items:center; justify-content:center; color:var(--tx2); flex:none; }
+  .sysbtn.hover { background:rgba(255,255,255,.07); color:var(--tx); }
+  .sysbtn.close.hover { background:#c42b1c; color:#fff; }
+
+  /* --- body row: nav rail · card · filter rail — same chrome surface --- */
+  .body { flex:1; min-height:0; display:flex; }
+  .rail { width:200px; flex:none; display:flex; flex-direction:column; padding:6px 10px 10px; }
+  .nitem { display:flex; align-items:center; gap:11px; padding:9px 12px; border-radius:8px; color:var(--tx2); font:500 13px/1 system-ui; }
+  .nitem.on { background:var(--accentSoft); color:var(--accent); }
+  .nitem:hover:not(.on) { background:rgba(255,255,255,.045); color:var(--tx); }
+  .railfoot { margin-top:auto; display:flex; align-items:center; gap:8px; padding:8px 12px; color:var(--tx3); font:500 11px/1 system-ui; }
+
+  /* THE CARD: the content floats inside the frame on an 8px gutter */
+  .card { flex:1; min-width:0; margin:0 8px 8px; border-radius:10px; background:var(--card);
+          display:flex; flex-direction:column; overflow:hidden; box-shadow:0 0 0 1px rgba(255,255,255,.035), 0 12px 34px rgba(0,0,0,.35); }
+  .cmain { flex:1; min-height:0; padding:18px 22px; overflow:hidden; }
+  .h1row { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+  .h1 { font:600 22px/1 system-ui; letter-spacing:-.4px; }
+  .cnt { font:500 12px/1 ui-monospace,monospace; color:var(--tx3); }
+  .ctrl { margin-left:auto; display:flex; gap:8px; }
+  .chip { height:30px; padding:0 11px; display:inline-flex; align-items:center; gap:7px; border:1px solid var(--line); border-radius:8px; background:var(--panel); font:600 12px/1 system-ui; color:var(--tx2); }
+  .chip.acc { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+  .cover { width:140px; aspect-ratio:2/3; border-radius:8px; background:linear-gradient(150deg,#2f2a3a,#433a58 55%,#241f31); }
+  /* the card's OWN footer: the only hairline in the chrome story */
+  .cfoot { flex:none; height:40px; display:flex; align-items:center; gap:8px; padding:0 14px; border-top:1px solid var(--line); font:500 11px/1 ui-monospace,monospace; color:var(--tx3); }
+  .pgbtn { width:24px; height:24px; border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--tx2); display:inline-flex; align-items:center; justify-content:center; font:600 13px/1 system-ui; }
+  .pgin { width:40px; height:24px; text-align:center; color:var(--tx); background:var(--panel); border:1px solid var(--line); border-radius:6px; display:inline-flex; align-items:center; justify-content:center; }
+
+  /* filter rail: chrome surface, no borders — sections breathe */
+  .frail { width:212px; flex:none; padding:14px 12px 10px; display:flex; flex-direction:column; gap:12px; }
+  .fsearch { display:flex; align-items:center; gap:8px; padding:8px 10px; background:rgba(255,255,255,.05); border-radius:8px; color:var(--tx3); font:400 12px/1 system-ui; }
+  .fsec { display:flex; align-items:center; gap:6px; font:700 9.5px/1 ui-monospace,monospace; letter-spacing:.12em; color:var(--tx2); padding:4px 6px; border-radius:6px; }
+  .fsec:hover { background:rgba(255,255,255,.045); }
+  .frow { display:flex; align-items:center; gap:8px; padding:4px 6px 4px 18px; font:500 12px/1.3 system-ui; color:var(--tx2); }
+  .fbox { width:13px; height:13px; border:1.5px solid var(--tx3); border-radius:4px; flex:none; }
+  .fbox.on { background:var(--accent); border-color:var(--accent); }
+
+  .zoom { border-radius:10px; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,.5); width:fit-content; background:var(--chrome); }
+  .dec { max-width:920px; }
+  .dec li { margin-bottom:9px; color:var(--tx2); font-size:13px; }
+  .dec b { color:var(--tx); }
+</style>
+</head>
+<body>
+
+<h1>Window chrome — v2 · «frame + card»</h1>
+<p class="sub">A different idea, not a formalization of the status quo: <b>no chrome lines at all</b>.
+The top band, the nav rail, the filter rail and the bottom gutter are ONE dark surface — a frame.
+The content floats inside it as a lighter rounded card on an 8px gutter. Separation comes from
+surface contrast; the only hairline left in the story is the card's own footer.</p>
+
+<!-- ============ FRAME A ============ -->
+<h2>A · The full window</h2>
+<p class="note">Tabs are quiet pills (the active one takes the card's color, tying it to the page
+below). The nav rail ends with the library status + theme toggle — no bar, no border. The filter
+rail is part of the frame: translucent search, indented rows, zero boxes. Pagination lives in the
+CARD's footer — where the data is, not in window chrome.</p>
+<div class="win">
+  <div class="band">
+    <span class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2"><path d="M4 5h11v14H4zM17 7h3v12h-3"/></svg></span>
+    <span class="tab on"><span class="sw"></span>Image Set | NIXEU<span class="x">✕</span></span>
+    <span class="tab"><span class="sw" style="background:linear-gradient(150deg,#20303a,#2b4150)"></span>Thicker Than Water</span>
+    <span class="drag"></span>
+    <span class="sysbtn">⌄</span>
+    <span class="sysbtn">–</span>
+    <span class="sysbtn">▢</span>
+    <span class="sysbtn close">✕</span>
+  </div>
+  <div class="body">
+    <div class="rail">
+      <div class="nitem on">▤ Library</div>
+      <div class="nitem">◎ Authors</div>
+      <div class="nitem">◇ Browse</div>
+      <div class="nitem">◉ Sources</div>
+      <div class="nitem">⚙ Settings</div>
+      <div class="railfoot"><span style="width:8px;height:8px;border-radius:50%;background:var(--good)"></span>Local library<span style="margin-left:auto">☾</span></div>
+    </div>
+    <div class="card">
+      <div class="cmain">
+        <div class="h1row">
+          <span class="h1">Library</span><span class="cnt mono">1 of 40 titles</span>
+          <span class="ctrl"><span class="chip">SORT ▾</span><span class="chip">▦ ▤ ▥</span><span class="chip">✓ Select</span><span class="chip acc">+ Add title</span></span>
+        </div>
+        <div class="cover"></div>
+      </div>
+      <div class="cfoot">
+        1–1 of 1 titles
+        <span style="flex:1"></span>
+        <span class="pgbtn">‹</span><span class="pgin mono">1</span><span>/ 1</span><span class="pgbtn">›</span>
+      </div>
+    </div>
+    <div class="frail">
+      <div class="fsearch">⌕ Search title, author…</div>
+      <div class="fsec">› READING</div>
+      <div class="fsec">› FAVORITES</div>
+      <div class="fsec" style="color:var(--accent)">⌄ AUTHOR</div>
+      <div class="frow"><span class="fbox on"></span>nixeu<span style="margin-left:auto" class="mono">1</span></div>
+      <div class="frow"><span class="fbox"></span>gy<span style="margin-left:auto" class="mono">0</span></div>
+      <div class="fsec">› CHARACTERS</div>
+      <div class="fsec">› TAGS</div>
+      <div class="fsec">› MY RATING</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ FRAME B ============ -->
+<h2>B · Top-right — ˅ in the system family</h2>
+<p class="note">Same cell as the native three: 46 × full band, same hover wash, flush. No H1 line to
+break anymore — the band and the gutters below it are the same surface.</p>
+<div class="zoom">
+  <div class="band" style="width:420px">
+    <span class="drag"></span>
+    <span class="sysbtn hover">⌄</span>
+    <span class="sysbtn">–</span>
+    <span class="sysbtn">▢</span>
+    <span class="sysbtn close hover">✕</span>
+  </div>
+  <div style="height:26px; display:flex"><div style="flex:1"></div><div style="width:120px; margin:0 8px 8px; border-radius:10px 10px 0 0; background:var(--card)"></div></div>
+</div>
+
+<!-- ============ FRAME C ============ -->
+<h2>C · The card footer — pagination lives with the data</h2>
+<div class="zoom" style="background:var(--card); width:640px">
+  <div class="cfoot" style="width:640px">
+    1–12 of 96 titles
+    <span style="flex:1"></span>
+    <span class="pgbtn">‹</span><span class="pgin mono">2</span><span>/ 8</span><span class="pgbtn">›</span>
+  </div>
+</div>
+<p class="note" style="margin-top:8px">Views without pagination (Title, Reader, Sources, Settings)
+simply have no card footer — the card ends and the frame's gutter shows. Nothing "disappears",
+because the footer was never window chrome.</p>
+
+<!-- ============ FRAME D ============ -->
+<h2>D · Decisions</h2>
+<ul class="dec" style="padding-left:18px">
+  <li><b>Zero chrome lines.</b> The frame (top band + nav rail + filter rail + gutters) is one
+    surface. No H1/H2/V1/V2, no footer bars, no border management — the card's 8px gutter IS the
+    separation. The only hairline is inside the card (its footer, list rows etc.).</li>
+  <li><b>The content is a CARD</b>: rounded 10px, lighter surface, subtle ring + shadow, 8px gutter
+    on the right/bottom/left. Title, Reader, Settings, Sources — every view renders inside the same
+    card, so all screens are consistent by construction.</li>
+  <li><b>Tabs are pills</b>, not fake browser trapezoids: inactive = ghost text + swatch, hover =
+    faint wash, ACTIVE = the card's color, visually fusing the tab with the page below it. Pinning
+    and close behave as now.</li>
+  <li><b>˅ = system family</b>: 46 × band cell, native hover wash, flush with −. The empty band
+    stretch drags the window.</li>
+  <li><b>The nav rail ends with the status line</b> (● Local library · ☾ theme) as plain rail
+    content — no bar. The filter rail loses all boxes: translucent search field, breathing sections,
+    indented rows.</li>
+  <li><b>Pagination belongs to the data</b>: the card's footer row (range left, pager right). Views
+    without lists have no footer — and that's consistent, because the footer is part of the card,
+    not of the window.</li>
+</ul>
+
+</body>
+</html>

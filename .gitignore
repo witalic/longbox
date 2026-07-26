@@ -1,0 +1,40 @@
+# --- Secrets & local config ---
+.env
+.env.*
+!.env.example
+.claude/settings.local.json
+
+# --- Python ---
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Node / frontend ---
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# --- Electron build output ---
+shell/dist/
+release/
+
+# --- The library itself (user content — NEVER committed) ---
+# On-disk media (covers, pages) and the rebuildable SQLite index live outside VCS.
+vault/
+library/
+*.db
+*.db-wal
+*.db-shm
+
+# --- Design working files (mockup PNGs stay untracked; the HTML is tracked) ---
+design/*.png
+
+# --- OS / editor cruft ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

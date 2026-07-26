@@ -1,0 +1,697 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>longbox — UI mockup v3</title>
+<style>
+  /* ---- tokens, verbatim from design/tokens.css ---- */
+  :root{
+    --accent:#0c66e4; --accent-strong:#0055cc; --on-accent:#fff;
+    --radius:6px; --radius-lg:8px;
+    --font: ui-sans-serif, system-ui, "Segoe UI", Roboto, Inter, Arial, sans-serif;
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+    --bg:#101214; --surface-1:#1d2125; --surface-2:#22272b; --surface-3:#282e33;
+    --border:#2c333a; --border-strong:#454f59;
+    --text:#c7d1db; --text-dim:#9fadbc; --text-faint:#738496; --nav-active:#1c3049;
+    --ok:#3aa675; --warn:#b65c02; --danger:#e2483d; --star:#e0a534; --info:#4c9aff;
+  }
+  @media (prefers-color-scheme: light){
+    :root{ --bg:#f7f8f9; --surface-1:#fff; --surface-2:#f7f8f9; --surface-3:#f1f2f4;
+      --border:#dfe1e6; --border-strong:#c1c7d0;
+      --text:#172b4d; --text-dim:#44546f; --text-faint:#626f86; --nav-active:#e9f2ff; }
+  }
+  :root[data-theme="dark"]{ --bg:#101214; --surface-1:#1d2125; --surface-2:#22272b; --surface-3:#282e33;
+    --border:#2c333a; --border-strong:#454f59;
+    --text:#c7d1db; --text-dim:#9fadbc; --text-faint:#738496; --nav-active:#1c3049; }
+  :root[data-theme="light"]{ --bg:#f7f8f9; --surface-1:#fff; --surface-2:#f7f8f9; --surface-3:#f1f2f4;
+    --border:#dfe1e6; --border-strong:#c1c7d0;
+    --text:#172b4d; --text-dim:#44546f; --text-faint:#626f86; --nav-active:#e9f2ff; }
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .page{max-width:1240px;margin:0 auto;padding:36px 24px 96px;display:flex;flex-direction:column;gap:30px}
+  .eyebrow{font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text-faint)}
+  h1{font-size:24px;font-weight:750;margin:6px 0;letter-spacing:-.2px}
+  .lede{color:var(--text-dim);max-width:80ch;margin:0}
+  .sechd{display:flex;flex-direction:column;gap:2px;margin:8px 0 2px}
+  .sechd h2{font-size:15px;font-weight:700;margin:0}
+  .sechd .sub{font-size:12.5px;color:var(--text-faint)}
+  .note{font-size:12px;color:var(--text-faint);border-left:2px solid var(--border-strong);padding:2px 0 2px 12px;margin:4px 0}
+  b.k{color:var(--text);font-weight:650}
+
+  /* ---- app frame ---- */
+  .frame{display:flex;border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;background:var(--bg);box-shadow:0 6px 28px rgba(0,0,0,.22);height:660px}
+  .rail{width:76px;flex-shrink:0;border-right:1px solid var(--border);background:var(--surface-1);display:flex;flex-direction:column;align-items:center;padding:12px 0}
+  .rlogo{width:34px;height:34px;border-radius:9px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;margin-bottom:16px}
+  .ritem{width:60px;padding:9px 0;border-radius:9px;display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--text-dim);cursor:pointer;font-size:10px;font-weight:600;margin-bottom:3px}
+  .ritem .ri{font-size:17px;line-height:1}
+  .ritem:hover{background:var(--surface-3);color:var(--text)}
+  .ritem.on{background:var(--nav-active);color:var(--accent)}
+  .rfoot{margin-top:auto;color:var(--text-faint);font-size:9px;display:flex;flex-direction:column;align-items:center;gap:5px}
+  .railok{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+  .main{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
+
+  /* tab bar */
+  .tabs{display:flex;align-items:center;gap:3px;padding:7px 10px 0;background:var(--surface-2);border-bottom:1px solid var(--border);flex-shrink:0}
+  .home{width:34px;height:32px;border-radius:7px 7px 0 0;display:flex;align-items:center;justify-content:center;color:var(--text-dim);cursor:pointer;font-size:16px;border:1px solid transparent;border-bottom:0}
+  .home.on{background:var(--bg);color:var(--accent);border-color:var(--border)}
+  .tab{display:flex;align-items:center;gap:8px;max-width:200px;height:32px;padding:0 10px;border-radius:7px 7px 0 0;color:var(--text-dim);font-size:12px;font-weight:600;cursor:pointer;border:1px solid transparent;border-bottom:0}
+  .tab:hover{background:color-mix(in srgb,var(--bg) 55%,transparent)}
+  .tab .ti{width:14px;height:19px;border-radius:2px;flex-shrink:0}
+  .tab .tl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tab .tx{color:var(--text-faint);font-size:12px;margin-left:2px}.tab .tx:hover{color:var(--danger)}
+  .tab.on{background:var(--bg);color:var(--text);border-color:var(--border)}
+  .tab.browse .ti{background:var(--nav-active);display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:10px}
+  .tnew{width:28px;height:30px;border-radius:6px;color:var(--text-faint);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px}
+  .tnew:hover{background:var(--surface-3);color:var(--text)}
+  .tabbody{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+
+  /* ---- shared ---- */
+  .cover{aspect-ratio:2/3;background:linear-gradient(150deg,#2b2140,#3a2b52 55%,#241b33);position:relative}
+  .g1{background:linear-gradient(150deg,#20303a,#2b4150 55%,#1a2730)}
+  .g2{background:linear-gradient(150deg,#3a2530,#512b3a 55%,#331b24)}
+  .g3{background:linear-gradient(150deg,#233a2f,#2d5142 55%,#1a3327)}
+  .g4{background:linear-gradient(150deg,#2f2a3a,#433a58 55%,#241f31)}
+  .g5{background:linear-gradient(150deg,#3a341f,#524829 55%,#332d17)}
+  .g6{background:linear-gradient(150deg,#1f2f3a,#294152 55%,#172833)}
+  .icbtn{border:1px solid var(--border-strong);background:var(--surface-2);color:var(--text-dim);border-radius:var(--radius);height:30px;padding:0 11px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+  .icbtn:hover{color:var(--accent);border-color:var(--accent)}
+  .icbtn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+  .icbtn.pri:hover{background:var(--accent-strong)}
+  .icbtn.sm{height:27px;padding:0 9px;font-size:11.5px}
+  .dd::after{content:"▾";margin-left:5px;color:var(--text-faint);font-size:11px}
+  .icbtn.pri.dd::after{color:rgba(255,255,255,.75)}
+  .fbadge{background:var(--accent);color:#fff;border-radius:10px;font-size:10px;font-weight:700;padding:0 6px;margin-left:2px}
+  .tagc{font-size:10.5px;color:var(--accent);background:var(--nav-active);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);border-radius:20px;padding:1px 9px;white-space:nowrap}
+  .tagc.alt2{color:var(--text-dim);background:var(--surface-3);border-color:var(--border-strong)}
+  .langc{font-size:10px;font-weight:700;letter-spacing:.3px;border-radius:4px;padding:1px 6px;border:1px solid var(--border-strong);color:var(--text-dim);background:var(--surface-2)}
+  .cdot{width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0}
+  .typb{position:absolute;left:7px;top:7px;font-size:9.5px;font-weight:800;letter-spacing:.5px;padding:2px 7px;border-radius:5px;color:#fff;background:rgba(0,0,0,.6)}
+  .typb.st{position:static;display:inline-block}
+  .typb.mha{background:rgba(58,166,117,.85)}.typb.mhw{background:rgba(76,154,255,.85)}.typb.cmc{background:rgba(182,92,2,.9)}
+  .unread{position:absolute;right:7px;top:7px;font-size:10px;font-weight:800;background:var(--accent);color:#fff;border-radius:20px;padding:1px 7px;min-width:20px;text-align:center}
+  .favd{position:absolute;left:8px;bottom:10px;color:var(--star);font-size:15px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.7));z-index:2}
+  .stars{font-size:13px;letter-spacing:.5px;color:var(--star)}.stars .off{color:var(--border-strong)}
+  .seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:var(--radius);overflow:hidden;flex-shrink:0}
+  .seg button{border:0;border-left:1px solid var(--border);background:var(--surface-2);color:var(--text-dim);font:inherit;font-size:12px;font-weight:600;padding:6px 14px;cursor:pointer}
+  .seg button:first-child{border-left:0}
+  .seg button.on{background:var(--nav-active);color:var(--accent)}
+  .menu{position:absolute;z-index:9;top:calc(100% + 5px);min-width:200px;background:var(--surface-1);border:1px solid var(--border-strong);border-radius:8px;box-shadow:0 12px 30px rgba(0,0,0,.45);padding:5px}
+  .mm{padding:8px 10px;border-radius:6px;font-size:12px;color:var(--text-dim);cursor:pointer;display:flex;align-items:center;gap:9px}
+  .mm .mi{width:16px;text-align:center;color:var(--text-faint)}
+  .mm:hover{background:var(--surface-3);color:var(--text)}
+  .mm.warn:hover{color:var(--danger)}
+
+  /* ---- single-band toolbar (identical across view modes) ---- */
+  .tbar{display:flex;align-items:center;gap:9px;padding:12px 20px;border-bottom:1px solid var(--border);flex-shrink:0}
+  .tbar h3{font-size:18px;font-weight:700;margin:0}
+  .tbar .collsel{border:1px solid transparent;background:transparent;color:var(--text-dim);border-radius:6px;height:28px;padding:0 8px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+  .tbar .collsel:hover{background:var(--surface-3);color:var(--text)}
+  .tbar .cnt{font-size:12px;color:var(--text-faint)}
+  .tbar .sp{flex:1}
+  .lsearch{position:relative}
+  .lsearch input{width:200px;font:inherit;font-size:12.5px;color:var(--text);background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);padding:0 10px 0 30px;height:30px;outline:none}
+  .lsearch .ic{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-faint);font-size:13px}
+  .viewseg{display:inline-flex;border:1px solid var(--border-strong);border-radius:var(--radius);overflow:hidden}
+  .viewseg button{width:32px;height:30px;border:0;border-left:1px solid var(--border);background:var(--surface-2);color:var(--text-dim);cursor:pointer;font-size:13px}
+  .viewseg button:first-child{border-left:0}
+  .viewseg button.on{background:var(--nav-active);color:var(--accent)}
+  .addwrap{position:relative}
+
+  /* grid */
+  .lbody{flex:1;min-height:0;overflow-y:auto;padding:18px 20px}
+  .lgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:16px}
+  .ccard{cursor:pointer}
+  .ccard .cw{border-radius:9px;overflow:hidden;border:1px solid var(--border);position:relative}
+  .ccard:hover .cw{border-color:var(--border-strong);box-shadow:0 4px 14px rgba(0,0,0,.28)}
+  .prog{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(0,0,0,.4)}
+  .prog i{display:block;height:100%;background:var(--accent)}
+  .ccard .ct{font-size:12.5px;font-weight:650;margin:8px 2px 1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ccard .cs{font-size:11px;color:var(--text-faint);margin:0 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ccard .clangs{display:flex;gap:4px;margin:6px 2px 0}
+
+  /* detailed ("tall") list */
+  .dlist{flex:1;min-height:0;overflow-y:auto}
+  .drow{display:flex;gap:15px;padding:13px 20px;border-bottom:1px solid var(--border);cursor:pointer}
+  .drow:hover{background:var(--surface-2)}
+  .dcov{width:66px;flex-shrink:0;aspect-ratio:2/3;border-radius:6px;border:1px solid var(--border);position:relative}
+  .dmid{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+  .dtitle{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dsub{font-size:11.5px;color:var(--text-faint);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .dsub .ok{color:var(--ok);font-weight:600}
+  .dtags{display:flex;gap:5px;flex-wrap:wrap}
+  .ddesc{font-size:11.5px;color:var(--text-dim);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .dright{width:158px;flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+  .dprog{width:100%;height:5px;border-radius:3px;background:var(--surface-3);overflow:hidden}
+  .dprog i{display:block;height:100%;background:var(--accent)}
+  .dpct{font-size:10.5px;color:var(--text-faint)}
+  .rt{color:var(--star);font-weight:700;font-variant-numeric:tabular-nums}
+
+  /* compact list */
+  .ltable{flex:1;min-height:0;overflow-y:auto}
+  .lrow{display:grid;grid-template-columns:36px 1.5fr 1fr 96px 88px 66px 116px 44px;gap:13px;align-items:center;padding:8px 20px;border-bottom:1px solid var(--border);cursor:pointer;font-size:12px}
+  .lrow:hover{background:var(--surface-2)}
+  .lrow.head{position:sticky;top:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--text-faint);cursor:default;background:var(--surface-1);border-bottom:1px solid var(--border)}
+  .lcov{width:32px;height:44px;border-radius:4px}
+  .lrow .lt{font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .lrow .dim{color:var(--text-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .lprog{height:5px;border-radius:3px;background:var(--surface-3);overflow:hidden}
+  .lprog i{display:block;height:100%;background:var(--accent)}
+  .lrow .un{font-size:10px;font-weight:800;background:var(--accent);color:#fff;border-radius:20px;padding:1px 7px;justify-self:start}
+
+  /* ---- series page ---- */
+  .stoolbar{display:flex;align-items:center;gap:9px;padding:11px 20px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--surface-1)}
+  .stoolbar .stt{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
+  .stoolbar .sp{flex:1}
+  .stoolbar .saved{font-size:11px;color:var(--text-faint);display:inline-flex;align-items:center;gap:6px}
+  .stoolbar .saved::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--ok)}
+  .sband{display:grid;grid-template-columns:118px 1fr;gap:20px;padding:20px 24px;border-bottom:1px solid var(--border);flex-shrink:0}
+  .sband .cover{border-radius:9px;border:1px solid var(--border);box-shadow:0 6px 18px rgba(0,0,0,.3)}
+  .stitle{font-size:21px;font-weight:750;margin:0 0 3px;letter-spacing:-.2px}
+  .salt{font-size:12px;color:var(--text-faint);margin:0 0 8px}
+  .facts{font-size:12px;color:var(--text-dim);margin-bottom:10px}
+  .facts b{color:var(--text);font-weight:600}.facts .ok{color:var(--ok);font-weight:600}
+  .userbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 12px}
+  .rate{display:inline-flex;align-items:center;gap:7px;font-size:11.5px;color:var(--text-faint)}
+  .rate b{color:var(--text);font-variant-numeric:tabular-nums}
+  .ulist{font-size:11.5px;color:var(--text-faint);display:inline-flex;align-items:center;gap:6px}
+  .mrows{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
+  .mrow{display:grid;grid-template-columns:74px 1fr;gap:10px;align-items:start}
+  .mk{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:var(--text-faint);padding-top:2px}
+  .mv{display:flex;flex-wrap:wrap;gap:6px;font-size:12.5px;color:var(--text-dim);align-items:center}
+  .desc{font-size:12.5px;color:var(--text-dim);line-height:1.6;max-width:78ch}
+
+  /* chapters rail + page tiles */
+  .chwrap{flex:1;min-height:0;display:flex}
+  .chrail{width:238px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;background:color-mix(in srgb,var(--surface-2) 40%,transparent)}
+  .chrhd{display:flex;align-items:center;gap:6px;padding:9px 12px;border-bottom:1px solid var(--border);flex-shrink:0}
+  .chrhd .t{font-size:12.5px;font-weight:700}.chrhd .c{font-size:11px;color:var(--text-faint)}.chrhd .sp{flex:1}
+  .chrfilters{display:flex;gap:6px;padding:8px 12px;border-bottom:1px solid var(--border);flex-shrink:0}
+  .chrfilters .icbtn{flex:1;justify-content:center}
+  .chrlist{flex:1;min-height:0;overflow-y:auto}
+  .crow2{display:flex;align-items:center;gap:9px;padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer;border-left:3px solid transparent}
+  .crow2:hover{background:var(--surface-2)}
+  .crow2.on{background:var(--nav-active);border-left-color:var(--accent)}
+  .crow2.unreadr{background:color-mix(in srgb,var(--accent) 6%,transparent)}
+  .crow2 .cn{font-family:var(--mono);font-size:11px;color:var(--text-faint);width:34px;flex-shrink:0;font-variant-numeric:tabular-nums}
+  .crow2 .ci{min-width:0;flex:1}
+  .crow2 .ct2{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .crow2 .cs2{font-size:10.5px;color:var(--text-faint);display:flex;gap:7px;margin-top:1px;align-items:center}
+  .alt{font-size:9.5px;color:var(--info);border:1px solid color-mix(in srgb,var(--info) 40%,transparent);border-radius:4px;padding:0 4px;font-weight:700}
+  .rdot{width:7px;height:7px;border-radius:50%;background:var(--border-strong);flex-shrink:0}.rdot.read{background:var(--ok)}
+  .pgmain{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
+  .pghd{display:flex;align-items:center;gap:10px;padding:11px 20px;border-bottom:1px solid var(--border);flex-shrink:0}
+  .pghd .pt2{font-size:13px;font-weight:700}.pghd .pc{font-size:11.5px;color:var(--text-faint)}.pghd .sp{flex:1}
+  .pgbody{flex:1;min-height:0;overflow-y:auto;padding:16px 20px}
+  .pggrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(116px,1fr));gap:12px}
+  .pgtile{position:relative;border:1px solid var(--border);border-radius:7px;overflow:hidden;cursor:pointer}
+  .pgtile .cover{aspect-ratio:2/3}.pgtile:hover{border-color:var(--accent)}
+  .pgtile .pn{position:absolute;left:6px;bottom:6px;font-size:10px;font-weight:700;background:rgba(0,0,0,.6);color:#fff;border-radius:4px;padding:1px 6px;font-variant-numeric:tabular-nums}
+
+  /* ---- edit-mode form ---- */
+  .eform{display:grid;grid-template-columns:130px 1fr;gap:20px;padding:18px 24px;border-bottom:1px solid var(--border);flex-shrink:0}
+  .ecol{display:flex;flex-direction:column;gap:11px}
+  .efield{display:flex;flex-direction:column;gap:5px}
+  .el{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:var(--text-faint)}
+  .einput{font:inherit;font-size:12.5px;color:var(--text);background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:7px 9px;outline:none;text-align:left}
+  .einput:focus{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 25%,transparent)}
+  textarea.einput{resize:none}
+  .erow2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .tagedit{display:flex;flex-wrap:wrap;gap:5px;padding:6px;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);min-height:34px;align-items:center}
+  .tchip{display:inline-flex;align-items:center;gap:6px;font-size:11px;background:var(--surface-3);border:1px solid var(--border-strong);border-radius:16px;padding:2px 5px 2px 9px;color:var(--text-dim)}
+  .tchip .x{color:var(--text-faint);cursor:pointer;font-size:11px}
+  .tadd{border:0;background:transparent;color:var(--text-faint);font:inherit;font-size:11px;padding:2px 6px;outline:none;flex:1;min-width:60px}
+
+  /* ---- browse + picker ---- */
+  .bmain{flex:1;min-width:0;display:flex;flex-direction:column;border-right:1px solid var(--border)}
+  .bchrome{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--border);background:var(--surface-1);flex-shrink:0}
+  .navbtn{width:27px;height:27px;border:1px solid var(--border-strong);border-radius:var(--radius);background:var(--surface-2);color:var(--text-dim);cursor:pointer;font-size:13px}
+  .navbtn:disabled{opacity:.4}
+  .urlbar{flex:1;display:flex;align-items:center;gap:7px;background:var(--surface-2);border:1px solid var(--border);border-radius:20px;padding:5px 12px;font-size:12px;color:var(--text-dim);min-width:0}
+  .urlbar .lock{color:var(--ok);font-size:11px}
+  .urlbar .u{color:var(--text);font-family:var(--mono);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sessionc{border:1px solid color-mix(in srgb,var(--ok) 45%,var(--border));background:color-mix(in srgb,var(--ok) 10%,transparent);color:var(--ok);border-radius:var(--radius);height:29px;padding:0 11px;font:inherit;font-size:11.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+  .pickbtn{border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:var(--radius);height:29px;padding:0 12px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+  .pickbtn .dotp{width:7px;height:7px;border-radius:50%;background:#fff;box-shadow:0 0 0 3px rgba(255,255,255,.3)}
+  .webview{flex:1;min-height:0;overflow:hidden;background:#faf9f7;position:relative}
+  .pickhint{position:absolute;left:0;right:0;top:0;z-index:5;background:color-mix(in srgb,var(--accent) 92%,#000);color:#fff;font-size:11.5px;font-weight:600;padding:6px 14px;display:flex;align-items:center;gap:8px}
+  .pickhint .esc{margin-left:auto;opacity:.85;font-weight:500}
+  .site{padding:44px 28px 24px;color:#2a2a33;font-family:Georgia,"Times New Roman",serif}
+  .site .shead{display:grid;grid-template-columns:96px 1fr;gap:18px}
+  .site .scover{aspect-ratio:2/3;border-radius:6px;background:linear-gradient(150deg,#6b5aa0,#8b6fb8 55%,#4f4278);box-shadow:0 4px 14px rgba(0,0,0,.25)}
+  .site h2{font-size:22px;margin:0 0 4px;font-weight:700;color:#1a1a22}
+  .site .sby{font-size:12px;color:#6a6a72;margin:0 0 12px}
+  .site .stags{display:flex;flex-wrap:wrap;gap:7px;position:relative;padding:8px;border-radius:8px}
+  .site .stag{font-size:11px;background:#ece9f5;color:#5b4a8a;border-radius:16px;padding:3px 11px;font-family:var(--font)}
+  .site .stags.hot{outline:2px dashed var(--accent);outline-offset:2px;background:color-mix(in srgb,var(--accent) 8%,transparent)}
+  .selbadge{position:absolute;left:-2px;top:-23px;background:var(--accent);color:#fff;font-family:var(--mono);font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:5px;white-space:nowrap}
+  .picker{width:352px;flex-shrink:0;display:flex;flex-direction:column;background:var(--surface-1)}
+  .pkhd{padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:9px}
+  .pkhd .pt{font-size:12.5px;font-weight:700}.pkhd .sp{flex:1}
+  .pkhd .verc{font-size:10px;font-weight:700;color:var(--info);border:1px solid color-mix(in srgb,var(--info) 40%,transparent);border-radius:5px;padding:1px 6px;font-family:var(--mono)}
+  .srcbar{display:flex;align-items:center;gap:7px;padding:9px 13px;border-bottom:1px solid var(--border);flex-wrap:wrap;background:color-mix(in srgb,var(--surface-2) 45%,transparent)}
+  .srcbar .l{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:var(--text-faint)}
+  .srcchip{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:20px;border:1px solid var(--border-strong);background:var(--surface-2);font-size:11px;font-weight:600;color:var(--text-dim)}
+  .srcchip .sd{width:8px;height:8px;border-radius:50%}
+  .srcchip.pri{border-color:color-mix(in srgb,var(--info) 50%,var(--border))}
+  .srcchip.add{border-style:dashed;color:var(--text-faint);cursor:pointer}
+  .pkbody{flex:1;min-height:0;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:7px}
+  .frow{border:1px solid var(--border);border-radius:8px;background:var(--surface-2);padding:8px 10px}
+  .frow.picking{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 25%,transparent);background:color-mix(in srgb,var(--accent) 7%,var(--surface-2))}
+  .fr1{display:flex;align-items:center;gap:7px}
+  .fsrc{font-size:9px;font-weight:800;width:17px;height:17px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;color:#fff;flex-shrink:0}
+  .fsrc.m{background:var(--info)}.fsrc.a{background:var(--warn)}
+  .fname{font-size:12px;font-weight:700}
+  .ftype{font-size:9.5px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;color:var(--text-faint);border:1px solid var(--border-strong);border-radius:4px;padding:0 5px}
+  .ftype.list{color:var(--info);border-color:color-mix(in srgb,var(--info) 40%,transparent)}
+  .fr1 .sp{flex:1}
+  .fpick{border:1px solid var(--border-strong);background:var(--surface-1);color:var(--text-dim);border-radius:5px;height:23px;padding:0 8px;font:inherit;font-size:10.5px;font-weight:600;cursor:pointer}
+  .fpick:hover{color:var(--accent);border-color:var(--accent)}
+  .fval{font-size:11.5px;color:var(--text-dim);margin-top:6px;line-height:1.45}
+  .pickmsg{font-size:11.5px;color:var(--accent);font-weight:600;margin-top:6px;display:flex;align-items:center;gap:7px}
+  .pkfoot{border-top:1px solid var(--border);padding:11px 13px;display:flex;flex-direction:column;gap:9px;background:var(--surface-1)}
+  .pkstat{font-size:11px;color:var(--text-faint);display:flex;justify-content:space-between}
+  .pkbtns{display:flex;gap:8px}.pkbtns .icbtn{flex:1;justify-content:center}
+
+  /* sources */
+  .seslist{max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:9px}
+  .sesrow{display:flex;align-items:center;gap:13px;border:1px solid var(--border);border-radius:9px;background:var(--surface-1);padding:11px 14px}
+  .sesrow:hover{border-color:var(--border-strong)}
+  .sesfav{width:26px;height:26px;border-radius:6px;flex-shrink:0}
+  .sesmid{flex:1;min-width:0}.sesd{font-size:13px;font-weight:650}.sessub{font-size:11px;color:var(--text-faint);margin-top:2px}
+  .sestat{font-size:10.5px;font-weight:700;border-radius:20px;padding:2px 10px;border:1px solid var(--border-strong);color:var(--text-dim);white-space:nowrap}
+  .sestat.on{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 45%,var(--border));background:color-mix(in srgb,var(--ok) 10%,transparent)}
+
+  /* reader */
+  .twocol{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .rframe{border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;height:420px;display:flex;flex-direction:column;background:#0b0d0f}
+  .rbar{display:flex;align-items:center;gap:10px;padding:9px 13px;background:var(--surface-1);border-bottom:1px solid var(--border);flex-shrink:0}
+  .rbar .rt{font-size:12px;font-weight:650}.rbar .rc{font-size:11px;color:var(--text-faint)}.rbar .sp{flex:1}
+  .rbar .pgc{font-family:var(--mono);font-size:11px;color:var(--text-dim);font-variant-numeric:tabular-nums}
+  .rstage{flex:1;min-height:0;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .rpage{height:100%;aspect-ratio:2/3;background:linear-gradient(160deg,#3a2b52,#241b33);border-left:1px solid #000;border-right:1px solid #000}
+  .rarrow{position:absolute;top:50%;transform:translateY(-50%);width:34px;height:34px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;border:1px solid rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer}
+  .rarrow.l{left:12px}.rarrow.r{right:12px}
+  .rstrip{width:60%;height:100%;overflow:hidden;display:flex;flex-direction:column;gap:3px}
+  .rstrip .seg2{background:linear-gradient(160deg,#20303a,#1a2730);flex-shrink:0}
+  .rmode{position:absolute;left:12px;top:12px;font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#fff;background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.2);border-radius:20px;padding:3px 10px;z-index:2}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div>
+    <div class="eyebrow">Design mockup v3 · Phase 0</div>
+    <h1>longbox — consolidated header, view modes, series edit</h1>
+    <p class="lede">One header band for Library (collection selector by the title · Filters popover with a count ·
+      sort · a three-way <b class="k">Grid / List / Detailed</b> view toggle) — identical in every view mode, no
+      stacked strips. A clear <b class="k">＋ Add</b> flow. The Series page carries a <b class="k">View / Edit</b>
+      switch: View shows chapters &amp; page tiles, Edit shows editable metadata with the <b class="k">Picker</b>
+      embedded below to parse straight onto the page.</p>
+  </div>
+
+  <!-- ===== 1 · LIBRARY — GRID + ADD ===== -->
+  <div class="sec">
+    <div class="sechd"><h2>1 · Library — grid · one header band · the ＋ Add flow</h2>
+      <div class="sub">Collection selector sits by the title; Filters is a single popover with an active count; nothing is stacked. ＋ Add opens the import options.</div></div>
+    <div class="frame">
+      <div class="rail">
+        <div class="rlogo">L</div>
+        <div class="ritem on"><span class="ri">▤</span>Library</div>
+        <div class="ritem"><span class="ri">◍</span>Browse</div>
+        <div class="ritem"><span class="ri">◐</span>Sources</div>
+        <div class="ritem"><span class="ri">⚙</span>Settings</div>
+        <div class="rfoot"><span class="railok"></span>Local</div>
+      </div>
+      <div class="main">
+        <div class="tabs">
+          <div class="home on">⌂</div>
+          <div class="tab"><span class="ti g1"></span><span class="tl">Solo Ascension</span><span class="tx">✕</span></div>
+          <div class="tab browse"><span class="ti">◍</span><span class="tl">Browse</span><span class="tx">✕</span></div>
+          <div class="tnew" title="New tab → Browse">＋</div>
+        </div>
+        <div class="tabbody">
+          <div class="tbar">
+            <h3>Library</h3>
+            <button class="collsel dd">All · 214</button>
+            <span class="sp"></span>
+            <div class="addwrap">
+              <button class="icbtn pri dd">＋ Add</button>
+              <div class="menu" style="left:0">
+                <div class="mm"><span class="mi">◍</span>Search a source</div>
+                <div class="mm"><span class="mi">↗</span>Add by URL</div>
+                <div class="mm"><span class="mi">✎</span>Create manually</div>
+                <div class="mm"><span class="mi">▤</span>Import from folder</div>
+              </div>
+            </div>
+            <div class="lsearch"><span class="ic">⌕</span><input placeholder="Search…" /></div>
+            <button class="icbtn dd">Filters <span class="fbadge">3</span></button>
+            <button class="icbtn dd">Sort: Updated</button>
+            <div class="viewseg"><button class="on" title="Grid">▦</button><button title="List">≣</button><button title="Detailed">▭</button></div>
+          </div>
+          <div class="lbody">
+            <div class="lgrid">
+              <div class="ccard"><div class="cw"><div class="cover g1"></div><span class="typb mhw">MANHWA</span><span class="unread">3</span><span class="favd">★</span><div class="prog"><i style="width:72%"></i></div></div>
+                <div class="ct">Solo Ascension</div><div class="cs">Jang-woo · ★8 · 118 ch</div><div class="clangs"><span class="langc">EN</span><span class="langc">UK</span></div></div>
+              <div class="ccard"><div class="cw"><div class="cover g3"></div><span class="typb mha">MANHUA</span><span class="unread">12</span><span class="favd">★</span><div class="prog"><i style="width:24%"></i></div></div>
+                <div class="ct">Immortal Ledger</div><div class="cs">Bai Ye · ★9 · 340 ch</div><div class="clangs"><span class="langc">EN</span><span class="langc">RU</span></div></div>
+              <div class="ccard"><div class="cw"><div class="cover g6"></div><span class="typb mhw">MANHWA</span><span class="unread">5</span><div class="prog"><i style="width:12%"></i></div></div>
+                <div class="ct">Rooftop Signals</div><div class="cs">Hae-in · ★7 · 55 ch</div><div class="clangs"><span class="langc">EN</span><span class="langc">UK</span></div></div>
+              <div class="ccard"><div class="cw"><div class="cover g2"></div><span class="typb mha">MANHUA</span><span class="unread">8</span><span class="favd">★</span><div class="prog"><i style="width:60%"></i></div></div>
+                <div class="ct">Nine Coils</div><div class="cs">Lu Xia · ★8 · 210 ch</div><div class="clangs"><span class="langc">EN</span></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="note"><b class="k">Add a series:</b> ＋ Add → Search a source (opens Browse), Add by URL, Create manually,
+      or Import a local folder. The tab-bar ＋ opens a new Browse tab. <b class="k">Add chapters:</b> from a series'
+      chapter rail (＋ Add chapters) or Update from source — see screen 3.</p>
+  </div>
+
+  <!-- ===== 2 · LIBRARY — DETAILED (TALL) LIST ===== -->
+  <div class="sec">
+    <div class="sechd"><h2>2 · Library — detailed (“tall”) list</h2>
+      <div class="sub">Tile-height cover + metadata in the row (genres/tags, description, rating, progress, languages). Same header band as grid — only the view toggle changes.</div></div>
+    <div class="frame" style="height:560px">
+      <div class="rail">
+        <div class="rlogo">L</div>
+        <div class="ritem on"><span class="ri">▤</span>Library</div>
+        <div class="ritem"><span class="ri">◍</span>Browse</div>
+        <div class="ritem"><span class="ri">◐</span>Sources</div>
+        <div class="ritem"><span class="ri">⚙</span>Settings</div>
+        <div class="rfoot"><span class="railok"></span>Local</div>
+      </div>
+      <div class="main">
+        <div class="tabbody">
+          <div class="tbar">
+            <h3>Library</h3><button class="collsel dd">All · 214</button>
+            <span class="sp"></span>
+            <button class="icbtn pri dd">＋ Add</button>
+            <div class="lsearch"><span class="ic">⌕</span><input placeholder="Search…" /></div>
+            <button class="icbtn dd">Filters <span class="fbadge">3</span></button>
+            <button class="icbtn dd">Sort: Updated</button>
+            <div class="viewseg"><button title="Grid">▦</button><button title="List">≣</button><button class="on" title="Detailed">▭</button></div>
+          </div>
+          <div class="dlist">
+            <div class="drow">
+              <div class="dcov g1"><span class="favd">★</span></div>
+              <div class="dmid">
+                <div class="dtitle">Solo Ascension</div>
+                <div class="dsub"><span class="typb mhw st">MANHWA</span><span class="ok">Ongoing</span><span>· Jang-woo Kim</span><span>· 2021</span><span class="rt">★ 8.0</span></div>
+                <div class="dtags"><span class="tagc">Action</span><span class="tagc">Fantasy</span><span class="tagc alt2">Cultivation</span><span class="tagc alt2">Overpowered MC</span></div>
+                <div class="ddesc">After a decade at the lowest rank, Woojin awakens a skill that grows every time he should have died — and the guilds that ignored him start to notice.</div>
+              </div>
+              <div class="dright"><span class="unread" style="position:static">3 new</span><div class="dprog"><i style="width:72%"></i></div><span class="dpct">Ch 85 / 118</span><div><span class="langc">EN</span> <span class="langc">UK</span></div></div>
+            </div>
+            <div class="drow">
+              <div class="dcov g3"><span class="favd">★</span></div>
+              <div class="dmid">
+                <div class="dtitle">Immortal Ledger</div>
+                <div class="dsub"><span class="typb mha st">MANHUA</span><span class="ok">Ongoing</span><span>· Bai Ye</span><span>· 2019</span><span class="rt">★ 9.0</span></div>
+                <div class="dtags"><span class="tagc">Action</span><span class="tagc">Xianxia</span><span class="tagc alt2">Cultivation</span><span class="tagc alt2">Reincarnation</span></div>
+                <div class="ddesc">A ledger clerk in the lowest sect discovers his tallies rewrite fate itself — every debt collected buys another year of life.</div>
+              </div>
+              <div class="dright"><span class="unread" style="position:static">12 new</span><div class="dprog"><i style="width:24%"></i></div><span class="dpct">Ch 82 / 340</span><div><span class="langc">EN</span> <span class="langc">RU</span></div></div>
+            </div>
+            <div class="drow">
+              <div class="dcov g5"></div>
+              <div class="dmid">
+                <div class="dtitle">Ashfall County</div>
+                <div class="dsub"><span class="typb cmc st">COMIC</span><span style="color:var(--warn);font-weight:600">Hiatus</span><span>· R. Vane</span><span>· 2023</span><span class="rt">★ 7.5</span></div>
+                <div class="dtags"><span class="tagc">Western</span><span class="tagc">Horror</span><span class="tagc alt2">Supernatural</span></div>
+                <div class="ddesc">A drought-cursed county where the dead don't stay buried and the sheriff keeps a ledger of every soul she owes.</div>
+              </div>
+              <div class="dright"><span class="unread" style="position:static">1 new</span><div class="dprog"><i style="width:90%"></i></div><span class="dpct">Iss 22 / 24</span><div><span class="langc">EN</span></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 2b · LIBRARY — COMPACT LIST ===== -->
+  <div class="sec">
+    <div class="sechd"><h2>2b · Library — compact list</h2>
+      <div class="sub">Same header again; dense one-line rows for scanning a big library.</div></div>
+    <div class="frame" style="height:360px">
+      <div class="rail">
+        <div class="rlogo">L</div>
+        <div class="ritem on"><span class="ri">▤</span>Library</div>
+        <div class="ritem"><span class="ri">◍</span>Browse</div>
+        <div class="ritem"><span class="ri">◐</span>Sources</div>
+        <div class="ritem"><span class="ri">⚙</span>Settings</div>
+        <div class="rfoot"><span class="railok"></span>Local</div>
+      </div>
+      <div class="main">
+        <div class="tabbody">
+          <div class="tbar">
+            <h3>Library</h3><button class="collsel dd">All · 214</button>
+            <span class="sp"></span>
+            <button class="icbtn pri dd">＋ Add</button>
+            <div class="lsearch"><span class="ic">⌕</span><input placeholder="Search…" /></div>
+            <button class="icbtn dd">Filters <span class="fbadge">3</span></button>
+            <button class="icbtn dd">Sort: Rating</button>
+            <div class="viewseg"><button title="Grid">▦</button><button class="on" title="List">≣</button><button title="Detailed">▭</button></div>
+          </div>
+          <div class="ltable">
+            <div class="lrow head"><span></span><span>Title</span><span>Author</span><span>Type</span><span>Status</span><span>Rating</span><span>Progress</span><span>New</span></div>
+            <div class="lrow"><div class="lcov cover g3" style="aspect-ratio:auto"></div><span class="lt">Immortal Ledger</span><span class="dim">Bai Ye</span><span><span class="typb mha st">MANHUA</span></span><span style="color:var(--ok)">Ongoing</span><span class="rt">★ 9.0</span><div class="lprog"><i style="width:24%"></i></div><span class="un">12</span></div>
+            <div class="lrow"><div class="lcov cover g1" style="aspect-ratio:auto"></div><span class="lt">Solo Ascension</span><span class="dim">Jang-woo Kim</span><span><span class="typb mhw st">MANHWA</span></span><span style="color:var(--ok)">Ongoing</span><span class="rt">★ 8.0</span><div class="lprog"><i style="width:72%"></i></div><span class="un">3</span></div>
+            <div class="lrow"><div class="lcov cover g2" style="aspect-ratio:auto"></div><span class="lt">Nine Coils</span><span class="dim">Lu Xia</span><span><span class="typb mha st">MANHUA</span></span><span style="color:var(--ok)">Ongoing</span><span class="rt">★ 8.0</span><div class="lprog"><i style="width:60%"></i></div><span class="un">8</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 3 · SERIES — VIEW ===== -->
+  <div class="sec">
+    <div class="sechd"><h2>3 · Series page — View mode</h2>
+      <div class="sub">View / Edit switch in the series toolbar. View: read-only metadata on top; the chapter rail (with a ＋ Add chapters) drives the page-tile grid.</div></div>
+    <div class="frame" style="height:840px">
+      <div class="rail">
+        <div class="rlogo">L</div>
+        <div class="ritem on"><span class="ri">▤</span>Library</div>
+        <div class="ritem"><span class="ri">◍</span>Browse</div>
+        <div class="ritem"><span class="ri">◐</span>Sources</div>
+        <div class="ritem"><span class="ri">⚙</span>Settings</div>
+        <div class="rfoot"><span class="railok"></span>Local</div>
+      </div>
+      <div class="main">
+        <div class="tabs">
+          <div class="home">⌂</div>
+          <div class="tab on"><span class="ti g1"></span><span class="tl">Solo Ascension</span><span class="tx">✕</span></div>
+          <div class="tab browse"><span class="ti">◍</span><span class="tl">Browse</span><span class="tx">✕</span></div>
+          <div class="tnew">＋</div>
+        </div>
+        <div class="tabbody">
+          <div class="stoolbar">
+            <div class="seg"><button class="on">View</button><button>Edit</button></div>
+            <span class="stt">Solo Ascension</span>
+            <span class="sp"></span>
+            <button class="icbtn pri">▶ Continue · Ch 88</button>
+            <button class="icbtn">★ Favorited</button>
+            <button class="icbtn dd">＋ Add to list</button>
+          </div>
+          <div class="sband">
+            <div class="cover g1"></div>
+            <div>
+              <h3 class="stitle">Solo Ascension</h3>
+              <p class="salt">나 홀로 승천 · Na Holo Seungcheon · Ascension Alone</p>
+              <div class="facts"><b>Manhwa</b> · <span class="ok">Ongoing</span> · 2021 · <b>118</b> chapters · <span class="langc">EN</span> <span class="langc">UK</span></div>
+              <div class="userbar">
+                <div class="rate">Your rating <span class="stars">★★★★<span class="off">★</span></span> <b>8 / 10</b></div>
+                <span class="ulist">In lists: <i class="cdot" style="background:var(--accent)"></i> Reading · <i class="cdot" style="background:var(--star)"></i> Favorites</span>
+              </div>
+              <div class="mrows">
+                <div class="mrow"><div class="mk">Authors</div><div class="mv">Jang-woo Kim</div></div>
+                <div class="mrow"><div class="mk">Artists</div><div class="mv">Hyun Studio</div></div>
+                <div class="mrow"><div class="mk">Genres</div><div class="mv"><span class="tagc">Action</span><span class="tagc">Fantasy</span><span class="tagc">Adventure</span></div></div>
+                <div class="mrow"><div class="mk">Tags</div><div class="mv"><span class="tagc alt2">Cultivation</span><span class="tagc alt2">Overpowered MC</span><span class="tagc alt2">Dungeons</span><span class="tagc alt2">Level System</span><span style="color:var(--text-faint);font-size:11px">+7</span></div></div>
+              </div>
+              <p class="desc">After a decade stuck at the lowest rank, Woojin awakens a skill no one has ever
+                recorded — one that grows every time he should have died.</p>
+            </div>
+          </div>
+          <div class="chwrap">
+            <div class="chrail">
+              <div class="chrhd"><span class="t">Chapters</span><span class="c">118</span><span class="sp"></span><button class="icbtn sm">＋ Add chapters</button></div>
+              <div class="chrfilters"><button class="icbtn sm dd">Lang: EN</button><button class="icbtn sm dd">Group: All</button></div>
+              <div class="chrlist">
+                <div class="crow2 on"><span class="cn">88</span><div class="ci"><div class="ct2">The Ninth Gate</div><div class="cs2"><span>Skyline Scans</span><span class="alt">2 ver</span><span class="rdot"></span></div></div></div>
+                <div class="crow2 unreadr"><span class="cn">87</span><div class="ci"><div class="ct2">What the Warden Kept</div><div class="cs2"><span>Skyline Scans</span><span class="rdot"></span></div></div></div>
+                <div class="crow2"><span class="cn">86</span><div class="ci"><div class="ct2">Cinders</div><div class="cs2"><span>Skyline Scans</span><span class="alt">2 ver</span><span class="rdot read"></span></div></div></div>
+                <div class="crow2"><span class="cn">85</span><div class="ci"><div class="ct2">A Debt Comes Due</div><div class="cs2"><span>Skyline Scans</span><span class="rdot read"></span></div></div></div>
+                <div class="crow2"><span class="cn">84</span><div class="ci"><div class="ct2">The Climber Who Never Falls</div><div class="cs2"><span>Skyline Scans</span><span class="rdot read"></span></div></div></div>
+                <div class="crow2"><span class="cn">83</span><div class="ci"><div class="ct2">Warden's Offer</div><div class="cs2"><span>Skyline Scans</span><span class="rdot read"></span></div></div></div>
+              </div>
+            </div>
+            <div class="pgmain">
+              <div class="pghd"><span class="pt2">Chapter 88 — The Ninth Gate</span><span class="pc">· 32 pages · <span class="langc">EN</span> Skyline Scans</span><span class="sp"></span><button class="icbtn sm">⤓ Download</button><button class="icbtn pri sm">▶ Read</button></div>
+              <div class="pgbody">
+                <div class="pggrid">
+                  <div class="pgtile"><div class="cover g1"></div><span class="pn">1</span></div>
+                  <div class="pgtile"><div class="cover g4"></div><span class="pn">2</span></div>
+                  <div class="pgtile"><div class="cover g6"></div><span class="pn">3</span></div>
+                  <div class="pgtile"><div class="cover g2"></div><span class="pn">4</span></div>
+                  <div class="pgtile"><div class="cover g3"></div><span class="pn">5</span></div>
+                  <div class="pgtile"><div class="cover g1"></div><span class="pn">6</span></div>
+                  <div class="pgtile"><div class="cover g5"></div><span class="pn">7</span></div>
+                  <div class="pgtile"><div class="cover g4"></div><span class="pn">8</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 4 · SERIES — EDIT (metadata + embedded picker) ===== -->
+  <div class="sec">
+    <div class="sechd"><h2>4 · Series page — Edit mode (metadata + embedded Picker)</h2>
+      <div class="sub">Editable metadata on top; below, instead of chapters, the Picker — browse a source and pick blocks straight into <b class="k" style="color:var(--text-dim)">this</b> series' fields. Autosaves.</div></div>
+    <div class="frame" style="height:900px">
+      <div class="rail">
+        <div class="rlogo">L</div>
+        <div class="ritem on"><span class="ri">▤</span>Library</div>
+        <div class="ritem"><span class="ri">◍</span>Browse</div>
+        <div class="ritem"><span class="ri">◐</span>Sources</div>
+        <div class="ritem"><span class="ri">⚙</span>Settings</div>
+        <div class="rfoot"><span class="railok"></span>Local</div>
+      </div>
+      <div class="main">
+        <div class="tabs">
+          <div class="home">⌂</div>
+          <div class="tab on"><span class="ti g1"></span><span class="tl">Solo Ascension</span><span class="tx">✕</span></div>
+          <div class="tab browse"><span class="ti">◍</span><span class="tl">Browse</span><span class="tx">✕</span></div>
+          <div class="tnew">＋</div>
+        </div>
+        <div class="tabbody">
+          <div class="stoolbar">
+            <div class="seg"><button>View</button><button class="on">Edit</button></div>
+            <span class="stt">Solo Ascension</span>
+            <span class="sp"></span>
+            <span class="saved">Saved</span>
+            <button class="icbtn">Done</button>
+          </div>
+          <div class="eform">
+            <div>
+              <div class="cover g1" style="border-radius:9px;border:1px solid var(--border)"></div>
+              <button class="icbtn sm" style="width:100%;margin-top:8px;justify-content:center">⤒ Change cover</button>
+            </div>
+            <div class="ecol">
+              <div class="efield"><span class="el">Title</span><input class="einput" value="Solo Ascension" /></div>
+              <div class="efield"><span class="el">Alt titles</span><input class="einput" value="나 홀로 승천 · Na Holo Seungcheon · Ascension Alone" /></div>
+              <div class="erow2">
+                <div class="efield"><span class="el">Type</span><button class="einput dd">Manhwa</button></div>
+                <div class="efield"><span class="el">Status</span><button class="einput dd">Ongoing</button></div>
+              </div>
+              <div class="erow2">
+                <div class="efield"><span class="el">Authors</span><div class="tagedit"><span class="tchip">Jang-woo Kim <span class="x">✕</span></span><input class="tadd" placeholder="add…" /></div></div>
+                <div class="efield"><span class="el">Artists</span><div class="tagedit"><span class="tchip">Hyun Studio <span class="x">✕</span></span><input class="tadd" placeholder="add…" /></div></div>
+              </div>
+              <div class="efield"><span class="el">Genres</span><div class="tagedit"><span class="tchip">Action <span class="x">✕</span></span><span class="tchip">Fantasy <span class="x">✕</span></span><span class="tchip">Adventure <span class="x">✕</span></span><input class="tadd" placeholder="add genre…" /></div></div>
+              <div class="efield"><span class="el">Tags</span><div class="tagedit"><span class="tchip">Cultivation <span class="x">✕</span></span><span class="tchip">Overpowered MC <span class="x">✕</span></span><span class="tchip">Dungeons <span class="x">✕</span></span><input class="tadd" placeholder="add tag…" /></div></div>
+              <div class="efield"><span class="el">Description</span><textarea class="einput" rows="2">After a decade stuck at the lowest rank, Woojin awakens a skill that grows every time he should have died.</textarea></div>
+            </div>
+          </div>
+          <div class="chwrap">
+            <div class="bmain">
+              <div class="bchrome">
+                <button class="navbtn" disabled>‹</button><button class="navbtn">›</button><button class="navbtn">↻</button>
+                <div class="urlbar"><span class="lock">🔒</span><span class="u">mangadex.org/title/solo-ascension</span></div>
+                <button class="sessionc">◐ Signed in</button>
+                <button class="pickbtn"><span class="dotp"></span> Pick mode</button>
+              </div>
+              <div class="webview">
+                <div class="pickhint">◍ Pick mode — click a block to fill <b>&nbsp;Genres&nbsp;</b> of this series <span class="esc">Esc to cancel</span></div>
+                <div class="site">
+                  <div class="shead">
+                    <div class="scover"></div>
+                    <div>
+                      <h2>Solo Ascension</h2>
+                      <p class="sby">Jang-woo Kim · Hyun Studio · 2021 · Ongoing</p>
+                      <div class="stags hot"><span class="selbadge">ul.tags &rsaquo; li · ×8 · list</span>
+                        <span class="stag">Action</span><span class="stag">Fantasy</span><span class="stag">Cultivation</span><span class="stag">Adventure</span><span class="stag">Overpowered MC</span><span class="stag">Dungeons</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="picker">
+              <div class="pkhd"><span class="pt">Fill this page ← source</span><span class="sp"></span><span class="verc">mangadex · v3</span></div>
+              <div class="srcbar"><span class="l">Sources</span>
+                <span class="srcchip pri"><span class="sd" style="background:var(--info)"></span> mangadex.org</span>
+                <span class="srcchip"><span class="sd" style="background:var(--warn)"></span> asuracomic.net</span>
+                <span class="srcchip add">＋ Add</span></div>
+              <div class="pkbody">
+                <div class="frow"><div class="fr1"><span class="fsrc m">M</span><span class="fname">Title</span><span class="ftype">single</span><span class="sp"></span><button class="fpick">Pick</button></div><div class="fval">→ fills the Title field above</div></div>
+                <div class="frow picking"><div class="fr1"><span class="fsrc m">M</span><span class="fname">Genres</span><span class="ftype list">list</span><span class="sp"></span><button class="fpick" style="color:var(--accent);border-color:var(--accent)">Picking…</button></div><div class="pickmsg">◍ Click the highlighted block on the page</div></div>
+                <div class="frow"><div class="fr1"><span class="fsrc a">A</span><span class="fname">Alt titles</span><span class="ftype list">list</span><span class="sp"></span><button class="fpick">Pick</button></div><div class="fval">나 홀로 승천 · Ascension Alone</div></div>
+                <div class="frow"><div class="fr1"><span class="fsrc m">M</span><span class="fname">Chapters</span><span class="ftype list">list&lt;record&gt;</span><span class="sp"></span><button class="fpick">Pick</button></div><div class="fval">appends 6 new chapters to this series</div></div>
+              </div>
+              <div class="pkfoot">
+                <div class="pkstat"><span>picks write into the fields above</span><span>+6 chapters</span></div>
+                <div class="pkbtns"><button class="icbtn">Save as recipe</button><button class="icbtn pri">Apply to page</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="note">The same picker component from Browse, scoped to one series: it fills the metadata form above and
+      can append chapters. Standalone import for a brand-new series still lives in the <b class="k">Browse</b> tab.</p>
+  </div>
+
+  <!-- ===== 5 · SOURCES & SESSIONS ===== -->
+  <div class="sec">
+    <div class="sechd"><h2>5 · Sources &amp; sessions — per-domain cookies</h2>
+      <div class="sub">Settings-level page. Each domain keeps its own recipe and encrypted login session; you sign in on the site yourself.</div></div>
+    <div class="frame" style="height:420px">
+      <div class="rail">
+        <div class="rlogo">L</div>
+        <div class="ritem"><span class="ri">▤</span>Library</div>
+        <div class="ritem"><span class="ri">◍</span>Browse</div>
+        <div class="ritem on"><span class="ri">◐</span>Sources</div>
+        <div class="ritem"><span class="ri">⚙</span>Settings</div>
+        <div class="rfoot"><span class="railok"></span>Local</div>
+      </div>
+      <div class="main">
+        <div class="tbar"><h3>Sources &amp; sessions</h3><span class="cnt">4 domains</span><span class="sp"></span><button class="icbtn sm">＋ Add source</button></div>
+        <div class="lbody">
+          <div class="seslist">
+            <div class="sesrow"><div class="sesfav" style="background:var(--info)"></div><div class="sesmid"><div class="sesd">mangadex.org</div><div class="sessub">Recipe v3 · 142 titles · last used 2h ago</div></div><span class="sestat on">◐ Signed in</span><button class="icbtn sm">Open</button><button class="icbtn sm">Clear cookies</button></div>
+            <div class="sesrow"><div class="sesfav" style="background:var(--warn)"></div><div class="sesmid"><div class="sesd">asuracomic.net</div><div class="sessub">Recipe v2 · 38 titles · last used yesterday</div></div><span class="sestat on">◐ Signed in</span><button class="icbtn sm">Open</button><button class="icbtn sm">Clear cookies</button></div>
+            <div class="sesrow"><div class="sesfav" style="background:#9a5ba6"></div><div class="sesmid"><div class="sesd">members.premium-scans.com</div><div class="sessub">Recipe v1 · 6 titles · <span style="color:var(--warn)">login required</span></div></div><span class="sestat">Anonymous</span><button class="icbtn sm pri">Sign in</button><button class="icbtn sm">Open</button></div>
+            <div class="sesrow"><div class="sesfav" style="background:var(--ok)"></div><div class="sesmid"><div class="sesd">weebcentral.com</div><div class="sessub">Recipe v4 · 28 titles · no login needed</div></div><span class="sestat">Anonymous</span><button class="icbtn sm">Open</button></div>
+            <p class="note">You authenticate on the site itself inside the browser — longbox only persists the resulting cookies, <b class="k">per domain</b> and encrypted. It never sees or enters your password.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 6 · READER (concept) ===== -->
+  <div class="sec">
+    <div class="sechd"><h2>6 · Reader — concept (Phase 4)</h2>
+      <div class="sub">Opened from a page tile. Paged for manga/comics, Webtoon (continuous vertical) for manhwa/manhua.</div></div>
+    <div class="twocol">
+      <div class="rframe">
+        <div class="rbar"><span class="rt">Solo Ascension</span><span class="rc">· Ch 88</span><span class="sp"></span><span class="pgc">14 / 32</span><button class="icbtn sm">⚙</button></div>
+        <div class="rstage"><span class="rmode">Paged</span><div class="rarrow l">‹</div><div class="rpage"></div><div class="rarrow r">›</div></div>
+      </div>
+      <div class="rframe">
+        <div class="rbar"><span class="rt">Immortal Ledger</span><span class="rc">· Ch 340</span><span class="sp"></span><span class="pgc">continuous</span><button class="icbtn sm">⚙</button></div>
+        <div class="rstage" style="align-items:flex-start"><span class="rmode">Webtoon</span>
+          <div class="rstrip"><div class="seg2" style="height:34%"></div><div class="seg2" style="height:26%"></div><div class="seg2" style="height:40%"></div><div class="seg2" style="height:30%"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

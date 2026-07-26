@@ -1,0 +1,134 @@
+/* longbox theme tokens (imported from the Claude Design "longbox" project) + base + primitives.
+   Two themes; the active one is stamped as data-theme on <html> by the store. */
+:root[data-theme='dark'] {
+  --bg: #0a0b0d; --bg2: #0f1115; --panel: #15171b; --panel2: #1b1e24;
+  --line: #262a31; --hover: #2a2e36;
+  --tx: #e8eaef; --tx2: #9aa1ad; --tx3: #697080;
+  --accent: #7089e6; --accent-ink: #0d0e11; --accentSoft: rgba(112, 137, 230, .14);
+  --fav: #e0687a; --good: #5fb88a; --warn: #d6a44f;
+  --adult: #e0687a; --ai: #6bb6c4; --cens: #c48fd0;
+  color-scheme: dark;
+}
+:root[data-theme='light'] {
+  /* softer than pure white-on-beige: panels are just off the background, the
+     LINES carry the structure (stronger than before), text eases off black */
+  --bg: #f0eeea; --bg2: #e6e3dd; --panel: #faf9f6; --panel2: #edeae4;
+  --line: #d2cdc2; --hover: #e2ded6;
+  --tx: #2a2c31; --tx2: #575d67; --tx3: #8d95a1;
+  --accent: #5f77d4; --accent-ink: #ffffff; --accentSoft: rgba(95, 119, 212, .15);
+  --fav: #d6516a; --good: #3f9e6f; --warn: #b07d2a;
+  --adult: #d6516a; --ai: #3d8fa0; --cens: #9a5fb0;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+html, body, #app { margin: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--tx);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; }
+a { color: var(--accent); text-decoration: none; }
+
+/* themed scrollbars — global (Chromium shell), so menus and panels match too */
+.scroll { overflow: auto; }
+/* STABLE scrollbar gutter on the main scroll columns: aspect-ratio covers make
+   the content height depend on the width, so an appearing scrollbar shrinks
+   the grid enough to not need it — and flickers in a feedback loop. Reserving
+   the gutter removes the width jump (and the phantom scrollbar with it). */
+.lmain, .amain, .viewscroll, .fbody { scrollbar-gutter: stable; }
+*::-webkit-scrollbar { width: 11px; height: 11px; }
+*::-webkit-scrollbar-thumb { background: var(--hover); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+*::-webkit-scrollbar-thumb:hover { background: var(--tx3); background-clip: padding-box; border: 2px solid transparent; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-corner { background: transparent; }
+
+/* ---- shared primitives ---- */
+.mono { font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--tx);
+  border-radius: 6px; height: 30px; padding: 0 13px; cursor: pointer;
+  font: 600 12px/1 system-ui; white-space: nowrap;
+}
+.btn:hover { border-color: var(--accent); }
+.btn.accent { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.accent:hover { filter: brightness(1.08); border-color: var(--accent); }
+.btn.ghost { background: transparent; color: var(--tx2); }
+.btn.ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+.iconbtn {
+  width: 30px; height: 30px; flex: none; border: 1px solid var(--line);
+  background: var(--panel); border-radius: 6px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; color: var(--tx2);
+}
+.iconbtn:hover { border-color: var(--accent); color: var(--accent); }
+.iconbtn.plain { border-color: transparent; background: transparent; }
+.iconbtn.plain:hover { background: var(--hover); border-color: transparent; color: var(--tx); }
+
+/* pill-style dropdown / filter control */
+.pill {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  height: 30px; padding: 0 11px; font: 500 12px/1 system-ui; color: var(--tx2); cursor: pointer;
+}
+.pill:hover { border-color: var(--accent); }
+.pill.on { color: var(--tx); border-color: var(--accent); }
+.pill .k { font: 500 9px/1 ui-monospace, monospace; letter-spacing: .08em; color: var(--tx3); }
+
+/* segmented control — SAME 30px height as .btn and .pill (audit: controls 30) */
+.seg { display: flex; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 2px; height: 30px; }
+.seg .opt {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 0 11px; border-radius: 4px; cursor: pointer; border: none; background: transparent;
+  font: 500 12px/1 system-ui; color: var(--tx2);
+}
+.seg .opt:hover { color: var(--tx); }
+.seg .opt.on { background: var(--accentSoft); color: var(--accent); }
+
+/* dropdown menu */
+.menu {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 20;
+  background: var(--panel2); border: 1px solid var(--line); border-radius: 9px; padding: 5px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .5); min-width: 160px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.menu .item {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px;
+  cursor: pointer; font: 500 12px/1 system-ui; color: var(--tx2);
+}
+.menu .item:hover { background: var(--hover); color: var(--tx); }
+.menu .item.on { color: var(--tx); }
+
+.card { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+
+/* ---- the chrome line grid ----
+   H2: EVERY in-app view ends with the same 45px bottom band (border-top =
+   the H2 line, continuous with the app sidebar's footer). Browse and the
+   reader are immersive and exempt. */
+.viewcol { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+.viewscroll { flex: 1; min-height: 0; overflow-y: auto; }
+.lfoot { flex: none; height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-top: 1px solid var(--line); background: var(--bg2); }
+.lfinfo { font-size: 11px; color: var(--tx3); }
+.pgbtn { width: 26px; height: 26px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--tx2); cursor: pointer; font: 600 14px/1 system-ui; display: inline-flex; align-items: center; justify-content: center; }
+.pgbtn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.pgbtn:disabled { opacity: .4; cursor: default; }
+.pgin { width: 44px; height: 26px; text-align: center; font-size: 12px; color: var(--tx); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; outline: none; }
+.pgin:focus { border-color: var(--accent); }
+.pgof { font-size: 11px; color: var(--tx3); }
+
+/* ---- frameless chrome (desktop shell only; html gets .frameless) ----
+   ONLY the top band drags the window: the tab strip's empty stretch and the
+   brand. Every interactive child opts out explicitly. */
+html.frameless .tabbar { -webkit-app-region: drag; padding-right: 138px; }
+html.frameless .tabbar .tab,
+html.frameless .tabbar .tact,
+html.frameless .tabbar .stripbtn,
+html.frameless .tabbar .alltabs,
+html.frameless .tabbar .tabsmenu { -webkit-app-region: no-drag; }
+
+.h1 { margin: 0; font: 600 22px/1 system-ui; letter-spacing: -.4px; color: var(--tx); }
+.count { font: 500 13px/1 ui-monospace, monospace; color: var(--tx3); }
+.eyebrow { font: 600 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); text-transform: uppercase; }
