@@ -109,10 +109,12 @@ async function addEntry(arm: boolean) {
       store.error = String(e)
       return
     }
+    // KEEP the whole form (label included): each download consumes the arm, so
+    // feeding one entry file-by-file (image sets) re-arms with a single click
   } else {
     showFlash('✓ entry added')
+    dLabel.value = '' // batch-adding rows: the next entry gets a fresh label
   }
-  dLabel.value = ''
 }
 // arm straight from an existing entry row
 async function armRow(r: PanelRow) {
@@ -224,6 +226,7 @@ async function startNew() {
   if (!(await confirmDiscard())) return
   newDraft()
   pickTarget.value = false
+  tab.value = 'meta' // a fresh draft has no Contents (needs a saved title) — land on Metadata
 }
 async function switchTarget(id: string) {
   const t = titleById(id)

@@ -132,18 +132,24 @@ function labelish(t) {
 // or the row's leading text node — at this level, the parent, or one above.
 // A tight walk on purpose: key-value rows are compact; anything further up is
 // page furniture, not a label (state-model §6: the text-anchor candidate).
+// A candidate is offered ONLY when the runtime label lookup actually resolves
+// back to the picked element — a label that can't be re-found (icon-wrapped
+// text, page furniture) would dead-end the inspector on a zero-match preview.
+function anchorWorks(label, el) {
+  return anchorNodes(label).some((n) => n === el || n.contains(el) || el.contains(n))
+}
 function anchorLabel(el) {
   let cur = el
   for (let depth = 0; cur && depth < 3; depth++) {
     const sib = cur.previousElementSibling
     if (sib) {
       const t = textOf(sib).replace(/[:：]\s*$/, '')
-      if (labelish(t) && t !== textOf(el)) return t
+      if (labelish(t) && t !== textOf(el) && anchorWorks(t, el)) return t
     }
     const p = cur.parentElement
     if (p) {
       const lead = leadingText(p).replace(/[:：]\s*$/, '')
-      if (labelish(lead)) return lead
+      if (labelish(lead) && anchorWorks(lead, el)) return lead
     }
     cur = p
   }
@@ -478,8 +484,9 @@ ipcRenderer.on('snapshot', async (_e, req) => {
 })
 
 // A window.open / middle-click / target=_blank was denied natively (main process) and
-// routed here — hand the URL to the app so it opens as an in-app tab, not an OS window.
-ipcRenderer.on('open-url-as-tab', (_e, url) => ipcRenderer.sendToHost('open-tab', url))
+// routed here — hand {url, background} to the app so it opens as an in-app tab
+// (background = middle-click/ctrl+click stays on the current page), not an OS window.
+ipcRenderer.on('open-url-as-tab', (_e, req) => ipcRenderer.sendToHost('open-tab', req))
 
 document.addEventListener('mousemove', onMove, true)
 document.addEventListener('click', onClick, true)

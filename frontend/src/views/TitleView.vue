@@ -172,14 +172,11 @@ const iLang = ref('')
 const iGroup = ref('')
 const iUrl = ref('')
 const importing = ref(false)
-const fileEl = ref<HTMLInputElement | null>(null)
 const iLangSuggest = computed(() => langSuggestions(t.value?.chapters ?? []))
 const iGroupSuggest = computed(() => groupSuggestions())
-async function onImportFile(e: Event) {
-  const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
-  input.value = ''
-  if (!file || !t.value || !iNum.value.trim()) return
+const ARCHIVE_RE = /\.(zip|cbz|rar|7z)$/i
+async function importEntryArchive(file: File) {
+  if (!t.value) return
   importing.value = true
   try {
     cache([await api.importChapterArchive(t.value.id,
@@ -202,6 +199,78 @@ async function addRowOnly() {
     iNum.value = ''
     iUrl.value = ''
   }
+}
+// the same form from loose images: create the row (or reuse an existing
+// identical one), then upload the files as its pages
+async function uploadEntryImages(files: File[]) {
+  if (!files.length || !t.value || !iNum.value.trim()) return
+  importing.value = true
+  try {
+    const norm = (s: string) => s.trim().toLowerCase()
+    const ch = { num: iNum.value.trim(), lang: iLang.value.trim(), group: iGroup.value.trim(), url: iUrl.value.trim() }
+    const same = (c: Chapter) =>
+      norm(c.num) === norm(ch.num) && norm(c.lang) === norm(ch.lang) && norm(c.group) === norm(ch.group)
+    let row = t.value.chapters.find(same)
+    if (!row) {
+      if (!(await addChapterRow(t.value, ch))) return
+      row = t.value.chapters.find(same)
+    }
+    if (!row) return
+    cache([await api.addChapterPages(t.value.id, row.id, files)])
+    importOpen.value = false
+    iNum.value = ''
+    iUrl.value = ''
+  } catch (err) {
+    store.error = err instanceof Error ? err.message : String(err)
+  } finally {
+    importing.value = false
+  }
+}
+// ONE entry point for the entry's media: an archive or a set of images — the
+// branch is decided by what actually arrived. The OS can't put files and a
+// folder into one dialog, so folders come in by DROPPING them onto the form.
+const IMAGE_RE = /\.(jpe?g|png|webp|gif|avif|bmp)$/i
+const filesEl = ref<HTMLInputElement | null>(null)
+async function handleEntryFiles(files: File[]) {
+  if (!files.length) return
+  const archives = files.filter((f) => ARCHIVE_RE.test(f.name))
+  const images = files.filter((f) => IMAGE_RE.test(f.name))
+  if (archives.length === 1 && !images.length) await importEntryArchive(archives[0])
+  else if (images.length) await uploadEntryImages(sortFilesNat(images))
+  else store.error = 'Pick ONE archive (.zip/.cbz/.rar/.7z), or image files'
+}
+async function onEntryFiles(e: Event) {
+  const input = e.target as HTMLInputElement
+  const files = [...(input.files ?? [])]
+  input.value = ''
+  await handleEntryFiles(files)
+}
+// drag & drop onto the form: files AND folders (walked recursively)
+const entryDropHot = ref(false)
+async function filesFromDataTransfer(dt: DataTransfer): Promise<File[]> {
+  const entries = [...dt.items].map((i) => i.webkitGetAsEntry?.()).filter((x): x is FileSystemEntry => !!x)
+  if (!entries.length) return [...dt.files]
+  const out: File[] = []
+  async function walk(entry: FileSystemEntry): Promise<void> {
+    if (entry.isFile) {
+      out.push(await new Promise<File>((res, rej) => (entry as FileSystemFileEntry).file(res, rej)))
+    } else if (entry.isDirectory) {
+      const reader = (entry as FileSystemDirectoryEntry).createReader()
+      // readEntries returns batches (≤100) — keep reading until it runs dry
+      for (;;) {
+        const batch = await new Promise<FileSystemEntry[]>((res, rej) => reader.readEntries(res, rej))
+        if (!batch.length) break
+        for (const e of batch) await walk(e)
+      }
+    }
+  }
+  for (const e of entries) await walk(e)
+  return out
+}
+async function onEntryDrop(e: DragEvent) {
+  entryDropHot.value = false
+  if (!e.dataTransfer || !iNum.value.trim() || importing.value) return
+  await handleEntryFiles(await filesFromDataTransfer(e.dataTransfer))
 }
 
 // attach (or replace) an archive file on an EXISTING row — the per-row ⬇ button
@@ -288,6 +357,7 @@ async function selectPages(c: Chapter) {
     pagesTitle.value = t.value.id
     openPages.value = c.id
     selPages.value = []
+    selAnchor.value = null
     pageCount.value = 0
     pagesError.value = ''
     return
@@ -324,9 +394,22 @@ function togglePageSel(index: number) {
   if (k >= 0) selPages.value.splice(k, 1)
   else selPages.value.push(index)
 }
+// range selection: a plain click anchors, Shift+click selects anchor→here
+const selAnchor = ref<number | null>(null) // display position of the last plain click
 // outside edit mode a page tile opens the READER right at that page
-function onTileClick(pos: number, srcIdx: number) {
-  if (editMode.value) { togglePageSel(srcIdx); return }
+function onTileClick(pos: number, srcIdx: number, e: MouseEvent) {
+  if (editMode.value) {
+    if (e.shiftKey && selAnchor.value !== null) {
+      const [a, b] = selAnchor.value <= pos ? [selAnchor.value, pos] : [pos, selAnchor.value]
+      const set = new Set(selPages.value)
+      for (const idx of pageMap.value.slice(a, b + 1)) set.add(idx)
+      selPages.value = [...set]
+    } else {
+      togglePageSel(srcIdx)
+      selAnchor.value = pos
+    }
+    return
+  }
   if (t.value && openPages.value) void openReader(t.value.id, openPages.value, pos)
 }
 // ---- pages: add loose images / a folder; move the selection between entries ----
@@ -337,9 +420,15 @@ async function pickAddImagesRow(c: Chapter) {
   addImgEl.value?.click()
 }
 const addDirEl = ref<HTMLInputElement | null>(null)
+// upload order = page order: natural-sort by file name ('page2' before 'page10'),
+// because the OS file picker's order is arbitrary
+function sortFilesNat(files: File[]): File[] {
+  const key = (s: string) => s.split(/(\d+)/).map((t) => (/^\d+$/.test(t) ? t.padStart(8, '0') : t.toLowerCase())).join('')
+  return files.sort((a, b) => key(a.name).localeCompare(key(b.name)))
+}
 async function onAddImages(e: Event) {
   const input = e.target as HTMLInputElement
-  const files = [...(input.files ?? [])]
+  const files = sortFilesNat([...(input.files ?? [])])
   input.value = ''
   const cid = openPages.value
   if (!files.length || !t.value || !cid) return
@@ -605,18 +694,21 @@ async function removeRow(c: Chapter) {
         </div>
 
         <!-- add entry — the SAME form design as the inline edit below -->
-        <div v-if="editMode && importOpen" class="entryform addform">
+        <div v-if="editMode && importOpen" class="entryform addform" :class="{ drophot: entryDropHot }"
+             @dragover.prevent="entryDropHot = true" @dragleave="entryDropHot = false" @drop.prevent="onEntryDrop">
           <EntryFields v-model:label="iNum" v-model:lang="iLang" v-model:group="iGroup" v-model:url="iUrl"
                        :lang-suggest="iLangSuggest" :group-suggest="iGroupSuggest"
                        label-placeholder="5 / 2024 Artworks / Extra" />
-          <div class="irow" style="justify-content:flex-end">
+          <div class="irow">
+            <span class="drophint mono">drop an archive · images · a whole folder</span>
+            <div style="flex:1"></div>
             <button class="btn ghost chsmall" :disabled="importing" @click="importOpen = false; iNum = ''; iUrl = ''">Cancel</button>
             <button class="btn ghost chsmall" :disabled="!iNum.trim() || importing" title="Create the entry row without a file — add images later from the pages pane" @click="addRowOnly">Add row only</button>
-            <button class="btn accent chsmall" :disabled="!iNum.trim() || importing" title="Create the entry with an archive file (.zip/.cbz/.rar/.7z)" @click="fileEl?.click()">
-              {{ importing ? 'Importing…' : 'Choose archive…' }}
+            <button class="btn accent chsmall" :disabled="!iNum.trim() || importing" title="One archive (.zip/.cbz/.rar/.7z) or a set of images (webp converts to a standard format); drop a folder onto the form" @click="filesEl?.click()">
+              {{ importing ? 'Importing…' : 'Choose files…' }}
             </button>
           </div>
-          <input ref="fileEl" type="file" accept=".zip,.cbz,.rar,.7z" style="display:none" @change="onImportFile" />
+          <input ref="filesEl" type="file" accept=".zip,.cbz,.rar,.7z,image/*" multiple style="display:none" @change="onEntryFiles" />
         </div>
         <input ref="attachEl" type="file" accept=".zip,.cbz,.rar,.7z" style="display:none" @change="onAttachFile" />
 
@@ -769,11 +861,11 @@ async function removeRow(c: Chapter) {
           <div v-for="(srcIdx, pos) in pageMap" :key="`${openChapter.id}-${srcIdx}`" class="ptile"
                :class="{ sel: selPages.includes(srcIdx), selectable: editMode, pdragging: dragPage === pos, pdrop: pageDrop === pos && dragPage !== null }"
                :style="{ width: thumb.grid + 'px' }"
-               :title="editMode ? 'Click to select · drag to rearrange' : `Read from page ${pos + 1}`"
+               :title="editMode ? 'Click to select · Shift+click selects a range · drag to rearrange' : `Read from page ${pos + 1}`"
                :draggable="editMode"
                @dragstart="dragPage = pos" @dragend="dragPage = null; pageDrop = null"
                @dragover.prevent="pageDrop = pos" @drop.prevent="onPageDrop(pos)"
-               @click="onTileClick(pos, srcIdx)">
+               @click="onTileClick(pos, srcIdx, $event)">
             <img :src="pageSrc(openChapter.id, srcIdx, openChapter.pages)" loading="lazy" alt="" />
             <span class="pnum mono">{{ pos + 1 }}</span>
             <span v-if="editMode" class="pcheck" :class="{ on: selPages.includes(srcIdx) }">
@@ -900,6 +992,8 @@ async function removeRow(c: Chapter) {
 .dropend { margin-top: 6px; padding: 10px; border: 1px dashed var(--line); border-radius: 8px; text-align: center; font: 600 11px/1 system-ui; color: var(--tx3); }
 .dropend.hot { border-color: var(--accent); color: var(--accent); background: var(--accentSoft); }
 .entryform.addform { margin: 10px 0 4px; }
+.entryform.drophot { border-color: var(--accent); background: var(--accentSoft); }
+.drophint { font-size: 9.5px; color: var(--tx3); }
 .irow, .entryform :deep(.irow) { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .iin, .entryform :deep(.iin) { font: 500 12.5px/1.3 system-ui; color: var(--tx); background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; outline: none; }
 .iin:focus, .entryform :deep(.iin:focus) { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accentSoft); }
@@ -925,7 +1019,7 @@ async function removeRow(c: Chapter) {
    resize/зум). Flex lines always grow with their items, and the tile's size is
    fully fixed (width + aspect-ratio) with the image ABSOLUTE inside — layout
    never depends on image loading, so overlap is impossible. */
-.pgrid { padding: 12px; display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; align-content: flex-start; overflow-y: auto; min-height: 0; }
+.pgrid { padding: 12px; display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; align-content: flex-start; overflow-y: auto; min-height: 0; user-select: none; }
 .ptile { position: relative; flex: none; aspect-ratio: 2/3; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); background: var(--panel2); cursor: pointer; }
 .ptile:not(.selectable):hover { outline: 2px solid var(--accent); outline-offset: 1px; }
 .ptile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }

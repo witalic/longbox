@@ -187,6 +187,27 @@ def test_startup_normalizes_existing_archives(tmp_path):
     lib.close()
 
 
+def _webp(mode="RGB", color=(200, 30, 90)):
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new(mode, (4, 6), color).save(buf, "WEBP")
+    return buf.getvalue()
+
+
+def test_added_webp_pages_convert_to_standard_format(client, tmp_path):
+    from PIL import Image
+    r = client.post("/api/titles/berserk/chapters/b-5-en/pages/add", files=[
+        ("files", ("p1.webp", io.BytesIO(_webp()), "image/webp")),
+        ("files", ("p2.webp", io.BytesIO(_webp("RGBA", (10, 20, 30, 0))), "image/webp")),
+    ])
+    assert r.status_code == 200
+    with zipfile.ZipFile(_chapters_dir(tmp_path) / "b-5-en.zip") as z:
+        names = z.namelist()
+        assert names == ["001.jpg", "002.png"]  # opaque → jpg, alpha → png
+        assert Image.open(io.BytesIO(z.read("001.jpg"))).format == "JPEG"
+        assert Image.open(io.BytesIO(z.read("002.png"))).format == "PNG"
+
+
 # ---- unpacked media: single-image downloads accumulate into the chapter zip ----
 
 def _complete_download(c, tmp_path, *, num, filename, data):

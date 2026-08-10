@@ -84,6 +84,29 @@ function dropOn(kind: 't' | 'b', targetId: string) {
   else moveBrowserTabBefore(d.id, targetId)
 }
 
+// drag & drop reordering IN THE STRIP itself (same move helpers; the drop lands
+// BEFORE the hovered tab, or at the end when released on the empty stretch)
+const stripDrag = ref<{ kind: 't' | 'b'; id: string } | null>(null)
+const stripOver = ref<string | null>(null)
+function stripDragStart(kind: 't' | 'b', id: string) { stripDrag.value = { kind, id } }
+function stripDragEnd() { stripDrag.value = null; stripOver.value = null }
+function stripDrop(kind: 't' | 'b', targetId: string) {
+  const d = stripDrag.value
+  stripDragEnd()
+  if (!d || d.kind !== kind || d.id === targetId) return
+  if (kind === 't') moveTitleTabBefore(d.id, targetId)
+  else moveBrowserTabBefore(d.id, targetId)
+}
+function stripDropEnd() {
+  // released on the strip's empty stretch → move to the end ('#end' matches
+  // nothing, and the move helpers push an unmatched target to the back)
+  const d = stripDrag.value
+  stripDragEnd()
+  if (!d) return
+  if (d.kind === 't') moveTitleTabBefore(d.id, '#end')
+  else moveBrowserTabBefore(d.id, '#end')
+}
+
 const draftOpen = computed(() => !!draftState.cur)
 
 function toggleTheme() {
@@ -108,10 +131,16 @@ initSessions()
         <svg class="logo" viewBox="0 0 72 72" aria-hidden="true"><defs><linearGradient id="lbgrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8194f4"/><stop offset="1" stop-color="#3e4eb2"/></linearGradient></defs><rect width="72" height="72" rx="17" fill="url(#lbgrad)"/><path d="M27 19h9v25h13v9H27z" fill="#fff"/></svg>
         <span class="name">{{ store.appMeta.name || 'longbox' }}</span>
       </div>
-      <div ref="tabScrollEl" class="tabscroll" @wheel.prevent="onTabWheel">
+      <div ref="tabScrollEl" class="tabscroll" @wheel.prevent="onTabWheel"
+           @dragover.prevent="stripOver = null" @drop.prevent="stripDropEnd">
         <template v-if="stripMode === 'app'">
-          <div v-for="x in titleTabs" :key="x.id" class="tab" :class="{ on: ['title', 'reader'].includes(store.view) && store.activeTitle === x.id, pinned: x.pinned }"
-               :title="x.t.title" @click="openTitle(x.id)">
+          <div v-for="x in titleTabs" :key="x.id" class="tab"
+               :class="{ on: ['title', 'reader'].includes(store.view) && store.activeTitle === x.id, pinned: x.pinned,
+                         dragging: stripDrag?.id === x.id, dropbefore: stripOver === x.id && stripDrag && stripDrag.id !== x.id }"
+               :title="x.t.title" draggable="true"
+               @dragstart="stripDragStart('t', x.id)" @dragend="stripDragEnd"
+               @dragover.prevent.stop="stripOver = x.id" @drop.prevent.stop="stripDrop('t', x.id)"
+               @click="openTitle(x.id)">
             <span class="swatch" :style="x.t.cover ? { background: `#181a1f url('${coverAt(x.t.cover, 64)}') center/cover` } : { background: hueFor(x.id) }"></span>
             <template v-if="!x.pinned">
               <span class="lbl">{{ x.t.title }}</span>
@@ -122,8 +151,13 @@ initSessions()
           </div>
         </template>
         <template v-else-if="stripMode === 'web'">
-          <div v-for="t in browserTabs" :key="t.id" class="tab web" :class="{ on: store.view === 'browser' && browser.activeId === t.id, pinned: t.pinned }"
-               :title="t.title || t.url" @click="activateTab(t.id)">
+          <div v-for="t in browserTabs" :key="t.id" class="tab web"
+               :class="{ on: store.view === 'browser' && browser.activeId === t.id, pinned: t.pinned,
+                         dragging: stripDrag?.id === t.id, dropbefore: stripOver === t.id && stripDrag && stripDrag.id !== t.id }"
+               :title="t.title || t.url" draggable="true"
+               @dragstart="stripDragStart('b', t.id)" @dragend="stripDragEnd"
+               @dragover.prevent.stop="stripOver = t.id" @drop.prevent.stop="stripDrop('b', t.id)"
+               @click="activateTab(t.id)">
             <span class="fav">{{ (t.label[0] || '?').toUpperCase() }}</span>
             <template v-if="!t.pinned">
               <span class="lbl">{{ t.title || t.label }}</span>
@@ -254,6 +288,9 @@ initSessions()
 .tab .pinbtn { opacity: 0; }
 .tab:hover .pinbtn { opacity: 1; }
 .tab .unpin { color: var(--accent); }
+/* strip reorder: the dragged tab dims; the accent line marks "lands BEFORE this tab" */
+.tab.dragging { opacity: .45; }
+.tab.dropbefore { box-shadow: inset 3px 0 0 var(--accent); }
 .stripbtn { width: 40px; height: 100%; border: none; border-radius: 0; background: transparent; color: var(--tx2); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex: none; }
 .stripbtn:hover { background: var(--hover); color: var(--tx); }
 .stripbtn.on { background: var(--accentSoft); color: var(--accent); }

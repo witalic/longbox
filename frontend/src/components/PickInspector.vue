@@ -158,9 +158,10 @@ watch([selector, () => state.useAnchor], ([sel]) => {
 watch(() => [props.probe.count, props.probe.pickedIndex], () => {
   if (props.probe.pickedIndex >= 0) {
     state.index = props.probe.pickedIndex
-  } else if (state.useAnchor && props.probe.count > 0) {
-    // the label match does NOT contain the clicked element — a wrong label
-    // (page furniture); drop back to the selector so it can't hijack the pick
+  } else if (state.useAnchor) {
+    // the label match can't find (or doesn't contain) the clicked element — a
+    // wrong label (page furniture) or one that resolves to nothing; drop back
+    // to the selector so a bad anchor can never hijack OR dead-end the pick
     state.useAnchor = false
   }
 })

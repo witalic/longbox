@@ -3,6 +3,7 @@ built frontend exists) the static UI served at /app/. Single origin, no CORS.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 from contextlib import asynccontextmanager
@@ -26,8 +27,22 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _FRONTEND_DIST = _REPO_ROOT / "frontend" / "dist"
 
 
+def _quiet_client_resets(loop: asyncio.AbstractEventLoop) -> None:
+    """Windows proactor noise: when the shell window closes/reloads, Chromium
+    drops its keep-alive sockets mid-flight and the transport's own close
+    callback raises WinError 10054. It is not an application error — swallow
+    exactly that; everything else goes to the default handler."""
+    def handler(loop: asyncio.AbstractEventLoop, context: dict) -> None:
+        exc = context.get("exception")
+        if isinstance(exc, ConnectionResetError) and getattr(exc, "winerror", None) == 10054:
+            return
+        loop.default_exception_handler(context)
+    loop.set_exception_handler(handler)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _quiet_client_resets(asyncio.get_running_loop())
     provided: Library | None = getattr(app.state, "provided_library", None)
     owns = provided is None
     if provided is not None:

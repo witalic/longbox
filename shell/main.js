@@ -327,10 +327,13 @@ app.on('web-contents-created', (_e, contents) => {
   })
   // Guest pages that try to open a window (target=_blank, window.open, middle-click)
   // must NOT spawn an OS window — deny it and route the URL back so the app opens an
-  // in-app browser tab instead.
+  // in-app browser tab instead. The disposition rides along: middle-click/ctrl+click
+  // is a 'background-tab' — the app keeps the current page fronted, like a browser.
   if (contents.getType() === 'webview') {
-    contents.setWindowOpenHandler(({ url }) => {
-      if (/^https?:\/\//.test(url)) contents.send('open-url-as-tab', url)
+    contents.setWindowOpenHandler(({ url, disposition }) => {
+      if (/^https?:\/\//.test(url)) {
+        contents.send('open-url-as-tab', { url, background: disposition === 'background-tab' })
+      }
       return { action: 'deny' }
     })
   }

@@ -6,7 +6,7 @@
 // previews, and one-shot snapshots (rendered DOM + cover bytes via page context).
 import { computed, reactive, ref, watch } from 'vue'
 import { api } from '../api'
-import { activeTab, browser, newTab, onTabNavigated, setTabTitle, tabById } from '../browser'
+import { activeTab, browser, newTab, newTabBackground, onTabNavigated, setTabTitle, tabById } from '../browser'
 import CapturePanel from '../components/CapturePanel.vue'
 import Icon from '../components/Icon.vue'
 import PickInspector, { type ChainNode, type PickUse, type ProbeReq, type ProbeResult } from '../components/PickInspector.vue'
@@ -322,9 +322,13 @@ function onIpc(e: any, tabId: string) {
       else if (msg === 'forward' && el?.canGoForward?.()) el.goForward()
       break
     }
-    case 'open-tab':
-      newTab(String(msg))
+    case 'open-tab': {
+      // middle-click / ctrl+click arrives as background — the current page stays fronted
+      const req = typeof msg === 'string' ? { url: msg, background: false } : (msg as { url: string; background?: boolean })
+      if (req.background) newTabBackground(req.url)
+      else newTab(req.url)
       break
+    }
   }
 }
 function onNav(e: any, tabId: string) {
