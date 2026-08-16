@@ -330,14 +330,15 @@ function requestScan(tabId: string): Promise<ScanWire | null> {
   if (!el) return Promise.resolve(null)
   return new Promise((resolve) => {
     scanResolve?.(null)
-    scanResolve = resolve
+    let settled = false
     const done = (v: ScanWire | null) => {
-      if (scanResolve !== resolve) return
-      scanResolve = null
+      if (settled) return
+      settled = true
+      if (scanResolve === done) scanResolve = null
       window.clearTimeout(timer) // a settled request must not leave its timer alive
       resolve(v)
     }
-    scanResolve = done as typeof scanResolve
+    scanResolve = done
     const timer = window.setTimeout(() => done(null), 15000)
     el.send?.('scan-pages', JSON.parse(JSON.stringify(
       { selector: pageCapture.selector, filter: { ...pageFilter } })))
@@ -350,15 +351,17 @@ function requestBytes(tabId: string, urls: string[], progress: (done: number) =>
     bytesResolve?.([])
     byteBuf = []
     onByte = progress
+    let settled = false
     const done = (imgs: PageImage[]) => {
-      if (bytesResolve !== resolve) return
-      bytesResolve = null
+      if (settled) return
+      settled = true
+      if (bytesResolve === done) bytesResolve = null
       onByte = null
       byteBuf = [] // page bytes are megabytes each — never keep them around
       window.clearTimeout(timer)
       resolve(imgs)
     }
-    bytesResolve = done as typeof bytesResolve
+    bytesResolve = done
     // generous: a long chapter of big pages fetches sequentially by design
     const timer = window.setTimeout(() => done(byteBuf.slice()), 180000)
     el.send?.('fetch-pages', JSON.parse(JSON.stringify({ urls })))
