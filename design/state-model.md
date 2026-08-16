@@ -185,6 +185,7 @@ minimal version editing it is forbidden outright.
 command scans the disk and reconstructs it from scratch. A corrupt index cannot lose
 content by construction (I7), because it never owned any.
 
+
 **Why CBZ** (next phase): atomic write of one file, standard enough that any third-party
 reader opens it — the library outlives even longbox itself — and a simple contract for our
 own reader.
@@ -223,6 +224,13 @@ reader page as referer, in the main process (a fetch from inside the page is bou
 site's CORS). Keys are the images' **file names**, kept in the sidecar (`pageKeys`),
 because CDN URLs carry rotating tokens; so re-reading a chapter downloads nothing. The
 human still drives the pace — nothing is crawled ahead.
+
+**Scanning and storing are decoupled**, because a reader flips faster than a page stores:
+a scan reports as soon as the page's images have a size and again until the set holds
+still, and everything it reports is QUEUED. Each queued page carries the entry it was
+scanned for, so a queue outlives the chapter being finished and drains into the right
+one; only a failed capture (the entry is gone) discards it. Nothing is skipped because a
+previous page is still downloading — that is what left gaps.
 
 ## 10. The reader (landed)
 

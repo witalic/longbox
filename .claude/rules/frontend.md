@@ -17,8 +17,10 @@ paths:
 - Never touch `localStorage` directly: `local.ts` (`readLocal`/`writeLocal` for JSON,
   `readLocalOne`/`writeLocalOne` for plain string prefs) is the one place that validates a read
   and swallows a denied write — a stale key from an older build must not crash a view.
-- A long-running activity (page capture) SNAPSHOTS its target at the start of a round; reading
-  reactive state across awaits lets a Finish mid-round file results into the wrong entry.
+- A long-running activity (page capture) CARRIES its target with the work, never reading it
+  back off reactive state across awaits — a Finish mid-flight would otherwise file results
+  into the wrong entry. Queued page images each hold their own title/chapter, so the queue
+  survives finishing a chapter and drains into the one it was scanned for.
 - Cleanup discipline for per-title state: forget `openTabs` / `pinnedTabs` / `readerTabs`
   together (`forgetTab`), and reset them all when the library path switches.
 - Covers/pages in grids load through `coverAt(...)` / the `?w=` endpoints — never decode

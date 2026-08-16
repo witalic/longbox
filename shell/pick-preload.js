@@ -557,17 +557,48 @@ function relaxSelector(selector) {
   return [...parts.slice(0, -1), bare].join(' ')
 }
 
-ipcRenderer.on('scan-pages', (_e, req) => {
-  let urls = resolvePageImages(req.selector, req.filter)
-  let relaxed = ''
-  if (!urls.length) {
-    relaxed = relaxSelector(req.selector)
-    if (relaxed) urls = resolvePageImages(relaxed, req.filter)
+// A page whose images have not decoded yet has nothing to report: they carry no
+// size, and the size filter is what tells a page from an icon. A reader flipping
+// fast moves on long before that settles, which is how pages went missing.
+//
+// So a scan does not answer once. It REPORTS EVERY TIME the set changes — the
+// first image as soon as it has a size, then the rest — until the set holds
+// still or the deadline passes. The host queues whatever arrives, so a page that
+// reported one image before the flip still contributes it.
+const SCAN_SETTLE_MS = 6000
+const SCAN_POLL_MS = 150
+let scanGen = 0
+
+ipcRenderer.on('scan-pages', async (_e, req) => {
+  const mine = ++scanGen
+  const started = Date.now()
+  let sent = null // never compared equal on the first pass: an empty page reports too
+  let stable = 0
+  for (;;) {
+    let relaxed = ''
+    let urls = resolvePageImages(req.selector, req.filter)
+    if (!urls.length) {
+      const bare = relaxSelector(req.selector)
+      if (bare) {
+        const alt = resolvePageImages(bare, req.filter)
+        if (alt.length) { urls = alt; relaxed = bare }
+      }
+    }
+    const key = urls.join(',')
+    if (key !== sent) {
+      sent = key
+      stable = 0
+      ipcRenderer.sendToHost('pages-scan', {
+        url: location.href, title: document.title, urls,
+        relaxed, // tell the host which selector actually worked
+      })
+    } else if (urls.length) {
+      stable++
+    }
+    if (stable >= 2 || Date.now() - started > SCAN_SETTLE_MS) return
+    await new Promise((r) => setTimeout(r, SCAN_POLL_MS))
+    if (mine !== scanGen) return // a newer scan took over this document
   }
-  ipcRenderer.sendToHost('pages-scan', {
-    url: location.href, title: document.title, urls,
-    relaxed: urls.length ? relaxed : '', // tell the host which selector actually worked
-  })
 })
 
 // ONE fetch loop at a time: a second request while the first is streaming would

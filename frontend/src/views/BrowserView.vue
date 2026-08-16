@@ -279,7 +279,7 @@ async function onUse(result: PickUse) {
     pageCapture.domain = host
     closeInspect()
     panel.value?.showFlash(`✓ page images taught (${result.values.length} on this page)`)
-    if (pageCapture.active) void runCapture()
+    if (pageCapture.active) scanNow(pageCapture.tabId)
     return
   }
   const field = ins.field as EditableField
@@ -320,29 +320,14 @@ async function onUse(result: PickUse) {
 interface ScanWire { url: string; urls: string[]; relaxed?: string }
 interface PageImage { url: string; data: string; contentType: string }
 
-let scanResolve: ((s: ScanWire | null) => void) | null = null
 let bytesResolve: ((imgs: PageImage[]) => void) | null = null
 let byteBuf: PageImage[] = []
 let onByte: ((done: number) => void) | null = null
 
-function requestScan(tabId: string): Promise<ScanWire | null> {
-  const el = wvRefs.get(tabId)
-  if (!el) return Promise.resolve(null)
-  return new Promise((resolve) => {
-    scanResolve?.(null)
-    let settled = false
-    const done = (v: ScanWire | null) => {
-      if (settled) return
-      settled = true
-      if (scanResolve === done) scanResolve = null
-      window.clearTimeout(timer) // a settled request must not leave its timer alive
-      resolve(v)
-    }
-    scanResolve = done
-    const timer = window.setTimeout(() => done(null), 15000)
-    el.send?.('scan-pages', JSON.parse(JSON.stringify(
-      { selector: pageCapture.selector, filter: { ...pageFilter } })))
-  })
+function scanNow(tabId: string | null) {
+  if (!tabId || !pageCapture.selector) return
+  wvRefs.get(tabId)?.send?.('scan-pages', JSON.parse(JSON.stringify(
+    { selector: pageCapture.selector, filter: { ...pageFilter } })))
 }
 function requestBytes(tabId: string, urls: string[], progress: (done: number) => void): Promise<PageImage[]> {
   const el = wvRefs.get(tabId)
@@ -368,124 +353,180 @@ function requestBytes(tabId: string, urls: string[], progress: (done: number) =>
   })
 }
 
-// what the last scan yielded — an unchanged page costs NO network at all
-let lastScanKey = ''
-let captureRun = 0
+// SCANNING AND FETCHING ARE SEPARATE. A page is seen in a moment; storing it
+// takes seconds, and the reader does not wait. So a scan only ever QUEUES what
+// it saw — fetching drains that queue behind the human. Skipping a scan because
+// the previous page was still downloading is exactly how pages went missing.
+// Every queued page carries the entry it was scanned for, so finishing a chapter
+// while its last pages are still downloading lands them in THAT chapter while
+// the next one is already being read — the queue is never re-pointed.
+interface QueuedPage {
+  key: string; url: string; pageUrl: string
+  titleId: string; chapterId: string; label: string
+}
+const queued = new Map<string, QueuedPage>()
+const stored = new Set<string>() // keys the vault is known to hold — never asked about twice
+let draining = false
+const PAGE_BATCH = 6
+const slot = (chapterId: string, key: string) => `${chapterId}|${key}`
 
-async function runCapture(): Promise<void> {
+// The known-keys set only has to outlive the entries still in flight: arming a
+// fresh session with an empty queue starts it over.
+watch(() => pageCapture.active, (on) => { if (on && !queued.size) stored.clear() })
+
+function onPagesScan(scan: ScanWire, tabId: string) {
   const st = pageCapture
-  if (!st.active || st.busy) return
-  // The armed target is SNAPSHOTTED for the whole round. Reading it live across
-  // awaits would let a Finish (or arming the next chapter) mid-round file the
-  // remaining pages into the wrong entry — or into `null`.
-  const run = {
-    titleId: st.titleId, chapterId: st.chapterId, label: st.label,
-    tabId: st.tabId, domain: st.domain,
+  // only the tab the capture was ARMED on: another tab's images are not this
+  // chapter's pages, whichever tab happens to be in front
+  if (!st.active || tabId !== st.tabId || !st.titleId || !st.chapterId) return
+  // the taught selector matched nothing but a looser one did (a per-page state
+  // class) — adopt the version that works, and remember it against the domain
+  // the capture was ARMED on, never whatever site is in front now
+  if (scan.relaxed && scan.relaxed !== st.selector) {
+    st.selector = scan.relaxed
+    if (st.domain) {
+      void saveRecipeField(st.domain, 'pages', {
+        mode: 'list',
+        candidates: [{ kind: 'css', selector: scan.relaxed, attr: 'src', note: 'picked' }],
+      })
+    }
   }
-  if (!run.titleId || !run.chapterId || !run.tabId || !st.selector) return
-  // …and to the TAB it was armed on: another tab's images are not this
-  // chapter's pages, whichever tab happens to be in front.
-  if (!wvRefs.get(run.tabId)) return
-  const my = ++captureRun
-  const mine = () => my === captureRun && st.active && st.chapterId === run.chapterId
-  st.busy = true
-  st.error = '' // a fresh round reports its own outcome, never the last one's
+  // dedup by the image's NAME: CDN tokens rotate, file names don't
+  let fresh = 0
+  for (const url of scan.urls) {
+    const key = pageKeyFor(url)
+    const at = slot(st.chapterId, key)
+    if (stored.has(at) || queued.has(at)) continue
+    queued.set(at, {
+      key, url, pageUrl: scan.url,
+      titleId: st.titleId, chapterId: st.chapterId, label: st.label,
+    })
+    fresh++
+  }
+  if (!fresh) {
+    if (!queued.size && !draining) {
+      st.status = scan.urls.length
+        ? `ch. ${st.label} — this page is already stored (${st.added} captured)`
+        : `ch. ${st.label} — no page images here (${st.added} stored)`
+    }
+    return
+  }
+  void drainQueue()
+}
+
+const backlog = () => (queued.size ? ` · ${queued.size} queued` : '')
+
+async function drainQueue(): Promise<void> {
+  const st = pageCapture
+  if (draining) return
+  // Finishing a chapter STOPS THE SCANNING, not the storing: pages already read
+  // are already the chapter's, and each one carries the entry it belongs to. So
+  // a drain runs the queue out whether or not the session is still armed — the
+  // panel just stops narrating once it is not.
+  draining = true
+  if (st.active) { st.busy = true; st.error = '' }
   try {
-    const scan = await requestScan(run.tabId)
-    if (!scan || !mine()) return
-    // the taught selector matched nothing but a looser one did (a per-page state
-    // class) — adopt the version that works, and remember it against the domain
-    // the capture was ARMED on, never whatever site is in front now
-    if (scan.relaxed && scan.relaxed !== st.selector) {
-      st.selector = scan.relaxed
-      if (run.domain) {
-        void saveRecipeField(run.domain, 'pages', {
-          mode: 'list',
-          candidates: [{ kind: 'css', selector: scan.relaxed, attr: 'src', note: 'picked' }],
+    while (queued.size) {
+      // Oldest first, so pages reach the vault in the order they were read, and
+      // one batch is one page of one entry: its recorded source URL has to be the
+      // page those images actually came from.
+      const all = [...queued.entries()]
+      const head = all[0][1]
+      const from = head.pageUrl
+      const run = { titleId: head.titleId, chapterId: head.chapterId, label: head.label, tabId: st.tabId }
+      // a still-armed entry reports its running total; a finished one says so —
+      // and a stopped session says nothing at all
+      const say = (text: string) => {
+        if (!st.active) return
+        st.status = run.chapterId === st.chapterId
+          ? `ch. ${run.label} — ${text}` : `finishing ch. ${run.label} — ${text}`
+      }
+      const batch = all
+        .filter(([, p]) => p.chapterId === run.chapterId && p.pageUrl === from)
+        .slice(0, PAGE_BATCH)
+      const known = new Set(await api.knownPages(run.titleId, run.chapterId, batch.map(([, p]) => p.key)))
+      for (const [at, p] of batch) {
+        if (!known.has(p.key)) continue
+        stored.add(at)
+        queued.delete(at)
+      }
+      const wanted = batch.filter(([, p]) => !known.has(p.key))
+      if (!wanted.length) {
+        say(`already stored (${st.added} pages)${backlog()}`)
+        continue
+      }
+      // THE SHELL fetches http(s) images: the main process carries the session's
+      // cookies and the reader page as Referer, and is not bound by the site's
+      // CORS — an in-page fetch of the site's own CDN usually is. blob:/data:
+      // pages exist only inside the page, so those go the preload route.
+      const bag = new Map<string, PageImage>()
+      let done = 0
+      let why = ''
+      for (const [, page] of wanted) {
+        if (!/^https?:/i.test(page.url)) continue
+        const got = await window.longbox?.fetchImage?.(page.url, page.pageUrl)
+          .catch((e): { data?: string; contentType?: string; error?: string } => ({ error: String(e) }))
+        if (got?.data) bag.set(page.url, { url: page.url, data: got.data, contentType: got.contentType || '' })
+        else why = why || got?.error || 'no shell bridge'
+        say(`fetching ${++done}/${wanted.length}${backlog()}`)
+      }
+      const retry = wanted.filter(([, p]) => !bag.has(p.url)).map(([, p]) => p.url)
+      if (retry.length && run.tabId) {
+        const fromPage = await requestBytes(run.tabId, retry, (n) => {
+          say(`fetching ${done + n}/${wanted.length}${backlog()}`)
         })
+        for (const img of fromPage) bag.set(img.url, img)
+      }
+      // Whatever came back is stored; whatever did not leaves the queue WITHOUT
+      // being marked stored — re-reading that page finds it again, and the drain
+      // cannot spin on an image the site will not serve.
+      const fetched = wanted.filter(([, p]) => bag.has(p.url))
+      const payload = fetched.map(([, p]) => ({ key: p.key, ...bag.get(p.url) as PageImage }))
+      for (const [at] of wanted) queued.delete(at)
+      if (!payload.length) {
+        st.error = `could not fetch ${wanted.length} image(s)${why ? ` — ${why}` : ''}`
+        continue
+      }
+      const saved = await api.capturePages(run.titleId, run.chapterId, from, payload)
+      cache([saved])
+      for (const [at] of fetched) stored.add(at)
+      const total = saved.chapters.find((c) => c.id === run.chapterId)?.pages
+      // the vault is authoritative about what it stored — never a local guess
+      if (run.chapterId === st.chapterId) st.added = total ?? st.added + payload.length
+      say(`${total ?? payload.length} pages captured${backlog()}`)
+      if (payload.length < wanted.length) {
+        st.error = `${wanted.length - payload.length} image(s) could not be fetched${why ? ` — ${why}` : ''}`
       }
     }
-    const scanKey = `${scan.url}|${scan.urls.join(',')}`
-    if (scanKey === lastScanKey) return // same page, same images — nothing to do
-    if (!scan.urls.length) {
-      st.status = `ch. ${run.label} — no page images here (${st.added} stored)`
-      return
-    }
-    lastScanKey = scanKey
-    // dedup by the image's NAME: CDN tokens rotate, file names don't
-    const byKey = new Map<string, string>()
-    for (const u of scan.urls) if (!byKey.has(pageKeyFor(u))) byKey.set(pageKeyFor(u), u)
-    const known = new Set(await api.knownPages(run.titleId, run.chapterId, [...byKey.keys()]))
-    if (!mine()) return
-    const missing = [...byKey.entries()].filter(([k]) => !known.has(k))
-    if (!missing.length) {
-      st.status = `ch. ${run.label} — this page is already stored (${st.added} captured)`
-      return
-    }
-    const wanted = missing.map(([, u]) => u)
-    st.status = `ch. ${run.label} — fetching 0/${wanted.length}`
-    // THE SHELL fetches http(s) images: the main process carries the session's
-    // cookies and the reader page as Referer, and is not bound by the site's
-    // CORS — an in-page fetch of the site's own CDN usually is. blob:/data:
-    // pages exist only inside the page, so those go the preload route.
-    const bag = new Map<string, PageImage>()
-    let done = 0
-    let why = ''
-    for (const url of wanted.filter((u) => /^https?:/i.test(u))) {
-      const got = await window.longbox?.fetchImage?.(url, scan.url)
-        .catch((e): { data?: string; contentType?: string; error?: string } => ({ error: String(e) }))
-      if (got?.data) bag.set(url, { url, data: got.data, contentType: got.contentType || '' })
-      else why = why || got?.error || 'no shell bridge'
-      st.status = `ch. ${run.label} — fetching ${++done}/${wanted.length}`
-      if (!mine()) return
-    }
-    const retry = wanted.filter((u) => !bag.has(u))
-    if (retry.length) {
-      const fromPage = await requestBytes(run.tabId, retry, (n) => {
-        st.status = `ch. ${run.label} — fetching ${done + n}/${wanted.length}`
-      })
-      for (const img of fromPage) bag.set(img.url, img)
-    }
-    const images = wanted.map((u) => bag.get(u)).filter((x): x is PageImage => !!x)
-    if (!mine()) return
-    if (!images.length) {
-      st.error = `could not fetch any of the ${wanted.length} images${why ? ` — ${why}` : ''}`
-      lastScanKey = ''
-      return
-    }
-    // post in small batches so a long chapter streams into the vault instead of
-    // arriving as one huge request
-    const payload = images.map((img) => ({ ...img, key: pageKeyFor(img.url) }))
-    for (let i = 0; i < payload.length; i += 6) {
-      if (!mine()) return
-      const chunk = payload.slice(i, i + 6)
-      const saved = await api.capturePages(run.titleId, run.chapterId, scan.url, chunk)
-      cache([saved])
-      // the vault is authoritative about what it stored — never a local guess
-      st.added = saved.chapters.find((c) => c.id === run.chapterId)?.pages ?? st.added + chunk.length
-      st.status = `ch. ${run.label} — ${st.added} pages captured`
-    }
-    st.error = images.length < wanted.length
-      ? `${wanted.length - images.length} image(s) could not be fetched${why ? ` — ${why}` : ''}` : ''
   } catch (e) {
-    st.error = e instanceof Error ? e.message : String(e)
-    st.status = 'capture failed — see the message above'
-    lastScanKey = '' // let the next round retry this page
+    // The entry can be gone under us (its row deleted, the library switched).
+    // Dropping the queue is what keeps that from retrying forever; reading those
+    // pages again re-queues them.
+    queued.clear()
+    if (st.active) {
+      st.error = e instanceof Error ? e.message : String(e)
+      st.status = 'capture failed — see the message above'
+    }
   } finally {
-    if (my === captureRun) st.busy = false
+    draining = false
+    st.busy = false
+    // pages that arrived while this drain was finishing
+    if (queued.size) window.setTimeout(() => { void drainQueue() }, 0)
   }
 }
 
 // A reader page keeps loading images while the human scrolls (long strips,
 // lazy loaders), so the page is re-scanned on a slow tick as well as on
-// navigation. Unchanged pages exit at the scan — no requests, no writes.
+// navigation. A scan that finds nothing new costs no requests and no writes.
 let captureTimer: number | undefined
 watch(() => pageCapture.active, (on) => {
   window.clearInterval(captureTimer)
   if (!on) return
-  lastScanKey = ''
-  void runCapture()
-  captureTimer = window.setInterval(() => { void runCapture() }, 2500)
+  scanNow(pageCapture.tabId)
+  captureTimer = window.setInterval(() => {
+    scanNow(pageCapture.tabId)
+    void drainQueue()
+  }, 2500)
 }, { immediate: true })
 onBeforeUnmount(() => window.clearInterval(captureTimer))
 
@@ -512,8 +553,7 @@ function onIpc(e: any, tabId: string) {
       snapResolve = null
       break
     case 'pages-scan':
-      scanResolve?.(msg as ScanWire)
-      scanResolve = null
+      onPagesScan(msg as ScanWire, tabId)
       break
     case 'page-bytes':
       if (msg && !msg.failed) byteBuf.push(msg as PageImage)
@@ -546,13 +586,20 @@ function onNav(e: any, tabId: string) {
   if (e?.url) onTabNavigated(tabId, e.url)
   // flipping to the next page IS the capture trigger — in the armed tab only
   if (pageCapture.active && tabId === pageCapture.tabId) {
-    lastScanKey = ''
-    window.setTimeout(() => { void runCapture() }, 500)
+    // an in-page fetch loop dies with the document it runs in: settle it with
+    // what already arrived instead of waiting out its timeout
+    bytesResolve?.(byteBuf.slice())
+    // a full load answers on dom-ready; an in-page one keeps the document, so
+    // its scan has to be asked for here
+    window.setTimeout(() => scanNow(tabId), 300)
   }
 }
 function onReady(tabId: string) {
   const tab = tabById(tabId)
   if (tab && tab.zoom !== 1) wvRefs.get(tabId)?.setZoomFactor?.(tab.zoom)
+  // the preload of the new document is live only now — an earlier scan request
+  // would have been sent into the previous one
+  if (pageCapture.active && tabId === pageCapture.tabId) scanNow(tabId)
 }
 </script>
 

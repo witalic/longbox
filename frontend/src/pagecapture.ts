@@ -29,7 +29,7 @@ export interface PageCaptureState {
   domain: string           // the site it was taught on — a learned fix goes back HERE
   tabId: string | null     // the browser tab it was armed on; other tabs are never read
   active: boolean
-  busy: boolean            // a scan/fetch round is running
+  busy: boolean            // the fetch queue is draining
   status: string           // one live line for the panel
   added: number            // pages stored into the current entry this session
   error: string
