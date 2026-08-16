@@ -30,9 +30,15 @@
       { "from": "../app-meta.json", "to": "app-meta.json" }
     ],
     "afterPack": "../packaging/adhoc-sign.js",
-    "publish": [{ "provider": "github", "owner": "witalic", "repo": "longbox" }],
+    "publish": [{
+      "provider": "github",
+      "owner": "witalic",
+      "repo": "longbox",
+      "releaseType": "release",
+      "publishAutoUpdate": false
+    }],
     "win": {
-      "target": ["nsis", "zip"],
+      "target": ["nsis"],
       "icon": "icon.ico",
       "artifactName": "longbox-${version}-windows-${arch}.${ext}"
     },
@@ -40,10 +46,11 @@
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "differentialPackage": false
     },
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": ["dmg"],
       "icon": "icon.png",
       "category": "public.app-category.entertainment",
       "artifactName": "longbox-${version}-macos-${arch}.${ext}",
