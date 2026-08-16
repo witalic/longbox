@@ -24,8 +24,10 @@ release/
 
 # --- The library itself (user content — NEVER committed) ---
 # On-disk media (covers, pages) and the rebuildable SQLite index live outside VCS.
-vault/
-library/
+# ANCHORED to the repo root on purpose: an unanchored `library/` also swallowed
+# backend/app/library/ — the vault + index source module.
+/vault/
+/library/
 *.db
 *.db-wal
 *.db-shm

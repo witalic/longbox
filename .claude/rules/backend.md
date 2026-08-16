@@ -16,6 +16,9 @@ content). Full model: `design/state-model.md`; layout: `ARCHITECTURE.md`.
   converts (cbz → rename, rar/7z → repack, single image → append as next page) and REJECTS what
   it can't read (`UnsupportedArchiveError` → 409/422) — never store opaque files, never let a
   page op rewrite a non-zip. Non-image entries (ComicInfo.xml, …) survive every rewrite.
+- **Startup does the minimum.** Anything expensive that ingest already guarantees is a one-time
+  migration keyed by a marker in `vault.json`, run on a background thread — never work repeated
+  on every launch (that is what once made the sidecar miss the shell's health timeout).
 - **Layer separation.** A meta commit merges layers in the vault and never touches the user layer
   (fav/rating/read). `_reconcile_chapters` guards the no-orphan rule: re-captured rows adopt old
   ids (URL first, then num+lang+group; an adopted id leaves BOTH lookup maps), media-backed rows

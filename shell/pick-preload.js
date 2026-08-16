@@ -27,12 +27,22 @@ let overlay = null
 function esc(s) {
   return window.CSS && CSS.escape ? CSS.escape(s) : String(s).replace(/[^a-zA-Z0-9_-]/g, '\\$&')
 }
+// Classes a lazy loader or a widget flips at runtime. Baking one into a
+// selector is the classic trap: it matches the element you picked (already
+// loaded) and nothing on the next page (not loaded yet, or loaded and the
+// class since removed).
+const STATE_CLASS = new RegExp(
+  '(^|[-_])(' +
+  'active|hover|focus|selected|checked|current|open|show|shown|hidden|visible|' +
+  'lazy|lazyload|lazyloaded|loaded|loading|loads|preload|preloader|entered|inview|in-view|' +
+  'ready|done|complete|completed|initialized|init|animated|error|fail|failed|' +
+  'is|js|css|sc|ng|svelte' +
+  ')([-_]|$)', 'i')
 function usefulClass(c) {
   // drop our own highlight marker and dynamic/stateful classes: anything with a
-  // digit (`tag-2937`, `col-6`) or a known state token — they make
-  // otherwise-identical items look distinct.
-  return c && c !== '__lb_hit' && c.length < 40 && !/\d/.test(c) &&
-    !/(^|[-_])(active|hover|selected|open|show|is|js|css|sc|ng|svelte)([-_]|$)/i.test(c)
+  // digit (`tag-2937`, `col-6`) or a state token — they make otherwise-identical
+  // items look distinct, and change under the selector's feet.
+  return c && c !== '__lb_hit' && c.length < 40 && !/\d/.test(c) && !STATE_CLASS.test(c)
 }
 function leafSeg(el) {
   const tag = el.tagName.toLowerCase()
@@ -390,17 +400,18 @@ function resolveField(rule) {
   return null
 }
 
-// Cover bytes THROUGH the page context: same cookies, referer = this page. This
+// Image bytes THROUGH the page context: same cookies, referer = this page. This
 // is the mandatory path — hotlink-protected and gated images only work here.
 const MAX_COVER = 8 * 1024 * 1024
-async function fetchCoverBytes(url) {
+const MAX_PAGE = 24 * 1024 * 1024 // a webtoon strip page can be big
+async function fetchImageBytes(url, cap) {
   try {
     const res = await fetch(url, { credentials: 'include' })
     if (!res.ok) return null
     const ct = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase()
     if (!ct.startsWith('image/')) return null
     const buf = await res.arrayBuffer()
-    if (!buf.byteLength || buf.byteLength > MAX_COVER) return null
+    if (!buf.byteLength || buf.byteLength > cap) return null
     let bin = ''
     const bytes = new Uint8Array(buf)
     for (let i = 0; i < bytes.length; i += 0x8000) {
@@ -409,6 +420,7 @@ async function fetchCoverBytes(url) {
     return { data: btoa(bin), contentType: ct, sourceUrl: url }
   } catch { return null }
 }
+const fetchCoverBytes = (url) => fetchImageBytes(url, MAX_COVER)
 
 // ---- pick mode ----
 let lastPicked = null // the exact element the user clicked — anchors the position control
@@ -440,9 +452,19 @@ ipcRenderer.on('set-picking', (_e, value) => { picking = !!value; if (!picking) 
 ipcRenderer.on('preview', (_e, req) => {
   const selector = typeof req === 'string' ? req : (req && req.selector) || ''
   const anchor = typeof req === 'object' && req ? req.anchor || '' : ''
+  const kind = typeof req === 'object' && req ? req.kind || '' : ''
   let matched = []
   if (anchor) matched = anchorNodes(anchor)
-  else { try { matched = selector ? [...document.querySelectorAll(selector)] : [] } catch { /* bad selector */ } }
+  else if (kind === 'pages') {
+    // preview EXACTLY what capture would take, junk already filtered out
+    const keep = new Set(resolvePageImages(selector, req.filter))
+    try {
+      matched = [...document.querySelectorAll(selector)].filter((el) => {
+        const img = el.tagName === 'IMG' ? el : el.querySelector('img')
+        return keep.has(img ? bestImageSrc(img) : (nodeValue(el, 'src') || nodeValue(el, 'href')))
+      })
+    } catch { /* bad selector */ }
+  } else { try { matched = selector ? [...document.querySelectorAll(selector)] : [] } catch { /* bad selector */ } }
   applyHighlight(matched)
   const values = matched.slice(0, 24).map((n) => nodeValue(n)).filter((v) => v !== '')
   const first = matched[0]
@@ -481,6 +503,78 @@ ipcRenderer.on('snapshot', async (_e, req) => {
   ipcRenderer.sendToHost('snapshot-result', {
     url: location.href, pageTitle: document.title, fields, used, cover,
   })
+})
+
+// ---- page capture (sources that serve pages, not archives) ----
+// Two steps, driven by the host: SCAN reports the page images this reader view
+// holds (in DOM order), FETCH pulls the bytes the host asks for — one message
+// per image, so a 40-page chapter never crosses the bridge as one huge payload.
+// A selector loose enough to catch every page also catches the reader's icons,
+// avatars and ad pixels — they sit in the very same containers. So a match is a
+// PAGE only if it is rendered, measurable, and page-sized: past an absolute
+// floor, and at least half as wide as the widest match on this view (which
+// adapts to any site without hardcoding its layout).
+// The thresholds are the app's (Settings → Advanced) — the defaults here only
+// cover a message that arrives without them.
+const PAGE_FILTER = { minPx: 200, widthRatio: 0.5 }
+function resolvePageImages(selector, filter) {
+  const minPx = Number.isFinite(filter?.minPx) ? filter.minPx : PAGE_FILTER.minPx
+  const ratio = Number.isFinite(filter?.widthRatio) ? filter.widthRatio : PAGE_FILTER.widthRatio
+  let els = []
+  try { els = [...document.querySelectorAll(selector || '')] } catch { return [] }
+  const cands = []
+  for (const el of els) {
+    // the pick may have landed on the image OR on its wrapper
+    const img = el.tagName === 'IMG' ? el : el.querySelector('img')
+    const node = img || el
+    const url = img ? bestImageSrc(img) : (nodeValue(el, 'src') || nodeValue(el, 'href'))
+    if (!/^(https?:|blob:|data:)/i.test(url || '')) continue
+    if (node.getClientRects && !node.getClientRects().length) continue // not rendered
+    const w = node.naturalWidth || node.offsetWidth || 0
+    const h = node.naturalHeight || node.offsetHeight || 0
+    if (!w && !h) continue // still loading — the next scan will see its real size
+    if (w < minPx || h < minPx) continue
+    cands.push({ url, w })
+  }
+  const widest = Math.max(0, ...cands.map((c) => c.w))
+  const kept = cands.filter((c) => c.w >= widest * ratio)
+  return [...new Set(kept.map((c) => c.url))] // the same image twice is ONE page
+}
+
+// A taught selector can still carry a class the site flips per page. When it
+// yields nothing, retry without the leaf's class conditions before giving up —
+// the size filter is what keeps a looser match honest.
+function relaxSelector(selector) {
+  const parts = String(selector || '').trim().split(/\s+/)
+  if (!parts.length) return ''
+  const leaf = parts[parts.length - 1]
+  const bare = leaf.replace(/\.[^.#[\s]+/g, '')
+  if (!bare || bare === leaf) return ''
+  return [...parts.slice(0, -1), bare].join(' ')
+}
+
+ipcRenderer.on('scan-pages', (_e, req) => {
+  let urls = resolvePageImages(req.selector, req.filter)
+  let relaxed = ''
+  if (!urls.length) {
+    relaxed = relaxSelector(req.selector)
+    if (relaxed) urls = resolvePageImages(relaxed, req.filter)
+  }
+  ipcRenderer.sendToHost('pages-scan', {
+    url: location.href, title: document.title, urls,
+    relaxed: urls.length ? relaxed : '', // tell the host which selector actually worked
+  })
+})
+
+ipcRenderer.on('fetch-pages', async (_e, req) => {
+  const urls = (req.urls || []).slice(0, 400)
+  let ok = 0
+  for (const url of urls) {
+    const got = await fetchImageBytes(url, MAX_PAGE)
+    if (got) ok++
+    ipcRenderer.sendToHost('page-bytes', got ? { url, data: got.data, contentType: got.contentType } : { url, failed: true })
+  }
+  ipcRenderer.sendToHost('pages-fetched', { asked: urls.length, ok })
 })
 
 // A window.open / middle-click / target=_blank was denied natively (main process) and

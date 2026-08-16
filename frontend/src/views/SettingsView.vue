@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // Settings — collapsible cards ordered by priority: Storage (libraries),
 // Browser (global embedded-browser controls), Keyboard, Appearance, Index.
-// Only functionality the app actually supports appears here.
+// Only functionality the app actually supports appears here; knobs that belong
+// to a flow live IN that flow (the page-capture filter is in the capture dock).
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import Icon from '../components/Icon.vue'
 import { store, setLibraryPath, askConfirm, type ThemePref } from '../store'
@@ -139,6 +140,31 @@ async function rebuild() {
   setTimeout(() => { rebuildProgress.value = '' }, 3000)
 }
 
+// ---- archive conversion: the one-time zip sweep, re-runnable by hand ----
+const converting = ref(false)
+const convertFlash = ref('')
+async function normalizeArchives() {
+  const ok = await askConfirm({
+    title: 'Convert archives to zip', okLabel: 'Convert',
+    message: 'Check every stored chapter and convert anything that is not a plain zip '
+      + '(cbz, rar, 7z). This normally runs once per library — re-run it after installing '
+      + 'an unrar backend, or when files were added to the folder outside the app.',
+  })
+  if (!ok) return
+  converting.value = true
+  convertFlash.value = '…'
+  try {
+    const r = await api.normalizeArchives()
+    convertFlash.value = r.converted ? `✓ converted ${r.converted}` : '✓ everything already zip'
+  } catch (e) {
+    convertFlash.value = ''
+    store.error = String(e)
+  } finally {
+    converting.value = false
+    setTimeout(() => { convertFlash.value = '' }, 4000)
+  }
+}
+
 // ---- keyboard: click a binding → press the new key ----
 const capturing = ref<string | null>(null)
 function onCaptureKey(e: KeyboardEvent) {
@@ -272,7 +298,18 @@ const anyOverride = computed(() => Object.keys(keyOverrides).length > 0)
         <span v-if="rebuildProgress" class="mini mono" :style="{ color: rebuildProgress.startsWith('✓') ? 'var(--good)' : 'var(--accent)' }">{{ rebuildProgress }}</span>
         <button class="btn" :disabled="rebuilding" @click="rebuild"><Icon name="refresh" :size="14" />{{ rebuilding ? 'Rebuilding…' : 'Rebuild' }}</button>
       </div>
+      <div v-if="isOpen('index')" class="row">
+        <div class="text">
+          <div class="label">Stored archives</div>
+          <div class="hint">Every chapter is stored as a plain zip, so pages can always be read and edited.
+            Incoming files are converted automatically; this sweep is for content added to the folder
+            outside the app — or to retry archives that had no reader before (e.g. rar without unrar).</div>
+        </div>
+        <span v-if="convertFlash" class="mini mono" :style="{ color: convertFlash.startsWith('✓') ? 'var(--good)' : 'var(--accent)' }">{{ convertFlash }}</span>
+        <button class="btn" :disabled="converting" @click="normalizeArchives"><Icon name="refresh" :size="14" />{{ converting ? 'Converting…' : 'Convert' }}</button>
+      </div>
     </section>
+
 
     <!-- 6 · ABOUT — the app's metadata, from ONE source (app-meta.json) -->
     <section class="card">
@@ -292,9 +329,9 @@ const anyOverride = computed(() => Object.keys(keyOverrides).length > 0)
     </section>
     </div>
     </div>
-    <div class="lfoot">
-      <span class="mono lfinfo">{{ appMeta.name || 'longbox' }} v{{ appMeta.version || '?' }}<template v-if="appMeta.updated"> · updated {{ appMeta.updated }}</template></span>
-    </div>
+    <!-- the 44px bottom band is the view's line grid; the app's identity lives
+         in the About card alone, never twice on one screen -->
+    <div class="lfoot"></div>
   </div>
 </template>
 

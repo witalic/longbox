@@ -13,4 +13,9 @@ contextBridge.exposeInMainWorld('longbox', {
   setTitleBar: (opts) => ipcRenderer.send('lb-titlebar', {
     color: String(opts?.color || ''), symbolColor: String(opts?.symbolColor || ''),
   }),
+  // page capture: pull one image with the browser session's cookies + referer
+  // (the main process is not bound by the site's CORS)
+  fetchImage: (url, referer) => ipcRenderer.invoke('lb-fetch-image', {
+    url: String(url || ''), referer: String(referer || ''),
+  }),
 })

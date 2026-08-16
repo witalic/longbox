@@ -64,6 +64,13 @@ watch(() => [store.view, store.activeTitle, browser.activeId], async () => {
   tabScrollEl.value?.querySelector('.tab.on')?.scrollIntoView({ inline: 'nearest', block: 'nearest' })
 })
 
+// The strip's "+" opens a new tab OF THE WORLD it belongs to: a browser tab on
+// the homepage in the web strip, the library on the app side.
+function newStripTab() {
+  if (stripMode.value === 'web') newTab()
+  else goView('library')
+}
+
 const tabsMenu = ref(false)
 const tabsMenuRoot = ref<HTMLElement | null>(null)
 function onDocDown(e: MouseEvent) {
@@ -84,27 +91,100 @@ function dropOn(kind: 't' | 'b', targetId: string) {
   else moveBrowserTabBefore(d.id, targetId)
 }
 
-// drag & drop reordering IN THE STRIP itself (same move helpers; the drop lands
-// BEFORE the hovered tab, or at the end when released on the empty stretch)
+// Chrome-style reorder IN THE STRIP, pointer-based: the tab itself slides
+// HORIZONTALLY inside the strip (no free-floating drag ghost over the app);
+// crossing a neighbor's midpoint live-reorders and the rest slide aside via
+// the TransitionGroup's FLIP `move` transition. A real drag consumes the
+// click that follows, so releasing never re-activates by accident.
 const stripDrag = ref<{ kind: 't' | 'b'; id: string } | null>(null)
-const stripOver = ref<string | null>(null)
-function stripDragStart(kind: 't' | 'b', id: string) { stripDrag.value = { kind, id } }
-function stripDragEnd() { stripDrag.value = null; stripOver.value = null }
-function stripDrop(kind: 't' | 'b', targetId: string) {
-  const d = stripDrag.value
-  stripDragEnd()
-  if (!d || d.kind !== kind || d.id === targetId) return
-  if (kind === 't') moveTitleTabBefore(d.id, targetId)
-  else moveBrowserTabBefore(d.id, targetId)
+let dragEl: HTMLElement | null = null
+let dragPtr = 0
+let dragStartX = 0
+let dragStartLeft = 0
+let dragLive = false
+let swallowClick = false
+
+function parseTx(t: string): number {
+  const m = /translateX\((-?[\d.]+)px\)/.exec(t)
+  return m ? parseFloat(m[1]) : 0
 }
-function stripDropEnd() {
-  // released on the strip's empty stretch → move to the end ('#end' matches
-  // nothing, and the move helpers push an unmatched target to the back)
+function tabPointerDown(kind: 't' | 'b', id: string, e: PointerEvent) {
+  if (e.button !== 0) return
+  if ((e.target as HTMLElement).closest('.tact')) return // ✕ / pin are clicks, never drags
+  dragEl = e.currentTarget as HTMLElement
+  dragPtr = e.pointerId
+  dragStartX = e.clientX
+  dragStartLeft = dragEl.getBoundingClientRect().left
+  dragLive = false
+  stripDrag.value = { kind, id }
+  dragEl.setPointerCapture(e.pointerId)
+}
+function tabPointerMove(e: PointerEvent) {
   const d = stripDrag.value
-  stripDragEnd()
-  if (!d) return
-  if (d.kind === 't') moveTitleTabBefore(d.id, '#end')
-  else moveBrowserTabBefore(d.id, '#end')
+  if (!d || !dragEl || e.pointerId !== dragPtr) return
+  const dx = e.clientX - dragStartX
+  if (!dragLive && Math.abs(dx) < 5) return // click-sized wobble is not a drag
+  if (!dragLive) {
+    dragLive = true
+    // chrome selects the tab the moment its drag starts
+    if (d.kind === 't') void openTitle(d.id)
+    else activateTab(d.id)
+  }
+  const strip = tabScrollEl.value
+  // glue the tab to the pointer on the X axis only, clamped to the strip
+  const cur = dragEl.getBoundingClientRect()
+  const slotLeft = cur.left - parseTx(dragEl.style.transform) // layout position without our offset
+  let want = dragStartLeft + dx
+  if (strip) {
+    const s = strip.getBoundingClientRect()
+    want = Math.max(s.left, Math.min(want, s.right - cur.width))
+    // nudge the strip when dragging against its edges
+    if (e.clientX > s.right - 28) strip.scrollBy({ left: 14 })
+    else if (e.clientX < s.left + 28) strip.scrollBy({ left: -14 })
+  }
+  dragEl.style.transform = `translateX(${want - slotLeft}px)`
+  // live reorder on midpoint crossing (past the last tab's right half → the end)
+  if (!strip) return
+  const ids = d.kind === 't' ? titleTabs.value.map((x) => x.id) : browserTabs.value.map((x) => x.id)
+  const from = ids.indexOf(d.id)
+  if (from < 0) return
+  for (const el of strip.querySelectorAll<HTMLElement>('.tab')) {
+    const tid = el.dataset.tabId
+    if (!tid || tid === d.id) continue
+    const r = el.getBoundingClientRect()
+    if (e.clientX < r.left || e.clientX > r.right) continue
+    const ti = ids.indexOf(tid)
+    if (ti < 0) break
+    const insert = e.clientX < r.left + r.width / 2 ? ti : ti + 1
+    if (insert === from || insert === from + 1) break // already there — keeps the live swap stable
+    const beforeId = ids[insert]
+    if (d.kind === 't') moveTitleTabBefore(d.id, beforeId ?? '#end')
+    else moveBrowserTabBefore(d.id, beforeId ?? '#end')
+    break
+  }
+}
+function tabPointerUp(e: PointerEvent) {
+  if (!stripDrag.value || e.pointerId !== dragPtr) return
+  const el = dragEl
+  swallowClick = dragLive
+  stripDrag.value = null
+  dragEl = null
+  if (el) {
+    if (dragLive) {
+      // settle into the slot with a short slide instead of an instant snap
+      el.classList.add('tabsettle')
+      el.style.transform = ''
+      window.setTimeout(() => el.classList.remove('tabsettle'), 200)
+    } else {
+      el.style.transform = ''
+    }
+  }
+  dragLive = false
+}
+function tabClick(kind: 't' | 'b', id: string) {
+  if (swallowClick) { swallowClick = false; return }
+  if (kind === 't') void openTitle(id)
+  else activateTab(id)
 }
 
 const draftOpen = computed(() => !!draftState.cur)
@@ -131,16 +211,15 @@ initSessions()
         <svg class="logo" viewBox="0 0 72 72" aria-hidden="true"><defs><linearGradient id="lbgrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8194f4"/><stop offset="1" stop-color="#3e4eb2"/></linearGradient></defs><rect width="72" height="72" rx="17" fill="url(#lbgrad)"/><path d="M27 19h9v25h13v9H27z" fill="#fff"/></svg>
         <span class="name">{{ store.appMeta.name || 'longbox' }}</span>
       </div>
-      <div ref="tabScrollEl" class="tabscroll" @wheel.prevent="onTabWheel"
-           @dragover.prevent="stripOver = null" @drop.prevent="stripDropEnd">
-        <template v-if="stripMode === 'app'">
-          <div v-for="x in titleTabs" :key="x.id" class="tab"
+      <div ref="tabScrollEl" class="tabscroll" @wheel.prevent="onTabWheel">
+        <TransitionGroup v-if="stripMode === 'app'" name="tabslide">
+          <div v-for="x in titleTabs" :key="x.id" class="tab" :data-tab-id="x.id"
                :class="{ on: ['title', 'reader'].includes(store.view) && store.activeTitle === x.id, pinned: x.pinned,
-                         dragging: stripDrag?.id === x.id, dropbefore: stripOver === x.id && stripDrag && stripDrag.id !== x.id }"
-               :title="x.t.title" draggable="true"
-               @dragstart="stripDragStart('t', x.id)" @dragend="stripDragEnd"
-               @dragover.prevent.stop="stripOver = x.id" @drop.prevent.stop="stripDrop('t', x.id)"
-               @click="openTitle(x.id)">
+                         dragging: stripDrag?.id === x.id }"
+               :title="x.t.title"
+               @pointerdown="tabPointerDown('t', x.id, $event)" @pointermove="tabPointerMove"
+               @pointerup="tabPointerUp" @pointercancel="tabPointerUp"
+               @click="tabClick('t', x.id)">
             <span class="swatch" :style="x.t.cover ? { background: `#181a1f url('${coverAt(x.t.cover, 64)}') center/cover` } : { background: hueFor(x.id) }"></span>
             <template v-if="!x.pinned">
               <span class="lbl">{{ x.t.title }}</span>
@@ -149,16 +228,17 @@ initSessions()
             </template>
             <span v-else class="tact unpin" title="Unpin tab" @click.stop="toggleTitlePin(x.id)"><Icon name="pin" :size="10" :sw="2" /></span>
           </div>
-        </template>
-        <template v-else-if="stripMode === 'web'">
-          <div v-for="t in browserTabs" :key="t.id" class="tab web"
+        </TransitionGroup>
+        <TransitionGroup v-else-if="stripMode === 'web'" name="tabslide">
+          <div v-for="t in browserTabs" :key="t.id" class="tab web" :data-tab-id="t.id"
                :class="{ on: store.view === 'browser' && browser.activeId === t.id, pinned: t.pinned,
-                         dragging: stripDrag?.id === t.id, dropbefore: stripOver === t.id && stripDrag && stripDrag.id !== t.id }"
-               :title="t.title || t.url" draggable="true"
-               @dragstart="stripDragStart('b', t.id)" @dragend="stripDragEnd"
-               @dragover.prevent.stop="stripOver = t.id" @drop.prevent.stop="stripDrop('b', t.id)"
-               @click="activateTab(t.id)">
-            <span class="fav">{{ (t.label[0] || '?').toUpperCase() }}</span>
+                         dragging: stripDrag?.id === t.id }"
+               :title="t.title || t.url"
+               @pointerdown="tabPointerDown('b', t.id, $event)" @pointermove="tabPointerMove"
+               @pointerup="tabPointerUp" @pointercancel="tabPointerUp"
+               @click="tabClick('b', t.id)">
+            <span v-if="t.loading" class="tabspin" title="Loading…"></span>
+            <span v-else class="fav">{{ (t.label[0] || '?').toUpperCase() }}</span>
             <template v-if="!t.pinned">
               <span class="lbl">{{ t.title || t.label }}</span>
               <span class="tact pinbtn" title="Pin tab" @click.stop="toggleTabPin(t.id)"><Icon name="pin" :size="10" :sw="2" /></span>
@@ -166,8 +246,11 @@ initSessions()
             </template>
             <span v-else class="tact unpin" title="Unpin tab" @click.stop="toggleTabPin(t.id)"><Icon name="pin" :size="10" :sw="2" /></span>
           </div>
-        </template>
+        </TransitionGroup>
       </div>
+      <button class="stripbtn" :title="stripMode === 'web' ? 'New browser tab' : 'Library'" @click="newStripTab">
+        <Icon name="plus" :size="14" :sw="2.2" />
+      </button>
       <div ref="tabsMenuRoot" class="alltabs">
         <button class="stripbtn" :class="{ on: tabsMenu }" title="All tabs" @click="tabsMenu = !tabsMenu"><Icon name="chevron" :size="12" :sw="2.2" /></button>
         <div v-if="tabsMenu" class="tabsmenu scroll">
@@ -274,7 +357,7 @@ initSessions()
 .tabscroll::-webkit-scrollbar { display: none; }
 /* every tab reads as a tab: a visible card even when inactive; the active one
    shares the content background so it visually connects to the page below */
-.tab { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 35px; padding: 0 10px; max-width: 190px; min-width: 0; border: 1px solid color-mix(in srgb, var(--line) 55%, transparent); border-bottom: none; border-radius: 8px 8px 0 0; background: color-mix(in srgb, var(--panel) 55%, transparent); color: var(--tx3); font: 500 12px/1 system-ui; cursor: pointer; }
+.tab { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 35px; padding: 0 10px; max-width: 190px; min-width: 0; border: 1px solid color-mix(in srgb, var(--line) 55%, transparent); border-bottom: none; border-radius: 8px 8px 0 0; background: color-mix(in srgb, var(--panel) 55%, transparent); color: var(--tx3); font: 500 12px/1 system-ui; cursor: pointer; user-select: none; }
 .tab:hover { background: var(--panel); color: var(--tx); }
 /* the ACTIVE tab carries an accent top bar — background alone is too subtle
    in the light theme */
@@ -288,9 +371,17 @@ initSessions()
 .tab .pinbtn { opacity: 0; }
 .tab:hover .pinbtn { opacity: 1; }
 .tab .unpin { color: var(--accent); }
-/* strip reorder: the dragged tab dims; the accent line marks "lands BEFORE this tab" */
-.tab.dragging { opacity: .45; }
-.tab.dropbefore { box-shadow: inset 3px 0 0 var(--accent); }
+/* strip reorder (chrome-style, pointer-based): the tab itself slides along the
+   strip — raised above its neighbors, which move aside via the FLIP transition;
+   its own transform is driven from JS, so any -move transition must not fight it */
+.tab.dragging { transition: none !important; position: relative; z-index: 5; box-shadow: 0 4px 14px rgba(0, 0, 0, .35); }
+.tab.tabsettle { transition: transform .16s ease; }
+.tabslide-move { transition: transform .16s ease; }
+/* browser tab loading: the favicon slot becomes a spinner while a request is in flight */
+.tabspin { width: 14px; height: 14px; flex: none; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-top-color: var(--accent); animation: tabspin .8s linear infinite; }
+@keyframes tabspin { to { transform: rotate(360deg); } }
 .stripbtn { width: 40px; height: 100%; border: none; border-radius: 0; background: transparent; color: var(--tx2); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex: none; }
 .stripbtn:hover { background: var(--hover); color: var(--tx); }
 .stripbtn.on { background: var(--accentSoft); color: var(--accent); }

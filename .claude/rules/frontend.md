@@ -9,7 +9,8 @@ paths:
 - **Three stores, one-way flow** (`design/state-model.md`): `store.ts` (app/library/user layer),
   `draft.ts` (THE draft — seeded on purpose, never mirrors "whatever page I'm on"),
   `browser.ts` (tabs only). The merge invariant: auto capture writes only into `auto`/empty
-  fields; manual is untouchable.
+  fields; manual is untouchable. `pagecapture.ts` holds the page-capture ACTIVITY (not persisted
+  state) so browser.ts stays free of capture concerns.
 - The user layer (fav/rating/read) is instant optimistic write-through — no draft, no confirm.
   Everything else commits explicitly through the draft.
 - Key bindings are physical (`e.code`, via `keys.ts`) so they survive keyboard layouts.

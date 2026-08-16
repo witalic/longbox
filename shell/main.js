@@ -5,7 +5,7 @@
 // then loads the UI the sidecar serves at /app/. Locks down navigation,
 // window-open, and permissions.
 
-const { app, BrowserWindow, Menu, dialog, ipcMain, session } = require('electron')
+const { app, BrowserWindow, Menu, dialog, ipcMain, net: electronNet, session } = require('electron')
 const { spawn } = require('node:child_process')
 const crypto = require('node:crypto')
 const fs = require('node:fs')
@@ -103,7 +103,10 @@ function spawnSidecar(port, token) {
   return child
 }
 
-async function waitForHealth(port, token, timeoutMs = 15000) {
+// Generous timeout: a cold Python start behind an antivirus scan plus a large
+// vault rescan can legitimately take a while — giving up too early kills a
+// sidecar that was almost ready.
+async function waitForHealth(port, token, timeoutMs = 60000) {
   const want = sha256(token)
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
@@ -269,6 +272,111 @@ async function main() {
       properties: ['openDirectory', 'createDirectory'],
     })
     return res.canceled || !res.filePaths.length ? null : res.filePaths[0]
+  })
+
+  // Page capture: fetch ONE image with the browser session's cookies and the
+  // reader page as Referer. This runs in the main process on purpose — a fetch
+  // from inside the page is bound by the site's CORS, which is exactly what
+  // blocks reading a CDN image the page itself displays fine. Hotlink checks
+  // pass because the request carries the same cookies and referer as the page.
+  const MAX_IMAGE = 24 * 1024 * 1024
+  // The UA the embedded browser itself sends, minus the tokens that give the
+  // app away — a CDN that sniffs for "Electron" would refuse the request the
+  // page next to it is allowed to make.
+  const browserUA = () =>
+    win.webContents.getUserAgent().replace(/\s*(Electron|longbox[\w-]*)\/[\d.]+/gi, '').replace(/\s{2,}/g, ' ')
+  // Content type is not trustworthy (CDNs love application/octet-stream), so
+  // the bytes decide: JPEG / PNG / GIF / WEBP / BMP / AVIF magic.
+  function sniffImage(buf) {
+    if (buf.length < 12) return ''
+    if (buf[0] === 0xff && buf[1] === 0xd8) return 'image/jpeg'
+    if (buf.slice(0, 8).toString('hex') === '89504e470d0a1a0a') return 'image/png'
+    if (buf.slice(0, 3).toString('latin1') === 'GIF') return 'image/gif'
+    if (buf.slice(0, 4).toString('latin1') === 'RIFF' && buf.slice(8, 12).toString('latin1') === 'WEBP') return 'image/webp'
+    if (buf.slice(0, 2).toString('latin1') === 'BM') return 'image/bmp'
+    if (buf.slice(4, 8).toString('latin1') === 'ftyp' && /avif|heic/i.test(buf.slice(8, 12).toString('latin1'))) return 'image/avif'
+    return ''
+  }
+  // ONE attempt with a given header set. Sec-Fetch-* are deliberately absent:
+  // Chromium owns those, and a request that arrives with them pre-set from the
+  // main process is refused outright (ERR_BLOCKED_BY_CLIENT).
+  function fetchImageOnce(url, headers) {
+    return new Promise((resolve) => {
+      let request
+      try {
+        request = electronNet.request({ url, session: sess, useSessionCookies: true })
+      } catch (err) {
+        resolve({ error: `bad request: ${err.message}` })
+        return
+      }
+      for (const [k, v] of Object.entries(headers)) {
+        if (v) {
+          try { request.setHeader(k, v) } catch { /* a header Chromium reserves */ }
+        }
+      }
+      request.on('response', (res) => {
+        if (res.statusCode >= 400) {
+          res.resume()
+          resolve({ error: `http ${res.statusCode}` })
+          return
+        }
+        const chunks = []
+        let total = 0
+        res.on('data', (c) => {
+          total += c.length
+          if (total <= MAX_IMAGE) chunks.push(c)
+        })
+        res.on('end', () => {
+          if (!chunks.length) { resolve({ error: 'empty response' }); return }
+          if (total > MAX_IMAGE) { resolve({ error: 'image too large' }); return }
+          const buf = Buffer.concat(chunks)
+          const ct = String(res.headers['content-type'] || '').split(';')[0].trim().toLowerCase()
+          const kind = sniffImage(buf) || (ct.startsWith('image/') ? ct : '')
+          if (!kind) { resolve({ error: `not an image (${ct || 'no content-type'})` }); return }
+          resolve({ data: buf.toString('base64'), contentType: kind })
+        })
+        res.on('error', (err) => resolve({ error: `stream: ${err.message}` }))
+      })
+      request.on('error', (err) => resolve({ error: err.message }))
+      request.end()
+    })
+  }
+
+  ipcMain.handle('lb-fetch-image', async (e, req) => {
+    if (e.sender !== win.webContents) return { error: 'denied' }
+    const url = String(req?.url || '')
+    if (!/^https?:\/\//i.test(url)) return { error: 'not an http url' }
+    const referer = req?.referer ? String(req.referer) : ''
+    // Escalating attempts: look like the page's own <img> first (referer + the
+    // browser's UA is what hotlink checks read), then plainer, then bare — one
+    // site's requirement is another's reason to refuse.
+    const attempts = [
+      { Referer: referer, 'User-Agent': browserUA(), Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8', 'Accept-Language': 'en-US,en;q=0.9' },
+      { Referer: referer },
+      {},
+    ]
+    let last = { error: 'no attempt ran' }
+    for (const headers of attempts) {
+      last = await fetchImageOnce(url, headers)
+      if (last?.data) return last
+    }
+    // Last resort: the session's own fetch — a different path through the
+    // network stack than net.request, which some blocks only apply to.
+    try {
+      const res = await sess.fetch(url, {
+        headers: referer ? { Referer: referer, 'User-Agent': browserUA() } : { 'User-Agent': browserUA() },
+      })
+      if (!res.ok) return { error: `${last.error} · session fetch http ${res.status}` }
+      const buf = Buffer.from(await res.arrayBuffer())
+      const ct = String(res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase()
+      const kind = sniffImage(buf) || (ct.startsWith('image/') ? ct : '')
+      if (buf.length && buf.length <= MAX_IMAGE && kind) {
+        return { data: buf.toString('base64'), contentType: kind }
+      }
+      return { error: `${last.error} · session fetch: not an image (${ct || 'no content-type'})` }
+    } catch (err) {
+      return { error: `${last.error} · session fetch: ${err.message}` }
+    }
   })
 
   // Native window-controls overlay recolor (theme switch)

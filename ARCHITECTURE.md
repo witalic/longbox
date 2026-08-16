@@ -54,6 +54,7 @@ echo before loading the UI. **Never send the library or a token over a non-TLS r
 library/
   index.db                   rebuildable cache
   authors.json               author favorites (user layer, vault-level)
+  vault.json                 vault-level markers (one-time migrations)
   <type-shelf>/              one directory per TYPE (manga/, image-set/, …; typeless → other/)
     <title-id>/
       title.json             schema-versioned, layered:
@@ -71,9 +72,11 @@ library/
   moves the directory (and sweeps the emptied shelf). Legacy flat layouts migrate on open.
 - **The zip invariant.** Every stored chapter archive is a plain zip: cbz keeps its bytes under
   the `.zip` name, rar/7z are repacked at ingest, single downloaded images append as pages into
-  the chapter's zip, and an unreadable file is rejected — never stored opaque. A startup pass
-  normalizes pre-existing content. So every page operation (add / delete / move / reorder) works
-  on every stored chapter.
+  the chapter's zip, and an unreadable file is rejected — never stored opaque. So every page
+  operation (add / delete / move / reorder) works on every stored chapter. Because ingest enforces
+  this, the whole-vault sweep is a **migration, not a startup chore**: it runs once per vault
+  (marked by `zipNormalized` in `vault.json`), on a background thread, and Settings can re-run it
+  for content dropped into the folder by hand.
 - **No-orphan commits.** A meta commit reconciles chapters: a re-captured row adopts the old row's
   id (by URL, else by num+lang+group), and media-backed rows missing from a stale draft are
   restored — downloaded chapters are removed only by the explicit delete endpoints.
@@ -95,10 +98,19 @@ Endpoints run sync on FastAPI's threadpool, so races are real and handled struct
 
 - Covers and chapter pages are served with cached LANCZOS downscales (`?w=`), keyed by file mtime
   so edits invalidate automatically. Tall webtoon pages crop in previews only, never in the reader.
-- Downloads use the **armed flow** (`state-model.md` §9): the user arms ONE next download for a
-  specific chapter; the shell intercepts `will-download`, streams progress, and hands the finished
-  temp file to the sidecar for ingest (conversion to zip + sidecar provenance + row binding).
-  Unarmed downloads are rejected at start.
+- Downloads come in two lanes, chosen per source in the capture dock:
+  - **Archive** — the **armed flow** (`state-model.md` §9): the user arms ONE next download for a
+    specific chapter; the shell intercepts `will-download`, streams progress, and hands the
+    finished temp file to the sidecar for ingest (conversion to zip + sidecar provenance + row
+    binding). Unarmed downloads are rejected at start.
+  - **Page capture** — for sources that only render pages. The same explicit binding: the user
+    names ONE entry and arms it, then reads; finishing the chapter is explicit and steps the label
+    forward. The page-image selector is taught once per domain (pick mode → the recipe's `pages`
+    rule). Each page view is scanned, the vault is asked what the armed entry already holds
+    (`pages/known`), and only the rest are fetched through the page context and appended
+    (`pages/capture`). Dedup is by the image's **file name**, recorded in the sidecar
+    (`pageKeys`) — CDN URLs carry rotating tokens, names don't — so flipping back re-downloads
+    nothing; unreadable media is distrusted and re-captured.
 - **The app never handles passwords.** The user signs in on the site inside the embedded browser;
   only the resulting session cookies persist (Electron session), per domain, revocable from the UI.
 - Remote/S3/WebDAV storage stays a roadmap item; the seam would be a storage adapter behind `Vault`.

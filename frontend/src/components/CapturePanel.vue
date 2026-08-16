@@ -10,7 +10,10 @@ import { addChapterRow, groupSuggestions, langSuggestions, openTitle, refreshTit
 import { newTab } from '../browser'
 import { api, type DownloadItem, type DownloadsState } from '../api'
 import { compareChapterNums, coverAt, faviconFor, groupByNum, type Chapter } from '../data'
-import type { EditableField } from '../draft'
+import {
+  PAGE_FILTER_DEFAULTS, nextLabel, pageCapture, pageFilter, resetPageFilter, savePageFilter,
+  startPageCapture, stopPageCapture, type PickField,
+} from '../pagecapture'
 import Combo from './Combo.vue'
 import Icon from './Icon.vue'
 import MetadataEditor from './MetadataEditor.vue'
@@ -23,7 +26,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
   (e: 'autofill'): void
-  (e: 'capture', field: EditableField): void
+  (e: 'capture', field: PickField): void
 }>()
 
 const d = computed(() => draftState.cur)
@@ -116,6 +119,54 @@ async function addEntry(arm: boolean) {
     dLabel.value = '' // batch-adding rows: the next entry gets a fresh label
   }
 }
+// ---- the download MODE: an archive per chapter, or the reader page itself ----
+// Page capture arms ONE entry exactly like an archive download: the pages land
+// in the entry named in the form, and finishing it is explicit.
+const pageMode = ref(false)
+function setPageMode(on: boolean) {
+  pageMode.value = on
+  if (!on && pageCapture.active) stopPageCapture()
+}
+async function startCapture() {
+  const cur = draftState.cur
+  const t = cur?.targetId ? titleById(cur.targetId) : undefined
+  if (!t || !pageCapture.selector || !dLabel.value.trim()) return
+  const ch = { num: dLabel.value.trim(), lang: dLang.value.trim(), group: dGroup.value.trim(), url: dUrl.value.trim() }
+  const norm = (s: string) => s.trim().toLowerCase()
+  const same = (c: Chapter) =>
+    norm(c.num) === norm(ch.num) && norm(c.lang) === norm(ch.lang) && norm(c.group) === norm(ch.group)
+  // re-arming an existing entry is normal — pages just continue into it
+  if (!t.chapters.some(same) && !(await addChapterRow(t, ch))) return
+  const row = titleById(t.id)?.chapters.find(same)
+  if (!row) return
+  startPageCapture({ titleId: t.id, chapterId: row.id, label: ch.num, selector: pageCapture.selector })
+}
+// what counts as a page — tuned HERE, next to the selector it corrects, with
+// the pick preview showing the result live
+const filterOpen = ref(false)
+const filterDirty = computed(() =>
+  pageFilter.minPx !== PAGE_FILTER_DEFAULTS.minPx || pageFilter.widthRatio !== PAGE_FILTER_DEFAULTS.widthRatio)
+const ratioPct = computed({
+  get: () => Math.round(pageFilter.widthRatio * 100),
+  set: (v: number) => savePageFilter({ widthRatio: (Number(v) || 0) / 100 }),
+})
+
+// finish this entry and line the next one up — the label steps forward, so a
+// run of chapters is: Start → read → Finish → Start → read → …
+function finishCapture() {
+  const done = pageCapture.label
+  const pages = pageCapture.added
+  stopPageCapture()
+  dLabel.value = nextLabel(done)
+  showFlash(pages ? `✓ ch. ${done} — ${pages} pages` : `ch. ${done} — nothing captured`)
+  void refreshTitle(draftState.cur?.targetId || '')
+}
+// the capture binds to ONE title — switching the draft target must not keep
+// filing pages into the previous one
+watch(() => draftState.cur?.targetId, (id) => {
+  if (pageCapture.active && pageCapture.titleId !== id) stopPageCapture()
+})
+
 // arm straight from an existing entry row
 async function armRow(r: PanelRow) {
   const cur = draftState.cur
@@ -319,13 +370,96 @@ async function save(asNew: boolean) {
           Entries and downloads belong to a saved title — press Create below first.
         </div>
         <template v-else>
-        <div v-if="armed" class="armedbox">
+        <!-- HOW this source gives its content: a file per chapter, or the
+             reader page itself (design/state-model.md §9) -->
+        <div class="seg modeseg">
+          <button class="opt" :class="{ on: !pageMode }" title="The site serves a downloadable archive per chapter" @click="setPageMode(false)">Archive</button>
+          <button class="opt" :class="{ on: pageMode }" title="The site only shows pages — capture them while you read" @click="setPageMode(true)">Pages</button>
+        </div>
+
+        <div v-if="pageMode && pageCapture.active" class="armedbox">
+          <div class="armtitle"><Icon name="download" :size="14" />Capturing into ch. {{ pageCapture.label }}</div>
+          <div class="armmeta mono">{{ pageCapture.status || 'open the first page…' }}</div>
+          <div v-if="pageCapture.error" class="dlfail" style="font-size:11px">{{ pageCapture.error }}</div>
+          <div class="armnote">Read through the chapter — every page you open is added. Pages already
+            stored are never fetched again, so going back costs nothing.</div>
+          <div class="dlrow2">
+            <button class="btn ghost" @click="stopPageCapture">Cancel</button>
+            <button class="btn accent" title="Close this chapter and line the next one up" @click="finishCapture">
+              Finish chapter
+            </button>
+          </div>
+        </div>
+
+        <div v-else-if="pageMode" class="dlform">
+          <div class="dllbl">CAPTURE INTO A NEW ENTRY</div>
+          <div class="pcrow">
+            <span class="dllbl" style="flex:none;width:78px">PAGES</span>
+            <span class="pcsel mono" :class="{ unset: !pageCapture.selector }">{{ pageCapture.selector || 'not taught — pick a page image' }}</span>
+            <button class="btn ghost pcpick" :disabled="!props.hasPage" title="Click one page image on the site; every image the selector matches becomes a page" @click="emit('capture', 'pages')">Pick</button>
+          </div>
+          <!-- the junk filter lives next to the selector it corrects: icons and
+               ads share the pages' containers, so size is what tells them apart -->
+          <div class="pcfilter">
+            <button class="pcftog" @click="filterOpen = !filterOpen">
+              <Icon name="chevron" :size="10" :sw="2.4" :style="{ transform: filterOpen ? '' : 'rotate(-90deg)' }" />
+              <span>What counts as a page</span>
+              <span class="mono pcfsum">≥{{ pageFilter.minPx }}px · ≥{{ ratioPct }}%</span>
+            </button>
+            <div v-if="filterOpen" class="pcfbody">
+              <div class="pcfrow">
+                <span class="pcflbl">Minimum size</span>
+                <input class="pcfin mono" type="number" min="0" max="2000" step="10" :value="pageFilter.minPx"
+                       @change="savePageFilter({ minPx: Number(($event.target as HTMLInputElement).value) })" />
+                <span class="pcfunit mono">px</span>
+              </div>
+              <div class="pcfrow">
+                <span class="pcflbl">Min width share</span>
+                <input v-model.number="ratioPct" class="pcfin mono" type="number" min="0" max="100" step="5" />
+                <span class="pcfunit mono">%</span>
+              </div>
+              <div class="pcfnote">Smaller than the first rule in either dimension, or narrower than that
+                share of the widest match on the same view, and it is furniture. Loosen them if real pages
+                are skipped; the pick preview always shows the filtered result.</div>
+              <button v-if="filterDirty" class="btn ghost pcpick" style="align-self:flex-start" @click="resetPageFilter()">Reset</button>
+            </div>
+          </div>
+          <div class="dlrow">
+            <label class="dllbl">LABEL *</label>
+            <input v-model="dLabel" class="dlin" placeholder="5 / 2024 Artworks / Extra" />
+          </div>
+          <div class="dlrow2">
+            <div class="dlrow" style="flex:1;min-width:0">
+              <label class="dllbl">LANGUAGE</label>
+              <Combo :model-value="dLang" :suggestions="langSuggest" wide placeholder="EN"
+                     @update:model-value="dLang = $event" />
+            </div>
+            <div class="dlrow" style="flex:1.4;min-width:0">
+              <label class="dllbl">GROUP / SOURCE NAME</label>
+              <Combo :model-value="dGroup" :suggestions="groupSuggest" wide placeholder="translator / site"
+                     @update:model-value="dGroup = $event" />
+            </div>
+          </div>
+          <div class="dlrow">
+            <label class="dllbl">SOURCE LINK · from this page</label>
+            <input v-model="dUrl" class="dlin mono" style="font-size:11px" placeholder="https://…" @input="onUrlInput" />
+          </div>
+          <div class="dlrow2" style="justify-content:flex-end">
+            <button class="btn accent" :disabled="!dLabel.trim() || !pageCapture.selector"
+                    :title="pageCapture.selector ? 'Create the entry and capture every page you open into it' : 'Teach the page images first'"
+                    @click="startCapture">
+              <Icon name="download" :size="13" :sw="2" />Start page capture
+            </button>
+          </div>
+        </div>
+
+        <div v-else-if="armed" class="armedbox">
           <div class="armtitle"><Icon name="download" :size="14" />Next download is armed</div>
           <div class="armmeta mono">{{ armed.num }}<template v-if="armed.lang"> · {{ armed.lang }}</template><template v-if="armed.group"> · {{ armed.group }}</template></div>
           <div class="armnote">Now click the SITE'S own download button in this browser — the file lands in this entry, with its download source recorded. One arm = one download.</div>
           <button class="btn ghost" style="align-self:flex-start" @click="disarm">Cancel</button>
         </div>
-        <div v-else class="dlform">
+        <div v-else-if="!pageMode" class="dlform">
           <div class="dllbl">ADD ENTRY</div>
           <div class="dlrow">
             <label class="dllbl">LABEL *</label>
@@ -485,6 +619,24 @@ async function save(asNew: boolean) {
 .armmeta { font-size: 11px; color: var(--tx); }
 .armnote { font: 400 11px/1.5 system-ui; color: var(--tx2); }
 .dlform { display: flex; flex-direction: column; gap: 10px; }
+/* the download-mode switch, and the two taught selectors under it */
+.modeseg { width: 100%; }
+.modeseg .opt { flex: 1; }
+.pcrow { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pcsel { flex: 1; min-width: 0; font-size: 10.5px; color: var(--tx2); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pcsel.unset { color: var(--tx3); font-style: italic; }
+.pcpick { height: 26px; padding: 0 10px; font-size: 11px; flex: none; }
+.pcfilter { display: flex; flex-direction: column; }
+.pcftog { display: flex; align-items: center; gap: 6px; padding: 5px 4px; border: none; background: transparent; color: var(--tx3); font: 500 11px/1 system-ui; cursor: pointer; border-radius: 6px; }
+.pcftog:hover { background: var(--hover); color: var(--tx); }
+.pcfsum { margin-left: auto; font-size: 10px; color: var(--tx3); }
+.pcfbody { display: flex; flex-direction: column; gap: 7px; padding: 8px 4px 2px; }
+.pcfrow { display: flex; align-items: center; gap: 8px; }
+.pcflbl { flex: 1; font: 500 11.5px/1.3 system-ui; color: var(--tx2); }
+.pcfin { width: 66px; text-align: right; font-size: 12px; color: var(--tx); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; height: 26px; padding: 0 7px; outline: none; flex: none; }
+.pcfin:focus { border-color: var(--accent); }
+.pcfunit { width: 14px; font-size: 10px; color: var(--tx3); flex: none; }
+.pcfnote { font: 400 10.5px/1.45 system-ui; color: var(--tx3); }
 .dlrow { display: flex; flex-direction: column; gap: 5px; }
 .dlrow2 { display: flex; gap: 8px; }
 .dllbl { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }

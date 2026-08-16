@@ -14,6 +14,7 @@ export interface BrowserTab {
   title: string      // live page title (drives the tab caption + target matching)
   pinned: boolean    // pinned tabs collapse to icon-only and stick to the front
   zoom: number       // per-tab zoom factor
+  loading: boolean   // a page request is in flight — the tab shows a spinner
 }
 
 export const browser = reactive<{
@@ -29,7 +30,7 @@ function labelFor(url: string): string {
 }
 
 function makeTab(url: string): BrowserTab {
-  return { id: `bt-${++tabSeq}`, initialUrl: url, url, label: labelFor(url), title: '', pinned: false, zoom: 1 }
+  return { id: `bt-${++tabSeq}`, initialUrl: url, url, label: labelFor(url), title: '', pinned: false, zoom: 1, loading: false }
 }
 
 export function activeTab(): BrowserTab | undefined {
@@ -48,6 +49,11 @@ export function onTabNavigated(id: string, url: string) {
 export function setTabTitle(id: string, title: string) {
   const t = tabById(id)
   if (t) t.title = title
+}
+
+export function setTabLoading(id: string, value: boolean) {
+  const t = tabById(id)
+  if (t) t.loading = value
 }
 
 export function toggleTabPin(id: string) {

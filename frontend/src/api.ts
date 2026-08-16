@@ -124,6 +124,15 @@ export const api = {
   removeLibrary: (path: string) => req<AppSettings>('/settings/libraries', jsonBody('DELETE', { path })),
   rebuildIndex: () => req<AppSettings>('/settings/rebuild', { method: 'POST' }),
   rebuildStatus: () => req<{ running: boolean; done: number; total: number }>('/settings/rebuild/status'),
+  normalizeArchives: () => req<{ converted: number }>('/settings/normalize-archives', { method: 'POST' }),
+  // page capture: ask what the armed entry already holds, then send only the rest
+  knownPages: (titleId: string, chapterId: string, keys: string[]) =>
+    req<string[]>(`/titles/${encodeURIComponent(titleId)}/chapters/${encodeURIComponent(chapterId)}/pages/known`,
+      jsonBody('POST', { keys })),
+  capturePages: (titleId: string, chapterId: string, pageUrl: string,
+    images: { key: string; url: string; data: string; contentType: string }[]) =>
+    req<Title>(`/titles/${encodeURIComponent(titleId)}/chapters/${encodeURIComponent(chapterId)}/pages/capture`,
+      jsonBody('POST', { pageUrl, images })),
   setHomepage: (homepage: string) => req<AppSettings>('/settings/homepage', jsonBody('PUT', { homepage })),
 }
 

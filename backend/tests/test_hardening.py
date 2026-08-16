@@ -165,8 +165,14 @@ def test_import_rejects_unreadable_archive(client, tmp_path):
     assert not _chapters_dir(tmp_path).exists() or not list(_chapters_dir(tmp_path).glob("*.rar"))
 
 
-def test_startup_normalizes_existing_archives(tmp_path):
-    lib = Library(tmp_path)
+def _settle(lib):
+    if lib._normalize_thread is not None:
+        lib._normalize_thread.join()
+    return lib
+
+
+def test_unmarked_vault_is_normalized_once_on_open(tmp_path):
+    lib = _settle(Library(tmp_path))
     lib.create(DraftIn(meta=TitleMeta(title="X"), chapters=[
         ChapterRow(id="ch-1", num="1"), ChapterRow(id="ch-2", num="2")]))
     d = lib.vault._chapters_dir("x")
@@ -177,13 +183,53 @@ def test_startup_normalizes_existing_archives(tmp_path):
     _make_7z(d / "ch-2.7z", [("p1.jpg", b"one"), ("p2.jpg", b"two")])  # legacy 7z
     (d / "ch-2.json").write_text(json.dumps({"pages": 0}), encoding="utf-8")
     lib.close()
+    (tmp_path / "vault.json").unlink(missing_ok=True)  # a vault from before the sweep existed
 
-    lib = Library(tmp_path)  # reopening runs the consistency pass
+    lib = _settle(Library(tmp_path))  # the one-time pass runs in the background
     assert (d / "ch-1.zip").is_file() and not (d / "ch-1.cbz").exists()
     assert (d / "ch-2.zip").is_file() and not (d / "ch-2.7z").exists()
     chapters = {c.id: c for c in lib.get("x").chapters}
     assert chapters["ch-1"].pages == 1 and chapters["ch-1"].dl is True
     assert chapters["ch-2"].pages == 2 and chapters["ch-2"].dl is True
+    lib.close()
+
+
+def test_normalized_vault_is_not_swept_again(tmp_path):
+    """Ingest keeps the invariant, so the sweep is a migration — a marked vault
+    must not re-scan every launch. Hand-dropped files wait for the manual run."""
+    lib = _settle(Library(tmp_path))
+    lib.create(DraftIn(meta=TitleMeta(title="X"), chapters=[ChapterRow(id="ch-1", num="1")]))
+    d = lib.vault._chapters_dir("x")
+    d.mkdir(parents=True, exist_ok=True)
+    lib.close()
+    with zipfile.ZipFile(d / "ch-1.cbz", "w") as z:  # dropped in from outside
+        z.writestr("p1.jpg", b"one")
+
+    lib = Library(tmp_path)
+    assert lib._normalize_thread is None      # the marker says this vault is done
+    assert (d / "ch-1.cbz").is_file()         # startup left it alone
+    assert lib.normalize_archives(force=True) == 1  # the Settings action converts it
+    assert (d / "ch-1.zip").is_file() and not (d / "ch-1.cbz").exists()
+    lib.close()
+
+
+def test_failed_conversion_is_remembered_not_retried(tmp_path):
+    lib = Library(tmp_path)
+    lib.create(DraftIn(meta=TitleMeta(title="X"), chapters=[ChapterRow(id="ch-1", num="1")]))
+    d = lib.vault._chapters_dir("x")
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "ch-1.rar").write_bytes(b"unreadable-garbage")
+    assert lib.vault.normalize_chapter_archives() == 0
+    side = json.loads((d / "ch-1.json").read_text(encoding="utf-8"))
+    assert side["convertFailed"]  # the failure is remembered…
+    assert (d / "ch-1.rar").read_bytes() == b"unreadable-garbage"
+    assert lib.vault.normalize_chapter_archives() == 0  # …and skipped on the next pass
+    # a REPLACED file (new mtime) gets a fresh attempt
+    with zipfile.ZipFile(d / "ch-1.rar", "w") as z:  # actually zip bytes now
+        z.writestr("p1.jpg", b"img")
+    assert lib.vault.normalize_chapter_archives() == 1
+    assert (d / "ch-1.zip").is_file() and not (d / "ch-1.rar").exists()
+    assert "convertFailed" not in json.loads((d / "ch-1.json").read_text(encoding="utf-8"))
     lib.close()
 
 
@@ -244,6 +290,67 @@ def test_download_of_unsupported_file_fails_cleanly(client, tmp_path):
     items = client.get("/api/downloads").json()["items"]
     assert items[0]["state"] == "failed" and "unsupported" in items[0]["error"]
     assert not list(_chapters_dir(tmp_path).glob("*")) if _chapters_dir(tmp_path).exists() else True
+
+
+# ---- page capture: reader pages accumulate, revisits cost nothing ----
+
+def _png(color=(9, 9, 9)):
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (4, 6), color).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def _capture(c, *, images, chapter="b-5-en", page_url="https://site/read/5"):
+    import base64
+    return c.post(f"/api/titles/berserk/chapters/{chapter}/pages/capture", json={
+        "pageUrl": page_url,
+        "images": [{"key": k, "url": u, "data": base64.b64encode(d).decode(), "contentType": ct}
+                   for k, u, d, ct in images],
+    })
+
+
+def _known(c, keys, chapter="b-5-en"):
+    return c.post(f"/api/titles/berserk/chapters/{chapter}/pages/known", json={"keys": keys})
+
+
+def test_page_capture_accumulates_and_skips_known_pages(client, tmp_path):
+    r = _capture(client, images=[
+        ("01.png", "https://cdn/5/01.png?t=aaa", _png(), "image/png"),
+        ("02.webp", "https://cdn/5/02.webp?t=aaa", _png(), "image/webp"),
+    ])
+    assert r.status_code == 200
+    ch = next(c for c in r.json()["chapters"] if c["id"] == "b-5-en")
+    assert ch["dl"] is True and ch["pages"] == 2
+
+    # the client asks what is already stored BEFORE fetching anything
+    assert _known(client, ["01.png", "03.png"]).json() == ["01.png"]
+
+    # a revisit hands the SAME names behind rotated CDN tokens — nothing is
+    # stored twice; only the genuinely new page appends
+    r = _capture(client, images=[
+        ("01.png", "https://cdn/5/01.png?t=zzz", _png(), "image/png"),
+        ("03.png", "https://cdn/5/03.png?t=zzz", _png(), "image/png"),
+    ])
+    ch = next(c for c in r.json()["chapters"] if c["id"] == "b-5-en")
+    assert ch["pages"] == 3
+    with zipfile.ZipFile(_chapters_dir(tmp_path) / "b-5-en.zip") as z:
+        # webp converted on the way in; order is capture order
+        assert z.namelist() == ["001.png", "002.jpg", "003.png"]
+    side = json.loads((_chapters_dir(tmp_path) / "b-5-en.json").read_text(encoding="utf-8"))
+    assert side["pageKeys"] == ["01.png", "02.webp", "03.png"]
+    assert side["importedFrom"] == "page-capture"
+
+
+def test_page_capture_needs_an_existing_row(client):
+    r = _capture(client, chapter="no-such-row", images=[("1.png", "", _png(), "image/png")])
+    assert r.status_code == 404
+
+
+def test_known_pages_ignores_damaged_media(client, tmp_path):
+    _capture(client, images=[("01.png", "", _png(), "image/png")])
+    (_chapters_dir(tmp_path) / "b-5-en.zip").write_bytes(b"corrupted")
+    assert _known(client, ["01.png"]).json() == []  # unreadable → re-capture, don't trust
 
 
 # ---- migration corner case: a legacy title dir named like its own shelf ----

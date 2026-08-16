@@ -51,6 +51,10 @@ const emit = defineEmits<{
   (e: 'cancel'): void
 }>()
 
+// page capture picks IMAGES, not text: every match on the page is a page, and
+// text cleanup / row labels make no sense for them
+const isPages = computed(() => props.field === 'pages')
+const isImage = computed(() => props.field === 'cover' || isPages.value)
 const dc: CleanFlags = defaultClean(props.field)
 const state = reactive({
   target: props.target,
@@ -60,13 +64,13 @@ const state = reactive({
   attrOp: {} as Record<string, 'off' | 'prefix' | 'exact'>,
   useNth: false,
   ctxOn: {} as Record<number, boolean>, // ancestor chain levels included as selector context
-  scope: (LIST_KEYS.includes(props.field) ? 'all' : 'one') as 'one' | 'all',
+  scope: (LIST_KEYS.includes(props.field) || props.field === 'pages' ? 'all' : 'one') as 'one' | 'all',
   index: 0,
   // re-teaching a field starts from its SAVED cleanup flags, not the defaults
   lower: props.saved?.lower ?? dc.lower,
   stripCounts: props.saved?.stripCounts ?? dc.stripCounts,
   // a detected row label beats any class/position selector across pages
-  useAnchor: !!props.anchor && props.field !== 'cover',
+  useAnchor: !!props.anchor && props.field !== 'cover' && props.field !== 'pages',
 })
 
 const DISTINCTIVE_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'main', 'article', 'header', 'footer', 'aside', 'table', 'figure'])
@@ -85,7 +89,10 @@ const ctxLevels = computed(() =>
 function deriveToggles(i: number) {
   const node = props.chain[i]
   state.classOn = {}
-  for (const c of node?.classes || []) state.classOn[c.n] = !c.dyn // useful on, dynamic off
+  // Page picks start with NO class conditions: a reader's page <img> carries
+  // per-page state classes, and the size filter already keeps junk out — so the
+  // ancestor context alone gives a selector that survives the next page.
+  for (const c of node?.classes || []) state.classOn[c.n] = !c.dyn && !isPages.value
   state.attrOp = {}
   for (const a of node?.attrs || []) state.attrOp[a.n] = a.url && a.prefix ? 'prefix' : 'off'
   state.useId = false
@@ -102,7 +109,7 @@ function deriveToggles(i: number) {
   for (let k = i + 1; k < lim; k++) {
     if (urlPrefixAttr(props.chain[k])) { pick = k; break }
   }
-  if (pick < 0 && node && !isDistinctive(node)) {
+  if (pick < 0 && (isPages.value || (node && !isDistinctive(node)))) {
     for (let k = i + 1; k < lim; k++) {
       if (isDistinctive(props.chain[k])) { pick = k; break }
     }
@@ -250,7 +257,7 @@ function use() {
       </div>
 
       <!-- row-label anchor: the position-independent way to find this value -->
-      <div v-if="props.anchor && field !== 'cover'" class="isec">
+      <div v-if="props.anchor && !isImage" class="isec">
         <span class="ilbl">ROW LABEL</span>
         <button class="tok" :class="{ on: state.useAnchor }" @click="state.useAnchor = !state.useAnchor">
           <span class="box">{{ state.useAnchor ? '✓' : '' }}</span>value next to “{{ props.anchor }}”
@@ -282,7 +289,7 @@ function use() {
       </div>
 
       <!-- cleanup flags (per field) -->
-      <div v-if="field !== 'cover'" class="isec">
+      <div v-if="!isImage" class="isec">
         <span class="ilbl">CLEANUP</span>
         <div class="mrow">
           <button class="tok" :class="{ on: state.stripCounts }" @click="state.stripCounts = !state.stripCounts"><span class="box">{{ state.stripCounts ? '✓' : '' }}</span>strip counts</button>

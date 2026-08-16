@@ -1,0 +1,478 @@
+"""The on-disk vault — the source of truth (design/state-model.md §8).
+
+Layout: one directory per title under the library root:
+
+    <root>/<title-id>/title.json      the layered document
+    <root>/<title-id>/cover.<ext>     captured cover bytes
+    <root>/<title-id>/chapters/       reserved for chapter media (next phase)
+
+Writes are atomic (`tmp → rename`) and serialized per title, so a meta commit and
+a user-layer write-through can never interleave and roll each other back. The
+SQLite index is a rebuildable cache over these files; deleting it never loses
+content.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import shutil
+import threading
+import zipfile
+from collections import defaultdict
+from pathlib import Path
+
+from . import media
+from .models import DraftIn, TitleDoc, UserPatch
+
+_SAFE_ID = re.compile(r"[^a-z0-9._-]+")
+
+# Ukrainian/Russian Cyrillic → Latin, so a Cyrillic title gets a readable slug.
+_CYR = {
+    "а": "a", "б": "b", "в": "v", "г": "h", "ґ": "g", "д": "d", "е": "e", "є": "ie",
+    "ж": "zh", "з": "z", "и": "y", "і": "i", "ї": "i", "й": "i", "к": "k", "л": "l",
+    "м": "m", "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u",
+    "ф": "f", "х": "kh", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "shch", "ь": "",
+    "ю": "iu", "я": "ia", "ъ": "", "ы": "y", "э": "e", "ё": "e",
+}
+
+_COVER_EXTS = ("jpg", "jpeg", "png", "webp", "gif", "avif")
+
+# Bump when the archive-normalization pass learns something new — every vault
+# then earns exactly ONE more sweep.
+NORMALIZE_VERSION = 1
+
+
+def _translit(s: str) -> str:
+    return "".join(_CYR.get(c, c) for c in s)
+
+
+def safe_id(raw: str) -> str:
+    """A filesystem-safe id derived from a title/slug. Cyrillic is transliterated;
+    scripts we can't transliterate (CJK, …) fall back to a stable short hash so
+    distinct titles don't all collide on the same slug."""
+    slug = _SAFE_ID.sub("-", _translit(raw.strip().lower())).strip("-.")
+    if slug:
+        return slug
+    return "t-" + hashlib.sha1(raw.strip().encode("utf-8")).hexdigest()[:10]
+
+
+def type_dir_name(type_str: str) -> str:
+    """The per-TYPE shelf a title lives on: `<root>/<type-dir>/<title-id>/`.
+    Typeless titles land in `other`."""
+    t = (type_str or "").strip().lower()
+    return safe_id(t) if t else "other"
+
+
+def _atomic_write(path: Path, data: bytes) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(data)
+    os.replace(tmp, path)  # atomic on the same filesystem
+
+
+class Vault:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.root.mkdir(parents=True, exist_ok=True)
+        # One serialized write point per title (state-model §8): FastAPI runs sync
+        # endpoints on a threadpool, so a commit and a write-through may race.
+        # RLock so a service-level critical section (title_lock) can call the
+        # locking vault methods it is composed of without deadlocking.
+        self._locks: dict[str, threading.RLock] = defaultdict(threading.RLock)
+        self._locks_guard = threading.Lock()
+        self._authors_lock = threading.Lock()
+        # title-id → type-dir name (the shelf the title currently sits on)
+        self._loc: dict[str, str] = {}
+        self._migrate_flat_layout()
+        # NOTE: normalize_chapter_archives() is NOT called here — it is a ONE-TIME
+        # migration per vault (the Library runs it in the background when the
+        # marker below says this vault hasn't had it yet), never a startup chore.
+
+    # ---- the per-type layout ----
+
+    def _migrate_flat_layout(self) -> None:
+        """One-time migration: legacy `<root>/<id>/` directories move onto
+        their type shelf `<root>/<type-dir>/<id>/` (typeless → other)."""
+        for p in list(self.root.iterdir()):
+            if not p.is_dir() or not (p / "title.json").is_file():
+                continue
+            try:
+                doc = TitleDoc.model_validate_json((p / "title.json").read_text(encoding="utf-8"))
+                shelf = type_dir_name(doc.meta.type)
+            except Exception:  # noqa: BLE001 — an unreadable doc still gets a home
+                shelf = "other"
+            dest = self.root / shelf / p.name
+            if dest.exists():
+                continue  # freak collision — leave the legacy dir in place
+            try:
+                src = p
+                if p.name == shelf:
+                    # a legacy title dir NAMED like its own shelf ("manga" of
+                    # type manga) — moving it into itself would fail; step aside
+                    src = self.root / (p.name + ".lb-migrating")
+                    p.rename(src)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(src), str(dest))
+                self._loc[p.name] = shelf
+            except OSError:
+                continue  # a stuck legacy dir must never block startup
+
+    def _find(self, sid: str) -> Path | None:
+        """The title's CURRENT directory, wherever its shelf is."""
+        shelf = self._loc.get(sid)
+        if shelf and (self.root / shelf / sid / "title.json").is_file():
+            return self.root / shelf / sid
+        for td in self.root.iterdir():
+            if td.is_dir() and (td / sid / "title.json").is_file():
+                self._loc[sid] = td.name
+                return td / sid
+        if (self.root / sid / "title.json").is_file():
+            return self.root / sid  # unmigrated legacy leftover
+        return None
+
+    def _relocate_for_type(self, sid: str, type_str: str) -> None:
+        """Make the title live on the shelf its TYPE dictates — a type change
+        physically moves the directory (and sweeps the emptied shelf)."""
+        target = type_dir_name(type_str)
+        cur = self._find(sid)
+        if cur is None:
+            self._loc[sid] = target
+            return
+        if cur.parent == self.root / target:
+            self._loc[sid] = target
+            return
+        dest = self.root / target / sid
+        if dest.exists():
+            self._loc[sid] = cur.parent.name if cur.parent != self.root else "other"
+            return
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        old_parent = cur.parent
+        shutil.move(str(cur), str(dest))
+        self._loc[sid] = target
+        try:
+            if old_parent != self.root and not any(old_parent.iterdir()):
+                old_parent.rmdir()
+        except OSError:
+            pass
+
+    def _lock(self, title_id: str) -> threading.RLock:
+        # keyed by safe_id — the same key the filesystem uses, so two spellings
+        # of one id can never write the same title.json under different locks
+        with self._locks_guard:
+            return self._locks[safe_id(title_id)]
+
+    def title_lock(self, title_id: str) -> threading.RLock:
+        """The title's write lock, for service-level load→mutate→commit
+        sequences that must be ONE critical section (reentrant, so the locking
+        vault methods inside still work)."""
+        return self._lock(title_id)
+
+    def _dir(self, title_id: str) -> Path:
+        sid = safe_id(title_id)
+        found = self._find(sid)
+        return found if found is not None else self.root / self._loc.get(sid, "other") / sid
+
+    def _doc_path(self, title_id: str) -> Path:
+        return self._dir(title_id) / "title.json"
+
+    # ---- documents ----
+
+    def exists(self, title_id: str) -> bool:
+        return self._doc_path(title_id).is_file()
+
+    def load(self, title_id: str) -> TitleDoc | None:
+        path = self._doc_path(title_id)
+        if not path.is_file():
+            return None
+        return TitleDoc.model_validate_json(path.read_text(encoding="utf-8"))
+
+    def list_ids(self) -> list[str]:
+        """Scan the type shelves for title directories (holding a title.json)."""
+        if not self.root.is_dir():
+            return []
+        ids: set[str] = set()
+        for td in self.root.iterdir():
+            if not td.is_dir():
+                continue
+            if (td / "title.json").is_file():
+                ids.add(td.name)  # unmigrated legacy leftover
+                continue
+            for c in td.iterdir():
+                if c.is_dir() and (c / "title.json").is_file():
+                    ids.add(c.name)
+                    self._loc[c.name] = td.name
+        return sorted(ids)
+
+    def load_all(self) -> dict[str, TitleDoc]:
+        return {tid: doc for tid in self.list_ids() if (doc := self.load(tid)) is not None}
+
+    def _save(self, title_id: str, doc: TitleDoc) -> None:
+        self._dir(title_id).mkdir(parents=True, exist_ok=True)
+        payload = doc.model_dump_json(indent=2, by_alias=True).encode("utf-8")
+        _atomic_write(self._doc_path(title_id), payload)
+
+    def commit_meta(self, title_id: str, draft: DraftIn, *, create: bool = False) -> TitleDoc | None:
+        """Write the draft's layers (meta + provenance + chapters), preserving the
+        user layer untouched — a commit can never roll back a star or read progress."""
+        with self._lock(title_id):
+            existing = self.load(title_id)
+            if existing is None and not create:
+                return None
+            # the TYPE decides the shelf — a change moves the whole directory
+            self._relocate_for_type(safe_id(title_id), draft.meta.type)
+            doc = TitleDoc(meta=draft.meta, provenance=draft.provenance, chapters=draft.chapters)
+            if existing is not None:
+                doc.user = existing.user
+            self._save(title_id, doc)
+            return doc
+
+    def patch_user(self, title_id: str, patch: UserPatch) -> TitleDoc | None:
+        """Instant write-through of the user layer; the meta layers stay untouched."""
+        with self._lock(title_id):
+            doc = self.load(title_id)
+            if doc is None:
+                return None
+            if patch.fav is not None:
+                doc.user.fav = patch.fav
+            if patch.rating is not None:
+                doc.user.rating = max(0, min(5, patch.rating))
+            if patch.read:
+                doc.user.read.update(patch.read)
+            self._save(title_id, doc)
+            return doc
+
+    def delete(self, title_id: str) -> bool:
+        with self._lock(title_id):
+            d = self._dir(title_id)
+            if not d.is_dir():
+                return False
+            parent = d.parent
+            shutil.rmtree(d)
+            self._loc.pop(safe_id(title_id), None)
+            try:
+                if parent != self.root and not any(parent.iterdir()):
+                    parent.rmdir()
+            except OSError:
+                pass
+            return True
+
+    # ---- chapter media (downloaded archives + provenance sidecars) ----
+    # VAULT INVARIANT: `chapters/<chapter-id>.zip` is ALWAYS a plain zip — cbz
+    # keeps its bytes under the .zip name, rar/7z are repacked at ingest, and
+    # an unreadable archive is rejected rather than stored opaque. So every
+    # page operation works on every stored chapter. `chapters/<chapter-id>.json`
+    # records where the file came from (the download source is independent of
+    # the title's metadata source — different chapters and languages may come
+    # from different sites).
+
+    def _chapters_dir(self, title_id: str) -> Path:
+        return self._dir(title_id) / "chapters"
+
+    def chapter_archive_target(self, title_id: str, chapter_id: str) -> Path:
+        """Where a NEW chapter archive lives (zip) — for pages added by hand to
+        a row that has no file yet. Ensures the directory exists."""
+        d = self._chapters_dir(title_id)
+        d.mkdir(parents=True, exist_ok=True)
+        return d / f"{safe_id(chapter_id)}.zip"
+
+    def chapter_media_path(self, title_id: str, chapter_id: str) -> Path | None:
+        stem = safe_id(chapter_id)
+        d = self._chapters_dir(title_id)
+        if not d.is_dir():
+            return None
+        for p in d.glob(f"{stem}.*"):
+            if p.suffix != ".json" and p.is_file():
+                return p
+        return None
+
+    def chapter_sidecars(self, title_id: str) -> dict[str, dict]:
+        """All chapter sidecars, keyed by the chapter file stem (safe id)."""
+        d = self._chapters_dir(title_id)
+        out: dict[str, dict] = {}
+        if not d.is_dir():
+            return out
+        for p in d.glob("*.json"):
+            try:
+                out[p.stem] = json.loads(p.read_text(encoding="utf-8"))
+            except (ValueError, OSError):
+                continue
+        return out
+
+    def write_chapter_sidecar(self, title_id: str, chapter_id: str, sidecar: dict) -> None:
+        with self._lock(title_id):
+            d = self._chapters_dir(title_id)
+            d.mkdir(parents=True, exist_ok=True)
+            _atomic_write(d / f"{safe_id(chapter_id)}.json",
+                          json.dumps(sidecar, indent=2, ensure_ascii=False).encode("utf-8"))
+
+    def ingest_chapter_media(self, title_id: str, chapter_id: str, src: Path, sidecar: dict) -> Path:
+        """Move a downloaded/imported archive into the vault as `<stem>.zip`
+        and write its sidecar. Zip content (incl. cbz) moves as-is under the
+        .zip name; rar/7z are repacked; an unreadable archive raises
+        UnsupportedArchiveError BEFORE anything in the vault is touched. The
+        sidecar's pages/size always describe the file actually stored."""
+        with self._lock(title_id):
+            d = self._chapters_dir(title_id)
+            d.mkdir(parents=True, exist_ok=True)
+            stem = safe_id(chapter_id)
+            final = d / f"{stem}.zip"
+            tmp = final.with_name(final.name + ".ingest.tmp")
+            if zipfile.is_zipfile(src):
+                shutil.move(str(src), tmp)  # may cross filesystems (temp → vault)
+            else:
+                media.repack_to_zip(src, tmp)  # raises before the vault changes
+                src.unlink(missing_ok=True)
+            for old in d.glob(f"{stem}.*"):
+                if old != tmp and old.suffix != ".json":
+                    old.unlink(missing_ok=True)
+            os.replace(tmp, final)
+            sidecar = {**sidecar,
+                       "pages": len(media.image_entries(final)),
+                       "size": final.stat().st_size}
+            _atomic_write(d / f"{stem}.json",
+                          json.dumps(sidecar, indent=2, ensure_ascii=False).encode("utf-8"))
+            return final
+
+    # ---- the one-time archive-normalization marker ----
+    # Ingest enforces the zip invariant for everything NEW, so the sweep is a
+    # migration for content that predates it (or was dropped into the vault by
+    # hand). It runs once per vault; Settings can re-run it on demand.
+
+    def _vault_meta_path(self) -> Path:
+        return self.root / "vault.json"
+
+    def _vault_meta(self) -> dict:
+        p = self._vault_meta_path()
+        if not p.is_file():
+            return {}
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            return {}
+
+    def needs_normalize(self) -> bool:
+        return int(self._vault_meta().get("zipNormalized", 0)) < NORMALIZE_VERSION
+
+    def mark_normalized(self) -> None:
+        meta = {**self._vault_meta(), "zipNormalized": NORMALIZE_VERSION}
+        _atomic_write(self._vault_meta_path(),
+                      json.dumps(meta, indent=2, ensure_ascii=False).encode("utf-8"))
+
+    def normalize_chapter_archives(self, *, force: bool = False) -> int:
+        """Consistency pass over the whole vault (part of the zip invariant):
+        cbz files are renamed to .zip, rar/7z get repacked when a reader is
+        available. A file nothing can read is left alone AND remembered in the
+        sidecar (`convertFailed` = its mtime) so a later pass doesn't burn time
+        on the same hopeless conversion; `force` retries those too (the point of
+        the manual re-run — e.g. after installing unrar).
+        Returns how many archives changed (the caller refreshes the index)."""
+        changed = 0
+        for sid in self.list_ids():
+            home = self._find(sid)
+            d = home / "chapters" if home is not None else None
+            if d is None or not d.is_dir():
+                continue
+            for p in list(d.glob("*")):
+                if not p.is_file() or p.suffix == ".json" or p.name.endswith(".tmp"):
+                    continue
+                if p.suffix == ".zip" and zipfile.is_zipfile(p):
+                    continue
+                with self._lock(sid):
+                    final = p.with_suffix(".zip")
+                    side_path = d / f"{final.stem}.json"
+                    side: dict = {}
+                    if side_path.is_file():
+                        try:
+                            side = json.loads(side_path.read_text(encoding="utf-8"))
+                        except (ValueError, OSError):
+                            side = {}
+                    try:
+                        mark = f"{p.stat().st_mtime_ns:x}"
+                    except OSError:
+                        continue
+                    if not force and side.get("convertFailed") == mark:
+                        continue  # this exact file already failed — don't retry it
+                    try:
+                        if zipfile.is_zipfile(p):  # a cbz — same container, new name
+                            if final != p:
+                                os.replace(p, final)
+                        else:
+                            media.repack_to_zip(p, final)
+                            if final != p:
+                                p.unlink(missing_ok=True)
+                    except (media.UnsupportedArchiveError, OSError):
+                        side["convertFailed"] = mark
+                        _atomic_write(side_path,
+                                      json.dumps(side, indent=2, ensure_ascii=False).encode("utf-8"))
+                        continue
+                    side.pop("convertFailed", None)
+                    side["pages"] = len(media.image_entries(final))
+                    side["size"] = final.stat().st_size
+                    _atomic_write(side_path,
+                                  json.dumps(side, indent=2, ensure_ascii=False).encode("utf-8"))
+                    changed += 1
+        return changed
+
+    def delete_chapter_media(self, title_id: str, chapter_id: str) -> bool:
+        with self._lock(title_id):
+            stem = safe_id(chapter_id)
+            d = self._chapters_dir(title_id)
+            existed = False
+            if d.is_dir():
+                for p in d.glob(f"{stem}.*"):
+                    p.unlink(missing_ok=True)
+                    existed = True
+            return existed
+
+    # ---- the authors user layer (favorites) ----
+    # Authors are DERIVED from titles and have no directory of their own; the
+    # user's favorite marks live in one small vault-level file (write-through,
+    # atomic, keyed by the author's stable id).
+
+    def _authors_path(self) -> Path:
+        return self.root / "authors.json"
+
+    def author_favorites(self) -> set[str]:
+        p = self._authors_path()
+        if not p.is_file():
+            return set()
+        try:
+            return set(json.loads(p.read_text(encoding="utf-8")).get("favorites", []))
+        except (ValueError, OSError):
+            return set()
+
+    def set_author_favorite(self, author_id: str, value: bool) -> set[str]:
+        with self._authors_lock:  # read-modify-write: two toggles must not race
+            favs = self.author_favorites()
+            if value:
+                favs.add(author_id)
+            else:
+                favs.discard(author_id)
+            _atomic_write(self._authors_path(), json.dumps({"favorites": sorted(favs)}, indent=2).encode("utf-8"))
+            return favs
+
+    # ---- covers ----
+
+    def cover_path(self, title_id: str) -> Path | None:
+        d = self._dir(title_id)
+        for ext in _COVER_EXTS:
+            p = d / f"cover.{ext}"
+            if p.is_file():
+                return p
+        return None
+
+    def write_cover(self, title_id: str, data: bytes, ext: str) -> Path:
+        with self._lock(title_id):
+            d = self._dir(title_id)
+            d.mkdir(parents=True, exist_ok=True)
+            for old in _COVER_EXTS:
+                (d / f"cover.{old}").unlink(missing_ok=True)
+            path = d / f"cover.{ext}"
+            _atomic_write(path, data)
+            return path
+
+    def delete_cover(self, title_id: str) -> None:
+        with self._lock(title_id):
+            for ext in _COVER_EXTS:
+                (self._dir(title_id) / f"cover.{ext}").unlink(missing_ok=True)

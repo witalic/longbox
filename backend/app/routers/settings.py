@@ -131,11 +131,29 @@ def remove_library(request: Request, body: LibraryPathIn) -> SettingsOut:
 # threadpool-run) rebuild request is still streaming through the files.
 REBUILD = {"running": False, "done": 0, "total": 0}
 _REBUILD_LOCK = threading.Lock()  # claim-the-run must be atomic
+_NORMALIZE_LOCK = threading.Lock()
 
 
 @router.get("/settings/rebuild/status")
 def rebuild_status() -> dict:
     return dict(REBUILD)
+
+
+class NormalizeOut(BaseModel):
+    converted: int
+
+
+@router.post("/settings/normalize-archives", response_model=NormalizeOut)
+def normalize_archives(request: Request) -> NormalizeOut:
+    """Re-run the archive sweep by hand: convert anything in the vault that is
+    not a plain zip (retrying archives that failed before — e.g. after
+    installing an unrar backend). Normally this runs once per vault."""
+    if not _NORMALIZE_LOCK.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="a conversion pass is already running")
+    try:
+        return NormalizeOut(converted=_lib(request).normalize_archives(force=True))
+    finally:
+        _NORMALIZE_LOCK.release()
 
 
 @router.post("/settings/rebuild", response_model=SettingsOut)

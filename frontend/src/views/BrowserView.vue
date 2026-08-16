@@ -4,9 +4,9 @@
 // dock holds the capture panel (the draft) and, during a pick, the inspector.
 // All page-facing work goes through the preload: pick chains, live selector
 // previews, and one-shot snapshots (rendered DOM + cover bytes via page context).
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { api } from '../api'
-import { activeTab, browser, newTab, newTabBackground, onTabNavigated, setTabTitle, tabById } from '../browser'
+import { activeTab, browser, newTab, newTabBackground, onTabNavigated, setTabLoading, setTabTitle, tabById } from '../browser'
 import CapturePanel from '../components/CapturePanel.vue'
 import Icon from '../components/Icon.vue'
 import PickInspector, { type ChainNode, type PickUse, type ProbeReq, type ProbeResult } from '../components/PickInspector.vue'
@@ -14,8 +14,9 @@ import {
   applyCapture, applyCoverCapture, applyCoverUrlAuto, draftState,
   mergeSnapshot, noteCaptureSource, type EditableField, type Snapshot,
 } from '../draft'
+import { pageCapture, pageFilter, pageKeyFor, type PickField } from '../pagecapture'
 import type { Candidate, FieldRule, Recipe } from '../data'
-import { store } from '../store'
+import { cache, store } from '../store'
 
 const isElectron = typeof navigator !== 'undefined' && navigator.userAgent.includes('Electron')
 
@@ -114,7 +115,14 @@ async function getRecipe(host: string): Promise<Recipe | null> {
   }
   return recipes[host]
 }
-watch(domain, (h) => { if (h) void getRecipe(h) })
+watch(domain, async (h) => {
+  if (!h) return
+  const r = await getRecipe(h)
+  // page capture is taught PER DOMAIN — a site that already knows its reader
+  // arms with the right selectors immediately
+  const pages = r?.fields?.pages?.candidates?.[0]?.selector
+  if (pages) pageCapture.selector = pages
+})
 
 function metaCand(key: string, attr = 'content'): Candidate {
   return { kind: 'meta', selector: key, attr, note: 'fallback' }
@@ -226,11 +234,11 @@ function mergeIntoDraft(s: Snapshot): string[] {
 }
 
 // pick mode
-const pickingField = ref<EditableField | null>(null)
+const pickingField = ref<PickField | null>(null)
 const inspect = ref<{ field: string; chain: ChainNode[]; target: number; structural: string; anchor: string } | null>(null)
 const probe = reactive<ProbeResult>({ count: 0, values: [], preview: '', pickedIndex: -1 })
 
-function startPick(field: EditableField) {
+function startPick(field: PickField) {
   const el = wv()
   if (!el) return
   if (pickingField.value === field) { pickingField.value = null; el.send?.('set-picking', false); return }
@@ -244,7 +252,11 @@ function closeInspect() {
   inspect.value = null
   pickingField.value = null
 }
-function onProbe(req: ProbeReq) { wv()?.send?.('preview', JSON.parse(JSON.stringify(req))) }
+function onProbe(req: ProbeReq) {
+  // page picks preview the FILTERED set — what capture would actually take
+  const kind = pickingField.value === 'pages' ? 'pages' : ''
+  wv()?.send?.('preview', JSON.parse(JSON.stringify({ ...req, kind, filter: { ...pageFilter } })))
+}
 // re-teaching starts from the field's stored cleanup flags
 const savedRule = computed(() => {
   const field = inspect.value?.field
@@ -257,6 +269,19 @@ async function onUse(result: PickUse) {
   const tab = active.value
   if (!ins || !tab) return
   const host = domain.value
+  // page capture teaches one selector that is not a draft field: the page
+  // images. It persists in the domain's recipe, so the site stays taught.
+  if (ins.field === 'pages') {
+    await saveRecipeField(host, 'pages', {
+      mode: 'list',
+      candidates: [{ kind: 'css', selector: result.selector, attr: 'src', note: 'picked' }],
+    })
+    pageCapture.selector = result.selector
+    closeInspect()
+    panel.value?.showFlash(`✓ page images taught (${result.values.length} on this page)`)
+    if (pageCapture.active) void runCapture()
+    return
+  }
   const field = ins.field as EditableField
   // The learned rule, most-reliable first: the row-label anchor (when the user
   // kept it on) is position-independent, so reordered info rows on another page
@@ -291,6 +316,143 @@ async function onUse(result: PickUse) {
   closeInspect()
 }
 
+// ---- page capture: scan the reader page, fetch what the vault lacks ----
+interface ScanWire { url: string; title: string; urls: string[]; relaxed?: string }
+interface PageImage { url: string; data: string; contentType: string }
+
+let scanResolve: ((s: ScanWire | null) => void) | null = null
+let bytesResolve: ((imgs: PageImage[]) => void) | null = null
+let byteBuf: PageImage[] = []
+let onByte: ((done: number) => void) | null = null
+
+function requestScan(): Promise<ScanWire | null> {
+  const el = wv()
+  if (!el) return Promise.resolve(null)
+  return new Promise((resolve) => {
+    scanResolve?.(null)
+    scanResolve = resolve
+    el.send?.('scan-pages', JSON.parse(JSON.stringify(
+      { selector: pageCapture.selector, filter: { ...pageFilter } })))
+    setTimeout(() => { if (scanResolve === resolve) { scanResolve = null; resolve(null) } }, 15000)
+  })
+}
+function requestBytes(urls: string[], progress: (done: number) => void): Promise<PageImage[]> {
+  const el = wv()
+  if (!el) return Promise.resolve([])
+  return new Promise((resolve) => {
+    bytesResolve?.([])
+    byteBuf = []
+    onByte = progress
+    bytesResolve = resolve
+    el.send?.('fetch-pages', JSON.parse(JSON.stringify({ urls })))
+    // generous: a long chapter of big pages fetches sequentially by design
+    setTimeout(() => { if (bytesResolve === resolve) { bytesResolve = null; resolve(byteBuf) } }, 180000)
+  })
+}
+
+// what the last scan yielded — an unchanged page costs NO network at all
+let lastScanKey = ''
+let captureRun = 0
+
+async function runCapture(): Promise<void> {
+  const st = pageCapture
+  if (!st.active || !st.titleId || !st.chapterId || !st.selector || st.busy) return
+  const my = ++captureRun
+  st.busy = true
+  st.error = '' // a fresh round reports its own outcome, never the last one's
+  try {
+    const scan = await requestScan()
+    if (!scan || my !== captureRun) return
+    // the taught selector matched nothing but a looser one did (a per-page state
+    // class) — adopt the version that works, for this run and the next site visit
+    if (scan.relaxed && scan.relaxed !== pageCapture.selector) {
+      pageCapture.selector = scan.relaxed
+      void saveRecipeField(domain.value, 'pages', {
+        mode: 'list',
+        candidates: [{ kind: 'css', selector: scan.relaxed, attr: 'src', note: 'picked' }],
+      })
+    }
+    const scanKey = `${scan.url}|${scan.urls.join(',')}`
+    if (scanKey === lastScanKey) return // same page, same images — nothing to do
+    if (!scan.urls.length) {
+      st.status = `ch. ${st.label} — no page images here (${st.added} stored)`
+      return
+    }
+    lastScanKey = scanKey
+    // dedup by the image's NAME: CDN tokens rotate, file names don't
+    const byKey = new Map<string, string>()
+    for (const u of scan.urls) if (!byKey.has(pageKeyFor(u))) byKey.set(pageKeyFor(u), u)
+    const known = new Set(await api.knownPages(st.titleId, st.chapterId, [...byKey.keys()]))
+    const missing = [...byKey.entries()].filter(([k]) => !known.has(k))
+    if (!missing.length) {
+      st.status = `ch. ${st.label} — this page is already stored (${st.added} captured)`
+      return
+    }
+    const wanted = missing.map(([, u]) => u)
+    st.status = `ch. ${st.label} — fetching 0/${wanted.length}`
+    // THE SHELL fetches http(s) images: the main process carries the session's
+    // cookies and the reader page as Referer, and is not bound by the site's
+    // CORS — an in-page fetch of the site's own CDN usually is. blob:/data:
+    // pages exist only inside the page, so those go the preload route.
+    const bag = new Map<string, PageImage>()
+    let done = 0
+    let why = ''
+    for (const url of wanted.filter((u) => /^https?:/i.test(u))) {
+      const got = await window.longbox?.fetchImage?.(url, scan.url)
+        .catch((e): { data?: string; contentType?: string; error?: string } => ({ error: String(e) }))
+      if (got?.data) bag.set(url, { url, data: got.data, contentType: got.contentType || '' })
+      else why = why || got?.error || 'no shell bridge'
+      st.status = `ch. ${st.label} — fetching ${++done}/${wanted.length}`
+      if (my !== captureRun) return
+    }
+    const retry = wanted.filter((u) => !bag.has(u))
+    if (retry.length) {
+      const fromPage = await requestBytes(retry, (n) => {
+        st.status = `ch. ${st.label} — fetching ${done + n}/${wanted.length}`
+      })
+      for (const img of fromPage) bag.set(img.url, img)
+    }
+    const images = wanted.map((u) => bag.get(u)).filter((x): x is PageImage => !!x)
+    if (my !== captureRun) return
+    if (!images.length) {
+      st.error = `could not fetch any of the ${wanted.length} images${why ? ` — ${why}` : ''}`
+      lastScanKey = ''
+      return
+    }
+    // post in small batches so a long chapter streams into the vault instead of
+    // arriving as one huge request
+    const payload = images.map((img) => ({ ...img, key: pageKeyFor(img.url) }))
+    for (let i = 0; i < payload.length; i += 6) {
+      const chunk = payload.slice(i, i + 6)
+      const saved = await api.capturePages(st.titleId, st.chapterId, scan.url, chunk)
+      cache([saved])
+      st.added += chunk.length
+      st.status = `ch. ${st.label} — ${st.added} pages captured`
+    }
+    st.error = images.length < wanted.length
+      ? `${wanted.length - images.length} image(s) could not be fetched${why ? ` — ${why}` : ''}` : ''
+  } catch (e) {
+    st.error = e instanceof Error ? e.message : String(e)
+    st.status = 'capture failed — see the message above'
+    lastScanKey = '' // let the next round retry this page
+  } finally {
+    if (my === captureRun) st.busy = false
+  }
+}
+
+// A reader page keeps loading images while the human scrolls (long strips,
+// lazy loaders), so the page is re-scanned on a slow tick as well as on
+// navigation. Unchanged pages exit at the scan — no requests, no writes.
+let captureTimer: number | undefined
+watch(() => pageCapture.active, (on) => {
+  window.clearInterval(captureTimer)
+  if (!on) return
+  lastScanKey = ''
+  void runCapture()
+  captureTimer = window.setInterval(() => { void runCapture() }, 2500)
+}, { immediate: true })
+onBeforeUnmount(() => window.clearInterval(captureTimer))
+
 // ---- webview events ----
 function onIpc(e: any, tabId: string) {
   const msg = e.args?.[0]
@@ -313,6 +475,19 @@ function onIpc(e: any, tabId: string) {
       snapResolve?.(msg as SnapWire)
       snapResolve = null
       break
+    case 'pages-scan':
+      scanResolve?.(msg as ScanWire)
+      scanResolve = null
+      break
+    case 'page-bytes':
+      if (msg && !msg.failed) byteBuf.push(msg as PageImage)
+      onByte?.(byteBuf.length)
+      break
+    case 'pages-fetched':
+      bytesResolve?.(byteBuf)
+      bytesResolve = null
+      onByte = null
+      break
     case 'cancel':
       if (tabId === browser.activeId) pickingField.value = null
       break
@@ -333,6 +508,11 @@ function onIpc(e: any, tabId: string) {
 }
 function onNav(e: any, tabId: string) {
   if (e?.url) onTabNavigated(tabId, e.url)
+  // flipping to the next page IS the capture trigger
+  if (pageCapture.active && tabId === browser.activeId) {
+    lastScanKey = ''
+    window.setTimeout(() => { void runCapture() }, 500)
+  }
 }
 function onReady(tabId: string) {
   const tab = tabById(tabId)
@@ -391,6 +571,8 @@ function onReady(tabId: string) {
           @did-navigate="onNav($event, t.id)"
           @did-navigate-in-page="onNav($event, t.id)"
           @page-title-updated="setTabTitle(t.id, $event.title || '')"
+          @did-start-loading="setTabLoading(t.id, true)"
+          @did-stop-loading="setTabLoading(t.id, false)"
           @dom-ready="onReady(t.id)"
           @found-in-page="onFound"
         />

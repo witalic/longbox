@@ -8,6 +8,7 @@ import binascii
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse
@@ -30,6 +31,7 @@ _EXT_BY_CT = {
     "image/webp": "webp", "image/gif": "gif", "image/avif": "avif",
 }
 _MAX_COVER_BYTES = 8 * 1024 * 1024
+_MAX_PAGE_BYTES = 24 * 1024 * 1024  # a single manga page; webtoon strips get large
 
 
 def _lib(request: Request) -> Library:
@@ -273,6 +275,55 @@ async def import_chapter_archive(
         return result
     finally:
         Path(tmp.name).unlink(missing_ok=True)  # no-op when ingest moved it
+
+# ---- page capture: sources that serve pages, not archives ----
+
+class KnownPagesIn(BaseModel):
+    keys: list[str] = []
+
+
+class CapturedImage(BaseModel):
+    key: str                # the image's own name — the dedup key
+    url: str = ""           # where it came from (provenance only)
+    data: str               # base64 bytes, fetched in the page's own context
+    contentType: str = ""
+
+
+class CapturePagesIn(BaseModel):
+    pageUrl: str = ""       # the reader page these images were taken from
+    images: list[CapturedImage] = []
+
+
+@router.post("/titles/{title_id}/chapters/{chapter_id}/pages/known", response_model=list[str])
+def known_chapter_pages(request: Request, title_id: str, chapter_id: str, body: KnownPagesIn) -> list[str]:
+    """Of `keys`, which this chapter ALREADY holds — the client fetches only the
+    rest, so flipping back through a chapter downloads nothing twice."""
+    stored = set(_lib(request).stored_page_keys(title_id, chapter_id))
+    return [k for k in body.keys if k in stored]
+
+
+@router.post("/titles/{title_id}/chapters/{chapter_id}/pages/capture", response_model=TitleOut)
+def capture_chapter_pages(request: Request, title_id: str, chapter_id: str, body: CapturePagesIn) -> TitleOut:
+    """Append page images captured from a reader page into the ARMED chapter
+    row. Images whose key is already stored are skipped."""
+    images: list[tuple[bytes, str, str]] = []
+    for img in body.images:
+        ext = _EXT_BY_CT.get(img.contentType.split(";")[0].strip().lower()) \
+            or (Path(urlsplit(img.url or img.key).path).suffix.lstrip(".").lower() or "jpg")
+        if f".{ext}" not in media.IMAGE_EXTS:
+            ext = "jpg"  # the site's own naming is not authoritative — the bytes are
+        try:
+            data = base64.b64decode(img.data, validate=True)
+        except (binascii.Error, ValueError):
+            continue
+        if data and len(data) <= _MAX_PAGE_BYTES and img.key:
+            images.append((data, f".{ext}", img.key))
+    result = _lib(request).capture_chapter_pages(
+        title_id, chapter_id, page_url=body.pageUrl, images=images)
+    if result is None:
+        raise HTTPException(status_code=404, detail="title or chapter not found")
+    return result[0]
+
 
 class PagesDeleteIn(BaseModel):
     indices: list[int]

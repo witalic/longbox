@@ -32,6 +32,10 @@ const margins = ref(0)
 const sidebar = ref(true)
 const settingsOpen = ref(localStorage.getItem('lb.readerSettings') !== '0')
 watch(settingsOpen, (v) => { try { localStorage.setItem('lb.readerSettings', v ? '1' : '0') } catch { /* ignore */ } })
+// the LEFT rail: page thumbnails of the open chapter, click to jump. Hideable
+// like the right one; the choice sticks across sessions.
+const thumbs = ref(localStorage.getItem('lb.readerThumbs') === '1')
+watch(thumbs, (v) => { try { localStorage.setItem('lb.readerThumbs', v ? '1' : '0') } catch { /* ignore */ } })
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 let prefsReady = false // don't re-save while restoring
@@ -182,6 +186,25 @@ function pageSrc(index: number): string {
   const c = chapter.value
   return c && t.value ? api.chapterPageSrc(t.value.id, c.id, index, c.pages) : ''
 }
+// the rail's previews are downscaled thumbnails (never the full-size page);
+// cap 1.5 matches the 2:3 tile, so an ordinary page fills it and only a long
+// strip is trimmed from the top — the same pairing the gallery uses
+function thumbSrc(index: number): string {
+  const c = chapter.value
+  return c && t.value ? api.chapterPageSrc(t.value.id, c.id, index, c.pages, 220, 1.5) : ''
+}
+// clicking a thumbnail jumps there — a page swap in pages mode, a scroll in strip
+function goToPage(index: number) {
+  store.reader.page = index
+  if (mode.value === 'strip') scrollStripToPage(index)
+}
+// the rail follows the reading position, whatever moved it
+const railEl = ref<HTMLElement | null>(null)
+watch([() => store.reader.page, thumbs, chapter], async () => {
+  if (!thumbs.value) return
+  await nextTick()
+  railEl.value?.querySelector('.lthumb.on')?.scrollIntoView({ block: 'nearest' })
+})
 // reaching the last page marks the chapter read; the next two pages prefetch
 watch([() => store.reader.page, chapter], () => {
   const c = chapter.value
@@ -297,12 +320,26 @@ const WIDTH_PRESETS = [600, 720, 900]
       <span v-if="chapter" class="rch mono">ch. {{ chapter.num }}<template v-if="chapter.lang"> · {{ chapter.lang }}</template></span>
       <div style="flex:1"></div>
       <span class="rind mono">{{ mode === 'pages' ? `${store.reader.page + 1} / ${count}` : `${stripPct}%` }}</span>
+      <button class="iconbtn rleft" :class="{ on: thumbs }" title="Toggle the page thumbnails" @click="thumbs = !thumbs">
+        <Icon name="panel" :size="15" :sw="1.9" />
+      </button>
       <button class="iconbtn" :class="{ on: sidebar }" title="Toggle the sidebar (S)" @click="sidebar = !sidebar">
         <Icon name="panel" :size="15" :sw="1.9" />
       </button>
     </div>
 
     <div class="rbody">
+      <!-- LEFT RAIL: the open chapter's pages as thumbnails; click to jump.
+           The current page keeps itself in view. -->
+      <aside v-if="thumbs" ref="railEl" class="lrail scroll">
+        <div v-if="!count" class="rempty" style="font-size:11px;grid-column:1/-1">No pages</div>
+        <button v-for="i in count" :key="`th-${chapter?.id}-${i}`" class="lthumb"
+                :class="{ on: store.reader.page === i - 1 }" :title="`Page ${i}`" @click="goToPage(i - 1)">
+          <img :src="thumbSrc(i - 1)" loading="lazy" alt="" />
+          <span class="lnum mono">{{ i }}</span>
+        </button>
+      </aside>
+
       <!-- PAGES: one page, click left/right thirds to flip -->
       <div v-if="mode === 'pages'" ref="pagesEl" class="stage scroll" :class="{ fith: fit === 'height' }" @click="onStageClick">
         <img v-if="chapter && count" :key="`${chapter.id}-${store.reader.page}`" class="page"
@@ -430,6 +467,20 @@ const WIDTH_PRESETS = [600, 720, 900]
 .rempty { margin: auto; font: 400 13px/1.5 system-ui; color: var(--tx3); }
 .endcard { width: 100%; padding: 46px 20px 70px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
 .endlbl { font-size: 10px; letter-spacing: .14em; color: var(--tx3); }
+
+/* the LEFT rail: page thumbnails of the open chapter, two per row — the SAME
+   width as the right sidebar so the reader sits symmetrically between them.
+   FLEX wrap with fully fixed tiles (width + aspect-ratio, image ABSOLUTE
+   inside), exactly like the title page's gallery: auto grid rows under lazy
+   images mis-size in this Chromium and the tiles paint over each other. */
+.lrail { width: 248px; flex: none; border-right: 1px solid var(--line); background: var(--bg2); overflow-y: auto; padding: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; align-content: flex-start; scrollbar-gutter: stable; }
+.lthumb { position: relative; flex: none; width: calc(50% - 4px); aspect-ratio: 2/3; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); cursor: pointer; overflow: hidden; }
+.lthumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
+.lthumb:hover { border-color: var(--accent); }
+.lthumb.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.lnum { position: absolute; bottom: 3px; right: 4px; font-size: 9px; color: #fff; background: rgba(0, 0, 0, .6); padding: 1px 4px; border-radius: 4px; }
+/* the two panel toggles mirror each other — left rail, right sidebar */
+.rleft :deep(svg) { transform: scaleX(-1); }
 
 /* the sidebar */
 .rside { width: 248px; flex: none; border-left: 1px solid var(--line); background: var(--bg2); display: flex; flex-direction: column; padding: 12px; gap: 12px; min-height: 0; }
