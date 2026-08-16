@@ -213,23 +213,39 @@ def test_normalized_vault_is_not_swept_again(tmp_path):
     lib.close()
 
 
-def test_failed_conversion_is_remembered_not_retried(tmp_path):
+def test_unreadable_file_is_left_alone_without_faking_a_sidecar(tmp_path):
+    """A file nothing can read must stay untouched AND stay invisible: writing a
+    sidecar for it would make the UI report a downloaded chapter with no pages."""
     lib = Library(tmp_path)
     lib.create(DraftIn(meta=TitleMeta(title="X"), chapters=[ChapterRow(id="ch-1", num="1")]))
     d = lib.vault._chapters_dir("x")
     d.mkdir(parents=True, exist_ok=True)
     (d / "ch-1.rar").write_bytes(b"unreadable-garbage")
     assert lib.vault.normalize_chapter_archives() == 0
-    side = json.loads((d / "ch-1.json").read_text(encoding="utf-8"))
-    assert side["convertFailed"]  # the failure is remembered…
+    assert not (d / "ch-1.json").exists()
     assert (d / "ch-1.rar").read_bytes() == b"unreadable-garbage"
-    assert lib.vault.normalize_chapter_archives() == 0  # …and skipped on the next pass
-    # a REPLACED file (new mtime) gets a fresh attempt
+    assert next(c for c in lib.get("x").chapters if c.id == "ch-1").dl is False
+    # replacing it with something readable converts it on the next pass
     with zipfile.ZipFile(d / "ch-1.rar", "w") as z:  # actually zip bytes now
         z.writestr("p1.jpg", b"img")
     assert lib.vault.normalize_chapter_archives() == 1
     assert (d / "ch-1.zip").is_file() and not (d / "ch-1.rar").exists()
-    assert "convertFailed" not in json.loads((d / "ch-1.json").read_text(encoding="utf-8"))
+    lib.close()
+
+
+def test_failed_conversion_is_remembered_for_a_known_chapter(tmp_path):
+    """When the chapter HAS a sidecar, the failure is recorded against the exact
+    file so later passes don't re-attempt the same hopeless conversion."""
+    lib = Library(tmp_path)
+    lib.create(DraftIn(meta=TitleMeta(title="X"), chapters=[ChapterRow(id="ch-1", num="1")]))
+    d = lib.vault._chapters_dir("x")
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "ch-1.rar").write_bytes(b"unreadable-garbage")
+    (d / "ch-1.json").write_text(json.dumps({"pages": 0}), encoding="utf-8")
+    assert lib.vault.normalize_chapter_archives() == 0
+    side = json.loads((d / "ch-1.json").read_text(encoding="utf-8"))
+    assert side["convertFailed"]
+    assert lib.vault.normalize_chapter_archives() == 0  # skipped, not retried
     lib.close()
 
 
@@ -317,7 +333,7 @@ def _known(c, keys, chapter="b-5-en"):
 def test_page_capture_accumulates_and_skips_known_pages(client, tmp_path):
     r = _capture(client, images=[
         ("01.png", "https://cdn/5/01.png?t=aaa", _png(), "image/png"),
-        ("02.webp", "https://cdn/5/02.webp?t=aaa", _png(), "image/webp"),
+        ("02.webp", "https://cdn/5/02.webp?t=aaa", _webp(), "image/webp"),
     ])
     assert r.status_code == 200
     ch = next(c for c in r.json()["chapters"] if c["id"] == "b-5-en")
@@ -351,6 +367,75 @@ def test_known_pages_ignores_damaged_media(client, tmp_path):
     _capture(client, images=[("01.png", "", _png(), "image/png")])
     (_chapters_dir(tmp_path) / "b-5-en.zip").write_bytes(b"corrupted")
     assert _known(client, ["01.png"]).json() == []  # unreadable → re-capture, don't trust
+
+
+# ---- the sidecar's page keys travel with the pages ----
+
+def _add_row(c, chapter_id, num):
+    """A bare chapter row — the UI creates one through a meta commit."""
+    rows = [{k: ch[k] for k in ("id", "num", "title", "url", "lang", "group", "date")}
+            for ch in c.get("/api/titles/berserk").json()["chapters"]]
+    rows.append({"id": chapter_id, "num": num, "title": "", "url": "",
+                 "lang": "EN", "group": "dex", "date": ""})
+    r = c.put("/api/titles/berserk", json={"meta": {"title": "Berserk"}, "chapters": rows})
+    assert r.status_code == 200
+    return next(ch for ch in r.json()["chapters"] if ch["id"] == chapter_id)
+
+
+def test_page_keys_follow_deleted_and_moved_pages(client, tmp_path):
+    other = _add_row(client, "b-6-en", "6")
+    _capture(client, images=[
+        ("01.png", "", _png(), "image/png"),
+        ("02.png", "", _png(), "image/png"),
+        ("03.png", "", _png(), "image/png"),
+    ])
+    side = lambda ch: json.loads((_chapters_dir(tmp_path) / f"{ch}.json").read_text(encoding="utf-8"))
+
+    # deleting a page drops ITS key, so re-reading that page captures it again
+    r = client.post("/api/titles/berserk/chapters/b-5-en/pages/delete", json={"indices": [1]})
+    assert r.status_code == 200
+    assert side("b-5-en")["pageKeys"] == ["01.png", "03.png"]
+    assert _known(client, ["02.png"]).json() == []
+
+    # moving a page carries its key to the destination
+    r = client.post("/api/titles/berserk/chapters/b-5-en/pages/move",
+                    json={"to": other["id"], "indices": [0]})
+    assert r.status_code == 200
+    assert side("b-5-en")["pageKeys"] == ["03.png"]
+    assert side(other["id"])["pageKeys"] == ["01.png"]
+    assert _known(client, ["01.png"]).json() == []  # the source no longer claims it
+
+
+def test_reordering_pages_keeps_keys_aligned(client, tmp_path):
+    _capture(client, images=[("01.png", "", _png(), "image/png"), ("02.png", "", _png(), "image/png")])
+    r = client.post("/api/titles/berserk/chapters/b-5-en/pages/reorder", json={"order": [1, 0]})
+    assert r.status_code == 200
+    side = json.loads((_chapters_dir(tmp_path) / "b-5-en.json").read_text(encoding="utf-8"))
+    assert side["pageKeys"] == ["02.png", "01.png"]
+
+
+def test_capture_stores_the_format_the_bytes_have(client, tmp_path):
+    """A CDN mislabelling WebP as image/jpeg must not produce a broken .jpg."""
+    import base64
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (4, 6), (1, 2, 3)).save(buf, "WEBP")
+    r = client.post("/api/titles/berserk/chapters/b-5-en/pages/capture", json={
+        "images": [{"key": "p.jpg", "url": "https://cdn/p.jpg",
+                    "data": base64.b64encode(buf.getvalue()).decode(), "contentType": "image/jpeg"}],
+    })
+    assert r.status_code == 200
+    with zipfile.ZipFile(_chapters_dir(tmp_path) / "b-5-en.zip") as z:
+        # sniffed as webp → converted to the standard format, never stored as a lying .jpg
+        assert z.namelist() == ["001.jpg"]
+        assert Image.open(io.BytesIO(z.read("001.jpg"))).format == "JPEG"
+
+
+def test_capture_refuses_an_oversized_batch(client):
+    r = client.post("/api/titles/berserk/chapters/b-5-en/pages/capture", json={
+        "images": [{"key": f"{i}.png", "data": "", "contentType": "image/png"} for i in range(40)],
+    })
+    assert r.status_code == 413
 
 
 # ---- migration corner case: a legacy title dir named like its own shelf ----

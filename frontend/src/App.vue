@@ -101,6 +101,7 @@ let dragEl: HTMLElement | null = null
 let dragPtr = 0
 let dragStartX = 0
 let dragStartLeft = 0
+let dragStartScroll = 0
 let dragLive = false
 let swallowClick = false
 
@@ -111,10 +112,13 @@ function parseTx(t: string): number {
 function tabPointerDown(kind: 't' | 'b', id: string, e: PointerEvent) {
   if (e.button !== 0) return
   if ((e.target as HTMLElement).closest('.tact')) return // ✕ / pin are clicks, never drags
+  if (stripDrag.value) return // a second pointer must not orphan the live drag
+  swallowClick = false // a cancelled drag never gets its click — start clean
   dragEl = e.currentTarget as HTMLElement
   dragPtr = e.pointerId
   dragStartX = e.clientX
   dragStartLeft = dragEl.getBoundingClientRect().left
+  dragStartScroll = tabScrollEl.value?.scrollLeft ?? 0
   dragLive = false
   stripDrag.value = { kind, id }
   dragEl.setPointerCapture(e.pointerId)
@@ -131,10 +135,12 @@ function tabPointerMove(e: PointerEvent) {
     else activateTab(d.id)
   }
   const strip = tabScrollEl.value
-  // glue the tab to the pointer on the X axis only, clamped to the strip
+  // glue the tab to the pointer on the X axis only, clamped to the strip. The
+  // strip can auto-scroll under us, so the grab point moves with it.
   const cur = dragEl.getBoundingClientRect()
   const slotLeft = cur.left - parseTx(dragEl.style.transform) // layout position without our offset
-  let want = dragStartLeft + dx
+  const scrolled = (strip?.scrollLeft ?? 0) - dragStartScroll
+  let want = dragStartLeft + dx - scrolled
   if (strip) {
     const s = strip.getBoundingClientRect()
     want = Math.max(s.left, Math.min(want, s.right - cur.width))
@@ -143,21 +149,26 @@ function tabPointerMove(e: PointerEvent) {
     else if (e.clientX < s.left + 28) strip.scrollBy({ left: -14 })
   }
   dragEl.style.transform = `translateX(${want - slotLeft}px)`
-  // live reorder on midpoint crossing (past the last tab's right half → the end)
+  // live reorder on midpoint crossing (past the last tab's right half → the end).
+  // The insert point is computed in DISPLAY order, then translated back to the
+  // raw array the move helpers splice — pinned tabs render first, so the two
+  // orders are not the same list.
   if (!strip) return
-  const ids = d.kind === 't' ? titleTabs.value.map((x) => x.id) : browserTabs.value.map((x) => x.id)
-  const from = ids.indexOf(d.id)
+  const shown = d.kind === 't' ? titleTabs.value.map((x) => x.id) : browserTabs.value.map((x) => x.id)
+  const from = shown.indexOf(d.id)
   if (from < 0) return
   for (const el of strip.querySelectorAll<HTMLElement>('.tab')) {
     const tid = el.dataset.tabId
     if (!tid || tid === d.id) continue
     const r = el.getBoundingClientRect()
     if (e.clientX < r.left || e.clientX > r.right) continue
-    const ti = ids.indexOf(tid)
+    const ti = shown.indexOf(tid)
     if (ti < 0) break
     const insert = e.clientX < r.left + r.width / 2 ? ti : ti + 1
     if (insert === from || insert === from + 1) break // already there — keeps the live swap stable
-    const beforeId = ids[insert]
+    // land before the next tab that still exists AFTER this one moves out
+    const rest = shown.filter((x) => x !== d.id)
+    const beforeId = rest[insert > from ? insert - 1 : insert]
     if (d.kind === 't') moveTitleTabBefore(d.id, beforeId ?? '#end')
     else moveBrowserTabBefore(d.id, beforeId ?? '#end')
     break
@@ -166,7 +177,9 @@ function tabPointerMove(e: PointerEvent) {
 function tabPointerUp(e: PointerEvent) {
   if (!stripDrag.value || e.pointerId !== dragPtr) return
   const el = dragEl
-  swallowClick = dragLive
+  // a real drag consumes the click that follows — but a CANCELLED pointer never
+  // produces one, so the flag must not outlive it
+  swallowClick = dragLive && e.type === 'pointerup'
   stripDrag.value = null
   dragEl = null
   if (el) {
@@ -324,6 +337,13 @@ initSessions()
       </div>
     </main>
     </div>
+    <!-- Failures used to be written to store.error and never shown: a refused
+         upload, a failed reorder or delete simply did nothing. One toast, one
+         place, dismissable. -->
+    <div v-if="store.error" class="errtoast" @click="store.error = null">
+      <Icon name="x" :size="13" :sw="2.4" />
+      <span class="errmsg">{{ store.error }}</span>
+    </div>
     <ConfirmModal />
   </div>
 </template>
@@ -399,6 +419,14 @@ initSessions()
 .tabsmenu .mnew { display: flex; align-items: center; gap: 9px; margin-top: 6px; padding: 8px 9px; border-top: 1px solid var(--line); font: 600 12px/1 system-ui; color: var(--accent); cursor: pointer; border-radius: 0 0 7px 7px; }
 .tabsmenu .mnew:hover { background: var(--accentSoft); }
 .viewport { flex: 1; min-height: 0; }
+/* the one failure surface: bottom-centred, above everything, click to dismiss */
+.errtoast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 200;
+  display: flex; align-items: center; gap: 9px; max-width: 620px; padding: 10px 14px;
+  border-radius: 10px; border: 1px solid color-mix(in srgb, var(--adult) 55%, var(--line));
+  background: color-mix(in srgb, var(--adult) 14%, var(--panel2)); color: var(--tx);
+  font: 500 12px/1.4 system-ui; box-shadow: 0 14px 34px rgba(0, 0, 0, .45); cursor: pointer; }
+.errtoast:hover { border-color: var(--adult); }
+.errmsg { overflow: hidden; text-overflow: ellipsis; }
 /* frameless drag regions live in styles.css (GLOBAL — a scoped :global()
    variant once compiled into a rule that made the whole window a drag region
    and killed every click) */

@@ -16,6 +16,7 @@ import {
   type Chapter, type Title,
 } from '../data'
 import { bindingsFor, keyLabel, matches } from '../keys'
+import { isRecord, readLocal, readLocalOne, writeLocal, writeLocalOne } from '../local'
 
 const t = computed<Title | undefined>(() => titleById(store.activeTitle))
 const chapter = computed<Chapter | undefined>(() =>
@@ -30,24 +31,20 @@ const fit = ref<Fit>('height')
 const widthPx = ref(720)
 const margins = ref(0)
 const sidebar = ref(true)
-const settingsOpen = ref(localStorage.getItem('lb.readerSettings') !== '0')
-watch(settingsOpen, (v) => { try { localStorage.setItem('lb.readerSettings', v ? '1' : '0') } catch { /* ignore */ } })
+const settingsOpen = ref(readLocalOne('lb.readerSettings', ['0', '1'] as const, '1') === '1')
+watch(settingsOpen, (v) => writeLocalOne('lb.readerSettings', v ? '1' : '0'))
 // the LEFT rail: page thumbnails of the open chapter, click to jump. Hideable
 // like the right one; the choice sticks across sessions.
-const thumbs = ref(localStorage.getItem('lb.readerThumbs') === '1')
-watch(thumbs, (v) => { try { localStorage.setItem('lb.readerThumbs', v ? '1' : '0') } catch { /* ignore */ } })
+const thumbs = ref(readLocalOne('lb.readerThumbs', ['0', '1'] as const, '0') === '1')
+watch(thumbs, (v) => writeLocalOne('lb.readerThumbs', v ? '1' : '0'))
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 let prefsReady = false // don't re-save while restoring
 let autoDone = true // long-strip auto-suggest fires only for titles with NO saved prefs
 function loadPrefs(id: string) {
   prefsReady = false
-  let own: string | null = null
-  let p: Record<string, unknown> = {}
-  try {
-    own = localStorage.getItem(`lb.reader.${id}`)
-    p = JSON.parse(own || localStorage.getItem('lb.reader.default') || '{}')
-  } catch { /* corrupt prefs → defaults */ }
+  const own = readLocal(`lb.reader.${id}`, isRecord, null as Record<string, unknown> | null)
+  const p = own ?? readLocal('lb.reader.default', isRecord, {} as Record<string, unknown>)
   mode.value = p.mode === 'strip' ? 'strip' : 'pages'
   fit.value = p.fit === 'width' || p.fit === 'custom' ? p.fit : 'height'
   widthPx.value = clamp(Number(p.width) || 720, 480, 1400)
@@ -57,11 +54,9 @@ function loadPrefs(id: string) {
 }
 watch([mode, fit, widthPx, margins], () => {
   if (!prefsReady || !t.value) return
-  const p = JSON.stringify({ mode: mode.value, fit: fit.value, width: widthPx.value, margins: margins.value })
-  try {
-    localStorage.setItem(`lb.reader.${t.value.id}`, p)
-    localStorage.setItem('lb.reader.default', p)
-  } catch { /* ignore */ }
+  const p = { mode: mode.value, fit: fit.value, width: widthPx.value, margins: margins.value }
+  writeLocal(`lb.reader.${t.value.id}`, p)
+  writeLocal('lb.reader.default', p)
 })
 watch(() => t.value?.id, (id) => { if (id) loadPrefs(id) }, { immediate: true })
 
@@ -204,7 +199,7 @@ watch([() => store.reader.page, thumbs, chapter], async () => {
   if (!thumbs.value) return
   await nextTick()
   railEl.value?.querySelector('.lthumb.on')?.scrollIntoView({ block: 'nearest' })
-})
+}, { immediate: true }) // entering at a remembered page must open ON that thumbnail
 // reaching the last page marks the chapter read; the next two pages prefetch
 watch([() => store.reader.page, chapter], () => {
   const c = chapter.value
@@ -250,6 +245,16 @@ function onStripScroll() {
   const max = el.scrollHeight - el.clientHeight
   stripPct.value = max > 0 ? Math.round((el.scrollTop / max) * 100) : 100
   if (max > 0 && el.scrollTop >= max - 40) markCurrentRead()
+  // the strip has a CURRENT PAGE too: the one filling the viewport. Without
+  // this the rail's highlight and the tab's remembered spot stay on page 1.
+  const imgs = [...el.querySelectorAll<HTMLImageElement>('img.page')]
+  const mid = el.scrollTop + el.clientHeight / 3
+  let at = 0
+  for (let i = 0; i < imgs.length; i++) {
+    if (imgs[i].offsetTop <= mid) at = i
+    else break
+  }
+  if (at !== store.reader.page) store.reader.page = at
 }
 
 // a VERY tall first page on a title without saved prefs → suggest the strip

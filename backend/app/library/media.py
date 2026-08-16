@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import uuid
 import zipfile
 from pathlib import Path
@@ -32,9 +33,39 @@ def _tmp(path: Path) -> Path:
 
 
 def _require_editable(path: Path) -> None:
-    if path.is_file() and not zipfile.is_zipfile(path):
+    if not path.is_file():
+        return
+    if not zipfile.is_zipfile(path):
         raise UnsupportedArchiveError(
             "this chapter's archive is not a zip — page edits would destroy it")
+    try:  # an encrypted or CRC-broken zip passes is_zipfile but reads nowhere
+        with zipfile.ZipFile(path) as z:
+            bad = z.testzip()
+        if bad:
+            raise UnsupportedArchiveError(f"this chapter's archive is damaged ({bad})")
+    except (RuntimeError, zipfile.BadZipFile) as exc:
+        raise UnsupportedArchiveError(f"this chapter's archive cannot be read: {exc}")
+
+
+# The bytes decide the format — a CDN's content-type (or the name it serves an
+# image under) is routinely wrong, and storing WebP bytes as `.jpg` would break
+# every external reader.
+_MAGIC: tuple[tuple[bytes, str], ...] = (
+    (b"\xff\xd8\xff", "jpg"), (b"\x89PNG\r\n\x1a\n", "png"),
+    (b"GIF87a", "gif"), (b"GIF89a", "gif"), (b"BM", "bmp"),
+)
+
+
+def sniff_ext(data: bytes) -> str:
+    """The image extension the BYTES imply, '' when they are not an image."""
+    for magic, ext in _MAGIC:
+        if data.startswith(magic):
+            return ext
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    if len(data) >= 12 and data[4:8] == b"ftyp" and data[8:12].lower().startswith((b"avif", b"avis")):
+        return "avif"
+    return ""
 
 
 def _read_all_entries(src: Path) -> list[tuple[str, bytes]]:
@@ -139,6 +170,19 @@ def thumbnail(data: bytes, width: int, cap: float | None = None) -> bytes | None
         return None
 
 
+def junk_entry_names(path: Path) -> list[str]:
+    """Non-image entry names, without reading their bytes — used to decide
+    whether an archive with no pages left still holds something worth keeping."""
+    if not path.is_file() or not zipfile.is_zipfile(path):
+        return []
+    try:
+        with zipfile.ZipFile(path) as z:
+            return [n for n in z.namelist()
+                    if not n.endswith("/") and Path(n).suffix.lower() not in IMAGE_EXTS]
+    except (zipfile.BadZipFile, OSError, RuntimeError):
+        return []
+
+
 def _junk_entries(path: Path) -> list[tuple[str, bytes]]:
     """Non-image entries (ComicInfo.xml, notes, …) — every rewrite carries them
     over unchanged; editing pages must never silently drop a translator's files."""
@@ -215,18 +259,57 @@ def _write_renumbered(path: Path, pages: list[tuple[bytes, str]], junk: list[tup
     os.replace(tmp, path)
 
 
+_SEQ_NAME = re.compile(r"^(\d+)\.([A-Za-z0-9]+)$")
+
+
+def _canonical_width(names: list[str]) -> int:
+    """The zero-pad width if `names` is ALREADY this module's own numbering
+    (001.jpg, 002.png, … in order), else 0."""
+    if not names:
+        return 0
+    m = _SEQ_NAME.match(names[0])
+    if not m:
+        return 0
+    width = len(m.group(1))
+    for i, name in enumerate(names, start=1):
+        m = _SEQ_NAME.match(name)
+        if not m or len(m.group(1)) != width or int(m.group(1)) != i:
+            return 0
+    return width
+
+
 def renumber_and_append(path: Path, extra: list[tuple[bytes, str]]) -> int:
-    """THE way pages are added: rewrite the archive with sequential zero-padded
-    names (001.jpg …) preserving the current natural order, appending `extra`
-    (bytes, ext) at the end — so 'appended' always MEANS last, whatever naming
-    scheme the source site used. Creates the archive when missing. Returns the
-    final page count."""
+    """THE way pages are added: the archive ends up with sequential zero-padded
+    names (001.jpg …) in the current order, with `extra` (bytes, ext) appended —
+    so 'appended' always MEANS last, whatever naming scheme the source site
+    used. Creates the archive when missing. Returns the final page count.
+
+    When the archive is already in that canonical form the existing pages are
+    NOT decoded and re-written: the file is copied and the new pages appended to
+    the copy, which is then swapped in. Same atomicity, but capturing page 300
+    of a chapter no longer costs reading 299 pages into memory first."""
     _require_editable(path)
+    names = image_entries(path) if path.is_file() else []
+    width = _canonical_width(names)
+    # a wider page count (999 → 1000) needs the full renumber to stay sorted
+    if width and len(names) + len(extra) < 10 ** width:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _tmp(path)
+        shutil.copy2(path, tmp)
+        try:
+            with zipfile.ZipFile(tmp, "a", zipfile.ZIP_STORED) as z:
+                for i, (data, ext) in enumerate(extra, start=len(names) + 1):
+                    data, ext = normalize_page(data, ext)
+                    z.writestr(f"{i:0{width}d}.{_norm_ext(ext)}", data)
+        except Exception:
+            tmp.unlink(missing_ok=True)
+            raise
+        os.replace(tmp, path)
+        return len(names) + len(extra)
     existing: list[tuple[bytes, str]] = []
-    if path.is_file():
-        for name in image_entries(path):
-            data, _ = read_entry(path, name)
-            existing.append((data, Path(name).suffix))
+    for name in names:
+        data, _ = read_entry(path, name)
+        existing.append((data, Path(name).suffix))
     pages = [*existing, *extra]
     _write_renumbered(path, pages, _junk_entries(path))
     return len(pages)

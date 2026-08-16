@@ -4,7 +4,9 @@
 // The draft itself lives in draft.ts; browser tabs live in browser.ts.
 import { reactive, watch, watchEffect } from 'vue'
 import { api, type LibraryQuery } from './api'
-import { chapterIdFor, chapterRowsOf, emptyFacets, metaOf, type Author, type Facets, type ReadState, type Source, type Title } from './data'
+import { chapterIdFor, chapterRowsOf, emptyFacets, metaOf, sameChapter, type Author, type Facets, type ReadState, type Source, type Title } from './data'
+import { readLocalOne, writeLocalOne } from './local'
+import { stopCaptureFor } from './pagecapture'
 
 export type View = 'library' | 'title' | 'reader' | 'authors' | 'sources' | 'settings' | 'browser'
 export type Density = 'grid' | 'dense' | 'expanded'
@@ -95,12 +97,8 @@ function resolveTheme(pref: ThemePref): 'dark' | 'light' {
   return pref
 }
 // restore persisted UI prefs before wiring the auto-save
-try {
-  const th = localStorage.getItem('lb.theme')
-  if (th === 'dark' || th === 'light' || th === 'system') store.theme = th
-  const de = localStorage.getItem('lb.density')
-  if (de === 'grid' || de === 'dense' || de === 'expanded') store.library.density = de
-} catch { /* storage unavailable */ }
+store.theme = readLocalOne('lb.theme', ['dark', 'light', 'system'] as const, store.theme)
+store.library.density = readLocalOne('lb.density', ['grid', 'dense', 'expanded'] as const, store.library.density)
 // the shell's native window-controls overlay follows the theme
 const TITLEBAR = {
   dark: { color: '#0f1115', symbolColor: '#9aa1ad' },
@@ -114,10 +112,8 @@ watchEffect(() => {
 // frameless chrome (drag regions, overlay clearance) only inside the shell
 document.documentElement.classList.toggle('frameless', !!window.longbox)
 watchEffect(() => {
-  try {
-    localStorage.setItem('lb.theme', store.theme)
-    localStorage.setItem('lb.density', store.library.density)
-  } catch { /* ignore */ }
+  writeLocalOne('lb.theme', store.theme)
+  writeLocalOne('lb.density', store.library.density)
 })
 
 // ---- data loading ----
@@ -295,6 +291,12 @@ function forgetTab(id: string): number {
   delete store.readerTabs[id]
   return i
 }
+// A title that no longer exists cannot be captured into — the session ends with
+// it instead of posting pages at a dead id every couple of seconds.
+function forgetTitle(id: string) {
+  delete store.byId[id]
+  stopCaptureFor({ titleId: id })
+}
 export function closeTab(id: string) {
   const i = forgetTab(id)
   if (store.activeTitle === id) {
@@ -453,7 +455,7 @@ export async function commitChapterOrder(t: Title, orderedIds: string[], mode: '
 export async function deleteTitle(id: string): Promise<void> {
   try {
     await api.removeTitle(id)
-    delete store.byId[id]
+    forgetTitle(id)
     closeTab(id)
     await refreshLibrary()
   } catch (e) {
@@ -467,7 +469,7 @@ export async function deleteTitles(ids: string[]): Promise<number> {
   for (const id of ids) {
     try {
       await api.removeTitle(id)
-      delete store.byId[id]
+      forgetTitle(id)
       forgetTab(id)
       if (store.activeTitle === id) store.activeTitle = null
       done++
@@ -502,8 +504,7 @@ export async function editChapterRow(t: Title, id: string,
 
 // Create a bare chapter row (no file) — the manual twin of capturing one.
 export async function addChapterRow(t: Title, ch: { num: string; lang: string; group: string; url?: string }): Promise<boolean> {
-  const norm = (s: string) => s.trim().toLowerCase()
-  if (t.chapters.some((c) => norm(c.num) === norm(ch.num) && norm(c.lang) === norm(ch.lang) && norm(c.group) === norm(ch.group))) {
+  if (t.chapters.some((c) => sameChapter(c, ch))) {
     store.error = `Chapter ${ch.num}${ch.lang ? ' · ' + ch.lang : ''} already exists`
     return false
   }
@@ -522,6 +523,7 @@ export async function setLibraryPath(path: string): Promise<string | null> {
   try {
     const s = await api.setLibraryPath(path)
     // the backend swapped to the new location — reload everything
+    stopCaptureFor() // the armed entry belongs to the library we are leaving
     store.byId = {}
     store.openTabs = []
     store.pinnedTabs = []

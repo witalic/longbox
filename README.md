@@ -20,12 +20,16 @@ cover, and longbox learns a reusable per-site recipe.
 - **Downloads** — arm the next download for a specific chapter, then just download the file in
   the embedded browser; longbox intercepts it and files it into the vault. Archives (zip/cbz/7z/rar)
   are normalized to zip; single images accumulate into the chapter page by page.
+- **Page capture** — for sources that never serve a file: teach which images on a reader page are
+  the pages (once per site), arm a chapter, and read. Every page you open is fetched with the
+  browser's own session and filed into that chapter; pages already stored are never fetched
+  again, so flipping back costs nothing.
 - **Contents editor** — entries with free-form labels, translation groups (language + group per
   row), drag-to-reorder, attach/replace archives, add loose images or whole folders, move pages
   between entries, and manual page reordering.
-- **Reader** — page and strip modes, fit controls, label-wise chapter navigation that keeps your
-  current translation, per-title remembered settings, and rebindable (layout-independent)
-  hotkeys. Reading progress writes through instantly.
+- **Reader** — page and strip modes, fit controls, a hideable rail of page thumbnails, label-wise
+  chapter navigation that keeps your current translation, per-title remembered settings, and
+  rebindable (layout-independent) hotkeys. Reading progress writes through instantly.
 - **Authors & sources** — people aggregated from the library with roles, works and favorites;
   source sites with their recipe status.
 - **Local-first storage** — one directory per title on a per-type shelf; a rebuildable SQLite

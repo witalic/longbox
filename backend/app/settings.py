@@ -18,8 +18,6 @@ class Settings(BaseSettings):
 
     # Per-launch shared secret guarding /api. None => guard is a pass-through (dev/tests).
     auth_token: str | None = None
-    host: str = "127.0.0.1"
-    port: int = 8787
     # Explicit library override (env / tests). When unset, config/default is used.
     library_path: Path | None = None
 

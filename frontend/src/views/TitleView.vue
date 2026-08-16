@@ -7,8 +7,9 @@ import Icon from '../components/Icon.vue'
 import EntryFields from '../components/EntryFields.vue'
 import Dropdown from '../components/Dropdown.vue'
 import { openInBrowser } from '../browser'
+import { readLocalOne, writeLocalOne } from '../local'
 import { api } from '../api'
-import { chapterIdFor, compareChapterNums, coverAt, faviconFor } from '../data'
+import { chapterIdFor, compareChapterNums, coverAt, faviconFor, sameChapter } from '../data'
 
 // domains whose favicon failed to load → fall back to the initial letters
 const noIcon = reactive<Record<string, boolean>>({})
@@ -206,10 +207,8 @@ async function uploadEntryImages(files: File[]) {
   if (!files.length || !t.value || !iNum.value.trim()) return
   importing.value = true
   try {
-    const norm = (s: string) => s.trim().toLowerCase()
     const ch = { num: iNum.value.trim(), lang: iLang.value.trim(), group: iGroup.value.trim(), url: iUrl.value.trim() }
-    const same = (c: Chapter) =>
-      norm(c.num) === norm(ch.num) && norm(c.lang) === norm(ch.lang) && norm(c.group) === norm(ch.group)
+    const same = (c: Chapter) => sameChapter(c, ch)
     let row = t.value.chapters.find(same)
     if (!row) {
       if (!(await addChapterRow(t.value, ch))) return
@@ -334,10 +333,8 @@ const pagesError = ref('')
 
 const THUMB_SIZES = { s: { grid: 104, w: 160 }, m: { grid: 150, w: 280 }, l: { grid: 220, w: 440 } } as const
 type ThumbKey = keyof typeof THUMB_SIZES
-// validate the stored value — a stale key from an older build must not crash the pane
-const storedThumb = localStorage.getItem('lb.pageThumb')
-const thumbKey = ref<ThumbKey>(storedThumb && storedThumb in THUMB_SIZES ? storedThumb as ThumbKey : 'm')
-watch(thumbKey, (v) => { try { localStorage.setItem('lb.pageThumb', v) } catch { /* ignore */ } })
+const thumbKey = ref<ThumbKey>(readLocalOne('lb.pageThumb', ['s', 'm', 'l'] as const, 'm'))
+watch(thumbKey, (v) => writeLocalOne('lb.pageThumb', v))
 const thumb = computed(() => THUMB_SIZES[thumbKey.value])
 
 const openChapter = computed<Chapter | undefined>(() =>

@@ -14,8 +14,11 @@ paths:
 - The user layer (fav/rating/read) is instant optimistic write-through — no draft, no confirm.
   Everything else commits explicitly through the draft.
 - Key bindings are physical (`e.code`, via `keys.ts`) so they survive keyboard layouts.
-- Validate every `localStorage` read against expected values — a stale key from an older build
-  must not crash a view.
+- Never touch `localStorage` directly: `local.ts` (`readLocal`/`writeLocal` for JSON,
+  `readLocalOne`/`writeLocalOne` for plain string prefs) is the one place that validates a read
+  and swallows a denied write — a stale key from an older build must not crash a view.
+- A long-running activity (page capture) SNAPSHOTS its target at the start of a round; reading
+  reactive state across awaits lets a Finish mid-round file results into the wrong entry.
 - Cleanup discipline for per-title state: forget `openTabs` / `pinnedTabs` / `readerTabs`
   together (`forgetTab`), and reset them all when the library path switches.
 - Covers/pages in grids load through `coverAt(...)` / the `?w=` endpoints — never decode

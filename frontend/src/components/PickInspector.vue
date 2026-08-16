@@ -30,7 +30,6 @@ export interface PickUse {
   stripCounts: boolean
   useAnchor: boolean // prefer matching the value by its row label (position-independent)
   values: string[]
-  preview: string
 }
 
 const props = defineProps<{
@@ -191,7 +190,6 @@ function use() {
     stripCounts: state.stripCounts,
     useAnchor: state.useAnchor,
     values: state.scope === 'all' ? props.probe.values.slice() : [props.probe.values[state.index] ?? ''],
-    preview: props.probe.preview,
   })
 }
 </script>

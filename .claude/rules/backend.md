@@ -26,5 +26,8 @@ content). Full model: `design/state-model.md`; layout: `ARCHITECTURE.md`.
 - **Type shelves.** `<root>/<type-shelf>/<title-id>/`; a type change physically relocates the
   directory under the title lock; empty shelves are swept; legacy layouts migrate on open and
   migration failures must never block startup.
-- Sidecar `pages`/`size` are stamped by the vault from the file actually stored — routers never
-  precompute them.
+- Sidecar `pages`/`size` are stamped from the file actually stored — routers never precompute
+  them, and every page op writes the sidecar through `Library._write_media_sidecar` so `pageKeys`
+  stays parallel to the pages (a key that outlives its page breaks capture dedup).
+- The index write belongs INSIDE the title lock (`Library._index`), and all index statements go
+  through the index's own lock — one shared SQLite connection means one transaction context.

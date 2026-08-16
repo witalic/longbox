@@ -187,6 +187,14 @@ class Vault:
             return None
         return TitleDoc.model_validate_json(path.read_text(encoding="utf-8"))
 
+    def touched_at(self, title_id: str) -> int:
+        """When the title's document was last written — the recency the library's
+        default sort means (a rebuilt cache must not reorder the shelf)."""
+        try:
+            return self._doc_path(title_id).stat().st_mtime_ns
+        except OSError:
+            return 0
+
     def list_ids(self) -> list[str]:
         """Scan the type shelves for title directories (holding a title.json)."""
         if not self.root.is_dir():
@@ -203,9 +211,6 @@ class Vault:
                     ids.add(c.name)
                     self._loc[c.name] = td.name
         return sorted(ids)
-
-    def load_all(self) -> dict[str, TitleDoc]:
-        return {tid: doc for tid in self.list_ids() if (doc := self.load(tid)) is not None}
 
     def _save(self, title_id: str, doc: TitleDoc) -> None:
         self._dir(title_id).mkdir(parents=True, exist_ok=True)
@@ -276,13 +281,23 @@ class Vault:
         d.mkdir(parents=True, exist_ok=True)
         return d / f"{safe_id(chapter_id)}.zip"
 
+    def chapters_dir(self, title_id: str) -> Path:
+        """Where the title's chapter media lives (may not exist yet)."""
+        return self._chapters_dir(title_id)
+
     def chapter_media_path(self, title_id: str, chapter_id: str) -> Path | None:
+        """The chapter's archive. `.zip` WINS: a leftover from an interrupted
+        conversion (the pre-conversion `.7z`, a half-written `.tmp`) must never
+        be served in place of the real thing."""
         stem = safe_id(chapter_id)
         d = self._chapters_dir(title_id)
         if not d.is_dir():
             return None
-        for p in d.glob(f"{stem}.*"):
-            if p.suffix != ".json" and p.is_file():
+        canonical = d / f"{stem}.zip"
+        if canonical.is_file():
+            return canonical
+        for p in sorted(d.glob(f"{stem}.*")):
+            if p.is_file() and p.suffix != ".json" and not p.name.endswith(".tmp"):
                 return p
         return None
 
@@ -323,10 +338,13 @@ class Vault:
             else:
                 media.repack_to_zip(src, tmp)  # raises before the vault changes
                 src.unlink(missing_ok=True)
-            for old in d.glob(f"{stem}.*"):
-                if old != tmp and old.suffix != ".json":
-                    old.unlink(missing_ok=True)
+            # the new archive lands FIRST; only then do the old ones go. The
+            # reverse order leaves the chapter with no media at all if anything
+            # fails in between.
             os.replace(tmp, final)
+            for old in d.glob(f"{stem}.*"):
+                if old != final and old.suffix != ".json":
+                    old.unlink(missing_ok=True)
             sidecar = {**sidecar,
                        "pages": len(media.image_entries(final)),
                        "size": final.stat().st_size}
@@ -359,7 +377,7 @@ class Vault:
         _atomic_write(self._vault_meta_path(),
                       json.dumps(meta, indent=2, ensure_ascii=False).encode("utf-8"))
 
-    def normalize_chapter_archives(self, *, force: bool = False) -> int:
+    def normalize_chapter_archives(self, *, force: bool = False, stop=None) -> int:
         """Consistency pass over the whole vault (part of the zip invariant):
         cbz files are renamed to .zip, rar/7z get repacked when a reader is
         available. A file nothing can read is left alone AND remembered in the
@@ -369,6 +387,8 @@ class Vault:
         Returns how many archives changed (the caller refreshes the index)."""
         changed = 0
         for sid in self.list_ids():
+            if stop is not None and stop.is_set():
+                break  # the library is closing — leave the rest for next time
             home = self._find(sid)
             d = home / "chapters" if home is not None else None
             if d is None or not d.is_dir():
@@ -401,10 +421,14 @@ class Vault:
                             media.repack_to_zip(p, final)
                             if final != p:
                                 p.unlink(missing_ok=True)
-                    except (media.UnsupportedArchiveError, OSError):
-                        side["convertFailed"] = mark
-                        _atomic_write(side_path,
-                                      json.dumps(side, indent=2, ensure_ascii=False).encode("utf-8"))
+                    except (media.UnsupportedArchiveError, OSError, RuntimeError):
+                        # remember the failure ONLY where a sidecar already
+                        # exists: creating one would make an unreadable file
+                        # look like a downloaded chapter to the whole UI
+                        if side_path.is_file():
+                            side["convertFailed"] = mark
+                            _atomic_write(side_path,
+                                          json.dumps(side, indent=2, ensure_ascii=False).encode("utf-8"))
                         continue
                     side.pop("convertFailed", None)
                     side["pages"] = len(media.image_entries(final))

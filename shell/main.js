@@ -300,6 +300,7 @@ async function main() {
   // ONE attempt with a given header set. Sec-Fetch-* are deliberately absent:
   // Chromium owns those, and a request that arrives with them pre-set from the
   // main process is refused outright (ERR_BLOCKED_BY_CLIENT).
+  const IMAGE_TIMEOUT = 30000
   function fetchImageOnce(url, headers) {
     return new Promise((resolve) => {
       let request
@@ -309,6 +310,17 @@ async function main() {
         resolve({ error: `bad request: ${err.message}` })
         return
       }
+      // A hung connection must NOT hang the capture loop: every attempt is
+      // bounded, and an oversized body is aborted instead of drained.
+      let settled = false
+      const finish = (result) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        try { request.abort() } catch { /* already done */ }
+        resolve(result)
+      }
+      const timer = setTimeout(() => finish({ error: 'timed out' }), IMAGE_TIMEOUT)
       for (const [k, v] of Object.entries(headers)) {
         if (v) {
           try { request.setHeader(k, v) } catch { /* a header Chromium reserves */ }
@@ -317,27 +329,27 @@ async function main() {
       request.on('response', (res) => {
         if (res.statusCode >= 400) {
           res.resume()
-          resolve({ error: `http ${res.statusCode}` })
+          finish({ error: `http ${res.statusCode}` })
           return
         }
         const chunks = []
         let total = 0
         res.on('data', (c) => {
           total += c.length
-          if (total <= MAX_IMAGE) chunks.push(c)
+          if (total > MAX_IMAGE) { finish({ error: 'image too large' }); return }
+          chunks.push(c)
         })
         res.on('end', () => {
-          if (!chunks.length) { resolve({ error: 'empty response' }); return }
-          if (total > MAX_IMAGE) { resolve({ error: 'image too large' }); return }
+          if (!chunks.length) { finish({ error: 'empty response' }); return }
           const buf = Buffer.concat(chunks)
           const ct = String(res.headers['content-type'] || '').split(';')[0].trim().toLowerCase()
           const kind = sniffImage(buf) || (ct.startsWith('image/') ? ct : '')
-          if (!kind) { resolve({ error: `not an image (${ct || 'no content-type'})` }); return }
-          resolve({ data: buf.toString('base64'), contentType: kind })
+          if (!kind) { finish({ error: `not an image (${ct || 'no content-type'})` }); return }
+          finish({ data: buf.toString('base64'), contentType: kind })
         })
-        res.on('error', (err) => resolve({ error: `stream: ${err.message}` }))
+        res.on('error', (err) => finish({ error: `stream: ${err.message}` }))
       })
-      request.on('error', (err) => resolve({ error: err.message }))
+      request.on('error', (err) => finish({ error: err.message }))
       request.end()
     })
   }
@@ -359,6 +371,9 @@ async function main() {
     for (const headers of attempts) {
       last = await fetchImageOnce(url, headers)
       if (last?.data) return last
+      // a definite answer from the server is not worth repeating with other
+      // headers — only a refusal or a transport failure is
+      if (/^http (4|5)\d\d$/.test(last?.error || '') && !/^http 40[13]$/.test(last.error)) break
     }
     // Last resort: the session's own fetch — a different path through the
     // network stack than net.request, which some blocks only apply to.
@@ -367,6 +382,8 @@ async function main() {
         headers: referer ? { Referer: referer, 'User-Agent': browserUA() } : { 'User-Agent': browserUA() },
       })
       if (!res.ok) return { error: `${last.error} · session fetch http ${res.status}` }
+      const declared = Number(res.headers.get('content-length') || 0)
+      if (declared > MAX_IMAGE) return { error: `${last.error} · session fetch: image too large` }
       const buf = Buffer.from(await res.arrayBuffer())
       const ct = String(res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase()
       const kind = sniffImage(buf) || (ct.startsWith('image/') ? ct : '')

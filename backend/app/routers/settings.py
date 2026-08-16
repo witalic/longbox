@@ -94,24 +94,34 @@ def set_library_path(request: Request, body: LibraryPathIn) -> SettingsOut:
     except OSError as exc:
         raise HTTPException(status_code=400, detail=f"cannot use that path: {exc}")
 
+    old = _lib(request)
+    if path.resolve() == Path(old.root).resolve():
+        return _out(request)  # already there — a second Library over one vault
+                              # would mean two lock sets guarding the same files
+
+    # Open the new location FIRST: if it can't be indexed, the switch fails with
+    # the old library still live. Writing the config before that would point the
+    # next launch at a folder the app cannot open — with no UI left to fix it.
+    try:
+        new = Library(path)
+    except Exception as exc:  # noqa: BLE001 — an unreadable vault must not strand the app
+        raise HTTPException(status_code=400, detail=f"cannot open that library: {exc}")
+
     with config_transaction() as cfg:
         cfg["library_path"] = str(path)
         libs = [x for x in (cfg.get("libraries") or []) if isinstance(x, str) and x.strip()]
         # switching must REGISTER both sides: the library we're leaving (which may
         # predate the list entirely) and the one we're entering — nothing vanishes
-        previous = str(_lib(request).root)
+        previous = str(old.root)
         if previous not in libs:
             libs.insert(0, previous)
         if str(path) not in libs:
             libs.append(str(path))
         cfg["libraries"] = libs
 
-    # Swap the live library to the new location (indexes whatever vault is there).
-    # The old one closes on a delay: requests already holding it mid-query must
-    # not hit a closed SQLite connection.
-    old = _lib(request)
-    new = Library(path)
     request.app.state.library = new
+    # the old one closes on a delay: requests already holding it mid-query must
+    # not hit a closed SQLite connection
     threading.Timer(5.0, old.close).start()
     return _out(request, cfg)
 
@@ -131,7 +141,6 @@ def remove_library(request: Request, body: LibraryPathIn) -> SettingsOut:
 # threadpool-run) rebuild request is still streaming through the files.
 REBUILD = {"running": False, "done": 0, "total": 0}
 _REBUILD_LOCK = threading.Lock()  # claim-the-run must be atomic
-_NORMALIZE_LOCK = threading.Lock()
 
 
 @router.get("/settings/rebuild/status")
@@ -147,13 +156,12 @@ class NormalizeOut(BaseModel):
 def normalize_archives(request: Request) -> NormalizeOut:
     """Re-run the archive sweep by hand: convert anything in the vault that is
     not a plain zip (retrying archives that failed before — e.g. after
-    installing an unrar backend). Normally this runs once per vault."""
-    if not _NORMALIZE_LOCK.acquire(blocking=False):
+    installing an unrar backend). Normally this runs once per vault. The
+    library owns the one-sweep-at-a-time guard, so the startup pass counts too."""
+    converted = _lib(request).normalize_archives(force=True)
+    if converted < 0:
         raise HTTPException(status_code=409, detail="a conversion pass is already running")
-    try:
-        return NormalizeOut(converted=_lib(request).normalize_archives(force=True))
-    finally:
-        _NORMALIZE_LOCK.release()
+    return NormalizeOut(converted=converted)
 
 
 @router.post("/settings/rebuild", response_model=SettingsOut)

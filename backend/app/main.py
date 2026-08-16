@@ -56,8 +56,13 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        # close whatever library is live NOW — a library switch replaces it, and
+        # closing the original would leave the active one's SQLite handle open
         if owns:
-            lib.close()
+            current = getattr(app.state, "library", lib)
+            current.close()
+            if current is not lib:
+                lib.close()
 
 
 def create_app(library: Library | None = None) -> FastAPI:

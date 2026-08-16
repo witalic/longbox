@@ -404,9 +404,11 @@ function resolveField(rule) {
 // is the mandatory path — hotlink-protected and gated images only work here.
 const MAX_COVER = 8 * 1024 * 1024
 const MAX_PAGE = 24 * 1024 * 1024 // a webtoon strip page can be big
-async function fetchImageBytes(url, cap) {
+async function fetchImageBytes(url, cap, timeoutMs = 30000) {
+  const ctrl = typeof AbortController === 'function' ? new AbortController() : null
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null
   try {
-    const res = await fetch(url, { credentials: 'include' })
+    const res = await fetch(url, { credentials: 'include', signal: ctrl ? ctrl.signal : undefined })
     if (!res.ok) return null
     const ct = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase()
     if (!ct.startsWith('image/')) return null
@@ -418,7 +420,7 @@ async function fetchImageBytes(url, cap) {
       bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000))
     }
     return { data: btoa(bin), contentType: ct, sourceUrl: url }
-  } catch { return null }
+  } catch { return null } finally { if (timer) clearTimeout(timer) }
 }
 const fetchCoverBytes = (url) => fetchImageBytes(url, MAX_COVER)
 
@@ -536,7 +538,9 @@ function resolvePageImages(selector, filter) {
     if (w < minPx || h < minPx) continue
     cands.push({ url, w })
   }
-  const widest = Math.max(0, ...cands.map((c) => c.w))
+  // reduce, not Math.max(...spread): a very loose selector can match thousands
+  // of elements, and spreading them as arguments throws
+  const widest = cands.reduce((m, c) => (c.w > m ? c.w : m), 0)
   const kept = cands.filter((c) => c.w >= widest * ratio)
   return [...new Set(kept.map((c) => c.url))] // the same image twice is ONE page
 }
@@ -566,15 +570,20 @@ ipcRenderer.on('scan-pages', (_e, req) => {
   })
 })
 
+// ONE fetch loop at a time: a second request while the first is streaming would
+// interleave `page-bytes` messages into the host's new buffer and resolve the
+// wrong round.
+let fetchGen = 0
 ipcRenderer.on('fetch-pages', async (_e, req) => {
+  const mine = ++fetchGen
   const urls = (req.urls || []).slice(0, 400)
-  let ok = 0
   for (const url of urls) {
+    if (mine !== fetchGen) return // superseded — stop pushing into a stale round
     const got = await fetchImageBytes(url, MAX_PAGE)
-    if (got) ok++
+    if (mine !== fetchGen) return
     ipcRenderer.sendToHost('page-bytes', got ? { url, data: got.data, contentType: got.contentType } : { url, failed: true })
   }
-  ipcRenderer.sendToHost('pages-fetched', { asked: urls.length, ok })
+  if (mine === fetchGen) ipcRenderer.sendToHost('pages-fetched', {})
 })
 
 // A window.open / middle-click / target=_blank was denied natively (main process) and

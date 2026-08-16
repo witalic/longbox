@@ -119,9 +119,10 @@ watch(domain, async (h) => {
   if (!h) return
   const r = await getRecipe(h)
   // page capture is taught PER DOMAIN — a site that already knows its reader
-  // arms with the right selectors immediately
+  // arms with the right selector immediately. An ACTIVE capture keeps its own:
+  // browsing elsewhere must never repoint a running session.
   const pages = r?.fields?.pages?.candidates?.[0]?.selector
-  if (pages) pageCapture.selector = pages
+  if (pages && !pageCapture.active) pageCapture.selector = pages
 })
 
 function metaCand(key: string, attr = 'content'): Candidate {
@@ -170,9 +171,7 @@ async function saveRecipeField(host: string, field: string, rule: FieldRule | nu
 // ---- request/response over the preload (single in-flight per kind) ----
 interface SnapWire {
   url: string
-  pageTitle: string
   fields: Record<string, string | string[]>
-  used: Record<string, number>
   cover: { data: string; contentType: string; sourceUrl: string } | null
 }
 let snapResolve: ((r: SnapWire | null) => void) | null = null
@@ -277,6 +276,7 @@ async function onUse(result: PickUse) {
       candidates: [{ kind: 'css', selector: result.selector, attr: 'src', note: 'picked' }],
     })
     pageCapture.selector = result.selector
+    pageCapture.domain = host
     closeInspect()
     panel.value?.showFlash(`✓ page images taught (${result.values.length} on this page)`)
     if (pageCapture.active) void runCapture()
@@ -317,7 +317,7 @@ async function onUse(result: PickUse) {
 }
 
 // ---- page capture: scan the reader page, fetch what the vault lacks ----
-interface ScanWire { url: string; title: string; urls: string[]; relaxed?: string }
+interface ScanWire { url: string; urls: string[]; relaxed?: string }
 interface PageImage { url: string; data: string; contentType: string }
 
 let scanResolve: ((s: ScanWire | null) => void) | null = null
@@ -325,28 +325,43 @@ let bytesResolve: ((imgs: PageImage[]) => void) | null = null
 let byteBuf: PageImage[] = []
 let onByte: ((done: number) => void) | null = null
 
-function requestScan(): Promise<ScanWire | null> {
-  const el = wv()
+function requestScan(tabId: string): Promise<ScanWire | null> {
+  const el = wvRefs.get(tabId)
   if (!el) return Promise.resolve(null)
   return new Promise((resolve) => {
     scanResolve?.(null)
     scanResolve = resolve
+    const done = (v: ScanWire | null) => {
+      if (scanResolve !== resolve) return
+      scanResolve = null
+      window.clearTimeout(timer) // a settled request must not leave its timer alive
+      resolve(v)
+    }
+    scanResolve = done as typeof scanResolve
+    const timer = window.setTimeout(() => done(null), 15000)
     el.send?.('scan-pages', JSON.parse(JSON.stringify(
       { selector: pageCapture.selector, filter: { ...pageFilter } })))
-    setTimeout(() => { if (scanResolve === resolve) { scanResolve = null; resolve(null) } }, 15000)
   })
 }
-function requestBytes(urls: string[], progress: (done: number) => void): Promise<PageImage[]> {
-  const el = wv()
+function requestBytes(tabId: string, urls: string[], progress: (done: number) => void): Promise<PageImage[]> {
+  const el = wvRefs.get(tabId)
   if (!el) return Promise.resolve([])
   return new Promise((resolve) => {
     bytesResolve?.([])
     byteBuf = []
     onByte = progress
-    bytesResolve = resolve
-    el.send?.('fetch-pages', JSON.parse(JSON.stringify({ urls })))
+    const done = (imgs: PageImage[]) => {
+      if (bytesResolve !== resolve) return
+      bytesResolve = null
+      onByte = null
+      byteBuf = [] // page bytes are megabytes each — never keep them around
+      window.clearTimeout(timer)
+      resolve(imgs)
+    }
+    bytesResolve = done as typeof bytesResolve
     // generous: a long chapter of big pages fetches sequentially by design
-    setTimeout(() => { if (bytesResolve === resolve) { bytesResolve = null; resolve(byteBuf) } }, 180000)
+    const timer = window.setTimeout(() => done(byteBuf.slice()), 180000)
+    el.send?.('fetch-pages', JSON.parse(JSON.stringify({ urls })))
   })
 }
 
@@ -356,40 +371,56 @@ let captureRun = 0
 
 async function runCapture(): Promise<void> {
   const st = pageCapture
-  if (!st.active || !st.titleId || !st.chapterId || !st.selector || st.busy) return
+  if (!st.active || st.busy) return
+  // The armed target is SNAPSHOTTED for the whole round. Reading it live across
+  // awaits would let a Finish (or arming the next chapter) mid-round file the
+  // remaining pages into the wrong entry — or into `null`.
+  const run = {
+    titleId: st.titleId, chapterId: st.chapterId, label: st.label,
+    tabId: st.tabId, domain: st.domain,
+  }
+  if (!run.titleId || !run.chapterId || !run.tabId || !st.selector) return
+  // …and to the TAB it was armed on: another tab's images are not this
+  // chapter's pages, whichever tab happens to be in front.
+  if (!wvRefs.get(run.tabId)) return
   const my = ++captureRun
+  const mine = () => my === captureRun && st.active && st.chapterId === run.chapterId
   st.busy = true
   st.error = '' // a fresh round reports its own outcome, never the last one's
   try {
-    const scan = await requestScan()
-    if (!scan || my !== captureRun) return
+    const scan = await requestScan(run.tabId)
+    if (!scan || !mine()) return
     // the taught selector matched nothing but a looser one did (a per-page state
-    // class) — adopt the version that works, for this run and the next site visit
-    if (scan.relaxed && scan.relaxed !== pageCapture.selector) {
-      pageCapture.selector = scan.relaxed
-      void saveRecipeField(domain.value, 'pages', {
-        mode: 'list',
-        candidates: [{ kind: 'css', selector: scan.relaxed, attr: 'src', note: 'picked' }],
-      })
+    // class) — adopt the version that works, and remember it against the domain
+    // the capture was ARMED on, never whatever site is in front now
+    if (scan.relaxed && scan.relaxed !== st.selector) {
+      st.selector = scan.relaxed
+      if (run.domain) {
+        void saveRecipeField(run.domain, 'pages', {
+          mode: 'list',
+          candidates: [{ kind: 'css', selector: scan.relaxed, attr: 'src', note: 'picked' }],
+        })
+      }
     }
     const scanKey = `${scan.url}|${scan.urls.join(',')}`
     if (scanKey === lastScanKey) return // same page, same images — nothing to do
     if (!scan.urls.length) {
-      st.status = `ch. ${st.label} — no page images here (${st.added} stored)`
+      st.status = `ch. ${run.label} — no page images here (${st.added} stored)`
       return
     }
     lastScanKey = scanKey
     // dedup by the image's NAME: CDN tokens rotate, file names don't
     const byKey = new Map<string, string>()
     for (const u of scan.urls) if (!byKey.has(pageKeyFor(u))) byKey.set(pageKeyFor(u), u)
-    const known = new Set(await api.knownPages(st.titleId, st.chapterId, [...byKey.keys()]))
+    const known = new Set(await api.knownPages(run.titleId, run.chapterId, [...byKey.keys()]))
+    if (!mine()) return
     const missing = [...byKey.entries()].filter(([k]) => !known.has(k))
     if (!missing.length) {
-      st.status = `ch. ${st.label} — this page is already stored (${st.added} captured)`
+      st.status = `ch. ${run.label} — this page is already stored (${st.added} captured)`
       return
     }
     const wanted = missing.map(([, u]) => u)
-    st.status = `ch. ${st.label} — fetching 0/${wanted.length}`
+    st.status = `ch. ${run.label} — fetching 0/${wanted.length}`
     // THE SHELL fetches http(s) images: the main process carries the session's
     // cookies and the reader page as Referer, and is not bound by the site's
     // CORS — an in-page fetch of the site's own CDN usually is. blob:/data:
@@ -402,18 +433,18 @@ async function runCapture(): Promise<void> {
         .catch((e): { data?: string; contentType?: string; error?: string } => ({ error: String(e) }))
       if (got?.data) bag.set(url, { url, data: got.data, contentType: got.contentType || '' })
       else why = why || got?.error || 'no shell bridge'
-      st.status = `ch. ${st.label} — fetching ${++done}/${wanted.length}`
-      if (my !== captureRun) return
+      st.status = `ch. ${run.label} — fetching ${++done}/${wanted.length}`
+      if (!mine()) return
     }
     const retry = wanted.filter((u) => !bag.has(u))
     if (retry.length) {
-      const fromPage = await requestBytes(retry, (n) => {
-        st.status = `ch. ${st.label} — fetching ${done + n}/${wanted.length}`
+      const fromPage = await requestBytes(run.tabId, retry, (n) => {
+        st.status = `ch. ${run.label} — fetching ${done + n}/${wanted.length}`
       })
       for (const img of fromPage) bag.set(img.url, img)
     }
     const images = wanted.map((u) => bag.get(u)).filter((x): x is PageImage => !!x)
-    if (my !== captureRun) return
+    if (!mine()) return
     if (!images.length) {
       st.error = `could not fetch any of the ${wanted.length} images${why ? ` — ${why}` : ''}`
       lastScanKey = ''
@@ -423,11 +454,13 @@ async function runCapture(): Promise<void> {
     // arriving as one huge request
     const payload = images.map((img) => ({ ...img, key: pageKeyFor(img.url) }))
     for (let i = 0; i < payload.length; i += 6) {
+      if (!mine()) return
       const chunk = payload.slice(i, i + 6)
-      const saved = await api.capturePages(st.titleId, st.chapterId, scan.url, chunk)
+      const saved = await api.capturePages(run.titleId, run.chapterId, scan.url, chunk)
       cache([saved])
-      st.added += chunk.length
-      st.status = `ch. ${st.label} — ${st.added} pages captured`
+      // the vault is authoritative about what it stored — never a local guess
+      st.added = saved.chapters.find((c) => c.id === run.chapterId)?.pages ?? st.added + chunk.length
+      st.status = `ch. ${run.label} — ${st.added} pages captured`
     }
     st.error = images.length < wanted.length
       ? `${wanted.length - images.length} image(s) could not be fetched${why ? ` — ${why}` : ''}` : ''
@@ -508,8 +541,8 @@ function onIpc(e: any, tabId: string) {
 }
 function onNav(e: any, tabId: string) {
   if (e?.url) onTabNavigated(tabId, e.url)
-  // flipping to the next page IS the capture trigger
-  if (pageCapture.active && tabId === browser.activeId) {
+  // flipping to the next page IS the capture trigger — in the armed tab only
+  if (pageCapture.active && tabId === pageCapture.tabId) {
     lastScanKey = ''
     window.setTimeout(() => { void runCapture() }, 500)
   }

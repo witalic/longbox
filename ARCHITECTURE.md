@@ -87,12 +87,19 @@ Endpoints run sync on FastAPI's threadpool, so races are real and handled struct
 
 - Every write path is atomic (`tmp → rename`, unique temp names) and serialized by a per-title
   **reentrant lock keyed by the normalized id**; service-level load→mutate→commit sequences take
-  the same lock end-to-end (`Vault.title_lock`).
+  the same lock end-to-end (`Vault.title_lock`) — **including the index write**, so a doc read in
+  a critical section can never be indexed after a newer writer's.
 - The meta layers and the user layer merge in the vault, so a commit can never roll back a star
   or read progress.
+- The SQLite index is one connection shared by the threadpool, so every statement goes through
+  one lock: a reader can't observe a rebuild's half-emptied table, and no other writer can commit
+  it. `sort=updated` reads the document's own mtime, so a rebuilt cache keeps the shelf order.
 - App config uses `config_transaction()` (one process-wide lock + atomic save); the armed-download
-  slot is consumed atomically; the index rebuild is single-flight.
-- A corrupt index cannot lose content — it never owned any; rebuild rescans the files.
+  slot is consumed atomically; index rebuild and the archive sweep are each single-flight.
+- Switching the library opens the new location BEFORE the config records it — an unreadable vault
+  fails the request instead of stranding the next launch — and the old one closes on a delay.
+- A corrupt index cannot lose content — it never owned any; rebuild rescans the files, skipping
+  documents it cannot parse rather than aborting.
 
 ## Media & downloads
 
@@ -110,7 +117,9 @@ Endpoints run sync on FastAPI's threadpool, so races are real and handled struct
     (`pages/known`), and only the rest are fetched through the page context and appended
     (`pages/capture`). Dedup is by the image's **file name**, recorded in the sidecar
     (`pageKeys`) — CDN URLs carry rotating tokens, names don't — so flipping back re-downloads
-    nothing; unreadable media is distrusted and re-captured.
+    nothing; unreadable media is distrusted and re-captured. `pageKeys` runs parallel to the
+    pages, so deleting, moving or reordering pages carries their keys with them. Stored format is
+    decided by the BYTES (a CDN's content-type is routinely wrong).
 - **The app never handles passwords.** The user signs in on the site inside the embedded browser;
   only the resulting session cookies persist (Electron session), per domain, revocable from the UI.
 - Remote/S3/WebDAV storage stays a roadmap item; the seam would be a storage adapter behind `Vault`.

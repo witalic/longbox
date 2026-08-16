@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..config_store import config_transaction, load_config
 from ..library import media
@@ -32,6 +32,9 @@ _EXT_BY_CT = {
 }
 _MAX_COVER_BYTES = 8 * 1024 * 1024
 _MAX_PAGE_BYTES = 24 * 1024 * 1024  # a single manga page; webtoon strips get large
+# The client posts a page view's images in small batches; a request far beyond
+# that is either a bug or an attempt to make the sidecar buffer gigabytes.
+_MAX_PAGES_PER_CAPTURE = 32
 
 
 def _lib(request: Request) -> Library:
@@ -279,7 +282,7 @@ async def import_chapter_archive(
 # ---- page capture: sources that serve pages, not archives ----
 
 class KnownPagesIn(BaseModel):
-    keys: list[str] = []
+    keys: list[str] = Field(default_factory=list, max_length=2000)
 
 
 class CapturedImage(BaseModel):
@@ -306,20 +309,30 @@ def known_chapter_pages(request: Request, title_id: str, chapter_id: str, body: 
 def capture_chapter_pages(request: Request, title_id: str, chapter_id: str, body: CapturePagesIn) -> TitleOut:
     """Append page images captured from a reader page into the ARMED chapter
     row. Images whose key is already stored are skipped."""
+    if len(body.images) > _MAX_PAGES_PER_CAPTURE:
+        raise HTTPException(status_code=413, detail="too many images in one capture")
     images: list[tuple[bytes, str, str]] = []
     for img in body.images:
-        ext = _EXT_BY_CT.get(img.contentType.split(";")[0].strip().lower()) \
-            or (Path(urlsplit(img.url or img.key).path).suffix.lstrip(".").lower() or "jpg")
-        if f".{ext}" not in media.IMAGE_EXTS:
-            ext = "jpg"  # the site's own naming is not authoritative — the bytes are
         try:
             data = base64.b64decode(img.data, validate=True)
         except (binascii.Error, ValueError):
             continue
-        if data and len(data) <= _MAX_PAGE_BYTES and img.key:
-            images.append((data, f".{ext}", img.key))
-    result = _lib(request).capture_chapter_pages(
-        title_id, chapter_id, page_url=body.pageUrl, images=images)
+        if not data or len(data) > _MAX_PAGE_BYTES or not img.key:
+            continue
+        # the BYTES decide the format: a CDN's content-type (and the name it
+        # serves an image under) is routinely wrong, and a mislabelled page
+        # would be unreadable in any external viewer
+        ext = media.sniff_ext(data) \
+            or _EXT_BY_CT.get(img.contentType.split(";")[0].strip().lower()) \
+            or (Path(urlsplit(img.url or img.key).path).suffix.lstrip(".").lower())
+        if f".{ext}" not in media.IMAGE_EXTS:
+            continue  # not an image at all — never store it as a page
+        images.append((data, f".{ext}", img.key))
+    try:
+        result = _lib(request).capture_chapter_pages(
+            title_id, chapter_id, page_url=body.pageUrl, images=images)
+    except media.UnsupportedArchiveError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     if result is None:
         raise HTTPException(status_code=404, detail="title or chapter not found")
     return result[0]

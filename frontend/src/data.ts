@@ -226,6 +226,15 @@ export const READ_COLOR: Record<ReadState, string> = {
   read: 'var(--good)', reading: 'var(--warn)', unread: 'var(--tx3)',
 }
 
+// A chapter row's IDENTITY: label + language + group, compared the way the
+// backend compares it. Every "does this entry already exist?" check goes
+// through here so the answer can't differ between the dock and the title page.
+export interface ChapterIdentity { num: string; lang: string; group: string }
+export function sameChapter(a: ChapterIdentity, b: ChapterIdentity): boolean {
+  const norm = (s: string) => (s || '').trim().toLowerCase()
+  return norm(a.num) === norm(b.num) && norm(a.lang) === norm(b.lang) && norm(a.group) === norm(b.group)
+}
+
 // Group chapter-like rows by their label (num), first-seen order kept — the
 // shared tree grammar of the title page, the reader sidebar and the dock.
 export function groupByNum<T extends { num: string }>(rows: T[]): { num: string; rows: T[] }[] {

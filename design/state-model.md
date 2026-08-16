@@ -206,17 +206,28 @@ fetches chapters itself):
    different chapters and languages may come from different sites.
 4. One arm = one download; unarmed downloads are rejected and discarded. Arms expire.
 
-Storage: the archive is kept **exactly as served** (`chapters/<chapter-id>.zip` — CBZ is
-the same thing, so any third-party reader opens it) plus a provenance sidecar
+Storage: every chapter is a **plain zip** (`chapters/<chapter-id>.zip` — CBZ is the same
+thing, so any third-party reader opens it), converted at ingest when the site served
+rar/7z and refused when nothing can read it, plus a provenance sidecar
 (`<chapter-id>.json`: fileUrl, pageUrl, filename, size, pages, date). Pages are the
 zip's image entries in natural order; deleting pages rewrites the archive atomically.
 Read state stays a separate axis in the user layer. An automated politeness queue is
 deliberately NOT built — the armed handshake makes bulk fetching impossible.
 
-## 10. The reader (next phase)
+**Page capture (the second lane, landed).** Sources that never serve a file are read the
+same way, page by page: the user teaches once per domain which images on a reader page
+are the pages (pick mode → the recipe's `pages` rule), arms ONE entry exactly as above,
+and reads. Each page view is scanned; the vault is asked which page keys the armed entry
+already holds and only the rest are fetched — with the browser session's cookies and the
+reader page as referer, in the main process (a fetch from inside the page is bound by the
+site's CORS). Keys are the images' **file names**, kept in the sidecar (`pageKeys`),
+because CDN URLs carry rotating tokens; so re-reading a chapter downloads nothing. The
+human still drives the pace — nothing is crawled ahead.
 
-The reader reads **only the vault** — opens `.cbz`, writes progress into the user layer
-write-through. The network does not exist as a dependency in the reader, so "reading
+## 10. The reader (landed)
+
+The reader reads **only the vault** — opens the chapter zip, writes progress into the user
+layer write-through. The network does not exist as a dependency in the reader, so "reading
 offline" is not a mode but the only way it works (I7).
 
 ## 11. Automatic vs explicit
@@ -226,9 +237,9 @@ One rule: **ephemeral — automatic; persistent — explicit.**
 | Action | Mode |
 |---|---|
 | Page snapshot, filling the draft via recipe | automatic (cheap, self-reverting) |
-| Merging "visible rows" into the chapter draft | one explicit action ("add visible") |
 | Commit to the vault | explicit button |
-| Queueing chapters for download | explicit selection (next phase) |
+| Binding a download (archive or page capture) to a chapter | explicit arm; one arm = one chapter |
+| Grabbing the pages of a view once capture is armed | automatic (the human still turns the pages) |
 | User layer (star, rating, progress) | instant, no confirmation |
 
 ## 12. API surface (this phase)

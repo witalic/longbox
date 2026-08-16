@@ -15,6 +15,7 @@
 // which carries no capture state) and ends when the user stops it.
 import { reactive } from 'vue'
 import type { EditableField } from './draft'
+import { isRecord, readLocal, writeLocal } from './local'
 
 // What pick mode can target: the draft's metadata fields, plus the page-image
 // selector that page capture teaches.
@@ -25,6 +26,8 @@ export interface PageCaptureState {
   chapterId: string | null // the armed entry — pages land HERE, always
   label: string            // its label, for the panel's status line
   selector: string         // CSS for the page images, taught via pick mode
+  domain: string           // the site it was taught on — a learned fix goes back HERE
+  tabId: string | null     // the browser tab it was armed on; other tabs are never read
   active: boolean
   busy: boolean            // a scan/fetch round is running
   status: string           // one live line for the panel
@@ -33,7 +36,7 @@ export interface PageCaptureState {
 }
 
 export const pageCapture = reactive<PageCaptureState>({
-  titleId: null, chapterId: null, label: '', selector: '',
+  titleId: null, chapterId: null, label: '', selector: '', domain: '', tabId: null,
   active: false, busy: false, status: '', added: 0, error: '',
 })
 
@@ -49,28 +52,32 @@ export interface PageFilter {
 export const PAGE_FILTER_DEFAULTS: PageFilter = { minPx: 200, widthRatio: 0.5 }
 const FILTER_KEY = 'lb.pageFilter'
 
-function loadFilter(): PageFilter {
-  try {
-    const raw = JSON.parse(localStorage.getItem(FILTER_KEY) || '{}')
-    return {
-      minPx: Number.isFinite(raw.minPx) ? Math.min(2000, Math.max(0, raw.minPx)) : PAGE_FILTER_DEFAULTS.minPx,
-      widthRatio: Number.isFinite(raw.widthRatio) ? Math.min(1, Math.max(0, raw.widthRatio)) : PAGE_FILTER_DEFAULTS.widthRatio,
-    }
-  } catch { return { ...PAGE_FILTER_DEFAULTS } }
+const stored = readLocal(FILTER_KEY, isRecord, {} as Record<string, unknown>)
+export const pageFilter = reactive<PageFilter>({
+  minPx: clamp(stored.minPx, 0, 2000, PAGE_FILTER_DEFAULTS.minPx),
+  widthRatio: clamp(stored.widthRatio, 0, 1, PAGE_FILTER_DEFAULTS.widthRatio),
+})
+
+function clamp(v: unknown, lo: number, hi: number, fallback: number): number {
+  const n = Number(v)
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : fallback
 }
 
-export const pageFilter = reactive<PageFilter>(loadFilter())
-
 export function savePageFilter(patch: Partial<PageFilter>) {
-  if (patch.minPx !== undefined) pageFilter.minPx = Math.min(2000, Math.max(0, Math.round(patch.minPx) || 0))
-  if (patch.widthRatio !== undefined) pageFilter.widthRatio = Math.min(1, Math.max(0, patch.widthRatio))
-  try { localStorage.setItem(FILTER_KEY, JSON.stringify({ ...pageFilter })) } catch { /* storage unavailable */ }
+  if (patch.minPx !== undefined) {
+    pageFilter.minPx = Math.round(clamp(patch.minPx, 0, 2000, PAGE_FILTER_DEFAULTS.minPx))
+  }
+  if (patch.widthRatio !== undefined) {
+    pageFilter.widthRatio = clamp(patch.widthRatio, 0, 1, PAGE_FILTER_DEFAULTS.widthRatio)
+  }
+  writeLocal(FILTER_KEY, { ...pageFilter })
 }
 
 export function resetPageFilter() { savePageFilter(PAGE_FILTER_DEFAULTS) }
 
 export function startPageCapture(opts: {
   titleId: string; chapterId: string; label: string; selector: string
+  domain: string; tabId: string | null
 }) {
   Object.assign(pageCapture, {
     ...opts, active: true, busy: false,
@@ -82,8 +89,19 @@ export function stopPageCapture() {
   pageCapture.active = false
   pageCapture.busy = false
   pageCapture.chapterId = null
+  pageCapture.tabId = null
   pageCapture.status = ''
   pageCapture.error = ''
+}
+
+// Any reason the armed target stopped existing (the title or the chapter row
+// deleted, the library switched) ends the session — otherwise every tick keeps
+// posting pages at a dead id and the panel only shows failures.
+export function stopCaptureFor(opts: { titleId?: string; chapterId?: string } = {}) {
+  if (!pageCapture.active) return
+  if (opts.titleId && pageCapture.titleId !== opts.titleId) return
+  if (opts.chapterId && pageCapture.chapterId !== opts.chapterId) return
+  stopPageCapture()
 }
 
 // The dedup key for a page image: the file name the site serves it under,
@@ -91,9 +109,17 @@ export function stopPageCapture() {
 // carries no usable name (`image.php?id=7`).
 export function pageKeyFor(url: string): string {
   try {
-    const path = new URL(url).pathname
-    const name = path.slice(path.lastIndexOf('/') + 1)
+    const u = new URL(url)
+    const name = u.pathname.slice(u.pathname.lastIndexOf('/') + 1)
     if (name && /\.[a-z0-9]{2,5}$/i.test(name)) return decodeURIComponent(name).toLowerCase()
+    // no file name in the path (`read.php?id=7`): the path plus the ordering
+    // parameters — but NEVER the whole query, whose token rotates per visit
+    const stable = [...u.searchParams.entries()]
+      .filter(([k]) => /^(id|p|page|n|no|num|i|idx|index|chapter|ch)$/i.test(k))
+      .map(([k, v]) => `${k.toLowerCase()}=${v}`)
+      .sort()
+      .join('&')
+    return `${u.origin}${u.pathname}${stable ? `?${stable}` : ''}`.toLowerCase()
   } catch { /* not a parseable URL */ }
   return url
 }

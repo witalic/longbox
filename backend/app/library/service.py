@@ -6,8 +6,10 @@ The service also composes the flat wire DTO from the layered documents.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import threading
+import uuid
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,6 +37,12 @@ class Library:
         # two concurrent creates may derive the same fresh id — serialize the
         # pick-unique-id → first-commit step
         self._create_lock = threading.Lock()
+        # ONE sweep at a time, whoever asked for it (startup or Settings), and a
+        # flag the sweep polls so close() can stop it instead of letting it write
+        # into an index that is about to be closed
+        self._normalize_lock = threading.Lock()
+        self._closing = threading.Event()
+        self._sidecar_cache: dict[str, tuple[int, dict[str, dict]]] = {}
         self.rescan()
         # The zip invariant is enforced at INGEST, so the archive sweep is a
         # one-time migration for pre-invariant (or hand-dropped) content: it
@@ -54,12 +62,19 @@ class Library:
 
     def normalize_archives(self, *, force: bool = False) -> int:
         """Run the archive sweep and mark the vault as normalized. `force`
-        retries archives whose conversion failed before."""
-        changed = self.vault.normalize_chapter_archives(force=force)
-        self.vault.mark_normalized()
-        if changed:
-            self.rescan()  # converted chapters now carry real page counts
-        return changed
+        retries archives whose conversion failed before. Returns -1 when another
+        pass already holds the sweep."""
+        if not self._normalize_lock.acquire(blocking=False):
+            return -1
+        try:
+            changed = self.vault.normalize_chapter_archives(force=force, stop=self._closing)
+            if not self._closing.is_set():
+                self.vault.mark_normalized()
+            if changed and not self._closing.is_set():
+                self.rescan()  # converted chapters now carry real page counts
+            return changed
+        finally:
+            self._normalize_lock.release()
 
     @property
     def root(self) -> Path:
@@ -67,18 +82,30 @@ class Library:
 
     def rescan(self, progress=None) -> None:
         """Rebuild the index purely from the on-disk vault. `progress(done,
-        total)` ticks per title file read — reading the files IS the slow part."""
+        total)` ticks per title file read — reading the files IS the slow part.
+        ONE unreadable document must never abort the scan (or, at startup, the
+        whole app): it is skipped, exactly like the layout migration does."""
         ids = self.vault.list_ids()
         docs = {}
+        touched = {}
         for i, tid in enumerate(ids):
-            doc = self.vault.load(tid)
+            try:
+                doc = self.vault.load(tid)
+            except Exception:  # noqa: BLE001 — malformed title.json
+                doc = None
             if doc is not None:
                 docs[tid] = doc
+                touched[tid] = self.vault.touched_at(tid)
             if progress:
                 progress(i + 1, len(ids))
-        self.index.rebuild(docs)
+        self.index.rebuild(docs, touched)
 
     def close(self) -> None:
+        # tell the sweep to stop, give it a moment, then close the index it uses
+        self._closing.set()
+        thread = self._normalize_thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=5)
         self.index.close()
 
     # ---- DTO composition ----
@@ -91,8 +118,31 @@ class Library:
             return ""
         return f"/api/titles/{title_id}/cover?v={path.stat().st_mtime_ns:x}"
 
+    def _index(self, title_id: str, doc: TitleDoc) -> None:
+        """Refresh the index for one title. ALWAYS called inside that title's
+        lock: a doc read in a critical section and indexed after it is released
+        can overwrite a newer writer's row with stale data."""
+        self.index.upsert(title_id, doc, self.vault.touched_at(title_id))
+
+    def _sidecars(self, title_id: str) -> dict[str, dict]:
+        """Chapter sidecars, cached per title against the chapters dir's mtime.
+        A library listing composes every title's DTO, and re-globbing + parsing
+        one JSON file per chapter each time is what makes a big library crawl."""
+        d = self.vault.chapters_dir(title_id)
+        try:
+            stamp = d.stat().st_mtime_ns
+        except OSError:
+            self._sidecar_cache.pop(title_id, None)
+            return {}
+        hit = self._sidecar_cache.get(title_id)
+        if hit is not None and hit[0] == stamp:
+            return hit[1]
+        loaded = self.vault.chapter_sidecars(title_id)
+        self._sidecar_cache[title_id] = (stamp, loaded)
+        return loaded
+
     def _out(self, title_id: str, doc: TitleDoc) -> TitleOut:
-        sidecars = self.vault.chapter_sidecars(title_id)
+        sidecars = self._sidecars(title_id)
         media_map = {c.id: sidecars[safe_id(c.id)] for c in doc.chapters if safe_id(c.id) in sidecars}
         return TitleOut.from_doc(title_id, doc, self._cover_url(title_id), media_map)
 
@@ -168,8 +218,8 @@ class Library:
             while self.vault.exists(tid):
                 tid, n = f"{base}-{n}", n + 1
             doc = self.vault.commit_meta(tid, draft, create=True)
-        assert doc is not None
-        self.index.upsert(tid, doc)
+            assert doc is not None
+            self._index(tid, doc)
         return self._out(tid, doc)
 
     def commit(self, title_id: str, draft: DraftIn) -> TitleOut | None:
@@ -182,9 +232,9 @@ class Library:
             if old is not None:
                 self._reconcile_chapters(title_id, old, draft)
             doc = self.vault.commit_meta(title_id, draft)
-        if doc is None:
-            return None
-        self.index.upsert(title_id, doc)
+            if doc is None:
+                return None
+            self._index(title_id, doc)
         return self._out(title_id, doc)
 
     def _reconcile_chapters(self, title_id: str, old: TitleDoc, draft: DraftIn) -> None:
@@ -275,10 +325,11 @@ class Library:
         draft.chapters = rows
 
     def patch_user(self, title_id: str, patch: UserPatch) -> TitleOut | None:
-        doc = self.vault.patch_user(title_id, patch)
-        if doc is None:
-            return None
-        self.index.upsert(title_id, doc)
+        with self.vault.title_lock(title_id):
+            doc = self.vault.patch_user(title_id, patch)
+            if doc is None:
+                return None
+            self._index(title_id, doc)
         return self._out(title_id, doc)
 
     def set_cover(self, title_id: str, data: bytes, ext: str, source_url: str = "") -> TitleOut | None:
@@ -294,7 +345,7 @@ class Library:
                 doc.meta.coverSource = source_url
                 draft = DraftIn(meta=doc.meta, provenance=doc.provenance, chapters=doc.chapters)
                 doc = self.vault.commit_meta(title_id, draft) or doc
-        self.index.upsert(title_id, doc)
+            self._index(title_id, doc)
         return self._out(title_id, doc)
 
     def delete_cover(self, title_id: str) -> TitleOut | None:
@@ -307,7 +358,7 @@ class Library:
                 doc.meta.coverSource = ""
                 draft = DraftIn(meta=doc.meta, provenance=doc.provenance, chapters=doc.chapters)
                 doc = self.vault.commit_meta(title_id, draft) or doc
-        self.index.upsert(title_id, doc)
+            self._index(title_id, doc)
         return self._out(title_id, doc)
 
     # ---- chapter media (downloads) ----
@@ -318,7 +369,7 @@ class Library:
         saved = self.vault.commit_meta(title_id, draft)
         if saved is None:
             return None
-        self.index.upsert(title_id, saved)
+        self._index(title_id, saved)
         return self._out(title_id, saved)
 
     @staticmethod
@@ -401,10 +452,12 @@ class Library:
         """Which page keys this chapter already holds. Empty when the archive is
         missing or unreadable — damaged media is re-captured, not trusted."""
         path = self.vault.chapter_media_path(title_id, chapter_id)
-        if path is None or not media.image_entries(path):
+        if path is None:
             return []
-        side = self.vault.chapter_sidecars(title_id).get(safe_id(chapter_id), {})
-        return [k for k in (side.get("pageKeys") or []) if isinstance(k, str)]
+        entries = media.image_entries(path)
+        if not entries:
+            return []
+        return [k for k in self._page_keys(title_id, chapter_id, len(entries)) if k]
 
     def capture_chapter_pages(
         self, title_id: str, chapter_id: str, *, page_url: str,
@@ -420,8 +473,11 @@ class Library:
             path = self.vault.chapter_media_path(title_id, chapter_id)
             if path is None:
                 path = self.vault.chapter_archive_target(title_id, chapter_id)
-            side = self.vault.chapter_sidecars(title_id).get(safe_id(chapter_id), {})
-            known = set(side.get("pageKeys") or []) if media.image_entries(path) else set()
+            entries = media.image_entries(path)
+            # a chapter whose archive cannot be read is not trusted: its keys go
+            # too, so the pages are captured again rather than assumed present
+            keys = self._page_keys(title_id, chapter_id, len(entries)) if entries else []
+            known = {k for k in keys if k}
             fresh = []
             for data, ext, key in images:
                 if key in known or not data:
@@ -430,14 +486,12 @@ class Library:
                 fresh.append((data, ext, key))
             if fresh:
                 media.renumber_and_append(path, [(d, e) for d, e, _ in fresh])
-                side.setdefault("importedFrom", "page-capture")
-                side.setdefault("downloadedAt", datetime.now(timezone.utc).isoformat(timespec="seconds"))
-                side["pageUrl"] = page_url or side.get("pageUrl", "")
-                side["pageKeys"] = [*(side.get("pageKeys") or []), *[k for _, _, k in fresh]]
-                side["pages"] = len(media.image_entries(path))
-                side["size"] = path.stat().st_size
-                self.vault.write_chapter_sidecar(title_id, chapter_id, side)
-            self.index.upsert(title_id, doc)
+                self._write_media_sidecar(
+                    title_id, chapter_id, path,
+                    keys=[*keys, *[k for _, _, k in fresh]],
+                    defaults={"importedFrom": "page-capture"},
+                    patch={"pageUrl": page_url})
+            self._index(title_id, doc)
             return self._out(title_id, doc), len(fresh)
 
     def delete_chapter_media(self, title_id: str, chapter_id: str) -> TitleOut | None:
@@ -446,7 +500,7 @@ class Library:
             if doc is None:
                 return None
             self.vault.delete_chapter_media(title_id, chapter_id)
-        self.index.upsert(title_id, doc)
+            self._index(title_id, doc)
         return self._out(title_id, doc)
 
     def delete_chapter_row(self, title_id: str, chapter_id: str) -> TitleOut | None:
@@ -462,27 +516,41 @@ class Library:
             self.vault.delete_chapter_media(title_id, chapter_id)
             return self._recommit(title_id, doc)
 
+    @staticmethod
+    def _cached_thumb(key: str, data: bytes, ct: str, width: int,
+                      cap: float | None = None) -> tuple[bytes, str]:
+        """A downscaled JPEG for `data`, cached on disk under `key` (which the
+        caller stamps with the source file's mtime, so an edited file misses the
+        cache by construction). Undecodable formats serve the original."""
+        from ..config_store import config_dir
+        cfile = config_dir() / "cache" / "thumbs" / f"{key}.jpg"
+        if cfile.is_file():
+            try:
+                return cfile.read_bytes(), "image/jpeg"
+            except OSError:
+                pass  # a half-written or vanished cache entry: just re-make it
+        thumb = media.thumbnail(data, width, cap)
+        if thumb is None:
+            return data, ct
+        cfile.parent.mkdir(parents=True, exist_ok=True)
+        # unique temp name: two requests for the same tile are normal, and a
+        # shared one would interleave into a corrupt cached JPEG
+        tmp = cfile.with_name(f"{cfile.name}.{uuid.uuid4().hex[:8]}.tmp")
+        try:
+            tmp.write_bytes(thumb)
+            os.replace(tmp, cfile)
+        except OSError:
+            tmp.unlink(missing_ok=True)
+        return thumb, "image/jpeg"
+
     def cover_thumb(self, title_id: str, width: int) -> tuple[bytes, str] | None:
-        """A cached downscaled cover — grids and lists never load the original.
-        Same disk cache as page thumbnails, keyed by the cover file's mtime."""
+        """A cached downscaled cover — grids and lists never load the original."""
         path = self.vault.cover_path(title_id)
         if path is None:
             return None
-        data = path.read_bytes()
         ct = media.CT_BY_EXT.get(path.suffix.lower(), "application/octet-stream")
-        from ..config_store import config_dir
-        key = f"cover-{safe_id(title_id)}-{path.stat().st_mtime_ns:x}-{width}.jpg"
-        cfile = config_dir() / "cache" / "thumbs" / key
-        if cfile.is_file():
-            return cfile.read_bytes(), "image/jpeg"
-        thumb = media.thumbnail(data, width)
-        if thumb is None:
-            return data, ct  # undecodable format — serve the original
-        cfile.parent.mkdir(parents=True, exist_ok=True)
-        tmp = cfile.with_name(cfile.name + ".tmp")
-        tmp.write_bytes(thumb)
-        tmp.replace(cfile)
-        return thumb, "image/jpeg"
+        key = f"cover-{safe_id(title_id)}-{path.stat().st_mtime_ns:x}-{width}"
+        return self._cached_thumb(key, path.read_bytes(), ct, width)
 
     def chapter_pages(self, title_id: str, chapter_id: str) -> list[str] | None:
         path = self.vault.chapter_media_path(title_id, chapter_id)
@@ -501,32 +569,49 @@ class Library:
         data, ct = media.read_entry(path, entries[index])
         if not width:
             return data, ct
-        # thumbnails are cached on disk, keyed by the archive's mtime — editing
-        # the archive (page deletion) invalidates the whole set automatically
-        from ..config_store import config_dir
+        # keyed by the archive's mtime — editing the archive (page deletion)
+        # invalidates the whole set by construction
         capkey = f"-c{cap:g}" if cap else ""
-        key = f"{safe_id(title_id)}-{safe_id(chapter_id)}-{path.stat().st_mtime_ns:x}-{width}{capkey}-{index}.jpg"
-        cfile = config_dir() / "cache" / "thumbs" / key
-        if cfile.is_file():
-            return cfile.read_bytes(), "image/jpeg"
-        thumb = media.thumbnail(data, width, cap)
-        if thumb is None:
-            return data, ct  # undecodable format — serve the original
-        cfile.parent.mkdir(parents=True, exist_ok=True)
-        tmp = cfile.with_name(cfile.name + ".tmp")
-        tmp.write_bytes(thumb)
-        tmp.replace(cfile)
-        return thumb, "image/jpeg"
+        key = f"{safe_id(title_id)}-{safe_id(chapter_id)}-{path.stat().st_mtime_ns:x}-{width}{capkey}-{index}"
+        return self._cached_thumb(key, data, ct, width, cap)
 
-    def _touch_media_sidecar(self, title_id: str, chapter_id: str, path: Path, created: bool) -> None:
-        """Refresh pages/size after a page operation; a freshly created archive
-        gets a local-import sidecar (added by hand — no web provenance)."""
+    # ---- the sidecar: ONE writer for every page operation ----
+    # pages/size describe the file that is actually stored, and `pageKeys` runs
+    # PARALLEL to the pages ('' where a page has no source key, e.g. a hand-added
+    # image). Every op that moves pages around must move their keys with them,
+    # or page capture would think it still holds a page it no longer has.
+
+    def _page_keys(self, title_id: str, chapter_id: str, count: int) -> list[str]:
+        """The chapter's page keys, padded/trimmed to `count` so the list always
+        lines up with the archive's pages."""
+        side = self.vault.chapter_sidecars(title_id).get(safe_id(chapter_id), {})
+        keys = [k if isinstance(k, str) else "" for k in (side.get("pageKeys") or [])]
+        del keys[count:]
+        keys.extend([""] * (count - len(keys)))
+        return keys
+
+    def _write_media_sidecar(self, title_id: str, chapter_id: str, path: Path, *,
+                             created: bool = False, keys: list[str] | None = None,
+                             patch: dict | None = None, defaults: dict | None = None) -> None:
+        """Refresh a chapter's sidecar after a page operation. A sidecar that
+        doesn't exist yet is seeded with `defaults`, or with a local-import
+        provenance (added by hand — no web source). `patch` overwrites: the
+        latest source of a page wins."""
         side = self.vault.chapter_sidecars(title_id).get(safe_id(chapter_id), {})
         if created or not side:
-            side = {"fileUrl": "", "pageUrl": "", "filename": path.name, "importedFrom": "local",
-                    "downloadedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"), **side}
-        side["pages"] = len(media.image_entries(path))
+            seed = defaults or {"importedFrom": "local"}
+            side = {"fileUrl": "", "pageUrl": "", "filename": path.name,
+                    "downloadedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    **seed, **side}
+        if patch:
+            side.update({k: v for k, v in patch.items() if v})
+        pages = len(media.image_entries(path))
+        side["pages"] = pages
         side["size"] = path.stat().st_size
+        if keys is not None:
+            del keys[pages:]
+            keys.extend([""] * (pages - len(keys)))
+            side["pageKeys"] = keys
         self.vault.write_chapter_sidecar(title_id, chapter_id, side)
 
     def add_chapter_pages(self, title_id: str, chapter_id: str,
@@ -539,11 +624,15 @@ class Library:
                 return None
             path = self.vault.chapter_media_path(title_id, chapter_id)
             created = path is None
+            keys = [] if created else self._page_keys(title_id, chapter_id, len(media.image_entries(path)))
             if path is None:
                 path = self.vault.chapter_archive_target(title_id, chapter_id)
             media.renumber_and_append(path, files)
-            self._touch_media_sidecar(title_id, chapter_id, path, created)
-        self.index.upsert(title_id, doc)
+            # hand-added images carry no source key — the blanks keep the list
+            # aligned so a later capture can still tell its own pages apart
+            self._write_media_sidecar(title_id, chapter_id, path, created=created,
+                                      keys=[*keys, *([""] * len(files))])
+            self._index(title_id, doc)
         return self._out(title_id, doc)
 
     def reorder_chapter_pages(self, title_id: str, chapter_id: str, order: list[int]) -> TitleOut | None:
@@ -554,9 +643,11 @@ class Library:
             path = self.vault.chapter_media_path(title_id, chapter_id)
             if doc is None or path is None:
                 return None
+            keys = self._page_keys(title_id, chapter_id, len(media.image_entries(path)))
             media.reorder_entries(path, order)
-            self._touch_media_sidecar(title_id, chapter_id, path, False)
-        self.index.upsert(title_id, doc)
+            self._write_media_sidecar(title_id, chapter_id, path,
+                                      keys=[keys[i] for i in order if 0 <= i < len(keys)])
+            self._index(title_id, doc)
         return self._out(title_id, doc)
 
     def move_chapter_pages(self, title_id: str, src_id: str, dst_id: str,
@@ -573,20 +664,27 @@ class Library:
             if src is None:
                 return None
             entries = media.image_entries(src)
-            names = {entries[i] for i in indices if 0 <= i < len(entries)}
+            moved = sorted({i for i in indices if 0 <= i < len(entries)})
+            names = {entries[i] for i in moved}
             if not names:
                 return self._out(title_id, doc)
             dst = self.vault.chapter_media_path(title_id, dst_id)
             created = dst is None
             if dst is None:
                 dst = self.vault.chapter_archive_target(title_id, dst_id)
+            # the pages' keys travel WITH them, or the source would keep claiming
+            # pages it gave away and the target would re-capture them
+            src_keys = self._page_keys(title_id, src_id, len(entries))
+            dst_keys = [] if created else self._page_keys(title_id, dst_id, len(media.image_entries(dst)))
             src_left, _ = media.move_images(src, dst, names)
-            self._touch_media_sidecar(title_id, dst_id, dst, created)
+            self._write_media_sidecar(title_id, dst_id, dst, created=created,
+                                      keys=[*dst_keys, *[src_keys[i] for i in moved]])
             if src_left == 0:
                 self.vault.delete_chapter_media(title_id, src_id)
             else:
-                self._touch_media_sidecar(title_id, src_id, src, False)
-        self.index.upsert(title_id, doc)
+                self._write_media_sidecar(title_id, src_id, src,
+                                          keys=[k for i, k in enumerate(src_keys) if i not in set(moved)])
+            self._index(title_id, doc)
         return self._out(title_id, doc)
 
     def delete_chapter_pages(self, title_id: str, chapter_id: str, indices: list[int]) -> TitleOut | None:
@@ -596,22 +694,28 @@ class Library:
             if doc is None or path is None:
                 return None
             entries = media.image_entries(path)
-            doomed = {entries[i] for i in indices if 0 <= i < len(entries)}
+            gone = sorted({i for i in indices if 0 <= i < len(entries)})
+            doomed = {entries[i] for i in gone}
             if doomed:
+                keys = self._page_keys(title_id, chapter_id, len(entries))
                 left = media.remove_entries(path, doomed)
-                if left == 0:
-                    # nothing left — drop the archive + sidecar, like move does;
-                    # a downloaded-but-empty chapter is a lie in the UI
+                # nothing left AND nothing else inside — drop the archive, like
+                # move does; a downloaded-but-empty chapter is a lie in the UI.
+                # An archive still holding a translator's files is kept.
+                if left == 0 and not media.junk_entry_names(path):
                     self.vault.delete_chapter_media(title_id, chapter_id)
                 else:
-                    side = self.vault.chapter_sidecars(title_id).get(safe_id(chapter_id), {})
-                    side["pages"] = left
-                    side["size"] = path.stat().st_size
-                    self.vault.write_chapter_sidecar(title_id, chapter_id, side)
-        self.index.upsert(title_id, doc)
+                    self._write_media_sidecar(
+                        title_id, chapter_id, path,
+                        keys=[k for i, k in enumerate(keys) if i not in set(gone)])
+            self._index(title_id, doc)
         return self._out(title_id, doc)
 
     def delete(self, title_id: str) -> bool:
-        existed = self.vault.delete(title_id)
-        self.index.remove(title_id)
-        return existed
+        # the index entry goes even if the directory could not be fully removed,
+        # or the library would keep serving a title whose files are half-gone
+        try:
+            return self.vault.delete(title_id)
+        finally:
+            self.index.remove(title_id)
+            self._sidecar_cache.pop(title_id, None)

@@ -7,9 +7,9 @@ import {
   commitDraft, confirmDiscard, discardDraft, draftFromTitle, draftState, isDirty, newDraft,
 } from '../draft'
 import { addChapterRow, groupSuggestions, langSuggestions, openTitle, refreshTitle, store, titleById } from '../store'
-import { newTab } from '../browser'
+import { browser, newTab } from '../browser'
 import { api, type DownloadItem, type DownloadsState } from '../api'
-import { compareChapterNums, coverAt, faviconFor, groupByNum, type Chapter } from '../data'
+import { compareChapterNums, coverAt, faviconFor, groupByNum, sameChapter, type Chapter } from '../data'
 import {
   PAGE_FILTER_DEFAULTS, nextLabel, pageCapture, pageFilter, resetPageFilter, savePageFilter,
   startPageCapture, stopPageCapture, type PickField,
@@ -95,10 +95,8 @@ async function addEntry(arm: boolean) {
   if (!cur?.targetId || !dLabel.value.trim()) return
   const t = titleById(cur.targetId)
   if (!t) return
-  const norm = (s: string) => s.trim().toLowerCase()
   const ch = { num: dLabel.value.trim(), lang: dLang.value.trim(), group: dGroup.value.trim(), url: dUrl.value.trim() }
-  const exists = t.chapters.some((c) =>
-    norm(c.num) === norm(ch.num) && norm(c.lang) === norm(ch.lang) && norm(c.group) === norm(ch.group))
+  const exists = t.chapters.some((c) => sameChapter(c, ch))
   if (!exists) {
     if (!(await addChapterRow(t, ch))) return
   } else if (!arm) {
@@ -132,14 +130,16 @@ async function startCapture() {
   const t = cur?.targetId ? titleById(cur.targetId) : undefined
   if (!t || !pageCapture.selector || !dLabel.value.trim()) return
   const ch = { num: dLabel.value.trim(), lang: dLang.value.trim(), group: dGroup.value.trim(), url: dUrl.value.trim() }
-  const norm = (s: string) => s.trim().toLowerCase()
-  const same = (c: Chapter) =>
-    norm(c.num) === norm(ch.num) && norm(c.lang) === norm(ch.lang) && norm(c.group) === norm(ch.group)
+  const same = (c: Chapter) => sameChapter(c, ch)
   // re-arming an existing entry is normal — pages just continue into it
   if (!t.chapters.some(same) && !(await addChapterRow(t, ch))) return
   const row = titleById(t.id)?.chapters.find(same)
   if (!row) return
-  startPageCapture({ titleId: t.id, chapterId: row.id, label: ch.num, selector: pageCapture.selector })
+  startPageCapture({
+    titleId: t.id, chapterId: row.id, label: ch.num, selector: pageCapture.selector,
+    // remembered so the session keeps reading the tab and site it was armed on
+    domain: hostOf(props.pageUrl), tabId: browser.activeId,
+  })
 }
 // what counts as a page — tuned HERE, next to the selector it corrects, with
 // the pick preview showing the result live

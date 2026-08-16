@@ -14,12 +14,13 @@ Filtering model (design: linked faceted filters with exclusions):
 from __future__ import annotations
 
 import sqlite3
+import threading
 from collections import Counter
 from pathlib import Path
 
 from .models import TitleDoc
 
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS titles (
@@ -34,18 +35,20 @@ CREATE TABLE IF NOT EXISTS titles (
     unread   INTEGER NOT NULL,
     started  INTEGER NOT NULL,
     finished INTEGER NOT NULL,
+    touched  INTEGER NOT NULL DEFAULT 0,
     doc      TEXT NOT NULL
 );
 """
 
 _SORTS = {
-    "updated": "rowid DESC",
+    # `touched` is the document's own mtime, so "recently updated" survives a
+    # rebuild — rowid order would silently become creation (then alphabetical)
+    # order the first time the cache is rebuilt
+    "updated": "touched DESC, rowid DESC",
     "title": "title COLLATE NOCASE ASC",
     "rating": "rating DESC, title COLLATE NOCASE ASC",
     "unread": "unread DESC, title COLLATE NOCASE ASC",
 }
-
-_FACET_KEYS = ("types", "statuses", "genres", "tags", "languages", "authors")
 
 
 def _counted(counter: Counter) -> list[dict]:
@@ -63,6 +66,10 @@ class LibraryIndex:
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(str(db_path), check_same_thread=False)
         self._db.row_factory = sqlite3.Row
+        # ONE connection shared by the threadpool means one transaction context:
+        # without this lock a reader can observe (and another writer can commit)
+        # a rebuild's half-emptied table.
+        self._lock = threading.RLock()
         # the index is a cache: an old schema is dropped, never migrated
         if self._db.execute("PRAGMA user_version").fetchone()[0] != _SCHEMA_VERSION:
             self._db.executescript("DROP TABLE IF EXISTS titles;")
@@ -70,10 +77,14 @@ class LibraryIndex:
         self._db.executescript(_SCHEMA)
 
     def close(self) -> None:
-        self._db.close()
+        with self._lock:
+            self._db.close()
+
+    _COLUMNS = ("id", "title", "people", "type", "status", "rating", "fav",
+                "unread", "started", "finished", "touched", "doc")
 
     @staticmethod
-    def _row(title_id: str, doc: TitleDoc) -> dict:
+    def _row(title_id: str, doc: TitleDoc, touched: int = 0) -> dict:
         m, u = doc.meta, doc.user
         states = [u.read.get(c.id, "unread") for c in doc.chapters]
         total = len(states)
@@ -86,44 +97,52 @@ class LibraryIndex:
             "unread": total - read_done,
             "started": int(any(s in ("read", "reading") for s in states)),
             "finished": int(total > 0 and read_done == total),
+            "touched": touched,
             "doc": doc.model_dump_json(by_alias=True),
         }
 
-    def rebuild(self, docs: dict[str, TitleDoc]) -> None:
-        with self._db:
+    @property
+    def _insert_sql(self) -> str:
+        cols = ", ".join(self._COLUMNS)
+        vals = ", ".join(f":{c}" for c in self._COLUMNS)
+        return f"INSERT INTO titles ({cols}) VALUES ({vals})"
+
+    def rebuild(self, docs: dict[str, TitleDoc], touched: dict[str, int] | None = None) -> None:
+        with self._lock, self._db:
             self._db.execute("DELETE FROM titles")
             self._db.executemany(
-                """INSERT INTO titles (id, title, people, type, status, rating, fav, unread, started, finished, doc)
-                   VALUES (:id, :title, :people, :type, :status, :rating, :fav, :unread, :started, :finished, :doc)""",
-                [self._row(tid, doc) for tid, doc in docs.items()],
+                self._insert_sql,
+                [self._row(tid, doc, (touched or {}).get(tid, 0)) for tid, doc in docs.items()],
             )
 
-    def upsert(self, title_id: str, doc: TitleDoc) -> None:
-        with self._db:
+    def upsert(self, title_id: str, doc: TitleDoc, touched: int = 0) -> None:
+        with self._lock, self._db:
             self._db.execute(
-                """INSERT INTO titles (id, title, people, type, status, rating, fav, unread, started, finished, doc)
-                   VALUES (:id, :title, :people, :type, :status, :rating, :fav, :unread, :started, :finished, :doc)
+                f"""{self._insert_sql}
                    ON CONFLICT(id) DO UPDATE SET
                      title=excluded.title, people=excluded.people, type=excluded.type,
                      status=excluded.status, rating=excluded.rating, fav=excluded.fav,
                      unread=excluded.unread, started=excluded.started, finished=excluded.finished,
-                     doc=excluded.doc""",
-                self._row(title_id, doc),
+                     touched=MAX(excluded.touched, titles.touched), doc=excluded.doc""",
+                self._row(title_id, doc, touched),
             )
 
     def remove(self, title_id: str) -> None:
-        with self._db:
+        with self._lock, self._db:
             self._db.execute("DELETE FROM titles WHERE id = ?", (title_id,))
 
     def count(self) -> int:
-        return self._db.execute("SELECT COUNT(*) AS n FROM titles").fetchone()["n"]
+        with self._lock:
+            return self._db.execute("SELECT COUNT(*) AS n FROM titles").fetchone()["n"]
 
     def get(self, title_id: str) -> TitleDoc | None:
-        row = self._db.execute("SELECT doc FROM titles WHERE id = ?", (title_id,)).fetchone()
+        with self._lock:
+            row = self._db.execute("SELECT doc FROM titles WHERE id = ?", (title_id,)).fetchone()
         return TitleDoc.model_validate_json(row["doc"]) if row else None
 
     def all_docs(self) -> list[tuple[str, TitleDoc]]:
-        rows = self._db.execute("SELECT id, doc FROM titles").fetchall()
+        with self._lock:
+            rows = self._db.execute("SELECT id, doc FROM titles").fetchall()
         return [(r["id"], TitleDoc.model_validate_json(r["doc"])) for r in rows]
 
     def query(
@@ -185,7 +204,8 @@ class LibraryIndex:
         if where:
             sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY " + _SORTS.get(sort, _SORTS["updated"])
-        rows = self._db.execute(sql, params).fetchall()
+        with self._lock:
+            rows = self._db.execute(sql, params).fetchall()
         out = [(r["id"], TitleDoc.model_validate_json(r["doc"])) for r in rows]
 
         # multi-valued facets live in the JSON doc — filter in Python (local scale)
