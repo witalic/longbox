@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>longbox — a local-first media vault with a capture browser</title>
+<meta name="description" content="A desktop vault for manga, manhwa, comics and image sets. Your files stay yours; metadata is captured visually from the sites you already read." />
+<style>
+/* the app's own tokens, so the page and the product look like one thing */
+:root {
+  --bg: #0a0b0d; --bg2: #0f1115; --panel: #15171b; --panel2: #1b1e24;
+  --line: #262a31; --hover: #2a2e36;
+  --tx: #e8eaef; --tx2: #9aa1ad; --tx3: #697080;
+  --accent: #7089e6; --accent-ink: #0d0e11; --accentSoft: rgba(112, 137, 230, .14);
+  --good: #5fb88a; --warn: #d6a44f;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f0eeea; --bg2: #e6e3dd; --panel: #faf9f6; --panel2: #edeae4;
+    --line: #d2cdc2; --hover: #e2ded6;
+    --tx: #2a2c31; --tx2: #575d67; --tx3: #8d95a1;
+    --accent: #5f77d4; --accent-ink: #ffffff; --accentSoft: rgba(95, 119, 212, .15);
+    --good: #3f9e6f; --warn: #b07d2a;
+    color-scheme: light;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--tx);
+  font: 400 15px/1.65 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, .mono { font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+h1, h2, h3 { line-height: 1.25; letter-spacing: -.4px; margin: 0; }
+
+/* ---- header ---- */
+header { border-bottom: 1px solid var(--line); background: var(--bg2); }
+.hrow { display: flex; align-items: center; gap: 12px; height: 60px; }
+.logo { width: 30px; height: 30px; flex: none; }
+.brand { font: 700 16px/1 system-ui; letter-spacing: -.2px; }
+.ver { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); border: 1px solid var(--line);
+  padding: 4px 7px; border-radius: 999px; }
+.hnav { margin-left: auto; display: flex; gap: 18px; font-size: 13.5px; color: var(--tx2); }
+.hnav a { color: inherit; }
+.hnav a:hover { color: var(--tx); text-decoration: none; }
+
+/* ---- hero ---- */
+.hero { padding: 74px 0 56px; border-bottom: 1px solid var(--line); }
+.hero h1 { font-size: 46px; font-weight: 650; max-width: 16ch; }
+.hero p.lead { margin: 18px 0 0; font-size: 18px; color: var(--tx2); max-width: 62ch; }
+.dl { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 30px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; height: 42px;
+  padding: 0 20px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel);
+  color: var(--tx); font: 600 14px/1 system-ui; }
+.btn:hover { border-color: var(--accent); text-decoration: none; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover { filter: brightness(1.08); }
+.dlnote { margin: 14px 0 0; font-size: 13px; color: var(--tx3); }
+
+/* ---- sections ---- */
+section { padding: 64px 0; border-bottom: 1px solid var(--line); }
+.eyebrow { font: 700 10px/1 ui-monospace, monospace; letter-spacing: .14em; color: var(--tx3);
+  text-transform: uppercase; }
+h2 { font-size: 28px; margin-top: 10px; }
+.sub { color: var(--tx2); margin: 12px 0 0; max-width: 68ch; }
+
+.shot { margin: 28px 0 0; }
+.shot img { display: block; width: 100%; height: auto; border: 1px solid var(--line);
+  border-radius: 12px; background: var(--panel); box-shadow: 0 18px 44px rgba(0, 0, 0, .28); }
+.shot figcaption, .caption { font-size: 12.5px; color: var(--tx3); margin-top: 10px; }
+
+.feat { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; margin-top: 30px; }
+.card { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 18px 20px; }
+.card h3 { font-size: 15.5px; }
+.card p { margin: 8px 0 0; font-size: 13.5px; color: var(--tx2); }
+
+ol.steps { counter-reset: s; list-style: none; padding: 0; margin: 26px 0 0; }
+ol.steps li { counter-increment: s; position: relative; padding: 0 0 0 46px; margin-bottom: 20px; }
+ol.steps li::before { content: counter(s); position: absolute; left: 0; top: 0;
+  width: 28px; height: 28px; border-radius: 50%; background: var(--accentSoft); color: var(--accent);
+  font: 700 12px/28px ui-monospace, monospace; text-align: center; }
+ol.steps b { font-weight: 600; }
+ol.steps p { margin: 4px 0 0; color: var(--tx2); font-size: 14px; }
+
+pre { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
+  padding: 14px 16px; overflow-x: auto; font-size: 13px; line-height: 1.7; margin: 18px 0 0; }
+pre .c { color: var(--tx3); }
+
+table { width: 100%; border-collapse: collapse; margin-top: 24px; font-size: 14px; }
+th, td { text-align: left; padding: 11px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 700 10px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); text-transform: uppercase; }
+td.k { color: var(--tx); white-space: nowrap; }
+
+.note { border-left: 3px solid var(--accent); background: var(--accentSoft);
+  padding: 14px 16px; border-radius: 0 8px 8px 0; margin-top: 24px; font-size: 14px; }
+.note.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+
+footer { padding: 40px 0 64px; color: var(--tx3); font-size: 13px; }
+footer a { color: var(--tx2); }
+@media (max-width: 640px) { .hero h1 { font-size: 34px; } h2 { font-size: 23px; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap hrow">
+    <svg class="logo" viewBox="0 0 72 72" aria-hidden="true">
+      <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#8194f4"/><stop offset="1" stop-color="#3e4eb2"/>
+      </linearGradient></defs>
+      <rect width="72" height="72" rx="17" fill="url(#g)"/>
+      <path d="M27 19h9v25h13v9H27z" fill="#fff"/>
+    </svg>
+    <span class="brand">longbox</span>
+    <span class="ver mono">v1.1.0</span>
+    <nav class="hnav">
+      <a href="#features">Features</a>
+      <a href="#capture">Capture</a>
+      <a href="#start">Get started</a>
+      <a href="#storage">Storage</a>
+      <a href="https://github.com/witalic/longbox">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="hero">
+  <div class="wrap">
+    <h1>Your library. Your files. On your machine.</h1>
+    <p class="lead">
+      longbox is a desktop vault for manga, manhwa, manhua, comics and image sets — with a real
+      browser built in. You read the sites you already read; longbox learns what a title's page
+      looks like once, and files everything into folders you can open with anything.
+    </p>
+    <div class="dl">
+      <a class="btn primary" href="https://github.com/witalic/longbox/releases/latest">Download for Windows</a>
+      <a class="btn" href="https://github.com/witalic/longbox/releases/latest">macOS</a>
+      <a class="btn" href="https://github.com/witalic/longbox/releases/latest">Linux</a>
+    </div>
+    <p class="dlnote">
+      Install and open — nothing else to set up. No account, no cloud, no telemetry.
+      <a href="https://github.com/witalic/longbox/releases">All releases</a>
+    </p>
+  </div>
+</div>
+
+<section id="features">
+  <div class="wrap">
+    <div class="eyebrow">The library</div>
+    <h2>Everything you own, filtered the way you think</h2>
+    <p class="sub">
+      Grid, dense list and expanded views. Linked faceted filters — type, status, genres, tags,
+      language, authors, characters, content flags — with include <em>and</em> exclude, so counts
+      always reflect what is actually left. Favourites, ratings and reading progress are a separate
+      layer: editing a title's metadata can never roll them back.
+    </p>
+    <figure class="shot">
+      <img src="img/01-library.png" alt="The library grid with the faceted filter rail" />
+      <figcaption>The library, dark theme. The sidebar's counts follow the current selection.</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="img/02-library-dense.png" alt="The library in dense list mode" />
+      <figcaption>Dense mode: chapter and page counts, authors, status at a glance.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">A title</div>
+    <h2>Chapters, translations and pages — in one place</h2>
+    <p class="sub">
+      One row per translation, grouped under a shared label, with language and group chips. Edit
+      mode adds entries by hand, attaches or replaces archives, imports loose images or a whole
+      folder, moves pages between entries, and reorders pages by dragging. Every metadata field
+      remembers whether it was captured automatically or typed by you — automatic capture can never
+      overwrite your edit.
+    </p>
+    <figure class="shot">
+      <img src="img/03-title.png" alt="A title page with its chapter list" />
+      <figcaption>A title page: metadata, people as links, and the contents tree.</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="img/04-contents.png" alt="The pages gallery of a chapter" />
+      <figcaption>The pages pane: select with Shift+click, move pages to another entry, delete, rearrange.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">The reader</div>
+    <h2>Reads only your vault — so it works offline by construction</h2>
+    <p class="sub">
+      Page mode and continuous strip, fit-to-height / width / custom, adjustable margins, and a
+      hideable rail of page thumbnails. Chapter navigation moves between labels and keeps the
+      translation you were reading. Progress is written through instantly. Every shortcut is
+      rebindable, bound to the physical key so it survives a keyboard-layout switch.
+    </p>
+    <figure class="shot">
+      <img src="img/05-reader.png" alt="The reader showing a page" />
+      <figcaption>The reader with its chapter sidebar.</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="img/06-reader-rail.png" alt="The reader with the page thumbnail rail open" />
+      <figcaption>The left rail: every page of the chapter, click to jump.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="capture">
+  <div class="wrap">
+    <div class="eyebrow">The capture browser</div>
+    <h2>Teach a site once, then just read</h2>
+    <p class="sub">
+      longbox embeds a real browser — tabs, history, zoom, find-in-page, its own sessions. You sign
+      in on the site itself; the app never sees your password and never fetches anything you did not
+      open. What it does see, it can capture: click an element and refine the selector in the
+      inspector, with a live preview of the exact value that would be stored.
+    </p>
+
+    <svg viewBox="0 0 900 150" style="width:100%;height:auto;margin-top:28px" role="img"
+         aria-label="Flow: the browser page becomes a snapshot, the snapshot fills a draft, the draft is committed to the vault">
+      <defs>
+        <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 10 5 0 10z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <g fill="none" stroke="var(--line)" stroke-width="1"></g>
+      <g font-family="ui-monospace, monospace" font-size="12">
+        <rect x="6" y="34" width="190" height="64" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+        <text x="101" y="61" fill="var(--tx)" text-anchor="middle" font-size="13">Browser page</text>
+        <text x="101" y="80" fill="var(--tx3)" text-anchor="middle">belongs to the site</text>
+
+        <rect x="240" y="34" width="190" height="64" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+        <text x="335" y="61" fill="var(--tx)" text-anchor="middle" font-size="13">Snapshot</text>
+        <text x="335" y="80" fill="var(--tx3)" text-anchor="middle">one explicit read</text>
+
+        <rect x="474" y="34" width="190" height="64" rx="10" fill="var(--accentSoft)" stroke="var(--accent)"/>
+        <text x="569" y="61" fill="var(--tx)" text-anchor="middle" font-size="13">Draft</text>
+        <text x="569" y="80" fill="var(--tx3)" text-anchor="middle">yours to edit</text>
+
+        <rect x="708" y="34" width="186" height="64" rx="10" fill="var(--panel)" stroke="var(--line)"/>
+        <text x="801" y="61" fill="var(--tx)" text-anchor="middle" font-size="13">Vault</text>
+        <text x="801" y="80" fill="var(--tx3)" text-anchor="middle">files on disk</text>
+
+        <g stroke="var(--tx3)" stroke-width="1.5" color="var(--tx3)" marker-end="url(#a)">
+          <line x1="200" y1="66" x2="234" y2="66"/>
+          <line x1="434" y1="66" x2="468" y2="66"/>
+          <line x1="668" y1="66" x2="702" y2="66"/>
+        </g>
+        <text x="451" y="122" fill="var(--tx3)" text-anchor="middle">navigation never touches the draft · the commit is a button, never a side effect</text>
+      </g>
+    </svg>
+
+    <figure class="shot">
+      <img src="img/10-capture.png" alt="The capture browser with the draft dock open beside a source page" />
+      <figcaption>The browser on the left, the draft on the right. The page shown here is a demo stand-in.</figcaption>
+    </figure>
+
+    <h3 style="margin-top:44px;font-size:18px">Getting a title in</h3>
+    <ol class="steps">
+      <li><b>Open the title's page</b>
+        <p>In longbox's own Browse tab, on whatever site you use. Sign in there if the site needs it —
+          the app only ever sees the session, never your password.</p></li>
+      <li><b>Open a draft, press Auto-fill</b>
+        <p>On a site longbox already knows, the title, alt title, authors, tags, description and cover
+          fill in at once. On a new site nothing is invented: only the page's own metadata is used
+          until you teach the rest.</p></li>
+      <li><b>Correct anything by hand, or teach a field</b>
+        <p>Click <em>pick</em> next to a field and then the element on the page. The inspector shows what
+          would be stored, right now, for every match. What you teach is remembered <b>for that
+          domain</b>, so the next title from the same site fills itself in.</p></li>
+      <li><b>Save</b>
+        <p>The title becomes a folder on disk. Fields you typed are marked as yours and no later
+          capture can overwrite them.</p></li>
+    </ol>
+
+    <h3 style="margin-top:44px;font-size:18px">Getting the chapters in</h3>
+    <p class="sub">Three ways, because sites differ. All three end with the same thing on disk: one
+      plain zip per chapter, with a note recording where it came from.</p>
+    <div class="feat">
+      <div class="card">
+        <h3>① The site offers a file</h3>
+        <p>Name the chapter in the dock and press <b>Add + arm download</b>. Then click the site's own
+          download button. longbox catches that download, files it into exactly that chapter and
+          records the source. One arm, one download.</p>
+        <p style="color:var(--tx3)">zip, cbz, rar and 7z all work — anything not already a zip is
+          converted on the way in.</p>
+      </div>
+      <div class="card">
+        <h3>② The site only shows pages</h3>
+        <p>Switch the dock to <b>Pages</b>, click one page image so longbox learns which images are
+          pages, name the chapter and press <b>Start page capture</b>. Then just read it. Every page
+          you open is fetched and appended, in order.</p>
+        <p style="color:var(--tx3)">Pages you already have are never fetched again, so going back a
+          page costs nothing. <b>Finish chapter</b> closes it and offers the next number.</p>
+      </div>
+      <div class="card">
+        <h3>③ You already have the files</h3>
+        <p>On the title page, open the contents editor and drop in an archive, a set of images, or a
+          whole folder. Pages can be reordered by dragging, moved between chapters, or deleted.</p>
+        <p style="color:var(--tx3)">Useful for scans you made yourself, or a backup from another app.</p>
+      </div>
+    </div>
+
+    <div class="feat" style="margin-top:18px">
+      <div class="card">
+        <h3>Why it downloads what a browser downloads</h3>
+        <p>Page images are fetched with the embedded browser's own cookies and the reader page as
+          referer — the very same request the page makes for itself. That is why gated chapters and
+          hotlink-protected CDNs work at all, and why nothing works that you could not open yourself.</p>
+      </div>
+      <div class="card">
+        <h3>Chapters, translations, languages</h3>
+        <p>A chapter is a label plus a language and a group, so two translations of chapter 12 are
+          two rows under one label — each with its own file, its own pages and its own read state.</p>
+      </div>
+    </div>
+
+    <div class="note">
+      longbox is a <b>library manager</b>, not a scraper farm. It has no crawler, no bulk queue and
+      no way to fetch what you have not opened yourself — the human sets the pace by construction.
+    </div>
+
+    <h3 style="margin-top:44px;font-size:18px">People come out of the library, not a form</h3>
+    <p class="sub">
+      Authors and artists are aggregated from what you captured, with their role, their works and
+      their most common tags — click any name anywhere in the app to filter the library by it.
+    </p>
+    <figure class="shot">
+      <img src="img/07-authors.png" alt="The authors view" />
+    </figure>
+  </div>
+</section>
+
+<section id="start">
+  <div class="wrap">
+    <div class="eyebrow">Get started</div>
+    <h2>Four steps, then it's yours</h2>
+    <p class="sub">
+      Download, install, open. Everything below happens inside the app — there is nothing to
+      configure on disk and no command line involved.
+    </p>
+
+    <ol class="steps">
+      <li><b>Point it at a folder</b>
+        <p>Settings → Storage. Any folder works; longbox indexes whatever is already there and
+          never moves files you did not ask it to.</p></li>
+      <li><b>Add a title</b>
+        <p>Browse → open the title's page on the site → <em>New title</em> in the capture dock →
+          <em>Auto-fill</em>, or pick fields one by one. Save.</p></li>
+      <li><b>Get the chapters in</b>
+        <p>Either arm a download and click the site's download button, or switch the dock to
+          <em>Pages</em>, teach which images are the pages, and read the chapter through.</p></li>
+      <li><b>Read</b>
+        <p>Everything after this point is offline. The reader only ever opens your own files.</p></li>
+    </ol>
+
+    <div class="note warn" id="macos">
+      <b>macOS:</b> the builds are signed ad-hoc, not with a paid Apple certificate, so the first
+      launch shows “longbox cannot be opened because the developer cannot be verified”. Right-click
+      the app → <b>Open</b> → <b>Open</b>. Once only.
+    </div>
+  </div>
+</section>
+
+<section id="storage">
+  <div class="wrap">
+    <div class="eyebrow">Storage</div>
+    <h2>Nothing you can't open without longbox</h2>
+    <p class="sub">
+      The folder on disk is the truth; the search index is a cache that can be deleted and rebuilt
+      at any time. Every chapter is a plain zip — CBZ is the same container — so any comic reader
+      opens them. Archives that arrive as rar or 7z are converted on the way in.
+    </p>
+<pre>library/
+  index.db                     <span class="c">rebuildable cache — safe to delete</span>
+  manga/
+    paper-lanterns/
+      title.json               <span class="c">metadata · provenance · chapters · your layer</span>
+      cover.jpg
+      chapters/
+        ch-1-en.zip            <span class="c">the pages</span>
+        ch-1-en.json           <span class="c">where the file came from</span>
+  image-set/
+    neon-fieldwork/…</pre>
+    <table>
+      <tr><th>Guarantee</th><th>What it means in practice</th></tr>
+      <tr><td class="k">Atomic writes</td><td>A write either lands whole or not at all; a crash mid-save cannot leave a half-written title.</td></tr>
+      <tr><td class="k">Your layer is separate</td><td>Favourites, ratings and read progress live apart from metadata — a re-capture never touches them.</td></tr>
+      <tr><td class="k">Nothing is orphaned</td><td>Re-capturing a chapter list keeps downloaded files bound to their rows; media is removed only when you say so.</td></tr>
+      <tr><td class="k">Provenance</td><td>Each field records whether it came from a site or from you; each downloaded file records its source.</td></tr>
+    </table>
+
+    <div class="note warn">
+      Converting <code>.rar</code> needs an <code>unrar</code> (or <code>bsdtar</code>) binary on
+      your PATH. Without one, longbox leaves the file untouched and tells you — it never rewrites an
+      archive it cannot read.
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">Settings</div>
+    <h2>Only what the app actually does</h2>
+    <p class="sub">
+      Multiple library folders with instant switching, the browser's homepage and one-click cookie
+      or cache clearing, rebindable keys, theme, and the two maintenance actions: rebuild the search
+      index, or re-run the archive conversion sweep.
+    </p>
+    <figure class="shot">
+      <img src="img/08-settings.png" alt="The settings screen" />
+    </figure>
+    <figure class="shot">
+      <img src="img/09-library-light.png" alt="The library in the light theme" />
+      <figcaption>Light theme. Both themes are first-class; the app follows your system by default.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    longbox is free software for personal use. It ships no content and unlocks nothing —
+    it organises what you already have access to.
+    <br />
+    <a href="https://github.com/witalic/longbox">Source on GitHub</a>
+    · screenshots taken against a generated demo library, not a real one.
+  </div>
+</footer>
+
+</body>
+</html>
