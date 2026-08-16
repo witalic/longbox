@@ -71,6 +71,8 @@ export interface CoverUpload {
 
 export const api = {
   library: (q: LibraryQuery = {}) => req<Title[]>(`/library${qs({ ...q })}`),
+  // the unfiltered size of the vault — never list titles just to count them
+  libraryCount: () => req<{ total: number }>('/library/count'),
   facets: (q: LibraryQuery = {}) => req<Facets>(`/library/facets${qs({ ...q })}`),
   title: (id: string) => req<Title>(`/titles/${id}`),
   authors: () => req<Author[]>('/authors'),

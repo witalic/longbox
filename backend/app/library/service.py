@@ -43,7 +43,7 @@ class Library:
         self._normalize_lock = threading.Lock()
         self._closing = threading.Event()
         self._sidecar_cache: dict[str, tuple[int, dict[str, dict]]] = {}
-        self.rescan()
+        self.sync()
         # The zip invariant is enforced at INGEST, so the archive sweep is a
         # one-time migration for pre-invariant (or hand-dropped) content: it
         # runs only for a vault that never had it, off the startup path (large
@@ -80,6 +80,33 @@ class Library:
     def root(self) -> Path:
         return self.vault.root
 
+    def sync(self) -> int:
+        """Bring the index in line with the vault WITHOUT re-reading it whole.
+        Every title is stat-ed (cheap) and only the ones whose document or
+        chapter directory moved since they were indexed are loaded again — a
+        launch must not cost one JSON parse per title, or opening the app grows
+        with the library. Returns how many titles were re-read."""
+        indexed = self.index.stamps()
+        on_disk = {tid: (self.vault.touched_at(tid), self.vault.chapters_stamp(tid))
+                   for tid in self.vault.list_ids()}
+        for gone in indexed.keys() - on_disk.keys():
+            self.index.remove(gone)
+        stale = [tid for tid, stamp in on_disk.items() if indexed.get(tid) != stamp]
+        rows = []
+        for tid in stale:
+            try:
+                doc = self.vault.load(tid)
+            except Exception:  # noqa: BLE001 — one malformed title.json never blocks a launch
+                continue
+            if doc is not None:
+                # stamped before the read, exactly as _index does
+                stamp = on_disk[tid]
+                rows.append((tid, doc, stamp[0], self._sidecars(tid), stamp[1]))
+        # nothing is serving yet at construction time, so one batch is safe here
+        # where per-title locking is the rule everywhere else
+        self.index.upsert_many(rows)
+        return len(rows)
+
     def rescan(self, progress=None) -> None:
         """Rebuild the index purely from the on-disk vault. `progress(done,
         total)` ticks per title file read — reading the files IS the slow part.
@@ -88,6 +115,8 @@ class Library:
         ids = self.vault.list_ids()
         docs = {}
         touched = {}
+        media = {}
+        media_at = {}
         for i, tid in enumerate(ids):
             try:
                 doc = self.vault.load(tid)
@@ -96,9 +125,11 @@ class Library:
             if doc is not None:
                 docs[tid] = doc
                 touched[tid] = self.vault.touched_at(tid)
+                media[tid] = self._sidecars(tid)
+                media_at[tid] = self.vault.chapters_stamp(tid)
             if progress:
                 progress(i + 1, len(ids))
-        self.index.rebuild(docs, touched)
+        self.index.rebuild(docs, touched, media, media_at)
 
     def close(self) -> None:
         # tell the sweep to stop, give it a moment, then close the index it uses
@@ -121,8 +152,14 @@ class Library:
     def _index(self, title_id: str, doc: TitleDoc) -> None:
         """Refresh the index for one title. ALWAYS called inside that title's
         lock: a doc read in a critical section and indexed after it is released
-        can overwrite a newer writer's row with stale data."""
-        self.index.upsert(title_id, doc, self.vault.touched_at(title_id))
+        can overwrite a newer writer's row with stale data. The chapter sidecars
+        are read HERE, once per write, so no listing ever has to touch them."""
+        # stamp BEFORE reading: a change that lands in between then looks newer
+        # than the row, so the next launch re-reads it — the other order would
+        # store fresh stamps over stale content and never notice
+        stamp = self.vault.chapters_stamp(title_id)
+        self.index.upsert(title_id, doc, self.vault.touched_at(title_id),
+                          self._sidecars(title_id), stamp)
 
     def _sidecars(self, title_id: str) -> dict[str, dict]:
         """Chapter sidecars, cached per title against the chapters dir's mtime.
@@ -141,19 +178,23 @@ class Library:
         self._sidecar_cache[title_id] = (stamp, loaded)
         return loaded
 
-    def _out(self, title_id: str, doc: TitleDoc) -> TitleOut:
-        sidecars = self._sidecars(title_id)
+    def _out_now(self, title_id: str, doc: TitleDoc) -> TitleOut:
+        """One title composed right after a write, when the sidecars on disk are
+        newer than whatever the index row still carries."""
+        return self._out(title_id, doc, self._sidecars(title_id))
+
+    def _out(self, title_id: str, doc: TitleDoc, sidecars: dict[str, dict]) -> TitleOut:
         media_map = {c.id: sidecars[safe_id(c.id)] for c in doc.chapters if safe_id(c.id) in sidecars}
         return TitleOut.from_doc(title_id, doc, self._cover_url(title_id), media_map)
 
     # ---- reads (via the index) ----
 
     def query(self, **kwargs) -> list[TitleOut]:
-        return [self._out(tid, doc) for tid, doc in self.index.query(**kwargs)]
+        return [self._out(tid, doc, media) for tid, doc, media in self.index.query(**kwargs)]
 
     def get(self, title_id: str) -> TitleOut | None:
-        doc = self.index.get(title_id)
-        return self._out(title_id, doc) if doc else None
+        row = self.index.get(title_id)
+        return self._out(title_id, *row) if row else None
 
     def facets(self, selection: dict | None = None) -> dict[str, list[dict]]:
         return self.index.facet_counts(selection or {})
@@ -220,7 +261,7 @@ class Library:
             doc = self.vault.commit_meta(tid, draft, create=True)
             assert doc is not None
             self._index(tid, doc)
-        return self._out(tid, doc)
+        return self._out_now(tid, doc)
 
     def commit(self, title_id: str, draft: DraftIn) -> TitleOut | None:
         """Commit a draft into an existing title. Replaces the meta layers,
@@ -235,7 +276,7 @@ class Library:
             if doc is None:
                 return None
             self._index(title_id, doc)
-        return self._out(title_id, doc)
+        return self._out_now(title_id, doc)
 
     def _reconcile_chapters(self, title_id: str, old: TitleDoc, draft: DraftIn) -> None:
         """A meta commit must never orphan what the user already owns. Media
@@ -330,7 +371,7 @@ class Library:
             if doc is None:
                 return None
             self._index(title_id, doc)
-        return self._out(title_id, doc)
+        return self._out_now(title_id, doc)
 
     def set_cover(self, title_id: str, data: bytes, ext: str, source_url: str = "") -> TitleOut | None:
         """Store captured cover bytes; record where they came from in the meta
@@ -346,7 +387,7 @@ class Library:
                 draft = DraftIn(meta=doc.meta, provenance=doc.provenance, chapters=doc.chapters)
                 doc = self.vault.commit_meta(title_id, draft) or doc
             self._index(title_id, doc)
-        return self._out(title_id, doc)
+        return self._out_now(title_id, doc)
 
     def delete_cover(self, title_id: str) -> TitleOut | None:
         with self.vault.title_lock(title_id):
@@ -359,7 +400,7 @@ class Library:
                 draft = DraftIn(meta=doc.meta, provenance=doc.provenance, chapters=doc.chapters)
                 doc = self.vault.commit_meta(title_id, draft) or doc
             self._index(title_id, doc)
-        return self._out(title_id, doc)
+        return self._out_now(title_id, doc)
 
     # ---- chapter media (downloads) ----
 
@@ -370,7 +411,7 @@ class Library:
         if saved is None:
             return None
         self._index(title_id, saved)
-        return self._out(title_id, saved)
+        return self._out_now(title_id, saved)
 
     @staticmethod
     def _norm(s: str) -> str:
@@ -492,7 +533,7 @@ class Library:
                     defaults={"importedFrom": "page-capture"},
                     patch={"pageUrl": page_url})
             self._index(title_id, doc)
-            return self._out(title_id, doc), len(fresh)
+            return self._out_now(title_id, doc), len(fresh)
 
     def delete_chapter_media(self, title_id: str, chapter_id: str) -> TitleOut | None:
         with self.vault.title_lock(title_id):
@@ -501,7 +542,7 @@ class Library:
                 return None
             self.vault.delete_chapter_media(title_id, chapter_id)
             self._index(title_id, doc)
-        return self._out(title_id, doc)
+        return self._out_now(title_id, doc)
 
     def delete_chapter_row(self, title_id: str, chapter_id: str) -> TitleOut | None:
         """Remove the chapter row AND its downloaded media."""
@@ -633,7 +674,7 @@ class Library:
             self._write_media_sidecar(title_id, chapter_id, path, created=created,
                                       keys=[*keys, *([""] * len(files))])
             self._index(title_id, doc)
-        return self._out(title_id, doc)
+        return self._out_now(title_id, doc)
 
     def reorder_chapter_pages(self, title_id: str, chapter_id: str, order: list[int]) -> TitleOut | None:
         """Rearrange the pages inside an entry's archive (raises ValueError on a
@@ -648,7 +689,7 @@ class Library:
             self._write_media_sidecar(title_id, chapter_id, path,
                                       keys=[keys[i] for i in order if 0 <= i < len(keys)])
             self._index(title_id, doc)
-        return self._out(title_id, doc)
+        return self._out_now(title_id, doc)
 
     def move_chapter_pages(self, title_id: str, src_id: str, dst_id: str,
                            indices: list[int]) -> TitleOut | None:
@@ -667,7 +708,7 @@ class Library:
             moved = sorted({i for i in indices if 0 <= i < len(entries)})
             names = {entries[i] for i in moved}
             if not names:
-                return self._out(title_id, doc)
+                return self._out_now(title_id, doc)
             dst = self.vault.chapter_media_path(title_id, dst_id)
             created = dst is None
             if dst is None:
@@ -685,7 +726,7 @@ class Library:
                 self._write_media_sidecar(title_id, src_id, src,
                                           keys=[k for i, k in enumerate(src_keys) if i not in set(moved)])
             self._index(title_id, doc)
-        return self._out(title_id, doc)
+        return self._out_now(title_id, doc)
 
     def delete_chapter_pages(self, title_id: str, chapter_id: str, indices: list[int]) -> TitleOut | None:
         with self.vault.title_lock(title_id):
@@ -709,7 +750,7 @@ class Library:
                         title_id, chapter_id, path,
                         keys=[k for i, k in enumerate(keys) if i not in set(gone)])
             self._index(title_id, doc)
-        return self._out(title_id, doc)
+        return self._out_now(title_id, doc)
 
     def delete(self, title_id: str) -> bool:
         # the index entry goes even if the directory could not be fully removed,

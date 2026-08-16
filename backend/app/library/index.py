@@ -13,6 +13,7 @@ Filtering model (design: linked faceted filters with exclusions):
 """
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 from collections import Counter
@@ -20,7 +21,7 @@ from pathlib import Path
 
 from .models import TitleDoc
 
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS titles (
@@ -36,7 +37,9 @@ CREATE TABLE IF NOT EXISTS titles (
     started  INTEGER NOT NULL,
     finished INTEGER NOT NULL,
     touched  INTEGER NOT NULL DEFAULT 0,
-    doc      TEXT NOT NULL
+    doc      TEXT NOT NULL,
+    media    TEXT NOT NULL DEFAULT '{}',
+    media_at INTEGER NOT NULL DEFAULT 0
 );
 """
 
@@ -75,16 +78,24 @@ class LibraryIndex:
             self._db.executescript("DROP TABLE IF EXISTS titles;")
             self._db.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
         self._db.executescript(_SCHEMA)
+        # …and a table left by a half-applied schema (an interrupted upgrade, a
+        # column added without bumping the version) is dropped too: a cache may
+        # cost a rebuild, never a launch that cannot start.
+        have = {r["name"] for r in self._db.execute("PRAGMA table_info(titles)")}
+        if not set(self._COLUMNS) <= have:
+            self._db.executescript("DROP TABLE IF EXISTS titles;")
+            self._db.executescript(_SCHEMA)
 
     def close(self) -> None:
         with self._lock:
             self._db.close()
 
     _COLUMNS = ("id", "title", "people", "type", "status", "rating", "fav",
-                "unread", "started", "finished", "touched", "doc")
+                "unread", "started", "finished", "touched", "doc", "media", "media_at")
 
     @staticmethod
-    def _row(title_id: str, doc: TitleDoc, touched: int = 0) -> dict:
+    def _row(title_id: str, doc: TitleDoc, touched: int = 0,
+             media: dict[str, dict] | None = None, media_at: int = 0) -> dict:
         m, u = doc.meta, doc.user
         states = [u.read.get(c.id, "unread") for c in doc.chapters]
         total = len(states)
@@ -99,6 +110,11 @@ class LibraryIndex:
             "finished": int(total > 0 and read_done == total),
             "touched": touched,
             "doc": doc.model_dump_json(by_alias=True),
+            # The chapter sidecars, carried WITH the row: composing a listing
+            # otherwise re-reads one JSON file per chapter from disk, which is
+            # what made a big library take seconds to appear.
+            "media": json.dumps(media or {}),
+            "media_at": media_at,
         }
 
     @property
@@ -107,38 +123,62 @@ class LibraryIndex:
         vals = ", ".join(f":{c}" for c in self._COLUMNS)
         return f"INSERT INTO titles ({cols}) VALUES ({vals})"
 
-    def rebuild(self, docs: dict[str, TitleDoc], touched: dict[str, int] | None = None) -> None:
+    def rebuild(self, docs: dict[str, TitleDoc], touched: dict[str, int] | None = None,
+                media: dict[str, dict[str, dict]] | None = None,
+                media_at: dict[str, int] | None = None) -> None:
         with self._lock, self._db:
             self._db.execute("DELETE FROM titles")
             self._db.executemany(
                 self._insert_sql,
-                [self._row(tid, doc, (touched or {}).get(tid, 0)) for tid, doc in docs.items()],
+                [self._row(tid, doc, (touched or {}).get(tid, 0), (media or {}).get(tid),
+                           (media_at or {}).get(tid, 0))
+                 for tid, doc in docs.items()],
             )
 
-    def upsert(self, title_id: str, doc: TitleDoc, touched: int = 0) -> None:
-        with self._lock, self._db:
-            self._db.execute(
-                f"""{self._insert_sql}
+    @property
+    def _upsert_sql(self) -> str:
+        return f"""{self._insert_sql}
                    ON CONFLICT(id) DO UPDATE SET
                      title=excluded.title, people=excluded.people, type=excluded.type,
                      status=excluded.status, rating=excluded.rating, fav=excluded.fav,
                      unread=excluded.unread, started=excluded.started, finished=excluded.finished,
-                     touched=MAX(excluded.touched, titles.touched), doc=excluded.doc""",
-                self._row(title_id, doc, touched),
-            )
+                     touched=MAX(excluded.touched, titles.touched), doc=excluded.doc,
+                     media=excluded.media, media_at=excluded.media_at"""
+
+    def upsert(self, title_id: str, doc: TitleDoc, touched: int = 0,
+               media: dict[str, dict] | None = None, media_at: int = 0) -> None:
+        with self._lock, self._db:
+            self._db.execute(self._upsert_sql, self._row(title_id, doc, touched, media, media_at))
+
+    def upsert_many(self, rows: list[tuple[str, TitleDoc, int, dict[str, dict], int]]) -> None:
+        """One transaction for many titles — a launch that has to re-read a whole
+        library must not pay a commit per title."""
+        if not rows:
+            return
+        with self._lock, self._db:
+            self._db.executemany(self._upsert_sql, [self._row(*r) for r in rows])
 
     def remove(self, title_id: str) -> None:
         with self._lock, self._db:
             self._db.execute("DELETE FROM titles WHERE id = ?", (title_id,))
 
+    def stamps(self) -> dict[str, tuple[int, int]]:
+        """Every indexed title's id and the (document, chapter-dir) mtimes it was
+        indexed at. Comparing these against the vault is what lets a launch
+        reload only what changed instead of re-reading the whole library."""
+        with self._lock:
+            rows = self._db.execute("SELECT id, touched, media_at FROM titles").fetchall()
+        return {r["id"]: (r["touched"], r["media_at"]) for r in rows}
+
     def count(self) -> int:
         with self._lock:
             return self._db.execute("SELECT COUNT(*) AS n FROM titles").fetchone()["n"]
 
-    def get(self, title_id: str) -> TitleDoc | None:
+    def get(self, title_id: str) -> tuple[TitleDoc, dict[str, dict]] | None:
         with self._lock:
-            row = self._db.execute("SELECT doc FROM titles WHERE id = ?", (title_id,)).fetchone()
-        return TitleDoc.model_validate_json(row["doc"]) if row else None
+            row = self._db.execute(
+                "SELECT doc, media FROM titles WHERE id = ?", (title_id,)).fetchone()
+        return (TitleDoc.model_validate_json(row["doc"]), json.loads(row["media"])) if row else None
 
     def all_docs(self) -> list[tuple[str, TitleDoc]]:
         with self._lock:
@@ -169,7 +209,7 @@ class LibraryIndex:
         characters: tuple[str, ...] = (),
         characters_not: tuple[str, ...] = (),
         sort: str = "updated",
-    ) -> list[tuple[str, TitleDoc]]:
+    ) -> list[tuple[str, TitleDoc, dict[str, dict]]]:
         where: list[str] = []
         params: list[object] = []
         if search:
@@ -200,13 +240,14 @@ class LibraryIndex:
         elif progress == "completed":
             where.append("finished = 1")
 
-        sql = "SELECT id, doc FROM titles"
+        sql = "SELECT id, doc, media FROM titles"
         if where:
             sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY " + _SORTS.get(sort, _SORTS["updated"])
         with self._lock:
             rows = self._db.execute(sql, params).fetchall()
-        out = [(r["id"], TitleDoc.model_validate_json(r["doc"])) for r in rows]
+        out = [(r["id"], TitleDoc.model_validate_json(r["doc"]), json.loads(r["media"]))
+               for r in rows]
 
         # multi-valued facets live in the JSON doc — filter in Python (local scale)
         def keep(doc: TitleDoc) -> bool:
@@ -241,16 +282,24 @@ class LibraryIndex:
                 return False
             return True
 
-        return [(i, d) for i, d in out if keep(d)]
+        return [(i, d, m) for i, d, m in out if keep(d)]
 
     def facet_counts(self, sel: dict) -> dict[str, list[dict]]:
         """Linked facet counts for the current selection: each facet is counted
         with every OTHER facet's filters applied. Single-valued facets (type,
         status) ignore their own selection so the alternatives stay visible;
         multi-valued ones keep their own includes (co-occurrence counts)."""
+        # Eight facets ask eight questions, but they collapse to ONE whenever the
+        # override does not actually change the selection — which is the whole
+        # unfiltered library, i.e. every launch.
+        seen: dict[tuple, list[TitleDoc]] = {}
+
         def docs(**over) -> list[TitleDoc]:
             kw = {**sel, **over}
-            return [d for _, d in self.query(**kw)]
+            key = tuple(sorted((k, v) for k, v in kw.items() if v))
+            if key not in seen:
+                seen[key] = [d for _, d, _m in self.query(**kw)]
+            return seen[key]
 
         out: dict[str, list[dict]] = {}
         type_docs = docs(types=(), types_not=())

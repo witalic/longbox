@@ -285,6 +285,15 @@ class Vault:
         """Where the title's chapter media lives (may not exist yet)."""
         return self._chapters_dir(title_id)
 
+    def chapters_stamp(self, title_id: str) -> int:
+        """When the title's chapter directory last changed. Chapter media is not
+        part of `title.json`, so this is the second half of "has anything about
+        this title changed since the index saw it"."""
+        try:
+            return self._chapters_dir(title_id).stat().st_mtime_ns
+        except OSError:
+            return 0
+
     def chapter_media_path(self, title_id: str, chapter_id: str) -> Path | None:
         """The chapter's archive. `.zip` WINS: a leftover from an interrupted
         conversion (the pre-conversion `.7z`, a half-written `.tmp`) must never

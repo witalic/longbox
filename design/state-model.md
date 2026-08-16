@@ -184,6 +184,12 @@ minimal version editing it is forbidden outright.
 **The index** is SQLite as a pure cache: updated incrementally after commit; a rebuild
 command scans the disk and reconstructs it from scratch. A corrupt index cannot lose
 content by construction (I7), because it never owned any.
+It carries each title's **chapter media** (the sidecars) and the mtimes it saw them at, for
+one reason: **a listing must never touch the filesystem**, and **a launch must never re-read
+the library**. Opening the app stats every title (document + chapter directory) and reloads
+only what moved since it was indexed, so startup cost stops growing with the shelf. Content
+changed with the app closed is caught by those stamps; anything subtler is what the Settings
+rebuild is for.
 
 
 **Why CBZ** (next phase): atomic write of one file, standard enough that any third-party

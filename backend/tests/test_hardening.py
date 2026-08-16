@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
 import zipfile
 
 import pytest
@@ -12,6 +13,7 @@ from fastapi.testclient import TestClient
 from app.library import media
 from app.library.models import ChapterRow, DraftIn, TitleMeta
 from app.library.service import Library
+from app.library.vault import Vault
 from app.main import create_app
 from app.settings import get_settings
 
@@ -450,4 +452,89 @@ def test_migration_handles_title_named_like_its_shelf(tmp_path):
     lib = Library(tmp_path)
     assert (tmp_path / "manga" / "manga" / "title.json").is_file()
     assert lib.get("manga").title == "Manga"
+    lib.close()
+
+
+# ---- startup cost: the index SYNCS, it never re-reads the whole library ----
+
+def _one_page_zip(path):
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("001.jpg", b"one")
+    return path
+
+
+def test_launch_reindexes_only_what_changed(tmp_path, monkeypatch):
+    lib = Library(tmp_path)
+    for name in ("One", "Two", "Three"):
+        lib.create(DraftIn(meta=TitleMeta(title=name)))
+    lib.close()
+
+    reads: list[str] = []
+    real_load = Vault.load
+
+    def counting_load(self, title_id):
+        reads.append(title_id)
+        return real_load(self, title_id)
+
+    monkeypatch.setattr(Vault, "load", counting_load)
+    lib = Library(tmp_path)  # nothing moved since the index was written
+    assert reads == []
+    assert lib.count() == 3
+    lib.close()
+
+    # a document edited behind the app's back is the ONE title read again
+    doc_path = next(tmp_path.rglob("two/title.json"))
+    doc = json.loads(doc_path.read_text(encoding="utf-8"))
+    doc["meta"]["desc"] = "edited on disk"
+    doc_path.write_text(json.dumps(doc), encoding="utf-8")
+
+    reads.clear()
+    lib = Library(tmp_path)
+    assert reads == ["two"]
+    assert lib.get("two").desc == "edited on disk"
+    lib.close()
+
+
+def test_launch_forgets_a_title_deleted_on_disk(tmp_path):
+    lib = Library(tmp_path)
+    lib.create(DraftIn(meta=TitleMeta(title="Gone")))
+    lib.create(DraftIn(meta=TitleMeta(title="Stays")))
+    lib.close()
+
+    shutil.rmtree(next(tmp_path.rglob("gone/title.json")).parent)
+    lib = Library(tmp_path)
+    assert [t.title for t in lib.query()] == ["Stays"]
+    lib.close()
+
+
+def test_launch_notices_chapter_media_added_on_disk(tmp_path):
+    lib = Library(tmp_path)
+    out = lib.create(DraftIn(meta=TitleMeta(title="Berserk")))
+    lib.attach_chapter_media(out.id, num="5", lang="EN", group="dex",
+                             src=_one_page_zip(tmp_path / "in.zip"), sidecar={})
+    lib.close()
+    # the chapter directory moving is half of "did anything change" — a document
+    # untouched since the last launch must not hide new media
+    lib = Library(tmp_path)
+    assert lib.query()[0].chapters[0].pages == 1
+    lib.close()
+
+
+def test_a_listing_reads_no_chapter_sidecars(tmp_path, monkeypatch):
+    """Page counts in a listing come from the index, not from one JSON file per
+    chapter — that pass is what made a big library take seconds to appear."""
+    lib = Library(tmp_path)
+    out = lib.create(DraftIn(meta=TitleMeta(title="Berserk")))
+    lib.attach_chapter_media(out.id, num="5", lang="EN", group="dex",
+                             src=_one_page_zip(tmp_path / "in.zip"), sidecar={})
+    lib.close()
+
+    lib = Library(tmp_path)
+    calls: list[str] = []
+    real = Vault.chapter_sidecars
+    monkeypatch.setattr(Vault, "chapter_sidecars",
+                        lambda self, tid: (calls.append(tid), real(self, tid))[1])
+    rows = lib.query()
+    assert rows[0].chapters[0].pages == 1  # composed from the indexed media
+    assert calls == []
     lib.close()

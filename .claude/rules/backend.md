@@ -18,7 +18,11 @@ content). Full model: `design/state-model.md`; layout: `ARCHITECTURE.md`.
   page op rewrite a non-zip. Non-image entries (ComicInfo.xml, …) survive every rewrite.
 - **Startup does the minimum.** Anything expensive that ingest already guarantees is a one-time
   migration keyed by a marker in `vault.json`, run on a background thread — never work repeated
-  on every launch (that is what once made the sidecar miss the shell's health timeout).
+  on every launch (that is what once made the sidecar miss the shell's health timeout). A launch
+  `sync()`s the index (stat every title, reload only what moved); it never re-reads the library.
+- **A listing touches no files.** The index row carries the title's chapter sidecars and the
+  mtimes they were read at, so `query()` is SQL plus composition. Anything a listing needs is
+  written INTO the index at write time (`Library._index`), never fetched from disk per title.
 - **Layer separation.** A meta commit merges layers in the vault and never touches the user layer
   (fav/rating/read). `_reconcile_chapters` guards the no-orphan rule: re-captured rows adopt old
   ids (URL first, then num+lang+group; an adopted id leaves BOTH lookup maps), media-backed rows

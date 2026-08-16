@@ -163,19 +163,19 @@ export async function reloadLibrary() {
 
 // The full (unfiltered) vocabulary: Combo suggestions in the editor, and the
 // sidebar's stable row order (rows never appear/disappear/reshuffle mid-filter).
+function applyVocab(full: Facets) {
+  store.globalFacets = full
+  store.vocab = {
+    types: full.types.map((x) => x.v),
+    statuses: full.statuses.map((x) => x.v),
+    genres: full.genres.map((x) => x.v),
+    tags: full.tags.map((x) => x.v),
+    authors: full.authors.map((x) => x.v),
+    characters: full.characters.map((x) => x.v),
+  }
+}
 async function refreshVocab() {
-  try {
-    const full = await api.facets()
-    store.globalFacets = full
-    store.vocab = {
-      types: full.types.map((x) => x.v),
-      statuses: full.statuses.map((x) => x.v),
-      genres: full.genres.map((x) => x.v),
-      tags: full.tags.map((x) => x.v),
-      authors: full.authors.map((x) => x.v),
-      characters: full.characters.map((x) => x.v),
-    }
-  } catch { /* keep the previous vocab */ }
+  try { applyVocab(await api.facets()) } catch { /* keep the previous vocab */ }
 }
 
 // Authors, sources and the vocab are derived from the titles — refetch after
@@ -193,30 +193,32 @@ export async function refreshDerived() {
 export async function refreshLibrary() {
   await Promise.all([reloadLibrary(), refreshDerived()])
   try {
-    store.total = (await api.library()).length
+    store.total = (await api.libraryCount()).total
   } catch { /* keep the previous total */ }
 }
 
 export async function init() {
+  // Startup waits for the LIBRARY and nothing else: the grid is what the window
+  // opens on, and a big vault makes every extra call visible as an empty screen.
+  store.loading = true
   try {
-    const [all, authors, sources] = await Promise.all([api.library(), api.authors(), api.sources()])
+    const [all, facets, settings] = await Promise.all([api.library(), api.facets(), api.settings()])
     cache(all)
     store.total = all.length
     store.titles = all.map((t) => store.byId[t.id])
-    store.authors = authors
-    store.sources = sources
+    // the unfiltered facets ARE the full vocabulary — asking twice is one
+    // whole-library scan too many
+    store.facets = facets
+    applyVocab(facets)
+    if (settings.homepage) store.browseHomepage = settings.homepage
+    store.appMeta = settings.app || {}
   } catch (e) {
     store.error = e instanceof Error ? e.message : String(e)
+  } finally {
+    store.loading = false
   }
-  await refreshVocab()
-  try {
-    store.facets = await api.facets()
-  } catch { /* facets stay empty */ }
-  try {
-    const s = await api.settings()
-    if (s.homepage) store.browseHomepage = s.homepage
-    store.appMeta = s.app || {}
-  } catch { /* keep the default homepage */ }
+  // the Authors tab and the source list are not on the way to the grid
+  void refreshDerived()
   // refetch results whenever a server-side filter changes (density is client-only)
   watch(() => JSON.stringify(buildQuery()), reloadLibrary)
 }

@@ -216,8 +216,13 @@ async function deleteSelected() {
         </div>
     </div>
     <div ref="lmainEl" class="lmain scroll">
+      <!-- LOADING: a big vault takes a moment to compose — show its shape, not a blank page -->
+      <div v-if="store.loading && !results.length" class="skel" :class="lib.density === 'grid' ? 'skelgrid' : 'skelrows'">
+        <div v-for="i in (lib.density === 'grid' ? 18 : 9)" :key="i" class="skelitem" />
+      </div>
+
       <!-- EMPTY -->
-      <div v-if="!results.length" class="emptylib">
+      <div v-else-if="!results.length" class="emptylib">
         <template v-if="store.total === 0">
           <div class="emptyt">Your library is empty</div>
           <div class="emptys">Add your first title to get started.</div>
@@ -520,6 +525,19 @@ async function deleteSelected() {
 .type { text-transform: uppercase; letter-spacing: .05em; font-size: 10px; color: var(--tx3); font-weight: 600; }
 .cap { text-transform: capitalize; }
 /* footer + pager styles are GLOBAL (styles.css — the chrome line grid) */
+
+/* loading state: placeholders in the shape of the density that is coming */
+.skel { padding: 20px 24px 24px; }
+.skelgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 20px; }
+.skelgrid .skelitem { aspect-ratio: 2 / 3; border-radius: 10px; }
+.skelrows { display: flex; flex-direction: column; gap: 8px; }
+.skelrows .skelitem { height: 64px; border-radius: 10px; }
+.skelitem {
+  background: linear-gradient(90deg, var(--panel) 25%, var(--hover) 50%, var(--panel) 75%) 0 0 / 300% 100%;
+  animation: skelsweep 1.4s ease-in-out infinite;
+}
+@keyframes skelsweep { to { background-position: -300% 0; } }
+@media (prefers-reduced-motion: reduce) { .skelitem { animation: none; } }
 
 /* empty state */
 .emptylib { padding: 80px 30px; display: flex; flex-direction: column; align-items: center; gap: 9px; }

@@ -100,6 +100,13 @@ def list_library(
     return _lib(request).query(sort=sort, **sel)
 
 
+@router.get("/library/count")
+def library_count(request: Request) -> dict[str, int]:
+    """How many titles the library holds, unfiltered — the header's denominator.
+    Counting rows beats listing them just to read a length."""
+    return {"total": _lib(request).count()}
+
+
 @router.get("/library/facets", response_model=Facets)
 def library_facets(
     request: Request,
