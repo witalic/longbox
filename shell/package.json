@@ -4,6 +4,9 @@
   "version": "1.1.0",
   "description": "Electron shell: spawns the FastAPI sidecar and loads the UI it serves at /app/",
   "main": "main.js",
+  "homepage": "https://witalic.github.io/longbox/",
+  "repository": { "type": "git", "url": "https://github.com/witalic/longbox.git" },
+  "author": { "name": "witalic", "email": "witalic@users.noreply.github.com" },
   "scripts": {
     "start": "electron .",
     "pack": "electron-builder --publish never",
@@ -27,6 +30,7 @@
       { "from": "../app-meta.json", "to": "app-meta.json" }
     ],
     "afterPack": "../packaging/adhoc-sign.js",
+    "publish": [{ "provider": "github", "owner": "witalic", "repo": "longbox" }],
     "win": {
       "target": ["nsis", "zip"],
       "icon": "icon.ico",

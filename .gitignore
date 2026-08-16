@@ -21,7 +21,7 @@ frontend/dist/
 # --- Build output (installers, the frozen sidecar and their work dirs) ---
 shell/dist/
 release/
-/dist-app/
+/dist-app*/
 /dist-sidecar/
 /build-sidecar/
 
