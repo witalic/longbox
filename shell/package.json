@@ -5,9 +5,55 @@
   "description": "Electron shell: spawns the FastAPI sidecar and loads the UI it serves at /app/",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "pack": "electron-builder --publish never",
+    "pack:dir": "electron-builder --dir --publish never"
   },
   "devDependencies": {
-    "electron": "^33.2.0"
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "dev.witalic.longbox",
+    "productName": "longbox",
+    "copyright": "longbox",
+    "directories": {
+      "output": "../dist-app",
+      "buildResources": "."
+    },
+    "files": ["main.js", "app-preload.js", "pick-preload.js", "icon.*", "package.json"],
+    "extraResources": [
+      { "from": "../dist-sidecar/longbox-sidecar", "to": "sidecar" },
+      { "from": "../app-meta.json", "to": "app-meta.json" }
+    ],
+    "afterPack": "../packaging/adhoc-sign.js",
+    "win": {
+      "target": ["nsis", "zip"],
+      "icon": "icon.ico",
+      "artifactName": "longbox-${version}-windows-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "mac": {
+      "target": ["dmg", "zip"],
+      "icon": "icon.png",
+      "category": "public.app-category.entertainment",
+      "artifactName": "longbox-${version}-macos-${arch}.${ext}",
+      "darkModeSupport": true,
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "icon": "icon.png",
+      "category": "Graphics",
+      "synopsis": "Local-first media vault with an embedded capture browser",
+      "artifactName": "longbox-${version}-linux-${arch}.${ext}"
+    }
   }
 }

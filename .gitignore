@@ -18,9 +18,12 @@ node_modules/
 frontend/dist/
 *.tsbuildinfo
 
-# --- Electron build output ---
+# --- Build output (installers, the frozen sidecar and their work dirs) ---
 shell/dist/
 release/
+/dist-app/
+/dist-sidecar/
+/build-sidecar/
 
 # --- The library itself (user content — NEVER committed) ---
 # On-disk media (covers, pages) and the rebuildable SQLite index live outside VCS.

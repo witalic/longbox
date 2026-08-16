@@ -1,0 +1,89 @@
+name: build
+
+# Desktop builds for Windows, macOS and Linux. Run it by hand to get artifacts,
+# or push a v* tag to publish a GitHub release.
+#
+# macOS builds are AD-HOC signed (packaging/adhoc-sign.js): there is no Apple
+# certificate, so the app is reported as coming from an unidentified developer —
+# not as damaged, which is what an unsigned bundle looks like.
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, label: windows-x64 }
+          - { os: macos-14, label: macos-arm64 }
+          - { os: macos-13, label: macos-x64 }
+          # the oldest runner available: a PyInstaller binary and an AppImage are
+          # only as portable as the glibc they were linked against
+          - { os: ubuntu-22.04, label: linux-x64 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            shell/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: The tag must match the version in the repo
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          version=$(node -p "require('./shell/package.json').version")
+          tag="${GITHUB_REF_NAME#v}"
+          test "$version" = "$tag" || {
+            echo "tag $GITHUB_REF_NAME does not match shell/package.json ($version)"
+            exit 1
+          }
+
+      - name: Install the sidecar's dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ./backend pyinstaller
+
+      - name: Build the UI
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Freeze the sidecar
+        run: pyinstaller packaging/sidecar.spec --noconfirm --distpath dist-sidecar --workpath build-sidecar
+
+      - name: Package the app
+        working-directory: shell
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npm ci
+          npx electron-builder --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: longbox-${{ matrix.label }}
+          # the unpacked trees are build intermediates; ship only installers
+          path: |
+            dist-app/*.exe
+            dist-app/*.zip
+            dist-app/*.dmg
+            dist-app/*.AppImage
+            dist-app/*.deb
+          if-no-files-found: error

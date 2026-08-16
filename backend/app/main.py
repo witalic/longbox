@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -24,7 +25,10 @@ from .settings import get_settings, resolve_library_path
 log = logging.getLogger("longbox")
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_FRONTEND_DIST = _REPO_ROOT / "frontend" / "dist"
+# A frozen sidecar carries the built UI inside its own bundle; a source checkout
+# serves whatever the last `npm run build` produced.
+_BUNDLE = getattr(sys, "_MEIPASS", None)
+_FRONTEND_DIST = Path(_BUNDLE) / "frontend_dist" if _BUNDLE else _REPO_ROOT / "frontend" / "dist"
 
 
 def _quiet_client_resets(loop: asyncio.AbstractEventLoop) -> None:

@@ -35,6 +35,15 @@ cover, and longbox learns a reusable per-site recipe.
 - **Local-first storage** — one directory per title on a per-type shelf; a rebuildable SQLite
   index (deleting it never loses content); atomic writes; multiple switchable library locations.
 
+## Install
+
+Download a build for your system from the [releases page](https://github.com/witalic/longbox/releases/latest),
+or read what it does first on the [project page](https://witalic.github.io/longbox/). Nothing else
+is needed — Python and Node are only required to work on the source.
+
+macOS builds are **ad-hoc signed**, not notarized: the first launch needs
+right-click → *Open* to get past the unidentified-developer warning.
+
 ## Running (development)
 
 Requires Python ≥ 3.11 (with a `.venv` at the repo root), Node.js and npm.
@@ -52,6 +61,22 @@ cd backend && python -m pytest        # offline API + vault tests
 cd frontend && npx vue-tsc --noEmit   # type-check
 cd frontend && npm run build          # production build (served by the sidecar at /app/)
 ```
+
+## Packaging
+
+Builds run on GitHub Actions (`.github/workflows/build.yml`) for Windows, macOS (arm64 and x64)
+and Linux: push a `v*` tag matching the version in `shell/package.json` to publish a release, or
+run the workflow by hand for artifacts. Locally:
+
+```bash
+cd frontend && npm run build                                   # the UI the sidecar serves
+pyinstaller packaging/sidecar.spec --noconfirm --distpath dist-sidecar --workpath build-sidecar
+cd shell && npm run pack                                       # installers into dist-app/
+```
+
+A packaged app carries the sidecar as a frozen binary (with the built UI inside it) in the app's
+resources, so it needs neither Python nor a checkout. `rar` ingest still needs an `unrar`/`bsdtar`
+on the machine; every other archive format is handled in-process.
 
 ## Architecture
 

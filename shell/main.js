@@ -14,19 +14,25 @@ const path = require('node:path')
 
 const ROOT = path.join(__dirname, '..')
 const IS_WIN = process.platform === 'win32'
+// A packaged build reads everything that is not code from its resources
+// directory (the app itself lives inside an asar); a source checkout reads the
+// repo it sits in.
+const ASSETS = app.isPackaged ? process.resourcesPath : ROOT
 
 // ONE source of app identity (window title, taskbar) — see <repo>/app-meta.json
 let APP_META = { name: 'longbox', version: '0.0.0' }
-try { APP_META = { ...APP_META, ...JSON.parse(fs.readFileSync(path.join(ROOT, 'app-meta.json'), 'utf-8')) } } catch { /* defaults */ }
+try { APP_META = { ...APP_META, ...JSON.parse(fs.readFileSync(path.join(ASSETS, 'app-meta.json'), 'utf-8')) } } catch { /* defaults */ }
 
 // Chromium spams stderr with WebRTC STUN resolution failures (socket_manager:
 // "Failed to resolve address for stun.l.google.com, errorcode: -105") whenever
 // an embedded page probes WebRTC — harmless, but it buries the sidecar log.
 // Keep only FATAL Chromium messages; our own [sidecar] piping is unaffected.
 app.commandLine.appendSwitch('log-level', '3')
-// Dev sidecar: the project venv + uvicorn. (Packaged builds ship a frozen binary.)
+// Dev sidecar: the project venv + uvicorn. Packaged builds ship it frozen, with
+// the built UI inside its own bundle, so neither Python nor the repo is needed.
 const PYTHON = process.env.LONGBOX_PYTHON ||
   path.join(ROOT, '.venv', IS_WIN ? 'Scripts/python.exe' : 'bin/python')
+const SIDECAR_BIN = path.join(ASSETS, 'sidecar', IS_WIN ? 'longbox-sidecar.exe' : 'longbox-sidecar')
 
 let sidecar = null
 
@@ -74,24 +80,33 @@ function sha256(s) {
 }
 
 function spawnSidecar(port, token) {
-  const child = spawn(
-    PYTHON,
-    ['-m', 'uvicorn', 'app.main:app', '--app-dir', path.join(ROOT, 'backend'),
-      '--host', '127.0.0.1', '--port', String(port), '--no-access-log'],
-    {
-      env: {
-        ...process.env,
-        LONGBOX_AUTH_TOKEN: token,
-        LONGBOX_PORT: String(port),
-        // Config (incl. the chosen library path) lives in this stable per-app dir, so
-        // the path the user picks in Settings survives restarts. The library path
-        // itself is NOT forced here — it comes from that config, defaulting to
-        // <configDir>/library.
-        LONGBOX_CONFIG_DIR: app.getPath('userData'),
-      },
-      stdio: ['ignore', 'pipe', 'pipe'],
+  const opts = {
+    env: {
+      ...process.env,
+      LONGBOX_AUTH_TOKEN: token,
+      LONGBOX_PORT: String(port),
+      // Config (incl. the chosen library path) lives in this stable per-app dir, so
+      // the path the user picks in Settings survives restarts. The library path
+      // itself is NOT forced here — it comes from that config, defaulting to
+      // <configDir>/library.
+      LONGBOX_CONFIG_DIR: app.getPath('userData'),
     },
-  )
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }
+  const child = app.isPackaged
+    ? spawn(SIDECAR_BIN, [], opts)
+    : spawn(
+      PYTHON,
+      ['-m', 'uvicorn', 'app.main:app', '--app-dir', path.join(ROOT, 'backend'),
+        '--host', '127.0.0.1', '--port', String(port), '--no-access-log'],
+      opts,
+    )
+  child.on('error', (e) => {
+    // a missing or unrunnable sidecar is the one failure the user cannot debug
+    // from an empty window — say what is wrong before the health wait times out
+    dialog.showErrorBox('longbox could not start',
+      `The local server did not launch.\n\n${app.isPackaged ? SIDECAR_BIN : PYTHON}\n\n${e.message}`)
+  })
   child.stdout.on('data', (d) => process.stdout.write(`[sidecar] ${d}`))
   child.stderr.on('data', (d) => process.stderr.write(`[sidecar] ${d}`))
   child.on('exit', (code) => {
