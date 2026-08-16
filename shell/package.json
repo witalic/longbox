@@ -49,6 +49,7 @@
       "deleteAppDataOnUninstall": false,
       "differentialPackage": false
     },
+    "dmg": { "writeUpdateInfo": false },
     "mac": {
       "target": ["dmg"],
       "icon": "icon.png",
