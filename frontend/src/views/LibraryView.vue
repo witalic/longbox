@@ -13,7 +13,7 @@ import Pager from '../components/Pager.vue'
 import {
   store, openTitle, openTitleBackground, openReader, toggleFav, resetFilters,
   toggleFacet, facetState, anyFilterActive, askConfirm, deleteTitles, goAuthorsFor, setRating,
-  type FacetKey,
+  opening, type FacetKey,
 } from '../store'
 import { startNewTitle } from '../browser'
 import { api } from '../api'
@@ -217,7 +217,11 @@ async function deleteSelected() {
     </div>
     <div ref="lmainEl" class="lmain scroll">
       <!-- LOADING: a big vault takes a moment to compose — show its shape, not a blank page -->
-      <div v-if="store.loading && !results.length" class="skel" :class="lib.density === 'grid' ? 'skelgrid' : 'skelrows'">
+      <div v-if="(store.loading || opening.active) && !results.length" class="skel"
+           :class="lib.density === 'grid' ? 'skelgrid' : 'skelrows'">
+        <div v-if="opening.active" class="skelnote mono">
+          reading the library{{ opening.total ? ` — ${opening.done} of ${opening.total} titles` : '…' }}
+        </div>
         <div v-for="i in (lib.density === 'grid' ? 18 : 9)" :key="i" class="skelitem" />
       </div>
 
@@ -528,6 +532,7 @@ async function deleteSelected() {
 
 /* loading state: placeholders in the shape of the density that is coming */
 .skel { padding: 20px 24px 24px; }
+.skelnote { grid-column: 1 / -1; font-size: 12px; color: var(--tx3); padding-bottom: 4px; }
 .skelgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 20px; }
 .skelgrid .skelitem { aspect-ratio: 2 / 3; border-radius: 10px; }
 .skelrows { display: flex; flex-direction: column; gap: 8px; }

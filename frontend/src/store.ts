@@ -191,10 +191,7 @@ export async function refreshDerived() {
 
 // One refresh for "the library changed": results, counts and derived collections.
 export async function refreshLibrary() {
-  await Promise.all([reloadLibrary(), refreshDerived()])
-  try {
-    store.total = (await api.libraryCount()).total
-  } catch { /* keep the previous total */ }
+  await Promise.all([reloadLibrary(), refreshDerived(), refreshTotal()])
 }
 
 export async function init() {
@@ -219,6 +216,8 @@ export async function init() {
   }
   // the Authors tab and the source list are not on the way to the grid
   void refreshDerived()
+  // …and the vault check runs behind the window, refreshing it if disk moved on
+  watchLibrarySync()
   // refetch results whenever a server-side filter changes (density is client-only)
   watch(() => JSON.stringify(buildQuery()), reloadLibrary)
 }
@@ -521,7 +520,32 @@ export async function addChapterRow(t: Title, ch: { num: string; lang: string; g
   }
 }
 
+// The library is served from the index and verified against disk afterwards, so
+// this is what "still reading the folder" looks like to the user. A first-ever
+// open fills the index here; later opens finish before anyone notices.
+export const opening = reactive({ active: false, path: '', done: 0, total: 0 })
+let syncPoll: number | undefined
+
+export function watchLibrarySync() {
+  window.clearInterval(syncPoll)
+  syncPoll = window.setInterval(async () => {
+    try {
+      const s = await api.libraryStatus()
+      Object.assign(opening, { active: s.running, path: s.path, done: s.done, total: s.total })
+      if (s.running) return
+      window.clearInterval(syncPoll)
+      // the verification found the vault had moved on — show what it now holds
+      if (s.changed) await Promise.all([reloadLibrary(), refreshDerived(), refreshTotal()])
+    } catch { /* the sidecar is busy reading — the next tick reports */ }
+  }, 700)
+}
+
+export async function refreshTotal() {
+  try { store.total = (await api.libraryCount()).total } catch { /* keep the previous total */ }
+}
+
 export async function setLibraryPath(path: string): Promise<string | null> {
+  Object.assign(opening, { active: true, path, done: 0, total: 0 })
   try {
     const s = await api.setLibraryPath(path)
     // the backend swapped to the new location — reload everything
@@ -542,9 +566,11 @@ export async function setLibraryPath(path: string): Promise<string | null> {
     store.titles = all.map((t) => store.byId[t.id])
     await refreshDerived() // authors + sources + vocab all belong to the NEW vault
     store.facets = await api.facets()
+    watchLibrarySync() // the new library verifies itself behind us
     return s.library_path
   } catch (e) {
     store.error = e instanceof Error ? e.message : String(e)
+    opening.active = false
     return null
   }
 }

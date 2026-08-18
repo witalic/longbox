@@ -5,7 +5,7 @@
 // to a flow live IN that flow (the page-capture filter is in the capture dock).
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import Icon from '../components/Icon.vue'
-import { store, setLibraryPath, askConfirm, type ThemePref } from '../store'
+import { store, setLibraryPath, askConfirm, opening, type ThemePref } from '../store'
 import { api } from '../api'
 import { KEY_ACTIONS, bindingsFor, isOverridden, keyLabel, rebind, resetKey, resetAllKeys, keyOverrides } from '../keys'
 
@@ -75,6 +75,12 @@ const canPick = !!window.longbox?.pickFolder
 const manualOpen = ref(false) // dev fallback (no Electron bridge): type the path
 const manualPath = ref('')
 
+// Reading titles is the slow half of opening a library; before the count is
+// known there is nothing honest to show but "reading".
+const openingLabel = computed(() => (opening.total
+  ? `reading ${opening.done} of ${opening.total} titles`
+  : 'reading the folder…'))
+
 async function switchTo(p: string) {
   if (busy.value || p === path.value) return
   busy.value = true
@@ -86,6 +92,10 @@ async function switchTo(p: string) {
 }
 async function addLibrary() {
   storageError.value = ''
+  if (busy.value) {
+    storageError.value = 'still opening the previous folder — one at a time'
+    return
+  }
   if (canPick) {
     const picked = await window.longbox!.pickFolder('Choose a library folder')
     if (picked) await switchTo(picked)
@@ -206,7 +216,12 @@ const anyOverride = computed(() => Object.keys(keyOverrides).length > 0)
             </template>
           </div>
         </div>
-        <div class="librow addrow" @click="addLibrary">
+        <div v-if="opening.active" class="librow opening">
+          <span class="spin" />
+          <span class="mono lpath" :title="opening.path">{{ opening.path }}</span>
+          <span class="cnt mono">{{ openingLabel }}</span>
+        </div>
+        <div class="librow addrow" :class="{ off: busy }" @click="addLibrary">
           <Icon name="plus" :size="13" :sw="2.2" /><span>Add library folder…</span>
           <span v-if="!canPick" class="hint" style="margin-left:auto">no system dialog here — enter the path</span>
         </div>
@@ -368,6 +383,17 @@ const anyOverride = computed(() => Object.keys(keyOverrides).length > 0)
 .lx:hover { color: var(--adult); }
 .addrow { cursor: pointer; border-style: dashed; color: var(--accent); font: 600 12px/1 system-ui; background: transparent; }
 .addrow:hover { background: var(--accentSoft); }
+.addrow.off { color: var(--tx3); cursor: default; }
+.addrow.off:hover { background: transparent; }
+/* the folder being opened has no entry in the list yet — this IS its row */
+.opening { border-style: dashed; }
+.spin {
+  width: 13px; height: 13px; flex: none; border-radius: 999px;
+  border: 2px solid var(--line); border-top-color: var(--accent);
+  animation: libspin .8s linear infinite;
+}
+@keyframes libspin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation-duration: 2.4s; } }
 .pathin { flex: 1; font: 500 12px/1 ui-monospace, monospace; color: var(--tx); background: var(--panel); border: 1px solid var(--accent); border-radius: 6px; height: 30px; padding: 0 9px; outline: none; }
 .hpin { width: 320px; font: 500 12px/1 ui-monospace, monospace; color: var(--tx); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; height: 30px; padding: 0 9px; outline: none; }
 .hpin:focus { border-color: var(--accent); }

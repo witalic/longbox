@@ -126,6 +126,10 @@ export const api = {
   removeLibrary: (path: string) => req<AppSettings>('/settings/libraries', jsonBody('DELETE', { path })),
   rebuildIndex: () => req<AppSettings>('/settings/rebuild', { method: 'POST' }),
   rebuildStatus: () => req<{ running: boolean; done: number; total: number }>('/settings/rebuild/status'),
+  // read while a library switch is in flight: opening a populated vault is slow
+  libraryStatus: () =>
+    req<{ running: boolean; path: string; done: number; total: number; changed: number }>(
+      '/settings/library/status'),
   normalizeArchives: () => req<{ converted: number }>('/settings/normalize-archives', { method: 'POST' }),
   // page capture: ask what the armed entry already holds, then send only the rest
   knownPages: (titleId: string, chapterId: string, keys: string[]) =>
