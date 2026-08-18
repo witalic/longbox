@@ -53,8 +53,11 @@ async def lifespan(app: FastAPI):
         lib = provided
     else:
         root = resolve_library_path()
-        lib = Library(root)  # scans the vault on disk and builds the index
-        log.info("library ready at %s (%d titles)", root, lib.count())
+        # Serve from the index immediately; the vault is verified right after, so
+        # a big (or networked) library never stands between launch and a window.
+        lib = Library(root, defer_sync=True)
+        log.info("library ready at %s (%d titles indexed)", root, lib.count())
+        lib.sync_in_background()
     app.state.library = lib
     app.state.recipes = RecipeStore()
     try:

@@ -21,7 +21,7 @@ from pathlib import Path
 
 from .models import TitleDoc
 
-_SCHEMA_VERSION = 4
+_SCHEMA_VERSION = 5
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS titles (
@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS titles (
     touched  INTEGER NOT NULL DEFAULT 0,
     doc      TEXT NOT NULL,
     media    TEXT NOT NULL DEFAULT '{}',
-    media_at INTEGER NOT NULL DEFAULT 0
+    media_at INTEGER NOT NULL DEFAULT 0,
+    cover    TEXT NOT NULL DEFAULT ''
 );
 """
 
@@ -91,11 +92,12 @@ class LibraryIndex:
             self._db.close()
 
     _COLUMNS = ("id", "title", "people", "type", "status", "rating", "fav",
-                "unread", "started", "finished", "touched", "doc", "media", "media_at")
+                "unread", "started", "finished", "touched", "doc", "media", "media_at",
+                "cover")
 
     @staticmethod
     def _row(title_id: str, doc: TitleDoc, touched: int = 0,
-             media: dict[str, dict] | None = None, media_at: int = 0) -> dict:
+             media: dict[str, dict] | None = None, media_at: int = 0, cover: str = "") -> dict:
         m, u = doc.meta, doc.user
         states = [u.read.get(c.id, "unread") for c in doc.chapters]
         total = len(states)
@@ -115,6 +117,9 @@ class LibraryIndex:
             # what made a big library take seconds to appear.
             "media": json.dumps(media or {}),
             "media_at": media_at,
+            # the cover endpoint URL, versioned by the file's mtime: composing it
+            # per listing means one stat per title, on the network, every time
+            "cover": cover,
         }
 
     @property
@@ -125,13 +130,14 @@ class LibraryIndex:
 
     def rebuild(self, docs: dict[str, TitleDoc], touched: dict[str, int] | None = None,
                 media: dict[str, dict[str, dict]] | None = None,
-                media_at: dict[str, int] | None = None) -> None:
+                media_at: dict[str, int] | None = None,
+                cover: dict[str, str] | None = None) -> None:
         with self._lock, self._db:
             self._db.execute("DELETE FROM titles")
             self._db.executemany(
                 self._insert_sql,
                 [self._row(tid, doc, (touched or {}).get(tid, 0), (media or {}).get(tid),
-                           (media_at or {}).get(tid, 0))
+                           (media_at or {}).get(tid, 0), (cover or {}).get(tid, ""))
                  for tid, doc in docs.items()],
             )
 
@@ -143,47 +149,62 @@ class LibraryIndex:
                      status=excluded.status, rating=excluded.rating, fav=excluded.fav,
                      unread=excluded.unread, started=excluded.started, finished=excluded.finished,
                      touched=MAX(excluded.touched, titles.touched), doc=excluded.doc,
-                     media=excluded.media, media_at=excluded.media_at"""
+                     media=excluded.media, media_at=excluded.media_at,
+                     cover=excluded.cover"""
 
     def upsert(self, title_id: str, doc: TitleDoc, touched: int = 0,
-               media: dict[str, dict] | None = None, media_at: int = 0) -> None:
+               media: dict[str, dict] | None = None, media_at: int = 0, cover: str = "") -> None:
         with self._lock, self._db:
-            self._db.execute(self._upsert_sql, self._row(title_id, doc, touched, media, media_at))
+            self._db.execute(self._upsert_sql,
+                             self._row(title_id, doc, touched, media, media_at, cover))
 
-    def upsert_many(self, rows: list[tuple[str, TitleDoc, int, dict[str, dict], int]]) -> None:
+    def upsert_many(self, rows: list[tuple[str, TitleDoc, int, dict[str, dict], int, str]]) -> None:
         """One transaction for many titles — a launch that has to re-read a whole
-        library must not pay a commit per title."""
+        library must not pay a commit per title.
+
+        This is the path a background verification uses, and it does NOT hold the
+        title locks, so the update is guarded: a row written from a document
+        older than the one already indexed is ignored. Without that, a scan that
+        started before a commit could put stale data back on top of it."""
         if not rows:
             return
+        # BOTH stamps must be at least as new: deleting a chapter file leaves
+        # title.json untouched, so the document mtime alone would let a scan that
+        # started earlier put the deleted media back.
+        guarded = (f"{self._upsert_sql} WHERE excluded.touched >= titles.touched"
+                   " AND excluded.media_at >= titles.media_at")
         with self._lock, self._db:
-            self._db.executemany(self._upsert_sql, [self._row(*r) for r in rows])
+            self._db.executemany(guarded, [self._row(*r) for r in rows])
 
     def remove(self, title_id: str) -> None:
         with self._lock, self._db:
             self._db.execute("DELETE FROM titles WHERE id = ?", (title_id,))
 
-    def stamps(self) -> dict[str, tuple[int, int]]:
-        """Every indexed title's id and the (document, chapter-dir) mtimes it was
-        indexed at. Comparing these against the vault is what lets a launch
-        reload only what changed instead of re-reading the whole library."""
+    def stamps(self) -> dict[str, tuple[int, int, str]]:
+        """Every indexed title's id with the (document mtime, chapter-dir mtime,
+        cover URL) it was indexed at. Comparing these against one vault scan is
+        what lets a launch reload only what changed — the cover URL carries the
+        cover's own mtime, so a cover replaced outside the app is noticed too."""
         with self._lock:
-            rows = self._db.execute("SELECT id, touched, media_at FROM titles").fetchall()
-        return {r["id"]: (r["touched"], r["media_at"]) for r in rows}
+            rows = self._db.execute("SELECT id, touched, media_at, cover FROM titles").fetchall()
+        return {r["id"]: (r["touched"], r["media_at"], r["cover"]) for r in rows}
 
     def count(self) -> int:
         with self._lock:
             return self._db.execute("SELECT COUNT(*) AS n FROM titles").fetchone()["n"]
 
-    def get(self, title_id: str) -> tuple[TitleDoc, dict[str, dict]] | None:
+    def get(self, title_id: str) -> tuple[TitleDoc, dict[str, dict], str] | None:
         with self._lock:
             row = self._db.execute(
-                "SELECT doc, media FROM titles WHERE id = ?", (title_id,)).fetchone()
-        return (TitleDoc.model_validate_json(row["doc"]), json.loads(row["media"])) if row else None
+                "SELECT doc, media, cover FROM titles WHERE id = ?", (title_id,)).fetchone()
+        if not row:
+            return None
+        return TitleDoc.model_validate_json(row["doc"]), json.loads(row["media"]), row["cover"]
 
-    def all_docs(self) -> list[tuple[str, TitleDoc]]:
+    def all_docs(self) -> list[tuple[str, TitleDoc, str]]:
         with self._lock:
-            rows = self._db.execute("SELECT id, doc FROM titles").fetchall()
-        return [(r["id"], TitleDoc.model_validate_json(r["doc"])) for r in rows]
+            rows = self._db.execute("SELECT id, doc, cover FROM titles").fetchall()
+        return [(r["id"], TitleDoc.model_validate_json(r["doc"]), r["cover"]) for r in rows]
 
     def query(
         self,
@@ -209,7 +230,7 @@ class LibraryIndex:
         characters: tuple[str, ...] = (),
         characters_not: tuple[str, ...] = (),
         sort: str = "updated",
-    ) -> list[tuple[str, TitleDoc, dict[str, dict]]]:
+    ) -> list[tuple[str, TitleDoc, dict[str, dict], str]]:
         where: list[str] = []
         params: list[object] = []
         if search:
@@ -240,13 +261,13 @@ class LibraryIndex:
         elif progress == "completed":
             where.append("finished = 1")
 
-        sql = "SELECT id, doc, media FROM titles"
+        sql = "SELECT id, doc, media, cover FROM titles"
         if where:
             sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY " + _SORTS.get(sort, _SORTS["updated"])
         with self._lock:
             rows = self._db.execute(sql, params).fetchall()
-        out = [(r["id"], TitleDoc.model_validate_json(r["doc"]), json.loads(r["media"]))
+        out = [(r["id"], TitleDoc.model_validate_json(r["doc"]), json.loads(r["media"]), r["cover"])
                for r in rows]
 
         # multi-valued facets live in the JSON doc — filter in Python (local scale)
@@ -282,7 +303,7 @@ class LibraryIndex:
                 return False
             return True
 
-        return [(i, d, m) for i, d, m in out if keep(d)]
+        return [(i, d, m, c) for i, d, m, c in out if keep(d)]
 
     def facet_counts(self, sel: dict) -> dict[str, list[dict]]:
         """Linked facet counts for the current selection: each facet is counted
@@ -298,7 +319,7 @@ class LibraryIndex:
             kw = {**sel, **over}
             key = tuple(sorted((k, v) for k, v in kw.items() if v))
             if key not in seen:
-                seen[key] = [d for _, d, _m in self.query(**kw)]
+                seen[key] = [d for _, d, _m, _c in self.query(**kw)]
             return seen[key]
 
         out: dict[str, list[dict]] = {}

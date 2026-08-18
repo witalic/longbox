@@ -184,12 +184,23 @@ minimal version editing it is forbidden outright.
 **The index** is SQLite as a pure cache: updated incrementally after commit; a rebuild
 command scans the disk and reconstructs it from scratch. A corrupt index cannot lose
 content by construction (I7), because it never owned any.
-It carries each title's **chapter media** (the sidecars) and the mtimes it saw them at, for
-one reason: **a listing must never touch the filesystem**, and **a launch must never re-read
-the library**. Opening the app stats every title (document + chapter directory) and reloads
-only what moved since it was indexed, so startup cost stops growing with the shelf. Content
-changed with the app closed is caught by those stamps; anything subtler is what the Settings
-rebuild is for.
+It carries everything a listing needs — each title's **chapter media** (the sidecars) and its
+**cover URL** — plus the mtimes it saw them at, for one reason: **a listing must never touch
+the filesystem**. On a vault that lives on a network share, one stat per title is the
+difference between a screen that appears and a screen that arrives.
+
+**The app is served from the index and verified against the vault afterwards.** A launch
+opens the database and answers immediately; a background pass then reads the vault in ONE
+directory scan (a directory entry already carries its stat data) and re-reads only the titles
+whose document, chapter directory or cover moved since they were indexed. Nothing waits for
+that answer, but it is never skipped either: the vault is the source of truth, and files can
+be added, edited or deleted while the app is closed — or by another machine sharing the
+drive. A first-ever open finds an empty index and fills it there, which the UI shows as
+progress instead of an empty library.
+
+Because that pass does NOT hold the title locks, its writes are guarded: a row built from a
+document (or a chapter directory) older than the one already indexed is refused, so a scan
+that started before a commit can never put the old state back on top of it.
 
 
 **Why CBZ** (next phase): atomic write of one file, standard enough that any third-party

@@ -16,6 +16,8 @@ router = APIRouter(prefix="/api")
 
 DEFAULT_HOMEPAGE = "https://www.google.com"
 
+
+
 # ONE source of app identity: <repo>/app-meta.json (name, version, updated).
 _META_PATH = Path(__file__).resolve().parents[3] / "app-meta.json"
 
@@ -103,9 +105,11 @@ def set_library_path(request: Request, body: LibraryPathIn) -> SettingsOut:
     # the old library still live. Writing the config before that would point the
     # next launch at a folder the app cannot open — with no UI left to fix it.
     try:
-        new = Library(path)
+        # the index is enough to answer with; the disk is verified behind us
+        new = Library(path, defer_sync=True)
     except Exception as exc:  # noqa: BLE001 — an unreadable vault must not strand the app
         raise HTTPException(status_code=400, detail=f"cannot open that library: {exc}")
+    new.sync_in_background()
 
     with config_transaction() as cfg:
         cfg["library_path"] = str(path)
@@ -141,6 +145,15 @@ def remove_library(request: Request, body: LibraryPathIn) -> SettingsOut:
 # threadpool-run) rebuild request is still streaming through the files.
 REBUILD = {"running": False, "done": 0, "total": 0}
 _REBUILD_LOCK = threading.Lock()  # claim-the-run must be atomic
+
+
+@router.get("/settings/library/status")
+def library_status(request: Request) -> dict:
+    """How the live library's verification against disk is going. A first-ever
+    open fills the index here (progress worth showing); later opens find nothing
+    and finish before anyone looks."""
+    lib = _lib(request)
+    return {"path": str(lib.root), **lib.sync_state}
 
 
 @router.get("/settings/rebuild/status")

@@ -538,3 +538,23 @@ def test_a_listing_reads_no_chapter_sidecars(tmp_path, monkeypatch):
     assert rows[0].chapters[0].pages == 1  # composed from the indexed media
     assert calls == []
     lib.close()
+
+
+def test_background_sync_never_overwrites_a_newer_write(tmp_path):
+    """The verification pass does not hold the title locks, so a scan that
+    started before a change must not put the old state back on top of it."""
+    lib = Library(tmp_path)
+    out = lib.create(DraftIn(meta=TitleMeta(title="Berserk")))
+    lib.attach_chapter_media(out.id, num="5", lang="EN", group="dex",
+                             src=_one_page_zip(tmp_path / "in.zip"), sidecar={})
+    # what a scan that ran BEFORE the delete would try to write back
+    doc, media, cover = lib.index.get(out.id)
+    stale_stamps = lib.index.stamps()[out.id]
+    chapter_id = lib.get(out.id).chapters[0].id
+
+    lib.delete_chapter_media(out.id, chapter_id)
+    assert lib.get(out.id).chapters[0].dl is False
+
+    lib.index.upsert_many([(out.id, doc, stale_stamps[0], media, stale_stamps[1], cover)])
+    assert lib.get(out.id).chapters[0].dl is False  # the stale row was refused
+    lib.close()

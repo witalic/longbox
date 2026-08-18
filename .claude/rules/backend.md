@@ -19,10 +19,16 @@ content). Full model: `design/state-model.md`; layout: `ARCHITECTURE.md`.
 - **Startup does the minimum.** Anything expensive that ingest already guarantees is a one-time
   migration keyed by a marker in `vault.json`, run on a background thread — never work repeated
   on every launch (that is what once made the sidecar miss the shell's health timeout). A launch
-  `sync()`s the index (stat every title, reload only what moved); it never re-reads the library.
-- **A listing touches no files.** The index row carries the title's chapter sidecars and the
-  mtimes they were read at, so `query()` is SQL plus composition. Anything a listing needs is
-  written INTO the index at write time (`Library._index`), never fetched from disk per title.
+  serves from the index and verifies the vault on a BACKGROUND pass (`sync_in_background`);
+  nothing user-facing waits for the disk. That pass holds no title locks, so its bulk write is
+  guarded on both stamps — it may never overwrite a newer row.
+- **A listing touches no files.** The index row carries the title's chapter sidecars, its cover
+  URL and the mtimes they were read at, so `query()` is SQL plus composition. Anything a listing
+  needs is written INTO the index at write time (`Library._index`), never fetched per title —
+  on a network vault every stat is a round trip.
+- **One scan, not three stats per title.** `Vault.scan()` reads the whole vault through
+  `os.scandir`, whose entries already carry their stat data; per-title `is_file()` probing (six
+  extensions for a cover, say) is what made opening a shared drive take twenty seconds.
 - **Layer separation.** A meta commit merges layers in the vault and never touches the user layer
   (fav/rating/read). `_reconcile_chapters` guards the no-orphan rule: re-captured rows adopt old
   ids (URL first, then num+lang+group; an adopted id leaves BOTH lookup maps), media-backed rows

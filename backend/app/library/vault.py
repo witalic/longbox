@@ -118,6 +118,63 @@ class Vault:
             except OSError:
                 continue  # a stuck legacy dir must never block startup
 
+    def _scan_one(self, path: str) -> tuple[int, int, str, int] | None:
+        """One title directory read as a single listing: the document's mtime,
+        the chapter directory's mtime, and the cover file with its mtime."""
+        doc_at = ch_at = cover_at = 0
+        covers: dict[str, tuple[str, int]] = {}
+        try:
+            with os.scandir(path) as items:
+                for it in items:
+                    name = it.name.lower()
+                    if name == "title.json":
+                        doc_at = it.stat().st_mtime_ns
+                    elif name == "chapters" and it.is_dir():
+                        ch_at = it.stat().st_mtime_ns
+                    elif name.startswith("cover."):
+                        ext = name.rsplit(".", 1)[-1]
+                        if ext in _COVER_EXTS:
+                            covers[ext] = (it.name, it.stat().st_mtime_ns)
+        except OSError:
+            return None
+        if not doc_at:
+            return None
+        # the same precedence cover_path() applies, so both agree on which file wins
+        for ext in _COVER_EXTS:
+            if ext in covers:
+                return (doc_at, ch_at, *covers[ext])
+        return (doc_at, ch_at, "", 0)
+
+    def scan(self) -> dict[str, tuple[int, int, str, int]]:
+        """Every title in the vault with the stamps a listing needs, in ONE
+        directory pass. A scandir entry already carries its stat data, so this
+        costs one round trip per directory instead of three per title — the
+        difference between "instant" and "ten seconds" on a network vault."""
+        out: dict[str, tuple[int, int, str, int]] = {}
+        try:
+            shelves = list(os.scandir(self.root))
+        except OSError:
+            return out
+        for shelf in shelves:
+            if not shelf.is_dir():
+                continue
+            legacy = self._scan_one(shelf.path)  # an unmigrated title dir on the root
+            if legacy is not None:
+                out[shelf.name] = legacy
+                continue
+            try:
+                with os.scandir(shelf.path) as titles:
+                    for t in titles:
+                        if not t.is_dir():
+                            continue
+                        got = self._scan_one(t.path)
+                        if got is not None:
+                            out[t.name] = got
+                            self._loc[t.name] = shelf.name
+            except OSError:
+                continue
+        return out
+
     def _find(self, sid: str) -> Path | None:
         """The title's CURRENT directory, wherever its shelf is."""
         shelf = self._loc.get(sid)
@@ -173,6 +230,16 @@ class Vault:
         found = self._find(sid)
         return found if found is not None else self.root / self._loc.get(sid, "other") / sid
 
+    def _dir_fast(self, title_id: str) -> Path:
+        """Where the title's directory is according to the location cache, with
+        NO verifying stat. For callers whose next act is a stat anyway: on a
+        network vault that verification doubles the round trips, and a stale
+        cache entry simply surfaces as the OSError those callers already
+        handle."""
+        sid = safe_id(title_id)
+        shelf = self._loc.get(sid)
+        return self.root / shelf / sid if shelf else self._dir(title_id)
+
     def _doc_path(self, title_id: str) -> Path:
         return self._dir(title_id) / "title.json"
 
@@ -191,7 +258,7 @@ class Vault:
         """When the title's document was last written — the recency the library's
         default sort means (a rebuilt cache must not reorder the shelf)."""
         try:
-            return self._doc_path(title_id).stat().st_mtime_ns
+            return (self._dir_fast(title_id) / "title.json").stat().st_mtime_ns
         except OSError:
             return 0
 
@@ -290,7 +357,7 @@ class Vault:
         part of `title.json`, so this is the second half of "has anything about
         this title changed since the index saw it"."""
         try:
-            return self._chapters_dir(title_id).stat().st_mtime_ns
+            return (self._dir_fast(title_id) / "chapters").stat().st_mtime_ns
         except OSError:
             return 0
 

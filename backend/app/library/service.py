@@ -6,9 +6,11 @@ The service also composes the flat wire DTO from the layered documents.
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import re
 import threading
+import time
 import uuid
 from collections import Counter
 from datetime import datetime, timezone
@@ -21,6 +23,9 @@ from .models import Author, AuthorWork, ChapterRow, DraftIn, Source, TitleDoc, T
 from .vault import Vault, safe_id
 
 
+log = logging.getLogger("longbox.library")
+
+
 def _chapter_num_key(num: str) -> tuple:
     """Smart chapter order: numeric ascending ("2" < "10", 5.5 between 5 and 6),
     non-numeric ("Extra") after, alphabetically."""
@@ -31,7 +36,7 @@ def _chapter_num_key(num: str) -> tuple:
 
 
 class Library:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, defer_sync: bool = False) -> None:
         self.vault = Vault(root)
         self.index = LibraryIndex(root / "index.db")
         # two concurrent creates may derive the same fresh id — serialize the
@@ -43,7 +48,16 @@ class Library:
         self._normalize_lock = threading.Lock()
         self._closing = threading.Event()
         self._sidecar_cache: dict[str, tuple[int, dict[str, dict]]] = {}
-        self.sync()
+        # What the index already holds needs no disk at all, so the library is
+        # SERVED FIRST and verified after: the scan below only answers "did
+        # anything change on disk", and nothing has to wait for that answer.
+        # (It cannot be skipped: the vault is the source of truth, and files can
+        # be dropped in, edited or deleted while the app is closed — or by
+        # another machine, on a shared drive.)
+        self.sync_state = {"running": False, "done": 0, "total": 0, "changed": 0}
+        self._sync_thread: threading.Thread | None = None
+        if not defer_sync:
+            self.sync()
         # The zip invariant is enforced at INGEST, so the archive sweep is a
         # one-time migration for pre-invariant (or hand-dropped) content: it
         # runs only for a vault that never had it, off the startup path (large
@@ -80,20 +94,45 @@ class Library:
     def root(self) -> Path:
         return self.vault.root
 
-    def sync(self) -> int:
+    def sync_in_background(self) -> None:
+        """Verify against disk without holding anything up. A first-ever open has
+        an empty index and fills it here, which the UI shows as progress; every
+        later open finds nothing to do and the user never learns it happened."""
+        if self._sync_thread is not None and self._sync_thread.is_alive():
+            return
+        self.sync_state.update(running=True, done=0, total=0, changed=0)
+
+        def run() -> None:
+            try:
+                self.sync(lambda done, total: self.sync_state.update(done=done, total=total))
+            except Exception:  # noqa: BLE001 — a failed verification must not take the app down
+                log.exception("background sync failed")
+            finally:
+                self.sync_state["running"] = False
+
+        self._sync_thread = threading.Thread(target=run, name="lb-sync", daemon=True)
+        self._sync_thread.start()
+
+    def sync(self, progress=None) -> int:
         """Bring the index in line with the vault WITHOUT re-reading it whole.
         Every title is stat-ed (cheap) and only the ones whose document or
         chapter directory moved since they were indexed are loaded again — a
         launch must not cost one JSON parse per title, or opening the app grows
-        with the library. Returns how many titles were re-read."""
+        with the library. `progress(done, total)` ticks per title actually read.
+        Returns how many titles were re-read."""
+        started = time.perf_counter()
         indexed = self.index.stamps()
-        on_disk = {tid: (self.vault.touched_at(tid), self.vault.chapters_stamp(tid))
-                   for tid in self.vault.list_ids()}
+        scanned = self.vault.scan()
+        on_disk = {tid: (doc_at, ch_at, self._cover_of(tid, name, cover_at))
+                   for tid, (doc_at, ch_at, name, cover_at) in scanned.items()}
+        statted = time.perf_counter()
         for gone in indexed.keys() - on_disk.keys():
             self.index.remove(gone)
         stale = [tid for tid, stamp in on_disk.items() if indexed.get(tid) != stamp]
+        if progress:
+            progress(0, len(stale))
         rows = []
-        for tid in stale:
+        for i, tid in enumerate(stale):
             try:
                 doc = self.vault.load(tid)
             except Exception:  # noqa: BLE001 — one malformed title.json never blocks a launch
@@ -101,10 +140,18 @@ class Library:
             if doc is not None:
                 # stamped before the read, exactly as _index does
                 stamp = on_disk[tid]
-                rows.append((tid, doc, stamp[0], self._sidecars(tid), stamp[1]))
+                rows.append((tid, doc, stamp[0], self._sidecars(tid), stamp[1], stamp[2]))
+            if progress:
+                progress(i + 1, len(stale))
         # nothing is serving yet at construction time, so one batch is safe here
         # where per-title locking is the rule everywhere else
         self.index.upsert_many(rows)
+        self.sync_state["changed"] = len(rows) + len(indexed.keys() - on_disk.keys())
+        # the numbers a slow launch has to be diagnosed with — a network vault
+        # costs a round trip per stat, and that is invisible from the outside
+        log.info("opened %s: %d titles (scan %.1fs, re-read %d in %.1fs)",
+                 self.vault.root, len(on_disk), statted - started,
+                 len(rows), time.perf_counter() - statted)
         return len(rows)
 
     def rescan(self, progress=None) -> None:
@@ -112,11 +159,13 @@ class Library:
         total)` ticks per title file read — reading the files IS the slow part.
         ONE unreadable document must never abort the scan (or, at startup, the
         whole app): it is skipped, exactly like the layout migration does."""
-        ids = self.vault.list_ids()
+        scanned = self.vault.scan()
+        ids = sorted(scanned)
         docs = {}
         touched = {}
         media = {}
         media_at = {}
+        cover = {}
         for i, tid in enumerate(ids):
             try:
                 doc = self.vault.load(tid)
@@ -124,30 +173,37 @@ class Library:
                 doc = None
             if doc is not None:
                 docs[tid] = doc
-                touched[tid] = self.vault.touched_at(tid)
+                doc_at, ch_at, name, cover_at = scanned[tid]
+                touched[tid] = doc_at
                 media[tid] = self._sidecars(tid)
-                media_at[tid] = self.vault.chapters_stamp(tid)
+                media_at[tid] = ch_at
+                cover[tid] = self._cover_of(tid, name, cover_at)
             if progress:
                 progress(i + 1, len(ids))
-        self.index.rebuild(docs, touched, media, media_at)
+        self.index.rebuild(docs, touched, media, media_at, cover)
 
     def close(self) -> None:
         # tell the sweep to stop, give it a moment, then close the index it uses
         self._closing.set()
-        thread = self._normalize_thread
-        if thread is not None and thread.is_alive():
-            thread.join(timeout=5)
+        for thread in (self._normalize_thread, self._sync_thread):
+            if thread is not None and thread.is_alive():
+                thread.join(timeout=5)
         self.index.close()
 
     # ---- DTO composition ----
 
+    @staticmethod
+    def _cover_of(title_id: str, name: str, mtime: int) -> str:
+        """The cover endpoint URL, versioned by the file's mtime so a re-captured
+        cover busts the UI cache. Composed from a scan, never from a fresh stat."""
+        return f"/api/titles/{title_id}/cover?v={mtime:x}" if name else ""
+
     def _cover_url(self, title_id: str) -> str:
-        """Local cover endpoint when bytes exist, versioned by file mtime so a
-        re-captured cover busts the UI cache."""
+        """The same URL for ONE title, straight after a write."""
         path = self.vault.cover_path(title_id)
         if path is None:
             return ""
-        return f"/api/titles/{title_id}/cover?v={path.stat().st_mtime_ns:x}"
+        return self._cover_of(title_id, path.name, path.stat().st_mtime_ns)
 
     def _index(self, title_id: str, doc: TitleDoc) -> None:
         """Refresh the index for one title. ALWAYS called inside that title's
@@ -159,7 +215,7 @@ class Library:
         # store fresh stamps over stale content and never notice
         stamp = self.vault.chapters_stamp(title_id)
         self.index.upsert(title_id, doc, self.vault.touched_at(title_id),
-                          self._sidecars(title_id), stamp)
+                          self._sidecars(title_id), stamp, self._cover_url(title_id))
 
     def _sidecars(self, title_id: str) -> dict[str, dict]:
         """Chapter sidecars, cached per title against the chapters dir's mtime.
@@ -181,16 +237,17 @@ class Library:
     def _out_now(self, title_id: str, doc: TitleDoc) -> TitleOut:
         """One title composed right after a write, when the sidecars on disk are
         newer than whatever the index row still carries."""
-        return self._out(title_id, doc, self._sidecars(title_id))
+        return self._out(title_id, doc, self._sidecars(title_id), self._cover_url(title_id))
 
-    def _out(self, title_id: str, doc: TitleDoc, sidecars: dict[str, dict]) -> TitleOut:
+    def _out(self, title_id: str, doc: TitleDoc, sidecars: dict[str, dict], cover: str) -> TitleOut:
         media_map = {c.id: sidecars[safe_id(c.id)] for c in doc.chapters if safe_id(c.id) in sidecars}
-        return TitleOut.from_doc(title_id, doc, self._cover_url(title_id), media_map)
+        return TitleOut.from_doc(title_id, doc, cover, media_map)
 
     # ---- reads (via the index) ----
 
     def query(self, **kwargs) -> list[TitleOut]:
-        return [self._out(tid, doc, media) for tid, doc, media in self.index.query(**kwargs)]
+        return [self._out(tid, doc, media, cover)
+                for tid, doc, media, cover in self.index.query(**kwargs)]
 
     def get(self, title_id: str) -> TitleOut | None:
         row = self.index.get(title_id)
@@ -206,7 +263,7 @@ class Library:
         """People aggregated from the titles' authors[] and artists[], with the
         role derived from where they appear, plus cover art and common tags."""
         agg: dict[str, dict] = {}
-        for tid, doc in self.index.all_docs():
+        for tid, doc, cover in self.index.all_docs():
             m = doc.meta
             for role_key, names in (("author", m.authors), ("artist", m.artists)):
                 for raw in names:
@@ -217,7 +274,7 @@ class Library:
                                               "chapters": 0, "tags": Counter()})
                     a[role_key] = True
                     if tid not in a["works"]:
-                        a["works"][tid] = AuthorWork(id=tid, title=m.title, cover=self._cover_url(tid))
+                        a["works"][tid] = AuthorWork(id=tid, title=m.title, cover=cover)
                         a["chapters"] += len(doc.chapters)
                         a["tags"].update(m.tags)
         favs = self.vault.author_favorites()
@@ -240,7 +297,7 @@ class Library:
         """Sites aggregated from the titles' source bindings. Recipe detail is
         joined on in the router (the recipe store is app-level state)."""
         agg: dict[str, int] = {}
-        for _, doc in self.index.all_docs():
+        for _, doc, _cover in self.index.all_docs():
             domain = doc.meta.source.domain or (urlsplit(doc.meta.source.url).hostname or "")
             if domain:
                 agg[domain] = agg.get(domain, 0) + 1
