@@ -605,3 +605,116 @@ def test_a_write_is_never_composed_from_a_cached_sidecar(tmp_path):
     finally:
         type(lib.vault).chapters_stamp = original
     lib.close()
+
+
+def _solid(color: tuple[int, int, int]) -> bytes:
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (300, 450), color).save(buf, "JPEG")
+    return buf.getvalue()
+
+
+def test_edited_pages_are_never_served_from_the_previous_version(tmp_path):
+    """The pages a chapter serves are cached — in the browser by URL, on disk by
+    the same version. A chapter whose sidecar predates the revision counter
+    starts it at 1, which can equal the version it is ALREADY cached under, and
+    the reader then shows pages that were deleted."""
+    from PIL import Image
+
+    lib = Library(tmp_path)
+    out = lib.create(DraftIn(meta=TitleMeta(title="Berserk")))
+    src = tmp_path / "in.zip"
+    colors = [(200, 0, 0), (0, 200, 0), (0, 0, 200), (200, 200, 0)]
+    with zipfile.ZipFile(src, "w") as z:  # source names, as page capture leaves them
+        for name, color in zip(("10.png", "37.png", "20.png", "31.png"), colors):
+            z.writestr(name, _solid(color))
+    lib.attach_chapter_media(out.id, num="1", lang="EN", group="dex", src=src, sidecar={})
+    cid = lib.get(out.id).chapters[0].id
+
+    side_path = lib.vault.chapters_dir(out.id) / f"{cid}.json"
+    side = json.loads(side_path.read_text(encoding="utf-8"))
+    del side["rev"]  # the shape every chapter in a real vault has today
+    side_path.write_text(json.dumps(side), encoding="utf-8")
+    lib._sidecar_cache.clear()
+    lib.sync()
+
+    with TestClient(create_app(lib)) as c:
+        def shown() -> list[tuple[int, int, int]]:
+            pages = c.get(f"/api/titles/{out.id}").json()["chapters"][0]["pages"]
+            out_px = []
+            for i in range(pages):
+                r = c.get(f"/api/titles/{out.id}/chapters/{cid}/pages/{i}?w=160&cap=1.5")
+                out_px.append(Image.open(io.BytesIO(r.content)).convert("RGB").getpixel((80, 40)))
+            return out_px
+
+        before = shown()
+        assert len(before) == 4
+        c.post(f"/api/titles/{out.id}/chapters/{cid}/pages/delete", json={"indices": [0, 1]})
+        after = shown()
+        assert len(after) == 2
+        # what is served now is what SURVIVED — the pages that were at 2 and 3,
+        # not the ones the cache holds for index 0 and 1
+        near = lambda a, b: all(abs(x - y) < 12 for x, y in zip(a, b))  # noqa: E731
+        assert near(after[0], before[2]) and near(after[1], before[3])
+    lib.close()
+
+
+def test_page_edits_change_the_chapter_version(tmp_path):
+    """Pages are cached in the browser by the version in their URL. Deleting two
+    pages and adding two leaves the COUNT unchanged, so a count-based version
+    served yesterday's images in the reader while the editor showed the new
+    ones."""
+    lib = Library(tmp_path)
+    out = lib.create(DraftIn(meta=TitleMeta(title="Berserk")))
+    src = tmp_path / "in.zip"
+    with zipfile.ZipFile(src, "w") as z:
+        for i in range(4):
+            z.writestr(f"{i:03d}.jpg", b"page-%d" % i)
+    lib.attach_chapter_media(out.id, num="5", lang="EN", group="dex", src=src, sidecar={})
+    chapter = lib.get(out.id).chapters[0]
+    assert chapter.v and chapter.pages == 4
+    before = chapter.v
+
+    lib.delete_chapter_pages(out.id, chapter.id, [0, 1])
+    after_delete = lib.get(out.id).chapters[0]
+    assert after_delete.v != before
+
+    lib.add_chapter_pages(out.id, chapter.id, [(b"new-a", ".jpg"), (b"new-b", ".jpg")])
+    after_add = lib.get(out.id).chapters[0]
+    # back to four pages — the count says nothing, the version must
+    assert after_add.pages == 4
+    assert after_add.v not in (before, after_delete.v)
+    lib.close()
+
+
+def test_a_replaced_cover_is_never_served_from_the_old_one(tmp_path, monkeypatch):
+    """Covers are cached under (mtime, size). A replacement of the same size
+    inside one filesystem tick — plausible on a share that rounds timestamps —
+    would otherwise reuse the key and keep serving the picture that is gone."""
+    from PIL import Image
+
+    from app.library import vault as vault_mod
+
+    lib = Library(tmp_path)
+    out = lib.create(DraftIn(meta=TitleMeta(title="Berserk")))
+    lib.set_cover(out.id, _solid((200, 0, 0)), "jpg", "")
+    frozen = lib.vault.cover_path(out.id).stat().st_mtime_ns
+
+    real_write = vault_mod._atomic_write
+
+    def write_and_freeze(path, data):
+        real_write(path, data)
+        os.utime(path, ns=(frozen, frozen))
+
+    monkeypatch.setattr(vault_mod, "_atomic_write", write_and_freeze)
+    with TestClient(create_app(lib)) as c:
+        def shown():
+            url = c.get(f"/api/titles/{out.id}").json()["cover"]
+            r = c.get(f"{url}&w=160")
+            return Image.open(io.BytesIO(r.content)).convert("RGB").getpixel((80, 80))
+
+        assert shown()[0] > 150  # red
+        lib.set_cover(out.id, _solid((0, 0, 200)), "jpg", "")
+        lib._index(out.id, lib.vault.load(out.id))
+        assert shown()[2] > 150  # blue — the new cover, not the cached one
+    lib.close()

@@ -85,7 +85,10 @@ class Library:
             if not self._closing.is_set():
                 self.vault.mark_normalized()
             if changed and not self._closing.is_set():
-                self.rescan()  # converted chapters now carry real page counts
+                # sync, NOT rescan: a rebuild is DELETE + INSERT over the whole
+                # table, and this runs on a background thread while the app is
+                # being used — it would drop a title committed a moment ago
+                self.sync()
             return changed
         finally:
             self._normalize_lock.release()
@@ -123,8 +126,8 @@ class Library:
         started = time.perf_counter()
         indexed = self.index.stamps()
         scanned = self.vault.scan()
-        on_disk = {tid: (doc_at, ch_at, self._cover_of(tid, name, cover_at))
-                   for tid, (doc_at, ch_at, name, cover_at) in scanned.items()}
+        on_disk = {tid: (doc_at, ch_at, self._cover_of(tid, name, cover_at, cover_size))
+                   for tid, (doc_at, ch_at, name, cover_at, cover_size) in scanned.items()}
         statted = time.perf_counter()
         for gone in indexed.keys() - on_disk.keys():
             self.index.remove(gone)
@@ -184,11 +187,11 @@ class Library:
                 doc = None
             if doc is not None:
                 docs[tid] = doc
-                doc_at, ch_at, name, cover_at = scanned[tid]
+                doc_at, ch_at, name, cover_at, cover_size = scanned[tid]
                 touched[tid] = doc_at
                 media[tid] = self._sidecars(tid)
                 media_at[tid] = ch_at
-                cover[tid] = self._cover_of(tid, name, cover_at)
+                cover[tid] = self._cover_of(tid, name, cover_at, cover_size)
             if progress:
                 progress(i + 1, len(ids))
         self.index.rebuild(docs, touched, media, media_at, cover)
@@ -204,17 +207,26 @@ class Library:
     # ---- DTO composition ----
 
     @staticmethod
-    def _cover_of(title_id: str, name: str, mtime: int) -> str:
-        """The cover endpoint URL, versioned by the file's mtime so a re-captured
-        cover busts the UI cache. Composed from a scan, never from a fresh stat."""
-        return f"/api/titles/{title_id}/cover?v={mtime:x}" if name else ""
+    def _cover_version(name: str, mtime: int, size: int) -> str:
+        """What the cover is cached under. NOT the mtime alone: a cover replaced
+        inside one filesystem tick — or restored from a copy that kept its
+        timestamps — would land on the version it is already cached under."""
+        return f"{mtime:x}.{size}.{name.rsplit('.', 1)[-1]}" if name else ""
+
+    @classmethod
+    def _cover_of(cls, title_id: str, name: str, mtime: int, size: int) -> str:
+        """The cover endpoint URL, versioned so a re-captured cover busts every
+        cache. Composed from a scan, never from a fresh stat."""
+        v = cls._cover_version(name, mtime, size)
+        return f"/api/titles/{title_id}/cover?v={v}" if v else ""
 
     def _cover_url(self, title_id: str) -> str:
         """The same URL for ONE title, straight after a write."""
         path = self.vault.cover_path(title_id)
         if path is None:
             return ""
-        return self._cover_of(title_id, path.name, path.stat().st_mtime_ns)
+        stat = path.stat()
+        return self._cover_of(title_id, path.name, stat.st_mtime_ns, stat.st_size)
 
     def _index(self, title_id: str, doc: TitleDoc) -> None:
         """Refresh the index for one title. ALWAYS called inside that title's
@@ -546,11 +558,9 @@ class Library:
                     path = self.vault.chapter_archive_target(title_id, row.id)
                 media.renumber_and_append(path, [(src.read_bytes(), suffix)])
                 src.unlink(missing_ok=True)
-                side = self.vault.chapter_sidecars(title_id).get(safe_id(row.id), {})
-                side.update({k: v for k, v in sidecar.items() if v})  # latest source wins
-                side["pages"] = len(media.image_entries(path))
-                side["size"] = path.stat().st_size
-                self.vault.write_chapter_sidecar(title_id, row.id, side)
+                # through the ONE writer: it stamps pages, size and the archive
+                # mtime the page URLs are versioned by
+                self._write_media_sidecar(title_id, row.id, path, patch=sidecar)
             else:
                 self.vault.ingest_chapter_media(title_id, row.id, src, sidecar)
             return self._recommit(title_id, doc)
@@ -664,7 +674,9 @@ class Library:
         if path is None:
             return None
         ct = media.CT_BY_EXT.get(path.suffix.lower(), "application/octet-stream")
-        key = f"cover-{safe_id(title_id)}-{path.stat().st_mtime_ns:x}-{width}"
+        stat = path.stat()
+        key = (f"cover-{safe_id(title_id)}"
+               f"-{self._cover_version(path.name, stat.st_mtime_ns, stat.st_size)}-{width}")
         return self._cached_thumb(key, path.read_bytes(), ct, width)
 
     def chapter_pages(self, title_id: str, chapter_id: str) -> list[str] | None:
@@ -684,10 +696,11 @@ class Library:
         data, ct = media.read_entry(path, entries[index])
         if not width:
             return data, ct
-        # keyed by the archive's mtime — editing the archive (page deletion)
-        # invalidates the whole set by construction
+        # keyed by the chapter's own revision — every page op bumps it, so an
+        # edited chapter misses this cache by construction
         capkey = f"-c{cap:g}" if cap else ""
-        key = f"{safe_id(title_id)}-{safe_id(chapter_id)}-{path.stat().st_mtime_ns:x}-{width}{capkey}-{index}"
+        rev = TitleOut._chapter_version(self._sidecars(title_id).get(safe_id(chapter_id)))
+        key = f"{safe_id(title_id)}-{safe_id(chapter_id)}-{rev}-{width}{capkey}-{index}"
         return self._cached_thumb(key, data, ct, width, cap)
 
     # ---- the sidecar: ONE writer for every page operation ----
@@ -723,6 +736,10 @@ class Library:
         pages = len(media.image_entries(path))
         side["pages"] = pages
         side["size"] = path.stat().st_size
+        # The version every cache of this chapter's pages is keyed by. A COUNTER,
+        # not a file timestamp: page count says nothing (delete two, add two) and
+        # an mtime can be carried over by a copy or rounded off by a filesystem.
+        side["rev"] = int(side.get("rev") or 0) + 1
         if keys is not None:
             del keys[pages:]
             keys.extend([""] * (pages - len(keys)))

@@ -39,6 +39,7 @@ export interface Chapter extends ChapterRow {
   pages: number     // image pages inside it (0 for non-zip archives)
   dlSource: string  // where the DOWNLOAD came from (independent of meta.source)
   dlAt: string      // when it was downloaded (ISO, from the sidecar)
+  v: string         // archive version — page URLs are cached under it
 }
 
 // The metadata layer of a title — exactly what a draft edits and a commit writes.

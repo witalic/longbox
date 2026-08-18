@@ -249,6 +249,17 @@ scanned for, so a queue outlives the chapter being finished and drains into the 
 one; only a failed capture (the entry is gone) discards it. Nothing is skipped because a
 previous page is still downloading — that is what left gaps.
 
+**Everything cached is keyed by a version that cannot repeat.** Page images and covers are
+served with a long cache lifetime and are cached again on disk as downscaled previews, so a
+version that stays equal across an edit shows the user the file they just deleted — which
+reads as the app losing their work. Page COUNT cannot serve as that version (delete two
+pages, add two), nor can a file timestamp (a copy carries it over, a share rounds it, two
+writes share a tick). A chapter is versioned by `revision.size.pages` from its sidecar, where
+the revision is a counter every page operation bumps; a cover by `mtime.size.ext`, and a
+cover write that would land on the previous stamp moves the timestamp itself. ONE version
+serves the URL and the server-side cache, so the editor, the reader and the library grid can
+never disagree about what a page is.
+
 ## 10. The reader (landed)
 
 The reader reads **only the vault** — opens the chapter zip, writes progress into the user

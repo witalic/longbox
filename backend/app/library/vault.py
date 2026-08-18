@@ -118,11 +118,12 @@ class Vault:
             except OSError:
                 continue  # a stuck legacy dir must never block startup
 
-    def _scan_one(self, path: str) -> tuple[int, int, str, int] | None:
+    def _scan_one(self, path: str) -> tuple[int, int, str, int, int] | None:
         """One title directory read as a single listing: the document's mtime,
-        the chapter directory's mtime, and the cover file with its mtime."""
-        doc_at = ch_at = cover_at = 0
-        covers: dict[str, tuple[str, int]] = {}
+        the chapter directory's mtime, and the cover file with its mtime and
+        size (a version built on the timestamp alone can repeat)."""
+        doc_at = ch_at = 0
+        covers: dict[str, tuple[str, int, int]] = {}
         try:
             with os.scandir(path) as items:
                 for it in items:
@@ -134,7 +135,8 @@ class Vault:
                     elif name.startswith("cover."):
                         ext = name.rsplit(".", 1)[-1]
                         if ext in _COVER_EXTS:
-                            covers[ext] = (it.name, it.stat().st_mtime_ns)
+                            st = it.stat()
+                            covers[ext] = (it.name, st.st_mtime_ns, st.st_size)
         except OSError:
             return None
         if not doc_at:
@@ -143,14 +145,14 @@ class Vault:
         for ext in _COVER_EXTS:
             if ext in covers:
                 return (doc_at, ch_at, *covers[ext])
-        return (doc_at, ch_at, "", 0)
+        return (doc_at, ch_at, "", 0, 0)
 
-    def scan(self) -> dict[str, tuple[int, int, str, int]]:
+    def scan(self) -> dict[str, tuple[int, int, str, int, int]]:
         """Every title in the vault with the stamps a listing needs, in ONE
         directory pass. A scandir entry already carries its stat data, so this
         costs one round trip per directory instead of three per title — the
         difference between "instant" and "ten seconds" on a network vault."""
-        out: dict[str, tuple[int, int, str, int]] = {}
+        out: dict[str, tuple[int, int, str, int, int]] = {}
         try:
             shelves = list(os.scandir(self.root))
         except OSError:
@@ -421,9 +423,13 @@ class Vault:
             for old in d.glob(f"{stem}.*"):
                 if old != final and old.suffix != ".json":
                     old.unlink(missing_ok=True)
+            # a re-ingest over an existing chapter continues its revision, so a
+            # browser holding the previous pages cannot match the new URLs
+            prev = self.chapter_sidecars(title_id).get(stem, {})
             sidecar = {**sidecar,
                        "pages": len(media.image_entries(final)),
-                       "size": final.stat().st_size}
+                       "size": final.stat().st_size,
+                       "rev": int(prev.get("rev") or 0) + 1}
             _atomic_write(d / f"{stem}.json",
                           json.dumps(sidecar, indent=2, ensure_ascii=False).encode("utf-8"))
             return final
@@ -509,6 +515,9 @@ class Vault:
                     side.pop("convertFailed", None)
                     side["pages"] = len(media.image_entries(final))
                     side["size"] = final.stat().st_size
+                    # a converted archive is a new file: everything cached for
+                    # the old one has to miss, exactly as after a page edit
+                    side["rev"] = int(side.get("rev") or 0) + 1
                     _atomic_write(side_path,
                                   json.dumps(side, indent=2, ensure_ascii=False).encode("utf-8"))
                     changed += 1
@@ -566,10 +575,25 @@ class Vault:
         with self._lock(title_id):
             d = self._dir(title_id)
             d.mkdir(parents=True, exist_ok=True)
+            before = None
             for old in _COVER_EXTS:
-                (d / f"cover.{old}").unlink(missing_ok=True)
+                p = d / f"cover.{old}"
+                try:
+                    st = p.stat()
+                    before = (st.st_mtime_ns, st.st_size)
+                except OSError:
+                    pass
+                p.unlink(missing_ok=True)
             path = d / f"cover.{ext}"
             _atomic_write(path, data)
+            # The cover is cached under (mtime, size). A replacement of the same
+            # size landing inside one filesystem tick would reuse that key — and
+            # a network share can round timestamps to whole seconds. Make the
+            # stamp differ by construction rather than hope it does.
+            st = path.stat()
+            if before == (st.st_mtime_ns, st.st_size):
+                bump = st.st_mtime_ns + 10_000_000  # 10ms: past any rounding
+                os.utime(path, ns=(bump, bump))
             return path
 
     def delete_cover(self, title_id: str) -> None:

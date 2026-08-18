@@ -295,7 +295,10 @@ def renumber_and_append(path: Path, extra: list[tuple[bytes, str]]) -> int:
     if width and len(names) + len(extra) < 10 ** width:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = _tmp(path)
-        shutil.copy2(path, tmp)
+        # copyfile, NOT copy2: copy2 carries the source's timestamps over, and
+        # an archive that keeps its old mtime after an edit is indistinguishable
+        # from one that never changed
+        shutil.copyfile(path, tmp)
         try:
             with zipfile.ZipFile(tmp, "a", zipfile.ZIP_STORED) as z:
                 for i, (data, ext) in enumerate(extra, start=len(names) + 1):

@@ -145,7 +145,7 @@ function recent(t: Title): Chapter[] {
 }
 function pageThumb(t: Title, c: Chapter, index: number): string {
   // cap 1.5 crops webtoon-length pages to the tiles' 2:3 shape (previews only)
-  return api.chapterPageSrc(t.id, c.id, index, c.pages, 240, 1.5)
+  return api.chapterPageSrc(t.id, c.id, index, c.v, 240, 1.5)
 }
 function pagesOf(t: Title): number {
   return t.chapters.reduce((n, c) => n + (c.pages || 0), 0)

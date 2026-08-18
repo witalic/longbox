@@ -179,14 +179,14 @@ function prevPage() {
 
 function pageSrc(index: number): string {
   const c = chapter.value
-  return c && t.value ? api.chapterPageSrc(t.value.id, c.id, index, c.pages) : ''
+  return c && t.value ? api.chapterPageSrc(t.value.id, c.id, index, c.v) : ''
 }
 // the rail's previews are downscaled thumbnails (never the full-size page);
 // cap 1.5 matches the 2:3 tile, so an ordinary page fills it and only a long
 // strip is trimmed from the top — the same pairing the gallery uses
 function thumbSrc(index: number): string {
   const c = chapter.value
-  return c && t.value ? api.chapterPageSrc(t.value.id, c.id, index, c.pages, 220, 1.5) : ''
+  return c && t.value ? api.chapterPageSrc(t.value.id, c.id, index, c.v, 220, 1.5) : ''
 }
 // clicking a thumbnail jumps there — a page swap in pages mode, a scroll in strip
 function goToPage(index: number) {

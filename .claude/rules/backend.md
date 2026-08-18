@@ -29,6 +29,10 @@ content). Full model: `design/state-model.md`; layout: `ARCHITECTURE.md`.
 - **One scan, not three stats per title.** `Vault.scan()` reads the whole vault through
   `os.scandir`, whose entries already carry their stat data; per-title `is_file()` probing (six
   extensions for a cover, say) is what made opening a shared drive take twenty seconds.
+- **A cache key must be unable to repeat.** Pages and covers are cached in the browser (by URL)
+  and on disk (downscaled previews) under ONE version: `revision.size.pages` for a chapter,
+  `mtime.size.ext` for a cover. Never version by page count (delete two, add two) or by a bare
+  timestamp (copies carry it, shares round it) — a repeated version serves a deleted page back.
 - **Layer separation.** A meta commit merges layers in the vault and never touches the user layer
   (fav/rating/read). `_reconcile_chapters` guards the no-orphan rule: re-captured rows adopt old
   ids (URL first, then num+lang+group; an adopted id leaves BOTH lookup maps), media-backed rows

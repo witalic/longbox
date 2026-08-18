@@ -340,10 +340,9 @@ const thumb = computed(() => THUMB_SIZES[thumbKey.value])
 const openChapter = computed<Chapter | undefined>(() =>
   t.value?.chapters.find((c) => c.id === openPages.value))
 
-const pageVer = ref(0) // bumped on page mutations where the COUNT stays the same
-function pageSrc(cid: string, index: number, v: number): string {
+function pageSrc(cid: string, index: number, v: string): string {
   // cap 1.5 crops webtoon-length pages to the tiles' 2:3 shape (previews only)
-  return api.chapterPageSrc(t.value!.id, cid, index, `${v}-${pageVer.value}`, thumb.value.w, 1.5)
+  return api.chapterPageSrc(t.value!.id, cid, index, v, thumb.value.w, 1.5)
 }
 const pagesTitle = ref<string | null>(null) // which TITLE the pane belongs to
 async function selectPages(c: Chapter) {
@@ -489,9 +488,7 @@ const dragPage = ref<number | null>(null)   // display position being dragged
 const pageDrop = ref<number | null>(null)   // display position we land BEFORE; -1 = end
 const pageMap = ref<number[]>([])
 let lastSync: number[] = []
-let orderDirty = false // a reorder happened → bust URLs on the NEXT pane reset
 watch(pageCount, (n) => {
-  if (orderDirty) { pageVer.value++; orderDirty = false }
   pageMap.value = [...Array(n).keys()]
   lastSync = [...pageMap.value]
 }, { immediate: true })
@@ -517,7 +514,6 @@ async function applyPageOrder() {
   try {
     cache([await api.reorderChapterPages(t.value!.id, openPages.value!, order)])
     lastSync = want
-    orderDirty = true
   } catch (e) {
     store.error = e instanceof Error ? e.message : String(e)
     pageMap.value = [...lastSync] // revert the visual move on failure
@@ -863,7 +859,7 @@ async function removeRow(c: Chapter) {
                @dragstart="dragPage = pos" @dragend="dragPage = null; pageDrop = null"
                @dragover.prevent="pageDrop = pos" @drop.prevent="onPageDrop(pos)"
                @click="onTileClick(pos, srcIdx, $event)">
-            <img :src="pageSrc(openChapter.id, srcIdx, openChapter.pages)" loading="lazy" alt="" />
+            <img :src="pageSrc(openChapter.id, srcIdx, openChapter.v)" loading="lazy" alt="" />
             <span class="pnum mono">{{ pos + 1 }}</span>
             <span v-if="editMode" class="pcheck" :class="{ on: selPages.includes(srcIdx) }">
               <Icon v-if="selPages.includes(srcIdx)" name="check" :size="10" :sw="3" />
