@@ -7,15 +7,13 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import Icon from '../components/Icon.vue'
 import { store, setLibraryPath, askConfirm, opening, type ThemePref } from '../store'
 import { api } from '../api'
+import { isBoolMap, readLocal, writeLocal } from '../local'
 import { KEY_ACTIONS, bindingsFor, isOverridden, keyLabel, rebind, resetKey, resetAllKeys, keyOverrides } from '../keys'
 
 // ---- collapsible cards (persisted; default: all open) ----
-const openSec = reactive<Record<string, boolean>>((() => {
-  try { return JSON.parse(localStorage.getItem('lb.settingsOpen') || '{}') } catch { return {} }
-})())
-watch(openSec, () => {
-  try { localStorage.setItem('lb.settingsOpen', JSON.stringify(openSec)) } catch { /* ignore */ }
-}, { deep: true })
+const openSec = reactive<Record<string, boolean>>(
+  readLocal('lb.settingsOpen', isBoolMap, {}))
+watch(openSec, () => writeLocal('lb.settingsOpen', { ...openSec }), { deep: true })
 function isOpen(k: string): boolean { return openSec[k] !== false }
 function toggleSec(k: string) { openSec[k] = !isOpen(k) }
 

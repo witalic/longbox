@@ -5,16 +5,16 @@
 // All page-facing work goes through the preload: pick chains, live selector
 // previews, and one-shot snapshots (rendered DOM + cover bytes via page context).
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { api } from '../api'
+import { api, ApiError } from '../api'
 import { activeTab, browser, newTab, newTabBackground, onTabNavigated, setTabLoading, setTabTitle, tabById } from '../browser'
 import CapturePanel from '../components/CapturePanel.vue'
 import Icon from '../components/Icon.vue'
 import PickInspector, { type ChainNode, type PickUse, type ProbeReq, type ProbeResult } from '../components/PickInspector.vue'
 import {
-  applyCapture, applyCoverCapture, applyCoverUrlAuto, draftState,
+  applyCapture, applyCoverCapture, applyCoverUrlAuto, draftState, EDITABLE_FIELDS,
   mergeSnapshot, noteCaptureSource, type EditableField, type Snapshot,
 } from '../draft'
-import { pageCapture, pageFilter, pageKeyFor, type PickField } from '../pagecapture'
+import { pageCapture, pageFilter, pageKeyFor, stopCaptureFor, type PickField } from '../pagecapture'
 import type { Candidate, FieldRule, Recipe } from '../data'
 import { cache, store } from '../store'
 
@@ -138,6 +138,7 @@ const OG_FALLBACKS: Record<string, Candidate[]> = {
 function snapshotRules(recipe: Recipe | null): Record<string, FieldRule> {
   const out: Record<string, FieldRule> = {}
   for (const [key, rule] of Object.entries(recipe?.fields || {})) {
+    if (!EDITABLE_FIELDS.has(key)) continue
     const extra = (OG_FALLBACKS[key] || []).filter(
       (f) => !rule.candidates.some((c) => c.kind === 'meta' && c.selector === f.selector))
     out[key] = { ...rule, candidates: [...rule.candidates, ...extra] }
@@ -425,6 +426,7 @@ async function drainQueue(): Promise<void> {
   // panel just stops narrating once it is not.
   draining = true
   if (st.active) { st.busy = true; st.error = '' }
+  let failed: { chapterId: string; batch: [string, QueuedPage][] } | null = null
   try {
     while (queued.size) {
       // Oldest first, so pages reach the vault in the order they were read, and
@@ -444,6 +446,7 @@ async function drainQueue(): Promise<void> {
       const batch = all
         .filter(([, p]) => p.chapterId === run.chapterId && p.pageUrl === from)
         .slice(0, PAGE_BATCH)
+      failed = { chapterId: run.chapterId, batch }
       const known = new Set(await api.knownPages(run.titleId, run.chapterId, batch.map(([, p]) => p.key)))
       for (const [at, p] of batch) {
         if (!known.has(p.key)) continue
@@ -499,13 +502,21 @@ async function drainQueue(): Promise<void> {
       }
     }
   } catch (e) {
-    // The entry can be gone under us (its row deleted, the library switched).
-    // Dropping the queue is what keeps that from retrying forever; reading those
-    // pages again re-queues them.
-    queued.clear()
-    if (st.active) {
-      st.error = e instanceof Error ? e.message : String(e)
-      st.status = 'capture failed — see the message above'
+    const status = e instanceof ApiError ? e.status : 0
+    // 404: the row was deleted. 409: its archive cannot take pages. Either way
+    // the armed entry is gone, and re-reading the same page would re-download
+    // its images from the site every 2.5s — end the session instead.
+    if (status === 404 || status === 409) {
+      queued.clear()
+      stopCaptureFor({ chapterId: failed?.chapterId })
+      store.error = status === 404
+        ? 'the chapter this capture was armed on no longer exists — capture stopped'
+        : 'this chapter cannot take captured pages (its archive is not editable) — capture stopped'
+    } else if (failed) {
+      // a transient failure costs the batch it happened on, nothing else: a
+      // chapter still draining behind this one keeps its pages
+      for (const [at] of failed.batch) queued.delete(at)
+      if (st.active) st.error = e instanceof Error ? e.message : String(e)
     }
   } finally {
     draining = false
@@ -549,6 +560,8 @@ function onIpc(e: any, tabId: string) {
       probe.pickedIndex = msg.pickedIndex ?? -1
       break
     case 'snapshot-result':
+      // like every other channel: only the tab we asked may answer
+      if (tabId !== browser.activeId) break
       snapResolve?.(msg as SnapWire)
       snapResolve = null
       break

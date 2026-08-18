@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -22,14 +23,13 @@ from ..scraper.covers import fetch_cover
 
 router = APIRouter(prefix="/api")
 
-_CT_BY_EXT = {
-    "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
-    "webp": "image/webp", "gif": "image/gif", "avif": "image/avif",
-}
-_EXT_BY_CT = {
-    "image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png",
-    "image/webp": "webp", "image/gif": "gif", "image/avif": "avif",
-}
+# derived from the ONE map in media.py (which stores the files), so a new format
+# cannot land in a router and miss the module that actually writes it
+_CT_BY_EXT = {ext.lstrip("."): ct for ext, ct in media.CT_BY_EXT.items()}
+_EXT_BY_CT: dict[str, str] = {}
+for _ext, _ct in media.CT_BY_EXT.items():
+    _EXT_BY_CT.setdefault(_ct, _ext.lstrip("."))  # first spelling wins: jpeg -> jpg
+_EXT_BY_CT["image/jpg"] = "jpg"  # some sites serve this non-standard type
 _MAX_COVER_BYTES = 8 * 1024 * 1024
 _MAX_PAGE_BYTES = 24 * 1024 * 1024  # a single manga page; webtoon strips get large
 # The client posts a page view's images in small batches; a request far beyond
@@ -260,13 +260,17 @@ async def import_chapter_archive(
     created when missing). `url` records the chapter's source link on the row."""
     if not num.strip() and not chapter_id:
         raise HTTPException(status_code=422, detail="a chapter number (or chapter_id) is required")
-    data = await request.body()
-    if not data:
-        raise HTTPException(status_code=422, detail="an archive file is required")
     tmp = tempfile.NamedTemporaryFile(prefix="longbox-import-", suffix=Path(filename).suffix or ".zip", delete=False)
     try:
-        tmp.write(data)
+        # streamed to disk, never buffered: a 2 GB archive must not become 2 GB
+        # of process memory just to be written out again
+        size = 0
+        async for chunk in request.stream():
+            size += len(chunk)
+            tmp.write(chunk)
         tmp.close()
+        if not size:
+            raise HTTPException(status_code=422, detail="an archive file is required")
         src = Path(tmp.name)
         # pages/size are stamped by the vault at ingest, from the stored zip
         sidecar = {
@@ -275,7 +279,10 @@ async def import_chapter_archive(
             "downloadedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         }
         try:
-            result = _lib(request).attach_chapter_media(
+            # repacking an archive is seconds of CPU and disk under a title lock:
+            # on the event loop it would stall every other request in the app
+            result = await run_in_threadpool(
+                _lib(request).attach_chapter_media,
                 title_id, num=num, lang=lang, group=group, src=src, sidecar=sidecar,
                 url=url, chapter_id=chapter_id)
         except media.UnsupportedArchiveError as exc:
@@ -372,7 +379,9 @@ async def add_chapter_pages(
     if not payload:
         raise HTTPException(status_code=422, detail="no image files in the upload")
     try:
-        result = _lib(request).add_chapter_pages(title_id, chapter_id, payload)
+        # a folder import decodes and rewrites the whole archive — off the loop
+        result = await run_in_threadpool(
+            _lib(request).add_chapter_pages, title_id, chapter_id, payload)
     except media.UnsupportedArchiveError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     if result is None:

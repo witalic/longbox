@@ -26,7 +26,7 @@ async function forgetRecipe(domain: string) {
 async function removeSource(domain: string) {
   const ok = await askConfirm({
     title: 'Remove source', danger: true, okLabel: 'Remove',
-    message: `Remove ${domain}? Its titles STAY in the library (only the source link is cleared), and the learned recipe is forgotten.`,
+    message: `Remove ${domain} from this list and forget what longbox learned about it? Your titles keep their source links — clear those per title, on the title itself.`,
   })
   if (!ok) return
   busy.value = domain

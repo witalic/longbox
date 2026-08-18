@@ -13,6 +13,7 @@ import threading
 import time
 import uuid
 from collections import Counter
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -151,8 +152,7 @@ class Library:
                 # what this scan saw in the index, so the write can tell "nobody
                 # touched it since" from "someone else wrote a newer row"
                 was = indexed.get(tid, (0, 0, ""))
-                rows.append((tid, doc, stamp[0], self._sidecars(tid), stamp[1], stamp[2],
-                             (was[0], was[1])))
+                rows.append((tid, doc, stamp[0], self._sidecars(tid), stamp[1], stamp[2], was))
             if progress:
                 progress(i + 1, len(stale))
         # nothing is serving yet at construction time, so one batch is safe here
@@ -169,10 +169,15 @@ class Library:
         return len(rows)
 
     def rescan(self, progress=None) -> None:
-        """Rebuild the index purely from the on-disk vault. `progress(done,
+        """Re-read every title from disk and refresh the index. `progress(done,
         total)` ticks per title file read — reading the files IS the slow part.
         ONE unreadable document must never abort the scan (or, at startup, the
-        whole app): it is skipped, exactly like the layout migration does."""
+        whole app): it is skipped, exactly like the layout migration does.
+
+        This runs while the app is in USE (Settings → Rebuild), so it is not a
+        DELETE + INSERT of the whole table: each row is written only while the
+        stamps this pass read still hold, and a title committed meanwhile keeps
+        the newer row."""
         scanned = self.vault.scan()
         ids = sorted(scanned)
         docs = {}
@@ -346,7 +351,8 @@ class Library:
                 tid, n = f"{base}-{n}", n + 1
             doc = self.vault.commit_meta(tid, draft, create=True)
             assert doc is not None
-            self._index(tid, doc)
+            with self.vault.title_lock(tid):  # the rule holds for the first write too
+                self._index(tid, doc)
         return self._out_now(tid, doc)
 
     def commit(self, title_id: str, draft: DraftIn) -> TitleOut | None:
@@ -642,11 +648,13 @@ class Library:
             return self._recommit(title_id, doc)
 
     @staticmethod
-    def _cached_thumb(key: str, data: bytes, ct: str, width: int,
+    def _cached_thumb(key: str, source: Callable[[], tuple[bytes, str]], width: int,
                       cap: float | None = None) -> tuple[bytes, str]:
-        """A downscaled JPEG for `data`, cached on disk under `key` (which the
-        caller stamps with the source file's mtime, so an edited file misses the
-        cache by construction). Undecodable formats serve the original."""
+        """A downscaled JPEG cached on disk under `key` (which the caller stamps
+        with the chapter/cover version, so an edited file misses the cache by
+        construction). `source` is called only on a MISS — a cache hit must not
+        read the original, which on a network vault is the entire request cost.
+        Undecodable formats serve the original."""
         from ..config_store import config_dir
         cfile = config_dir() / "cache" / "thumbs" / f"{key}.jpg"
         if cfile.is_file():
@@ -654,6 +662,7 @@ class Library:
                 return cfile.read_bytes(), "image/jpeg"
             except OSError:
                 pass  # a half-written or vanished cache entry: just re-make it
+        data, ct = source()
         thumb = media.thumbnail(data, width, cap)
         if thumb is None:
             return data, ct
@@ -677,7 +686,7 @@ class Library:
         stat = path.stat()
         key = (f"cover-{safe_id(title_id)}"
                f"-{self._cover_version(path.name, stat.st_mtime_ns, stat.st_size)}-{width}")
-        return self._cached_thumb(key, path.read_bytes(), ct, width)
+        return self._cached_thumb(key, lambda: (path.read_bytes(), ct), width)
 
     def chapter_pages(self, title_id: str, chapter_id: str) -> list[str] | None:
         path = self.vault.chapter_media_path(title_id, chapter_id)
@@ -693,15 +702,14 @@ class Library:
         entries = media.image_entries(path)
         if not (0 <= index < len(entries)):
             return None
-        data, ct = media.read_entry(path, entries[index])
         if not width:
-            return data, ct
+            return media.read_entry(path, entries[index])
         # keyed by the chapter's own revision — every page op bumps it, so an
         # edited chapter misses this cache by construction
         capkey = f"-c{cap:g}" if cap else ""
         rev = TitleOut._chapter_version(self._sidecars(title_id).get(safe_id(chapter_id)))
         key = f"{safe_id(title_id)}-{safe_id(chapter_id)}-{rev}-{width}{capkey}-{index}"
-        return self._cached_thumb(key, data, ct, width, cap)
+        return self._cached_thumb(key, lambda: media.read_entry(path, entries[index]), width, cap)
 
     # ---- the sidecar: ONE writer for every page operation ----
     # pages/size describe the file that is actually stored, and `pageKeys` runs

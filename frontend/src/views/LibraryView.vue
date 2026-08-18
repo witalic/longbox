@@ -17,7 +17,8 @@ import {
 } from '../store'
 import { startNewTitle } from '../browser'
 import { api } from '../api'
-import { compareChapterNums, coverAt, initials, statusColor, hueFor, type Chapter, type FacetValue, type Title } from '../data'
+import { isBoolMap, readLocal, readLocalOne, writeLocal, writeLocalOne } from '../local'
+import { coverAt, orderedChaptersOf, initials, statusColor, hueFor, type Chapter, type FacetValue, type Title } from '../data'
 
 const lib = store.library
 const results = computed(() => store.titles)
@@ -48,17 +49,14 @@ const SEARCH_MIN = 7 // facets longer than this get their type-to-filter box
 const facetQuery = reactive<Record<string, string>>({})
 
 // the whole filter sidebar can hide (shared with the Authors view)
-const fsideOpen = ref(localStorage.getItem('lb.fside') !== '0')
-watch(fsideOpen, (v) => { try { localStorage.setItem('lb.fside', v ? '1' : '0') } catch { /* ignore */ } })
+const fsideOpen = ref(readLocalOne('lb.fside', ['0', '1'] as const, '1') === '1')
+watch(fsideOpen, (v) => writeLocalOne('lb.fside', v ? '1' : '0'))
 
 // sections are COLLAPSED by default; the open set persists across sessions,
 // and a collapsed section with an active selection shows a badge
-const openSec = reactive<Record<string, boolean>>((() => {
-  try { return JSON.parse(localStorage.getItem('lb.facetOpen') || '{}') } catch { return {} }
-})())
-watch(openSec, () => {
-  try { localStorage.setItem('lb.facetOpen', JSON.stringify(openSec)) } catch { /* ignore */ }
-}, { deep: true })
+const openSec = reactive<Record<string, boolean>>(
+  readLocal('lb.facetOpen', isBoolMap, {}))
+watch(openSec, () => writeLocal('lb.facetOpen', { ...openSec }), { deep: true })
 function toggleSec(k: string) { openSec[k] = !openSec[k] }
 function selCount(key: FacetKey): number {
   return lib.include[key].length + lib.exclude[key].length
@@ -133,9 +131,7 @@ function coverStyle(t: Title, w = 420) {
 // same cached server-side thumbnails as the title page's pane.
 const PREVIEW_PAGES = 10
 function orderedChapterRows(t: Title): Chapter[] {
-  const rows = [...t.chapters]
-  if (t.chapterOrder !== 'manual') rows.sort((a, b) => compareChapterNums(a.num, b.num))
-  return rows
+  return orderedChaptersOf(t.chapters, t.chapterOrder)
 }
 function previewChapter(t: Title): Chapter | undefined {
   return orderedChapterRows(t).find((c) => c.dl && c.pages > 0)

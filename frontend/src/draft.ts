@@ -11,6 +11,7 @@ import {
   blankMeta, chapterRowsOf, metaOf,
   type ChapterRow, type FieldProvenance, type Flags, type Provenance, type Title, type TitleMeta,
 } from './data'
+import { isRecord, readLocal } from './local'
 import { LIST_KEYS, captureValue, type CleanFlags } from './normalize'
 import { askConfirm, cache, refreshLibrary, store } from './store'
 
@@ -73,7 +74,14 @@ function setDraft(d: Draft) {
 const DEFAULTS_KEY = 'lb.newDraftDefaults'
 interface NewDraftDefaults { type?: string; status?: string; flags?: Flags }
 function newDraftDefaults(): NewDraftDefaults {
-  try { return JSON.parse(localStorage.getItem(DEFAULTS_KEY) || '{}') } catch { return {} }
+  const raw = readLocal(DEFAULTS_KEY, isRecord, {} as Record<string, unknown>)
+  // a value from an older build must not reach `.toLowerCase()` below and take
+  // "Add title" down with it
+  const str = (v: unknown) => (typeof v === 'string' ? v : undefined)
+  return {
+    type: str(raw.type), status: str(raw.status),
+    flags: isRecord(raw.flags) ? (raw.flags as unknown as Flags) : undefined,
+  }
 }
 function rememberDraftDefaults(meta: TitleMeta) {
   try {
@@ -127,6 +135,14 @@ export function discardDraft() {
 const META_STRINGS = ['title', 'alt', 'year', 'desc', 'type', 'status'] as const
 export type EditableField =
   | (typeof META_STRINGS)[number] | 'authors' | 'artists' | 'characters' | 'genres' | 'tags' | 'cover'
+
+// What a DRAFT can hold — the one list. A recipe also stores rules that are not
+// draft fields (page capture teaches `pages`), and merging one of those would
+// write a joined list of image URLs into the title, with `auto` provenance
+// committed to the vault beside it.
+export const EDITABLE_FIELDS: ReadonlySet<string> = new Set<EditableField>([
+  ...META_STRINGS, 'authors', 'artists', 'characters', 'genres', 'tags', 'cover',
+])
 
 function fieldValue(meta: TitleMeta, field: string): string | string[] {
   return (meta as unknown as Record<string, string | string[]>)[field]

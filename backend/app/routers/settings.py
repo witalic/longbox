@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from ..config_store import config_transaction, load_config
 from ..library.service import Library
+from .downloads import forget_downloads
 
 router = APIRouter(prefix="/api")
 
@@ -123,6 +124,7 @@ def set_library_path(request: Request, body: LibraryPathIn) -> SettingsOut:
             libs.append(str(path))
         cfg["libraries"] = libs
 
+    forget_downloads(request.app)  # an arm belongs to the vault it was made in
     request.app.state.library = new
     # the old one closes on a delay: requests already holding it mid-query must
     # not hit a closed SQLite connection

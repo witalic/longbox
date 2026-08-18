@@ -2,6 +2,7 @@
 // `matches(action, event)` instead of hardcoding keys; Settings → Keyboard
 // rebinds actions (persisted) and resets to the defaults below.
 import { reactive } from 'vue'
+import { isRecord, readLocal } from './local'
 
 export interface KeyAction {
   id: string
@@ -39,8 +40,8 @@ function toCode(v: string): string | null {
 }
 
 function loadOverrides(): Record<string, string[]> {
-  try {
-    const raw = JSON.parse(localStorage.getItem(STORE_KEY) || '{}')
+  const raw = readLocal(STORE_KEY, isRecord, {} as Record<string, unknown>)
+  {
     const out: Record<string, string[]> = {}
     for (const [k, v] of Object.entries(raw)) {
       if (!Array.isArray(v)) continue
@@ -48,7 +49,7 @@ function loadOverrides(): Record<string, string[]> {
       if (codes.length) out[k] = codes
     }
     return out
-  } catch { return {} }
+  }
 }
 
 // reactive so the Settings UI and hotkey handlers update live

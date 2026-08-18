@@ -16,6 +16,12 @@ export function readLocal<T>(key: string, valid: (v: unknown) => v is T, fallbac
 
 // Plain string preferences (theme, density, a mode flag) are stored AS-IS, not
 // as JSON — they read the same in devtools and never need parsing.
+// A remembered set of open/closed toggles. Values that are not booleans come
+// from an older build (or a hand-edited store) and are dropped, not trusted.
+export function isBoolMap(v: unknown): v is Record<string, boolean> {
+  return isRecord(v) && Object.values(v).every((x) => typeof x === 'boolean')
+}
+
 export function readLocalOne<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   try {
     const raw = localStorage.getItem(key)

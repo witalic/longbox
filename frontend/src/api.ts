@@ -89,7 +89,7 @@ export const api = {
   saveRecipe: (domain: string, recipe: Recipe) => req<Recipe>(`/recipes/${domain}`, jsonBody('PUT', recipe)),
   removeRecipe: (domain: string) => reqVoid(`/recipes/${domain}`, { method: 'DELETE' }),
   removeSource: (domain: string) =>
-    req<{ unlinked: number; recipeDeleted: boolean }>(`/sources/${domain}`, { method: 'DELETE' }),
+    req<{ hidden: boolean; recipeDeleted: boolean }>(`/sources/${domain}`, { method: 'DELETE' }),
   // armed downloads: the arm is consumed when a download STARTS (its chapter
   // binding is claimed immediately), so downloads run in parallel
   armDownload: (body: ArmInfo) => req<DownloadsState>('/downloads/arm', jsonBody('POST', body)),

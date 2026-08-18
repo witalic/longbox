@@ -159,7 +159,7 @@ class LibraryIndex:
                              self._row(title_id, doc, touched, media, media_at, cover))
 
     def upsert_many(self, rows: list[tuple[str, TitleDoc, int, dict[str, dict], int, str,
-                                            tuple[int, int]]]) -> None:
+                                            tuple[int, int, str]]]) -> None:
         """One transaction for many titles — a launch that has to re-read a whole
         library must not pay a commit per title.
 
@@ -172,11 +172,13 @@ class LibraryIndex:
         if not rows:
             return
         guarded = (f"{self._upsert_sql} WHERE titles.touched = :was_touched"
-                   " AND titles.media_at = :was_media_at")
+                   " AND titles.media_at = :was_media_at AND titles.cover = :was_cover")
         params = []
         for tid, doc, touched, media, media_at, cover, was in rows:
             row = self._row(tid, doc, touched, media, media_at, cover)
-            row["was_touched"], row["was_media_at"] = was
+            # all THREE stamps: a cover replaced from a local file changes only
+            # this column — title.json and the chapter directory never move
+            row["was_touched"], row["was_media_at"], row["was_cover"] = was
             params.append(row)
         with self._lock, self._db:
             self._db.executemany(guarded, params)

@@ -9,7 +9,7 @@ import Dropdown from '../components/Dropdown.vue'
 import { openInBrowser } from '../browser'
 import { readLocalOne, writeLocalOne } from '../local'
 import { api } from '../api'
-import { chapterIdFor, compareChapterNums, coverAt, faviconFor, sameChapter } from '../data'
+import { chapterIdFor, compareChapterNums, coverAt, faviconFor, filterOptions, orderedChaptersOf, sameChapter } from '../data'
 
 // domains whose favicon failed to load → fall back to the initial letters
 const noIcon = reactive<Record<string, boolean>>({})
@@ -63,22 +63,13 @@ const activeFlags = computed(() => flagDefs.filter((f) => t.value?.flags[f.key])
 // Display order: smart by number ('auto'), or exactly as the user arranged it
 // ('manual' — set by dragging rows in edit mode).
 interface ChapterNode { num: string; rows: Chapter[] }
-const orderedChapters = computed<Chapter[]>(() => {
-  const rows = [...(t.value?.chapters ?? [])]
-  if (t.value?.chapterOrder !== 'manual') rows.sort((a, b) => compareChapterNums(a.num, b.num))
-  return rows
-})
+const orderedChapters = computed<Chapter[]>(() =>
+  orderedChaptersOf(t.value?.chapters, t.value?.chapterOrder))
 // language / translator filters over the chapter list
 const langFilter = ref('all')
 const groupFilter = ref('all')
-const langOpts = computed(() => [
-  { v: 'all', l: 'All' },
-  ...[...new Set(orderedChapters.value.map((c) => c.lang).filter(Boolean))].map((v) => ({ v, l: v })),
-])
-const groupOpts = computed(() => [
-  { v: 'all', l: 'All' },
-  ...[...new Set(orderedChapters.value.map((c) => c.group).filter(Boolean))].map((v) => ({ v, l: v })),
-])
+const langOpts = computed(() => filterOptions(orderedChapters.value, (c) => c.lang))
+const groupOpts = computed(() => filterOptions(orderedChapters.value, (c) => c.group))
 const filtersActive = computed(() => langFilter.value !== 'all' || groupFilter.value !== 'all')
 
 const tree = computed<ChapterNode[]>(() => groupByNum(orderedChapters.value.filter((c) =>
@@ -508,9 +499,19 @@ function onPageDrop(target: number) {
   pageMap.value = map // the visual move happens NOW; no URL changes at all
   void applyPageOrder()
 }
-async function applyPageOrder() {
+// Each write is expressed relative to lastSync, which only advances when the
+// server answers — so a second drop while the first is in flight would compute
+// its permutation against an order the vault has already left. They queue.
+let orderChain: Promise<void> = Promise.resolve()
+function applyPageOrder(): Promise<void> {
+  orderChain = orderChain.then(sendPageOrder, sendPageOrder)
+  return orderChain
+}
+
+async function sendPageOrder() {
   const want = [...pageMap.value]
   const order = want.map((orig) => lastSync.indexOf(orig))
+  if (order.some((i) => i < 0)) return // the pane reset under us; nothing to send
   try {
     cache([await api.reorderChapterPages(t.value!.id, openPages.value!, order)])
     lastSync = want

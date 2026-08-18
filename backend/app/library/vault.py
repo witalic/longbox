@@ -482,6 +482,13 @@ class Vault:
                     continue
                 with self._lock(sid):
                     final = p.with_suffix(".zip")
+                    # A stray `ch-5.cbz` next to a stored `ch-5.zip` is NOT this
+                    # chapter's archive — converting it would replace 40 captured
+                    # pages with whatever was dropped in. The stored zip wins,
+                    # exactly as chapter_media_path resolves it; the stray file
+                    # stays where it is.
+                    if final != p and final.is_file() and zipfile.is_zipfile(final):
+                        continue
                     side_path = d / f"{final.stem}.json"
                     side: dict = {}
                     if side_path.is_file():

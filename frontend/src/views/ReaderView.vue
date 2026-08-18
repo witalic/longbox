@@ -12,7 +12,7 @@ import Dropdown from '../components/Dropdown.vue'
 import { api } from '../api'
 import { closeReader, setRead, store, titleById } from '../store'
 import {
-  READ_COLOR as readColor, compareChapterNums, coverAt, groupByNum, hueFor,
+  READ_COLOR as readColor, coverAt, filterOptions, groupByNum, hueFor, orderedChaptersOf,
   type Chapter, type Title,
 } from '../data'
 import { bindingsFor, keyLabel, matches } from '../keys'
@@ -61,21 +61,12 @@ watch([mode, fit, widthPx, margins], () => {
 watch(() => t.value?.id, (id) => { if (id) loadPrefs(id) }, { immediate: true })
 
 // ---- the chapter list (display order, lang/group filters like the title page) ----
-const ordered = computed<Chapter[]>(() => {
-  const rows = [...(t.value?.chapters ?? [])]
-  if (t.value?.chapterOrder !== 'manual') rows.sort((a, b) => compareChapterNums(a.num, b.num))
-  return rows
-})
+const ordered = computed<Chapter[]>(() =>
+  orderedChaptersOf(t.value?.chapters, t.value?.chapterOrder))
 const langFilter = ref('all')
 const groupFilter = ref('all')
-const langOpts = computed(() => [
-  { v: 'all', l: 'All' },
-  ...[...new Set(ordered.value.map((c) => c.lang).filter(Boolean))].map((v) => ({ v, l: v })),
-])
-const groupOpts = computed(() => [
-  { v: 'all', l: 'All' },
-  ...[...new Set(ordered.value.map((c) => c.group).filter(Boolean))].map((v) => ({ v, l: v })),
-])
+const langOpts = computed(() => filterOptions(ordered.value, (c) => c.lang))
+const groupOpts = computed(() => filterOptions(ordered.value, (c) => c.group))
 const listRows = computed(() => ordered.value.filter((c) =>
   (langFilter.value === 'all' || c.lang === langFilter.value)
   && (groupFilter.value === 'all' || c.group === groupFilter.value)))

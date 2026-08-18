@@ -70,14 +70,30 @@ def _items(request: Request) -> dict[str, DownloadItem]:
         return request.app.state.downloads
 
 
+def forget_downloads(app) -> None:
+    """Drop the armed slot and the item list. A library switch MUST call this:
+    an arm names a title id, and the same id can exist in the vault we just
+    moved to — the file would land in the wrong library's chapter."""
+    with _DL_LOCK:
+        app.state.armed_download = None
+        app.state.downloads = {}
+
+
 def _armed(request: Request) -> ArmIn | None:
-    state = getattr(request.app.state, "armed_download", None)
-    if state is None:
-        return None
-    if time.monotonic() - state["at"] > ARM_TTL_SECONDS:  # stale arm — expire it
-        request.app.state.armed_download = None
-        return None
-    return state["arm"]
+    """The live arm, expiring a stale one. EVERY reader and writer of the slot
+    holds _DL_LOCK: the panel polls this once a second, so an expiry racing a
+    fresh arm would clear the arm the user JUST made — and the next download
+    would be refused as unarmed with nothing on screen to explain it."""
+    with _DL_LOCK:
+        state = getattr(request.app.state, "armed_download", None)
+        if state is None:
+            return None
+        if time.monotonic() - state["at"] > ARM_TTL_SECONDS:
+            # clear only what we just judged stale, never a newer arm
+            if getattr(request.app.state, "armed_download", None) is state:
+                request.app.state.armed_download = None
+            return None
+        return state["arm"]
 
 
 @router.post("/arm", response_model=DownloadsOut)
@@ -86,7 +102,8 @@ def arm(request: Request, body: ArmIn) -> DownloadsOut:
         raise HTTPException(status_code=404, detail="title not found")
     if not body.num.strip():
         raise HTTPException(status_code=422, detail="a chapter number is required")
-    request.app.state.armed_download = {"arm": body, "at": time.monotonic()}
+    with _DL_LOCK:
+        request.app.state.armed_download = {"arm": body, "at": time.monotonic()}
     return state_out(request)
 
 
@@ -99,7 +116,8 @@ def state_out(request: Request) -> DownloadsOut:
 
 @router.delete("/arm", status_code=204)
 def disarm(request: Request) -> Response:
-    request.app.state.armed_download = None
+    with _DL_LOCK:
+        request.app.state.armed_download = None
     return Response(status_code=204)
 
 
@@ -114,9 +132,11 @@ def start(request: Request, body: StartIn) -> DownloadItem:
     """A download began in the browser: consume the arm and CLAIM the chapter
     binding right now — the next chapter can be armed in parallel."""
     with _DL_LOCK:  # observe + consume the arm as one step
-        armed = _armed(request)
-        if armed is None:
+        state = getattr(request.app.state, "armed_download", None)
+        fresh = state is not None and time.monotonic() - state["at"] <= ARM_TTL_SECONDS
+        if not fresh:
             raise HTTPException(status_code=409, detail="no download is armed")
+        armed = state["arm"]
         request.app.state.armed_download = None
     item = DownloadItem(
         id=uuid.uuid4().hex[:12], titleId=armed.titleId, num=armed.num,

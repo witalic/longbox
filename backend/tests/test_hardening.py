@@ -548,21 +548,25 @@ def test_background_sync_never_overwrites_a_newer_write(tmp_path):
     lib = Library(tmp_path)
     out = lib.create(DraftIn(meta=TitleMeta(title="Berserk", desc="current")))
     doc, media, cover = lib.index.get(out.id)
-    touched, media_at, _ = lib.index.stamps()[out.id]
+    touched, media_at, cover_stamp = lib.index.stamps()[out.id]
+    assert cover_stamp == cover
 
     stale = doc.model_copy(deep=True)
     stale.meta.desc = "what the scan read before the change"
     # the scan saw different stamps than the row now carries
     lib.index.upsert_many([(out.id, stale, touched, media, media_at, cover,
-                            (touched - 1, media_at))])
+                            (touched - 1, media_at, cover))])
     assert lib.get(out.id).desc == "current"
     lib.index.upsert_many([(out.id, stale, touched, media, media_at, cover,
-                            (touched, media_at - 1))])
+                            (touched, media_at - 1, cover))])
+    lib.index.upsert_many([(out.id, stale, touched, media, media_at, cover,
+                            (touched, media_at, "a-different-cover"))])
+    assert lib.get(out.id).desc == "current"
     assert lib.get(out.id).desc == "current"
 
     # …and applies when nothing moved under it
     lib.index.upsert_many([(out.id, stale, touched, media, media_at, cover,
-                            (touched, media_at))])
+                            (touched, media_at, cover))])
     assert lib.get(out.id).desc == "what the scan read before the change"
     lib.close()
 
@@ -717,4 +721,28 @@ def test_a_replaced_cover_is_never_served_from_the_old_one(tmp_path, monkeypatch
         lib.set_cover(out.id, _solid((0, 0, 200)), "jpg", "")
         lib._index(out.id, lib.vault.load(out.id))
         assert shown()[2] > 150  # blue — the new cover, not the cached one
+    lib.close()
+
+
+def test_the_sweep_never_replaces_a_stored_chapter(tmp_path):
+    """A stray `ch-1.cbz` dropped beside the stored `ch-1.zip` is not this
+    chapter's archive — converting it would swap the pages the user captured
+    for whatever was dropped in."""
+    lib = Library(tmp_path)
+    out = lib.create(DraftIn(meta=TitleMeta(title="Berserk")))
+    src = tmp_path / "in.zip"
+    with zipfile.ZipFile(src, "w") as z:
+        z.writestr("001.jpg", b"the captured page")
+    lib.attach_chapter_media(out.id, num="1", lang="EN", group="dex", src=src, sidecar={})
+    cid = lib.get(out.id).chapters[0].id
+    stored = lib.vault.chapter_media_path(out.id, cid)
+
+    stray = stored.with_suffix(".cbz")
+    with zipfile.ZipFile(stray, "w") as z:
+        z.writestr("001.jpg", b"something else entirely")
+
+    lib.vault.normalize_chapter_archives(force=True)
+    with zipfile.ZipFile(stored) as z:
+        assert z.read("001.jpg") == b"the captured page"
+    assert stray.is_file()  # left alone, not silently consumed
     lib.close()

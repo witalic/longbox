@@ -4,6 +4,7 @@
 // click reopens their tabs in the background.
 import { reactive, watch } from 'vue'
 import { browser, newTabBackground } from './browser'
+import { isRecord, readLocal } from './local'
 import { openTitleBackground, store } from './store'
 
 export interface SessionSnap {
@@ -18,14 +19,19 @@ const MAX = 3
 
 export const sessionHistory = reactive<SessionSnap[]>([])
 
-function readJson<T>(key: string): T | null {
-  try { return JSON.parse(localStorage.getItem(key) || 'null') } catch { return null }
+// validated, not merely parsed: a stale or hand-edited key must not throw
+// inside app startup, which runs this synchronously
+const isSnap = (v: unknown): v is SessionSnap => isRecord(v)
+const isSnapList = (v: unknown): v is SessionSnap[] => Array.isArray(v) && v.every(isSnap)
+
+function readSnap(key: string): SessionSnap | null {
+  return readLocal<SessionSnap | null>(key, (v): v is SessionSnap | null => v === null || isSnap(v), null)
 }
 
 export function initSessions() {
   // whatever the LAST run left open becomes history — exactly like a browser
-  const prev = readJson<SessionSnap>(CUR)
-  const hist = readJson<SessionSnap[]>(HIST) ?? []
+  const prev = readSnap(CUR)
+  const hist = readLocal<SessionSnap[]>(HIST, isSnapList, [])
   if (prev && (prev.titles?.length || prev.web?.length)) hist.unshift(prev)
   sessionHistory.splice(0, sessionHistory.length, ...hist.slice(0, MAX))
   try { localStorage.setItem(HIST, JSON.stringify([...sessionHistory])) } catch { /* ignore */ }

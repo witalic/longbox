@@ -236,6 +236,22 @@ export function sameChapter(a: ChapterIdentity, b: ChapterIdentity): boolean {
   return norm(a.num) === norm(b.num) && norm(a.lang) === norm(b.lang) && norm(a.group) === norm(b.group)
 }
 
+// The chapter list in READING order: the title's own manual order when it has
+// one, natural chapter order otherwise. The title page, the reader and the
+// library grid all show the same shelf, so they read it from here.
+export function orderedChaptersOf<T extends { num: string }>(
+  chapters: T[] | undefined, chapterOrder: string | undefined): T[] {
+  const rows = [...(chapters ?? [])]
+  if (chapterOrder !== 'manual') rows.sort((a, b) => compareChapterNums(a.num, b.num))
+  return rows
+}
+
+// The values actually present on a chapter list, as filter options.
+export function filterOptions<T>(rows: T[], pick: (row: T) => string): { v: string; l: string }[] {
+  return [{ v: 'all', l: 'All' },
+    ...[...new Set(rows.map(pick).filter(Boolean))].map((v) => ({ v, l: v }))]
+}
+
 // Group chapter-like rows by their label (num), first-seen order kept — the
 // shared tree grammar of the title page, the reader sidebar and the dock.
 export function groupByNum<T extends { num: string }>(rows: T[]): { num: string; rows: T[] }[] {

@@ -8,6 +8,7 @@ import Icon from '../components/Icon.vue'
 import Pager from '../components/Pager.vue'
 import { store, filterBy, openTitle, openTitleBackground, takeAuthorFocus } from '../store'
 import { api } from '../api'
+import { isBoolMap, readLocal, readLocalOne, writeLocal, writeLocalOne } from '../local'
 import { coverAt, hueFor, initials as initialsOf, type Author } from '../data'
 
 const role = ref<'all' | 'author' | 'artist' | 'both'>('all')
@@ -20,8 +21,8 @@ if (focus) {
 }
 
 // the whole filter sidebar can hide (shared preference with the Library)
-const fsideOpen = ref(localStorage.getItem('lb.fside') !== '0')
-watch(fsideOpen, (v) => { try { localStorage.setItem('lb.fside', v ? '1' : '0') } catch { /* ignore */ } })
+const fsideOpen = ref(readLocalOne('lb.fside', ['0', '1'] as const, '1') === '1')
+watch(fsideOpen, (v) => writeLocalOne('lb.fside', v ? '1' : '0'))
 
 const anyAuthorFilter = computed(() =>
   !!search.value.trim() || role.value !== 'all' || favOnly.value || tagSel.value.length > 0)
@@ -118,12 +119,9 @@ const roleLabel: Record<string, string> = { author: 'AUTHOR', artist: 'ARTIST', 
 const initials = initialsOf
 
 // sections COLLAPSED by default, open set shared with the library's sidebar
-const openSec = reactive<Record<string, boolean>>((() => {
-  try { return JSON.parse(localStorage.getItem('lb.facetOpen') || '{}') } catch { return {} }
-})())
-watch(openSec, () => {
-  try { localStorage.setItem('lb.facetOpen', JSON.stringify(openSec)) } catch { /* ignore */ }
-}, { deep: true })
+const openSec = reactive<Record<string, boolean>>(
+  readLocal('lb.facetOpen', isBoolMap, {}))
+watch(openSec, () => writeLocal('lb.facetOpen', { ...openSec }), { deep: true })
 function toggleSec(k: string) { openSec[k] = !openSec[k] }
 </script>
 
