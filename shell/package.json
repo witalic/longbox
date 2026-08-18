@@ -38,7 +38,7 @@
       "publishAutoUpdate": false
     }],
     "win": {
-      "target": ["nsis"],
+      "target": ["nsis", "zip"],
       "icon": "icon.ico",
       "artifactName": "longbox-${version}-windows-${arch}.${ext}"
     },
@@ -51,7 +51,7 @@
     },
     "dmg": { "writeUpdateInfo": false },
     "mac": {
-      "target": ["dmg"],
+      "target": ["dmg", "zip"],
       "icon": "icon.png",
       "category": "public.app-category.entertainment",
       "artifactName": "longbox-${version}-macos-${arch}.${ext}",
