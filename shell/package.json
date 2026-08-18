@@ -2,7 +2,7 @@
   "name": "longbox-shell",
   "private": true,
   "version": "1.2.0",
-  "description": "Electron shell: spawns the FastAPI sidecar and loads the UI it serves at /app/",
+  "description": "longbox media vault",
   "main": "main.js",
   "homepage": "https://witalic.github.io/longbox/",
   "repository": { "type": "git", "url": "https://github.com/witalic/longbox.git" },
