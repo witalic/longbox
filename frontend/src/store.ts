@@ -199,7 +199,11 @@ export async function init() {
   // opens on, and a big vault makes every extra call visible as an empty screen.
   store.loading = true
   try {
-    const [all, facets, settings] = await Promise.all([api.library(), api.facets(), api.settings()])
+    // the sync status comes WITH the first paint: an index still being filled
+    // must read as "reading the library", never as "your library is empty"
+    const [all, facets, settings, sync] = await Promise.all(
+      [api.library(), api.facets(), api.settings(), api.libraryStatus()])
+    Object.assign(opening, { active: sync.running, path: sync.path, done: sync.done, total: sync.total })
     cache(all)
     store.total = all.length
     store.titles = all.map((t) => store.byId[t.id])

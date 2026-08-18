@@ -133,6 +133,11 @@ class Library:
             progress(0, len(stale))
         rows = []
         for i, tid in enumerate(stale):
+            if self._closing.is_set():
+                # the library is being closed (a switch, or the app quitting):
+                # stop reading rather than write into a database about to close
+                log.info("sync stopped after %d of %d titles", i, len(stale))
+                break
             try:
                 doc = self.vault.load(tid)
             except Exception:  # noqa: BLE001 — one malformed title.json never blocks a launch
@@ -149,6 +154,8 @@ class Library:
                 progress(i + 1, len(stale))
         # nothing is serving yet at construction time, so one batch is safe here
         # where per-title locking is the rule everywhere else
+        if self._closing.is_set():
+            return 0
         self.index.upsert_many(rows)
         self.sync_state["changed"] = len(rows) + len(indexed.keys() - on_disk.keys())
         # the numbers a slow launch has to be diagnosed with — a network vault
@@ -191,7 +198,7 @@ class Library:
         self._closing.set()
         for thread in (self._normalize_thread, self._sync_thread):
             if thread is not None and thread.is_alive():
-                thread.join(timeout=5)
+                thread.join(timeout=10)
         self.index.close()
 
     # ---- DTO composition ----
