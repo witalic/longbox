@@ -158,23 +158,28 @@ class LibraryIndex:
             self._db.execute(self._upsert_sql,
                              self._row(title_id, doc, touched, media, media_at, cover))
 
-    def upsert_many(self, rows: list[tuple[str, TitleDoc, int, dict[str, dict], int, str]]) -> None:
+    def upsert_many(self, rows: list[tuple[str, TitleDoc, int, dict[str, dict], int, str,
+                                            tuple[int, int]]]) -> None:
         """One transaction for many titles — a launch that has to re-read a whole
         library must not pay a commit per title.
 
         This is the path a background verification uses, and it does NOT hold the
-        title locks, so the update is guarded: a row written from a document
-        older than the one already indexed is ignored. Without that, a scan that
-        started before a commit could put stale data back on top of it."""
+        title locks, so each row carries the stamps its scan SAW in the index and
+        updates only while they still hold. That refuses exactly one thing — a
+        row someone else rewrote in the meantime — and nothing else: a vault
+        restored from a backup, whose files are OLDER than the ones indexed, is
+        still picked up, which a "newer wins" rule would ignore forever."""
         if not rows:
             return
-        # BOTH stamps must be at least as new: deleting a chapter file leaves
-        # title.json untouched, so the document mtime alone would let a scan that
-        # started earlier put the deleted media back.
-        guarded = (f"{self._upsert_sql} WHERE excluded.touched >= titles.touched"
-                   " AND excluded.media_at >= titles.media_at")
+        guarded = (f"{self._upsert_sql} WHERE titles.touched = :was_touched"
+                   " AND titles.media_at = :was_media_at")
+        params = []
+        for tid, doc, touched, media, media_at, cover, was in rows:
+            row = self._row(tid, doc, touched, media, media_at, cover)
+            row["was_touched"], row["was_media_at"] = was
+            params.append(row)
         with self._lock, self._db:
-            self._db.executemany(guarded, [self._row(*r) for r in rows])
+            self._db.executemany(guarded, params)
 
     def remove(self, title_id: str) -> None:
         with self._lock, self._db:

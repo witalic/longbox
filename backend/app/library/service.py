@@ -140,7 +140,11 @@ class Library:
             if doc is not None:
                 # stamped before the read, exactly as _index does
                 stamp = on_disk[tid]
-                rows.append((tid, doc, stamp[0], self._sidecars(tid), stamp[1], stamp[2]))
+                # what this scan saw in the index, so the write can tell "nobody
+                # touched it since" from "someone else wrote a newer row"
+                was = indexed.get(tid, (0, 0, ""))
+                rows.append((tid, doc, stamp[0], self._sidecars(tid), stamp[1], stamp[2],
+                             (was[0], was[1])))
             if progress:
                 progress(i + 1, len(stale))
         # nothing is serving yet at construction time, so one batch is safe here
@@ -210,6 +214,11 @@ class Library:
         lock: a doc read in a critical section and indexed after it is released
         can overwrite a newer writer's row with stale data. The chapter sidecars
         are read HERE, once per write, so no listing ever has to touch them."""
+        # The write that just happened may not have moved the chapters directory
+        # far enough for an mtime-keyed cache to notice (two changes can share one
+        # timestamp), and a listing composed from a stale sidecar shows a chapter
+        # that is no longer there. After a write the cache is simply wrong.
+        self._sidecar_cache.pop(title_id, None)
         # stamp BEFORE reading: a change that lands in between then looks newer
         # than the row, so the next launch re-reads it — the other order would
         # store fresh stamps over stale content and never notice
@@ -237,6 +246,7 @@ class Library:
     def _out_now(self, title_id: str, doc: TitleDoc) -> TitleOut:
         """One title composed right after a write, when the sidecars on disk are
         newer than whatever the index row still carries."""
+        self._sidecar_cache.pop(title_id, None)  # the write is newer than any cache
         return self._out(title_id, doc, self._sidecars(title_id), self._cover_url(title_id))
 
     def _out(self, title_id: str, doc: TitleDoc, sidecars: dict[str, dict], cover: str) -> TitleOut:

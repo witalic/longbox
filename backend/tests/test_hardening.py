@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import shutil
 import zipfile
 
@@ -541,20 +542,66 @@ def test_a_listing_reads_no_chapter_sidecars(tmp_path, monkeypatch):
 
 
 def test_background_sync_never_overwrites_a_newer_write(tmp_path):
-    """The verification pass does not hold the title locks, so a scan that
-    started before a change must not put the old state back on top of it."""
+    """The verification pass does not hold the title locks, so it writes only
+    while the stamps it SAW still hold: a row rewritten in the meantime (a
+    chapter deleted, say, which leaves title.json untouched) must survive."""
+    lib = Library(tmp_path)
+    out = lib.create(DraftIn(meta=TitleMeta(title="Berserk", desc="current")))
+    doc, media, cover = lib.index.get(out.id)
+    touched, media_at, _ = lib.index.stamps()[out.id]
+
+    stale = doc.model_copy(deep=True)
+    stale.meta.desc = "what the scan read before the change"
+    # the scan saw different stamps than the row now carries
+    lib.index.upsert_many([(out.id, stale, touched, media, media_at, cover,
+                            (touched - 1, media_at))])
+    assert lib.get(out.id).desc == "current"
+    lib.index.upsert_many([(out.id, stale, touched, media, media_at, cover,
+                            (touched, media_at - 1))])
+    assert lib.get(out.id).desc == "current"
+
+    # …and applies when nothing moved under it
+    lib.index.upsert_many([(out.id, stale, touched, media, media_at, cover,
+                            (touched, media_at))])
+    assert lib.get(out.id).desc == "what the scan read before the change"
+    lib.close()
+
+
+def test_a_vault_replaced_with_older_files_is_still_picked_up(tmp_path, monkeypatch):
+    """Restoring a backup (or swapping the folder for another copy) leaves files
+    whose mtimes are OLDER than the ones indexed. That is still a change."""
+    lib = Library(tmp_path)
+    out = lib.create(DraftIn(meta=TitleMeta(title="Berserk", desc="first")))
+    lib.close()
+
+    doc_path = next(tmp_path.rglob("berserk/title.json"))
+    doc = json.loads(doc_path.read_text(encoding="utf-8"))
+    doc["meta"]["desc"] = "restored from a backup"
+    doc_path.write_text(json.dumps(doc), encoding="utf-8")
+    old = 10**9  # an mtime far in the past, exactly as a restored copy carries
+    os.utime(doc_path, ns=(old, old))
+
+    lib = Library(tmp_path)
+    assert lib.get(out.id).desc == "restored from a backup"
+    lib.close()
+
+
+def test_a_write_is_never_composed_from_a_cached_sidecar(tmp_path):
+    """Two changes can land inside one directory-mtime tick, so a cache keyed on
+    that mtime can answer a write with the state from before it."""
     lib = Library(tmp_path)
     out = lib.create(DraftIn(meta=TitleMeta(title="Berserk")))
     lib.attach_chapter_media(out.id, num="5", lang="EN", group="dex",
                              src=_one_page_zip(tmp_path / "in.zip"), sidecar={})
-    # what a scan that ran BEFORE the delete would try to write back
-    doc, media, cover = lib.index.get(out.id)
-    stale_stamps = lib.index.stamps()[out.id]
     chapter_id = lib.get(out.id).chapters[0].id
-
-    lib.delete_chapter_media(out.id, chapter_id)
-    assert lib.get(out.id).chapters[0].dl is False
-
-    lib.index.upsert_many([(out.id, doc, stale_stamps[0], media, stale_stamps[1], cover)])
-    assert lib.get(out.id).chapters[0].dl is False  # the stale row was refused
+    # freeze the directory clock: without invalidation the cache would hold
+    stamp = lib.vault.chapters_stamp(out.id)
+    monkey = lambda self, tid: stamp  # noqa: E731
+    original = type(lib.vault).chapters_stamp
+    type(lib.vault).chapters_stamp = monkey
+    try:
+        after = lib.delete_chapter_media(out.id, chapter_id)
+        assert after.chapters[0].dl is False and after.chapters[0].pages == 0
+    finally:
+        type(lib.vault).chapters_stamp = original
     lib.close()
