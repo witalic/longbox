@@ -189,3 +189,54 @@ def test_an_older_import_learns_its_codec_at_first_play(tmp_path):
         chapter = c.get(f"/api/titles/{out.id}").json()["chapters"][0]
         assert chapter["codec"] == "hevc" and chapter["faststart"] is False
     lib.close()
+
+
+def test_an_episode_is_not_pushed_into_the_browser_cache(tmp_path):
+    """Episodes are streamed by range off a disk the app owns. Storing one in
+    the browser cache evicts every cover and page preview — the things a cache
+    that size is actually for — and churns on the disk the stream reads."""
+    lib, tid, cid = _title_with_episode(tmp_path / "v", tmp_path)
+    with TestClient(create_app(lib)) as c:
+        r = c.get(f"/api/titles/{tid}/chapters/{cid}/video")
+        assert r.headers["cache-control"] == "no-store"
+        assert r.headers["accept-ranges"] == "bytes"   # seeking still works
+    lib.close()
+
+
+def test_an_open_ended_ask_is_answered_with_a_window(tmp_path):
+    """`bytes=N-` is not a promise to read to the end: the player takes a slice
+    and drops the connection. Committing to the whole tail costs a reconnect and
+    a fresh open() per fragment, and throws away everything already read."""
+    from app.routers.library import VIDEO_WINDOW
+
+    big = tmp_path / "big.mp4"
+    _mp4(big, b"\x2a" * (VIDEO_WINDOW + 4096))
+    lib = Library(tmp_path / "v")
+    out = lib.create(DraftIn(meta=TitleMeta(title="Series", type="anime")))
+    lib.attach_chapter_media(out.id, num="1", lang="", group="", src=big,
+                             sidecar={"filename": "big.mp4"})
+    cid = lib.get(out.id).chapters[0].id
+    size = lib.vault.chapter_media_path(out.id, cid).stat().st_size
+
+    with TestClient(create_app(lib)) as c:
+        url = f"/api/titles/{out.id}/chapters/{cid}/video"
+        r = c.get(url, headers={"Range": "bytes=0-"})
+        assert r.status_code == 206
+        assert r.headers["content-range"] == f"bytes 0-{VIDEO_WINDOW - 1}/{size}"
+        assert len(r.content) == VIDEO_WINDOW
+
+        # the window never runs past the file
+        near_end = size - 100
+        r = c.get(url, headers={"Range": f"bytes={near_end}-"})
+        assert r.headers["content-range"] == f"bytes {near_end}-{size - 1}/{size}"
+        assert len(r.content) == 100
+
+        # an explicit range is still answered exactly as asked
+        r = c.get(url, headers={"Range": "bytes=10-19"})
+        assert r.status_code == 206 and len(r.content) == 10
+        assert r.headers["content-range"] == f"bytes 10-19/{size}"
+
+        # so is a suffix ask — the tail is where a non-faststart index lives
+        r = c.get(url, headers={"Range": "bytes=-50"})
+        assert r.status_code == 206 and len(r.content) == 50
+    lib.close()
