@@ -50,7 +50,6 @@
       "differentialPackage": false
     },
     "dmg": { "writeUpdateInfo": false },
-    "zip": { "writeUpdateInfo": false },
     "mac": {
       "target": ["dmg", "zip"],
       "icon": "icon.png",
