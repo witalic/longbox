@@ -713,8 +713,19 @@ class Library:
             side = dict(self._sidecars(title_id).get(safe_id(chapter_id), {}))
             if not side:
                 return self._out_now(title_id, doc)
-            if abs(float(side.get("duration") or 0.0) - seconds) < 0.5:
-                return self._out_now(title_id, doc)  # already known
+            known = abs(float(side.get("duration") or 0.0) - seconds) < 0.5
+            # Episodes stored before the app looked inside them carry no codec:
+            # fill that in HERE, at first play, rather than on a listing (which
+            # must touch no files) or on the serving path.
+            probe_needed = side.get("kind") == "video" and "codec" not in side
+            if known and not probe_needed:
+                return self._out_now(title_id, doc)
+            if probe_needed:
+                path = self.vault.chapter_media_path(title_id, chapter_id)
+                if path is not None:
+                    probe = media.probe_mp4(path)
+                    side["codec"] = probe.get("codec", "")
+                    side["faststart"] = probe.get("faststart", False)
             side["duration"] = round(seconds, 3)
             self.vault.write_chapter_sidecar(title_id, chapter_id, side)
             self._index(title_id, doc)

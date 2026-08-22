@@ -13,11 +13,12 @@ import { api } from '../api'
 import { setPlaybackPosition } from '../store'
 import { formatDuration, type Chapter, type Title } from '../data'
 
-const props = defineProps<{ title: Title; chapter: Chapter }>()
+const props = withDefaults(
+  defineProps<{ title: Title; chapter: Chapter; autoplay?: boolean }>(),
+  { autoplay: false })
 
 const el = ref<HTMLVideoElement | null>(null)
 const failed = ref(false)
-const stalled = ref(false)
 
 // Why a file may behave badly, stated plainly instead of looking like a bug in
 // the app. Both come from the file itself and both are fixed by a remux.
@@ -89,7 +90,7 @@ onBeforeUnmount(() => {
       class="vplayer"
       :src="src"
       controls
-      autoplay
+      :autoplay="autoplay"
       preload="auto"
       @loadedmetadata="onLoaded"
       @timeupdate="remember(el?.currentTime ?? 0)"
@@ -97,12 +98,7 @@ onBeforeUnmount(() => {
       @seeked="remember(el?.currentTime ?? 0, true)"
       @ended="remember(0, true)"
       @error="failed = true"
-      @stalled="stalled = true"
-      @playing="stalled = false"
     ></video>
-
-    <!-- said once, quietly, and only when the file explains itself -->
-    <div v-if="playable && caveat" class="vcaveat">{{ caveat }}</div>
 
     <!-- stored, listed, catalogued — just not openable by this browser engine -->
     <div v-else class="vunplayable">
@@ -115,6 +111,9 @@ onBeforeUnmount(() => {
       </div>
       <a class="btn ghost" :href="src" download>Save a copy</a>
     </div>
+
+    <!-- said once, quietly, and only when the file explains itself -->
+    <div v-if="playable && caveat" class="vcaveat">{{ caveat }}</div>
   </div>
 </template>
 

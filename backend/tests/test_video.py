@@ -5,6 +5,7 @@ Everything a chapter already is — identity, provenance, translations, progress
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -156,4 +157,35 @@ def test_the_vault_records_why_a_file_may_start_slowly(tmp_path):
     chapter = lib.get(out.id).chapters[0]
     assert chapter.codec == "hevc"
     assert chapter.faststart is False
+    lib.close()
+
+
+def test_an_older_import_learns_its_codec_at_first_play(tmp_path):
+    """Episodes stored before the app looked inside them carry no codec. That
+    is filled in at first play — not on a listing, which touches no files, and
+    not on the serving path."""
+    lib = Library(tmp_path / "v")
+    out = lib.create(DraftIn(meta=TitleMeta(title="Series")))
+    moov = b"moov" + b"\x00" * 4 + b"hvc1" + b"\x00" * 64
+    src = tmp_path / "ep.mp4"
+    src.write_bytes(
+        b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2"
+        + (8 + 2048).to_bytes(4, "big") + b"mdat" + b"\x00" * 2048
+        + (len(moov) + 4).to_bytes(4, "big") + moov)
+    lib.attach_chapter_media(out.id, num="1", lang="", group="", src=src,
+                             sidecar={"filename": "ep.mp4"})
+    cid = lib.get(out.id).chapters[0].id
+
+    side_path = lib.vault.chapters_dir(out.id) / f"{cid}.json"
+    side = json.loads(side_path.read_text(encoding="utf-8"))
+    del side["codec"], side["faststart"]
+    side_path.write_text(json.dumps(side), encoding="utf-8")
+    lib._sidecar_cache.clear()
+    lib._index(out.id, lib.vault.load(out.id))
+    assert lib.get(out.id).chapters[0].codec == ""
+
+    with TestClient(create_app(lib)) as c:
+        c.post(f"/api/titles/{out.id}/chapters/{cid}/video/meta", json={"duration": 89.1})
+        chapter = c.get(f"/api/titles/{out.id}").json()["chapters"][0]
+        assert chapter["codec"] == "hevc" and chapter["faststart"] is False
     lib.close()

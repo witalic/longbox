@@ -347,7 +347,7 @@ const WIDTH_PRESETS = [600, 720, 900]
       </aside>
 
       <!-- VIDEO: the same shell, a different surface -->
-      <VideoSurface v-if="isVideo && t && chapter" :title="t" :chapter="chapter" />
+      <VideoSurface v-if="isVideo && t && chapter" :title="t" :chapter="chapter" autoplay />
 
       <!-- PAGES: one page, click left/right thirds to flip -->
       <div v-else-if="mode === 'pages'" ref="pagesEl" class="stage scroll" :class="{ fith: fit === 'height' }" @click="onStageClick">
