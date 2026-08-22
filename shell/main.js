@@ -283,6 +283,17 @@ async function main() {
     },
   })
 
+  // DevTools, on the app window only. The one class of problem that cannot be
+  // diagnosed from outside — playback stalls, a decode fallback, request timing
+  // — is visible nowhere else, and this build only ever runs on the owner's
+  // machine.
+  win.webContents.on('before-input-event', (_e, input) => {
+    if (input.type !== 'keyDown') return
+    if (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')) {
+      win.webContents.toggleDevTools()
+    }
+  })
+
   // Native folder picker (Settings → Storage). Only the app window may ask.
   ipcMain.handle('lb-pick-folder', async (e, title) => {
     if (e.sender !== win.webContents) return null
