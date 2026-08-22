@@ -19,19 +19,53 @@ const props = withDefaults(
 
 const el = ref<HTMLVideoElement | null>(null)
 const failed = ref(false)
+// A stall has to be VISIBLE. Without this the two ways playback can fail —
+// bytes not arriving, or frames not decoding in time — look identical, and
+// the player just seems broken.
+const stalled = ref(false)
 
-// Why a file may behave badly, stated plainly instead of looking like a bug in
-// the app. Both come from the file itself and both are fixed by a remux.
+// Why a file may behave badly — ASKED, not assumed. Whether a codec plays well
+// depends on the machine, so claiming "HEVC stutters" on a machine that decodes
+// it in hardware would be a lie the user can see through.
+const decodeWarning = ref('')
+
+async function checkDecoding(video: HTMLVideoElement) {
+  decodeWarning.value = ''
+  const caps = navigator.mediaCapabilities
+  if (!caps?.decodingInfo || !props.chapter.codec || !video.videoWidth) return
+  const PROFILES: Record<string, string> = {
+    hevc: 'video/mp4; codecs="hvc1.1.6.L153.B0"',
+    h264: 'video/mp4; codecs="avc1.640033"',
+    av1: 'video/mp4; codecs="av01.0.08M.08"',
+    vp9: 'video/webm; codecs="vp09.00.10.08"',
+  }
+  const contentType = PROFILES[props.chapter.codec]
+  if (!contentType) return
+  try {
+    const info = await caps.decodingInfo({
+      type: 'file',
+      video: {
+        contentType, width: video.videoWidth, height: video.videoHeight,
+        bitrate: Math.round((props.chapter.duration ? 8 * 628e6 / props.chapter.duration : 8e6)),
+        framerate: 30,
+      },
+    })
+    if (!info.supported) decodeWarning.value = 'This machine cannot decode this codec.'
+    else if (!info.smooth) {
+      decodeWarning.value = `This machine decodes ${props.chapter.codec.toUpperCase()} at `
+        + `${video.videoWidth}×${video.videoHeight} in software — playback and seeking will stutter.`
+    }
+  } catch { /* the query is a courtesy; its absence is not an error */ }
+}
+
 const caveat = computed(() => {
   const c = props.chapter
   if (c.kind !== 'video') return ''
-  if (c.codec === 'hevc') {
-    return 'This episode is HEVC (H.265). It plays only where the system decodes it in '
-      + 'hardware — otherwise it stutters however fast the disk is.'
-  }
+  if (decodeWarning.value) return decodeWarning.value
   if (c.faststart === false) {
-    return 'This file keeps its index at the end, so the player has to fetch the tail '
-      + 'before the first frame. That is the slow start you see.'
+    return 'This file keeps its index at the end, so the player fetches the tail before the '
+      + 'first frame — that is the slow start. Seeking far can also take a moment: the '
+      + 'decoder has to replay from the previous keyframe.'
   }
   return ''
 })
@@ -57,6 +91,7 @@ function remember(seconds: number, force = false) {
 function onLoaded() {
   const v = el.value
   if (!v) return
+  void checkDecoding(v)
   // resume where the human stopped, unless they finished it
   const at = props.chapter.position
   if (at > 0 && (!v.duration || at < v.duration - 5)) v.currentTime = at
@@ -71,6 +106,7 @@ watch(() => props.chapter.id, (_next, previous) => {
   const at = el.value?.currentTime ?? 0
   if (previous && at > 0) void setPlaybackPosition(props.title, previous, at)
   failed.value = false
+  stalled.value = false
   lastSaved = 0
 })
 
@@ -97,6 +133,9 @@ onBeforeUnmount(() => {
       @pause="remember(el?.currentTime ?? 0, true)"
       @seeked="remember(el?.currentTime ?? 0, true)"
       @ended="remember(0, true)"
+      @waiting="stalled = true"
+      @playing="stalled = false"
+      @canplay="stalled = false"
       @error="failed = true"
     ></video>
 
@@ -111,6 +150,8 @@ onBeforeUnmount(() => {
       </div>
       <a class="btn ghost" :href="src" download>Save a copy</a>
     </div>
+
+    <div v-if="playable && stalled" class="vstall">Buffering…</div>
 
     <!-- said once, quietly, and only when the file explains itself -->
     <div v-if="playable && caveat" class="vcaveat">{{ caveat }}</div>
@@ -131,6 +172,13 @@ onBeforeUnmount(() => {
   padding: 8px 14px; font: 400 11px/1.4 system-ui;
   color: var(--tx2); background: color-mix(in srgb, var(--bg) 88%, transparent);
   border-top: 1px solid var(--line);
+}
+.vstall {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+  padding: 5px 12px; border-radius: 999px; pointer-events: none;
+  font: 500 12px/1 system-ui; color: var(--tx);
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  border: 1px solid var(--line);
 }
 .vhint { font: 400 12px/1.5 system-ui; color: var(--tx3); max-width: 420px; }
 </style>
