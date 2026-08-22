@@ -413,13 +413,19 @@ export async function setRating(t: Title, value: number) {
   t.rating = v
   try { cache([await api.patchUser(t.id, { rating: v })]) } catch (e) { store.error = String(e) }
 }
-// Where a page chapter remembers WHICH page, an episode remembers WHERE. Same
-// layer, same instant write-through — no draft, no confirm.
+// Where a page chapter remembers WHICH page, an episode remembers WHERE.
+//
+// Deliberately NOT a full write-through round trip: a position write rewrites
+// the title document and refreshes its index row, which on a vault that lives
+// on a network drive competes with the stream the player is pulling from that
+// same drive. The player is the authority while it runs, so the value is
+// applied locally and sent without merging the response back — merging one
+// would also replace the chapter list mid-playback and re-render the reader.
 export async function setPlaybackPosition(t: Title, chapterId: string, seconds: number) {
   const chapter = t.chapters.find((c) => c.id === chapterId)
-  if (chapter) chapter.position = seconds // optimistic: the player is the truth here
+  if (chapter) chapter.position = seconds
   try {
-    cache([await api.patchUser(t.id, { position: { [chapterId]: seconds } })])
+    await api.patchUser(t.id, { position: { [chapterId]: seconds } })
   } catch (e) {
     store.error = e instanceof Error ? e.message : String(e)
   }

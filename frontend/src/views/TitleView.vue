@@ -342,9 +342,12 @@ function pageSrc(cid: string, index: number, v: string): string {
 }
 const pagesTitle = ref<string | null>(null) // which TITLE the pane belongs to
 async function selectPages(c: Chapter) {
-  // an episode has no page pane to open — the row IS the play button
+  // An episode has no page pane. This runs on AUTO-SELECT too (the pane opens
+  // on the first readable chapter), so it must never navigate — doing so threw
+  // the user back into the player every time they returned to the title.
   if (c.kind === 'video') {
-    if (c.dl && t.value) void openReader(t.value.id, c.id, 0)
+    openPages.value = null
+    pageCount.value = 0
     return
   }
   if (!c.dl || !c.pages) {
@@ -385,6 +388,16 @@ watch(() => [t.value?.id, t.value?.chapters], () => {
   pageCount.value = 0
   if (first) void selectPages(first)
 }, { immediate: true, deep: false })
+// Clicking a row: pages open their pane, an episode opens the player. Only a
+// real click does this — never the automatic selection above.
+function onRowClick(c: Chapter) {
+  if (c.kind === 'video') {
+    if (c.dl && t.value) void openReader(t.value.id, c.id, 0)
+    return
+  }
+  void selectPages(c)
+}
+
 function togglePageSel(index: number) {
   if (!editMode.value) return
   const k = selPages.value.indexOf(index)
@@ -737,7 +750,7 @@ async function removeRow(c: Chapter) {
                   <div class="chrow tr" :class="{ open: openPages === c.id, openable: isReadable(c), dragging: dragRow?.id === c.id }"
                        :draggable="canDrag" @dragstart.stop="dragRow = c" @dragend="clearDrag"
                        @dragover.prevent="onDragOverNum(node.num)" @drop.prevent="onRowDrop(node.num)"
-                       @click="selectPages(c)">
+                       @click="onRowClick(c)">
                     <span class="chslot">
                       <span v-if="canDrag" class="grip mono" title="Drag onto another label to move this translation">&#8942;&#8942;</span>
                       <span v-else class="chdot s" :style="{ background: readColor[c.read] }" :title="`${c.read} — click to change`" @click.stop="cycleRead(c)"></span>
@@ -773,7 +786,7 @@ async function removeRow(c: Chapter) {
                    :draggable="canDrag"
                    @dragstart="dragNum = node.num" @dragend="clearDrag"
                    @dragover.prevent="onDragOverNum(node.num)" @drop.prevent="onRowDrop(node.num)"
-                   @click="selectPages(node.rows[0])">
+                   @click="onRowClick(node.rows[0])">
                 <span class="chslot">
                   <span v-if="canDrag" class="grip mono" title="Drag to reorder">&#8942;&#8942;</span>
                   <span v-else class="chdot" :style="{ background: readColor[node.rows[0].read] }" :title="`${node.rows[0].read} — click to change`" @click.stop="cycleRead(node.rows[0])"></span>

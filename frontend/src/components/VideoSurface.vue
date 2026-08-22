@@ -7,7 +7,7 @@
 // Position is the video answer to "which page was I on": written through on a
 // slow tick and on pause, restored on open. Duration is what only a player can
 // measure without an ffprobe the app does not ship — reported once.
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import { api } from '../api'
 import { setPlaybackPosition } from '../store'
@@ -23,10 +23,15 @@ const src = computed(() => api.chapterVideoSrc(props.title.id, props.chapter.id,
 // other episode — it simply has no surface here until the app can remux it.
 const playable = computed(() => props.chapter.playable !== false && !failed.value)
 
+// A resume point does not need to be current to the second, and each write
+// costs a document rewrite on the vault the stream is reading from — so
+// playback saves rarely, and the moments that matter (pause, end, leaving)
+// save immediately.
+const SAVE_EVERY_SECONDS = 30
 let lastSaved = 0
 function remember(seconds: number, force = false) {
   if (!Number.isFinite(seconds) || seconds < 0) return
-  if (!force && Math.abs(seconds - lastSaved) < 5) return // a tick, not a stream of writes
+  if (!force && Math.abs(seconds - lastSaved) < SAVE_EVERY_SECONDS) return
   lastSaved = seconds
   void setPlaybackPosition(props.title, props.chapter.id, seconds)
 }
@@ -42,10 +47,18 @@ function onLoaded() {
   }
 }
 
-// switching episodes inside the reader keeps this component mounted
-watch(() => props.chapter.id, () => {
+// switching episodes inside the reader keeps this component mounted: the one
+// being left has to record where it got to before its player is repointed
+watch(() => props.chapter.id, (_next, previous) => {
+  const at = el.value?.currentTime ?? 0
+  if (previous && at > 0) void setPlaybackPosition(props.title, previous, at)
   failed.value = false
   lastSaved = 0
+})
+
+onBeforeUnmount(() => {
+  const at = el.value?.currentTime ?? 0
+  if (at > 0) void setPlaybackPosition(props.title, props.chapter.id, at)
 })
 
 
@@ -60,10 +73,11 @@ watch(() => props.chapter.id, () => {
       :src="src"
       controls
       autoplay
-      preload="metadata"
+      preload="auto"
       @loadedmetadata="onLoaded"
       @timeupdate="remember(el?.currentTime ?? 0)"
       @pause="remember(el?.currentTime ?? 0, true)"
+      @seeked="remember(el?.currentTime ?? 0, true)"
       @ended="remember(0, true)"
       @error="failed = true"
     ></video>
