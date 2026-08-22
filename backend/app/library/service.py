@@ -542,7 +542,8 @@ class Library:
         row matching (num, lang, group) — created when the list lacks it.
         An ARCHIVE replaces the row's media (normalized to zip in the vault);
         a SINGLE IMAGE (unpacked media) appends as the next page instead, so
-        page-by-page downloads accumulate into one chapter zip."""
+        page-by-page downloads accumulate into one chapter zip; a VIDEO file
+        becomes the row's media as it stands — an episode is not a zip."""
         # one critical section end-to-end: two completing downloads for the same
         # title otherwise load the same doc and the later recommit drops the
         # other's freshly added row
@@ -570,7 +571,11 @@ class Library:
                 # mtime the page URLs are versioned by
                 self._write_media_sidecar(title_id, row.id, path, patch=sidecar)
             else:
-                self.vault.ingest_chapter_media(title_id, row.id, src, sidecar)
+                # the ingest decides by the name the file ARRIVED under: a video
+                # is stored as itself, an archive is normalized to zip
+                self.vault.ingest_chapter_media(
+                    title_id, row.id, src, sidecar,
+                    filename=str(sidecar.get("filename") or src.name))
             return self._recommit(title_id, doc)
 
     # ---- page capture (sources that serve pages, not archives) ----
@@ -689,6 +694,31 @@ class Library:
         key = cache_key("cover", cover_version(path.name, stat.st_mtime_ns, stat.st_size),
                         safe_id(title_id), width)
         return self._cached_thumb(key, lambda: (path.read_bytes(), ct), width)
+
+    def chapter_video_path(self, title_id: str, chapter_id: str) -> Path | None:
+        """The stored episode, or None when this chapter is page media."""
+        path = self.vault.chapter_media_path(title_id, chapter_id)
+        return path if path is not None and media.is_video(path) else None
+
+    def set_video_duration(self, title_id: str, chapter_id: str, seconds: float) -> TitleOut | None:
+        """Record what the player measured. Not a page operation: it describes
+        the same bytes, so it must NOT bump the media revision — doing so would
+        invalidate every cache of a file that did not change."""
+        if seconds <= 0:
+            return self.get(title_id)
+        with self.vault.title_lock(title_id):
+            doc = self.vault.load(title_id)
+            if doc is None or not any(c.id == chapter_id for c in doc.chapters):
+                return None
+            side = dict(self._sidecars(title_id).get(safe_id(chapter_id), {}))
+            if not side:
+                return self._out_now(title_id, doc)
+            if abs(float(side.get("duration") or 0.0) - seconds) < 0.5:
+                return self._out_now(title_id, doc)  # already known
+            side["duration"] = round(seconds, 3)
+            self.vault.write_chapter_sidecar(title_id, chapter_id, side)
+            self._index(title_id, doc)
+        return self._out_now(title_id, doc)
 
     def chapter_pages(self, title_id: str, chapter_id: str) -> list[str] | None:
         path = self.vault.chapter_media_path(title_id, chapter_id)

@@ -128,7 +128,13 @@ class ChapterOut(ChapterRow):
     pages: int = 0         # image pages inside the archive (0 for non-zip)
     dlSource: str = ""     # where the DOWNLOAD came from (independent of meta.source)
     dlAt: str = ""         # when it was downloaded (ISO, from the sidecar)
-    v: str = ""            # archive version — what a page URL is cached under
+    v: str = ""            # media version — what a page/video URL is cached under
+    # "pages" (a zip of images) or "video" (the episode file itself). The two
+    # kinds are stored differently and READ differently; everything else about a
+    # chapter — identity, provenance, translations, progress — is the same.
+    kind: str = "pages"
+    duration: float = 0.0  # seconds, learned from the player on first play
+    playable: bool = True  # a browser can open this container as it stands
 
 
 class TitleOut(BaseModel):
@@ -167,6 +173,9 @@ class TitleOut(BaseModel):
                 **c.model_dump(), read=u.read.get(c.id, "unread"),
                 dl=side is not None, pages=(side or {}).get("pages", 0),
                 v=chapter_version(side),
+                kind=(side or {}).get("kind", "pages"),
+                duration=float((side or {}).get("duration") or 0.0),
+                playable=bool((side or {}).get("playable", True)),
                 dlSource=(side or {}).get("pageUrl") or (side or {}).get("fileUrl") or "",
                 dlAt=(side or {}).get("downloadedAt", ""),
             ))

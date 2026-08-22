@@ -427,6 +427,37 @@ def chapter_pages(request: Request, title_id: str, chapter_id: str) -> dict:
     return {"count": len(pages)}
 
 
+@router.get("/titles/{title_id}/chapters/{chapter_id}/video")
+def chapter_video(request: Request, title_id: str, chapter_id: str) -> FileResponse:
+    """The episode file itself. FileResponse answers Range requests with 206, so
+    seeking works without the app streaming anything by hand — and the file is
+    never copied or re-containered on the way out."""
+    path = _lib(request).chapter_video_path(title_id, chapter_id)
+    if path is None:
+        raise HTTPException(status_code=404, detail="no video for this chapter")
+    return FileResponse(
+        path,
+        media_type=media.VIDEO_CT_BY_EXT.get(path.suffix.lower(), "application/octet-stream"),
+        # the vault is the only source; a stale cached episode is never wanted
+        headers={"Cache-Control": "no-store", "Accept-Ranges": "bytes"})
+
+
+class PlaybackIn(BaseModel):
+    duration: float = 0.0
+
+
+@router.post("/titles/{title_id}/chapters/{chapter_id}/video/meta", response_model=TitleOut)
+def chapter_video_meta(request: Request, title_id: str, chapter_id: str,
+                       body: PlaybackIn) -> TitleOut:
+    """What only a player can tell us: how long the episode actually is. Read
+    once, on first play, and kept in the sidecar so the list can show it without
+    opening the file (and without an ffprobe the app does not ship yet)."""
+    title = _lib(request).set_video_duration(title_id, chapter_id, body.duration)
+    if title is None:
+        raise HTTPException(status_code=404, detail="chapter not found")
+    return title
+
+
 @router.get("/titles/{title_id}/chapters/{chapter_id}/pages/{index}")
 def chapter_page(request: Request, title_id: str, chapter_id: str, index: int,
                  w: int = 0, cap: float = 0) -> Response:

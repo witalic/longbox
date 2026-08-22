@@ -14,6 +14,48 @@ import zipfile
 from pathlib import Path
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".bmp"}
+
+# The SECOND kind of chapter media. A page chapter is a zip of images; a video
+# chapter is the file itself — putting a 2 GB episode inside a zip would buy
+# nothing and cost a full rewrite on every edit. The zip invariant is a rule
+# about PAGE media, and this set is where the two kinds part company.
+VIDEO_EXTS = {".mp4", ".m4v", ".webm", ".mkv", ".mov", ".avi", ".ts"}
+# what a browser can actually play; the rest is stored and offered to the
+# system player until the app learns to remux (see design/state-model.md §13)
+PLAYABLE_VIDEO_EXTS = {".mp4", ".m4v", ".webm"}
+VIDEO_CT_BY_EXT = {
+    ".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm",
+    ".mkv": "video/x-matroska", ".mov": "video/quicktime",
+    ".avi": "video/x-msvideo", ".ts": "video/mp2t",
+}
+
+
+def is_video(name: str | Path) -> bool:
+    return Path(name).suffix.lower() in VIDEO_EXTS
+
+
+def looks_like_video(path: Path) -> bool:
+    """Whether the file's own bytes agree with its video extension.
+
+    The same rule the zip invariant applies to page media: never store an
+    opaque file. A site that answers a download with an HTML error page names
+    it `.mp4` just as readily, and an episode that turns out to be 400 bytes of
+    markup should be refused at ingest, not discovered at play time."""
+    try:
+        with path.open("rb") as fh:
+            head = fh.read(16)
+    except OSError:
+        return False
+    ext = path.suffix.lower()
+    if ext in {".mp4", ".m4v", ".mov"}:
+        return head[4:8] == b"ftyp"
+    if ext in {".webm", ".mkv"}:
+        return head[:4] == bytes((0x1A, 0x45, 0xDF, 0xA3))  # EBML
+    if ext == ".avi":
+        return head[:4] == b"RIFF" and head[8:12] == b"AVI "
+    if ext == ".ts":
+        return head[:1] == bytes((0x47,))  # MPEG-TS sync byte
+    return False
 CT_BY_EXT = {
     ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
     ".webp": "image/webp", ".gif": "image/gif", ".avif": "image/avif", ".bmp": "image/bmp",

@@ -370,9 +370,10 @@ class Vault:
             return 0
 
     def chapter_media_path(self, title_id: str, chapter_id: str) -> Path | None:
-        """The chapter's archive. `.zip` WINS: a leftover from an interrupted
-        conversion (the pre-conversion `.7z`, a half-written `.tmp`) must never
-        be served in place of the real thing."""
+        """The chapter's stored file. `.zip` WINS for page media: a leftover from
+        an interrupted conversion (the pre-conversion `.7z`, a half-written
+        `.tmp`) must never be served in place of the real thing. A video chapter
+        has no zip — its own container IS the file."""
         stem = safe_id(chapter_id)
         d = self._chapters_dir(title_id)
         if not d.is_dir():
@@ -380,6 +381,10 @@ class Vault:
         canonical = d / f"{stem}.zip"
         if canonical.is_file():
             return canonical
+        for ext in sorted(media.VIDEO_EXTS):
+            video = d / f"{stem}{ext}"
+            if video.is_file():
+                return video
         for p in sorted(d.glob(f"{stem}.*")):
             if p.is_file() and p.suffix != ".json" and not p.name.endswith(".tmp"):
                 return p
@@ -405,19 +410,31 @@ class Vault:
             _atomic_write(d / f"{safe_id(chapter_id)}.json",
                           json.dumps(sidecar, indent=2, ensure_ascii=False).encode("utf-8"))
 
-    def ingest_chapter_media(self, title_id: str, chapter_id: str, src: Path, sidecar: dict) -> Path:
-        """Move a downloaded/imported archive into the vault as `<stem>.zip`
-        and write its sidecar. Zip content (incl. cbz) moves as-is under the
-        .zip name; rar/7z are repacked; an unreadable archive raises
-        UnsupportedArchiveError BEFORE anything in the vault is touched. The
-        sidecar's pages/size always describe the file actually stored."""
+    def ingest_chapter_media(self, title_id: str, chapter_id: str, src: Path, sidecar: dict,
+                             *, filename: str = "") -> Path:
+        """Move a downloaded/imported file into the vault and write its sidecar.
+
+        PAGE media becomes `<stem>.zip`: zip content (incl. cbz) moves as-is,
+        rar/7z are repacked, and an unreadable archive raises
+        UnsupportedArchiveError BEFORE anything in the vault is touched. VIDEO
+        media is stored as the file itself under its own extension — an episode
+        gains nothing from a zip and would pay a full rewrite for every edit.
+        The sidecar always describes the file actually stored.
+        """
+        video_ext = Path(filename or src.name).suffix.lower()
+        as_video = video_ext in media.VIDEO_EXTS
+        if as_video and not media.looks_like_video(src):
+            raise media.UnsupportedArchiveError(
+                f"unsupported video file: {video_ext or 'unknown'} content does not match")
         with self._lock(title_id):
             d = self._chapters_dir(title_id)
             d.mkdir(parents=True, exist_ok=True)
             stem = safe_id(chapter_id)
-            final = d / f"{stem}.zip"
+            final = d / (f"{stem}{video_ext}" if as_video else f"{stem}.zip")
             tmp = final.with_name(final.name + ".ingest.tmp")
-            if zipfile.is_zipfile(src):
+            if as_video:
+                shutil.move(str(src), tmp)
+            elif zipfile.is_zipfile(src):
                 shutil.move(str(src), tmp)  # may cross filesystems (temp → vault)
             else:
                 media.repack_to_zip(src, tmp)  # raises before the vault changes
@@ -433,7 +450,8 @@ class Vault:
             # browser holding the previous pages cannot match the new URLs
             prev = self.chapter_sidecars(title_id).get(stem, {})
             sidecar = {**sidecar,
-                       "pages": len(media.image_entries(final)),
+                       "kind": "video" if as_video else "pages",
+                       "pages": 0 if as_video else len(media.image_entries(final)),
                        "size": final.stat().st_size,
                        "rev": int(prev.get("rev") or 0) + 1}
             _atomic_write(d / f"{stem}.json",
