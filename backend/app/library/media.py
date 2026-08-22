@@ -123,9 +123,11 @@ class UnsupportedArchiveError(ValueError):
     stored leftover rather than overwrite it with a fresh zip."""
 
 
-def _tmp(path: Path) -> Path:
-    # unique per call: a fixed ".tmp" name would let two concurrent rewrites of
-    # one archive interleave into a corrupted file
+def tmp_path(path: Path) -> Path:
+    """The scratch name a `tmp → rename` write goes through. Unique per call:
+    a fixed ".tmp" would let two concurrent rewrites of one file interleave
+    into a corrupted result — and two PROCESSES on one vault (a second window,
+    a dev sidecar) share a fixed name even when each is locked internally."""
     return path.with_name(f"{path.name}.{uuid.uuid4().hex[:8]}.tmp")
 
 
@@ -207,7 +209,7 @@ def repack_to_zip(src: Path, dst: Path) -> int:
     content enters the vault — nothing opaque is ever stored."""
     entries = _read_all_entries(src)
     dst.parent.mkdir(parents=True, exist_ok=True)
-    tmp = _tmp(dst)
+    tmp = tmp_path(dst)
     with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as z:
         for name, data in entries:
             if Path(name).suffix.lower() in _CONVERT_EXTS:
@@ -297,7 +299,7 @@ def remove_entries(path: Path, names: set[str]) -> int:
     """Rewrite the archive without `names` (atomic replace); returns the number
     of image pages left."""
     _require_editable(path)
-    tmp = _tmp(path)
+    tmp = tmp_path(path)
     with zipfile.ZipFile(path) as src, zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as dst:
         for info in src.infolist():
             if info.filename in names:
@@ -346,7 +348,7 @@ def _write_renumbered(path: Path, pages: list[tuple[bytes, str]], junk: list[tup
     entries carried over as-is."""
     width = max(3, len(str(len(pages))))
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = _tmp(path)
+    tmp = tmp_path(path)
     with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as z:
         for i, (data, ext) in enumerate(pages, start=1):
             data, ext = normalize_page(data, ext)
@@ -391,7 +393,7 @@ def renumber_and_append(path: Path, extra: list[tuple[bytes, str]]) -> int:
     # a wider page count (999 → 1000) needs the full renumber to stay sorted
     if width and len(names) + len(extra) < 10 ** width:
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = _tmp(path)
+        tmp = tmp_path(path)
         # copyfile, NOT copy2: copy2 carries the source's timestamps over, and
         # an archive that keeps its old mtime after an edit is indistinguishable
         # from one that never changed

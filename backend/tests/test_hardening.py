@@ -789,3 +789,61 @@ def test_a_document_from_an_older_build_is_upgraded_on_read(tmp_path):
     assert marker["ran"] and doc is not None and doc.meta.desc == "original"
     assert doc_path.stat().st_mtime_ns == before  # a read never rewrites the vault
     lib.close()
+
+
+def test_a_write_through_survives_a_reader_holding_the_document(tmp_path, monkeypatch):
+    """Reads are lock-free on purpose, and Windows denies a rename ONTO a file
+    someone has open — over a network vault that window is wide enough to hit.
+    The reader always finishes, and a resume point written mid-playback has no
+    second chance, so the write waits it out instead of failing."""
+    from app.library import vault as vault_mod
+    from app.library.models import UserPatch
+
+    lib = Library(tmp_path / "v")
+    out = lib.create(DraftIn(meta=TitleMeta(title="Series")))
+
+    real, calls = os.replace, []
+
+    def denied_at_first(src, dst):
+        calls.append(dst)
+        if len(calls) <= 3:
+            raise PermissionError(5, "Access is denied")
+        return real(src, dst)
+
+    monkeypatch.setattr(vault_mod.os, "replace", denied_at_first)
+    monkeypatch.setattr(vault_mod.time, "sleep", lambda _s: None)
+
+    assert lib.patch_user(out.id, UserPatch(rating=4)) is not None
+    assert len(calls) == 4                      # three denials, then the write lands
+    assert lib.vault.load(out.id).user.rating == 4
+    lib.close()
+
+
+def test_a_rename_that_never_happens_leaves_no_scratch_file(tmp_path, monkeypatch):
+    """A temp that outlives its write would be swept as a stray, or worse,
+    mistaken for media. Uniqueness alone is not enough — it has to be cleaned."""
+    from app.library import vault as vault_mod
+    from app.library.models import UserPatch
+
+    lib = Library(tmp_path / "v")
+    out = lib.create(DraftIn(meta=TitleMeta(title="Series")))
+    title_dir = lib.vault.chapters_dir(out.id).parent
+
+    def always_denied(_src, _dst):
+        raise PermissionError(5, "Access is denied")
+
+    monkeypatch.setattr(vault_mod.os, "replace", always_denied)
+    monkeypatch.setattr(vault_mod.time, "sleep", lambda _s: None)
+
+    with pytest.raises(PermissionError):
+        lib.patch_user(out.id, UserPatch(rating=4))
+    assert not list(title_dir.glob("*.tmp"))
+    lib.close()
+
+
+def test_two_writes_never_share_a_scratch_name(tmp_path):
+    """One vault can have more than one writer — a second app window, a dev
+    sidecar — and a per-process lock does not reach across them."""
+    target = tmp_path / "title.json"
+    assert media.tmp_path(target) != media.tmp_path(target)
+    assert media.tmp_path(target).name.endswith(".tmp")

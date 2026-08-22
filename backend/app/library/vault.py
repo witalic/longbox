@@ -19,6 +19,7 @@ import os
 import re
 import shutil
 import threading
+import time
 import zipfile
 from collections import defaultdict
 from pathlib import Path
@@ -66,10 +67,32 @@ def type_dir_name(type_str: str) -> str:
     return safe_id(t) if t else "other"
 
 
+# Reads are deliberately lock-free, and Python opens a file without sharing the
+# right to delete it — so on Windows a rename ONTO a document someone is reading
+# is denied outright, and over SMB that window is wide enough to lose writes.
+# The reader always finishes, so retry briefly rather than fail a write-through
+# the caller cannot repeat (a resume point written during playback).
+_REPLACE_ATTEMPTS = 8
+
+
+def _replace(tmp: Path, final: Path) -> None:
+    for attempt in range(_REPLACE_ATTEMPTS):
+        try:
+            os.replace(tmp, final)  # atomic on the same filesystem
+            return
+        except PermissionError:
+            if attempt == _REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(0.02 * (attempt + 1))
+
+
 def _atomic_write(path: Path, data: bytes) -> None:
-    tmp = path.with_name(path.name + ".tmp")
+    tmp = media.tmp_path(path)
     tmp.write_bytes(data)
-    os.replace(tmp, path)  # atomic on the same filesystem
+    try:
+        _replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)  # only survives a rename that never happened
 
 
 class Vault:
@@ -435,7 +458,7 @@ class Vault:
             d.mkdir(parents=True, exist_ok=True)
             stem = safe_id(chapter_id)
             final = d / (f"{stem}{video_ext}" if as_video else f"{stem}.zip")
-            tmp = final.with_name(final.name + ".ingest.tmp")
+            tmp = media.tmp_path(final)
             if as_video:
                 shutil.move(str(src), tmp)
             elif zipfile.is_zipfile(src):
@@ -446,7 +469,7 @@ class Vault:
             # the new archive lands FIRST; only then do the old ones go. The
             # reverse order leaves the chapter with no media at all if anything
             # fails in between.
-            os.replace(tmp, final)
+            _replace(tmp, final)
             for old in d.glob(f"{stem}.*"):
                 if old != final and old.suffix != ".json":
                     old.unlink(missing_ok=True)
