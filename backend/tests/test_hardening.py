@@ -746,3 +746,46 @@ def test_the_sweep_never_replaces_a_stored_chapter(tmp_path):
         assert z.read("001.jpg") == b"the captured page"
     assert stray.is_file()  # left alone, not silently consumed
     lib.close()
+
+
+# ---- the groundwork the next feature needs ----
+
+def test_a_cache_key_cannot_be_built_without_a_version(tmp_path):
+    """The rule that took three bugs to learn, as a function: anything cached
+    has to say which version of itself is being cached."""
+    from app.library.versions import UnversionedCacheKey, cache_key, chapter_version
+
+    assert chapter_version(None) == ""
+    with pytest.raises(UnversionedCacheKey):
+        cache_key("poster", chapter_version(None), "some-title", 320)
+    assert cache_key("page", "3.100.4", "berserk", "ch-1", 160) == "page-3.100.4-berserk-ch-1-160"
+
+
+def test_a_document_from_an_older_build_is_upgraded_on_read(tmp_path):
+    """A shape change is a migration, not an edit — and the read that upgrades
+    must not write to the user's files."""
+    from app.library import migrations
+
+    lib = Library(tmp_path)
+    out = lib.create(DraftIn(meta=TitleMeta(title="Berserk", desc="original")))
+    doc_path = next(tmp_path.rglob("berserk/title.json"))
+    raw = json.loads(doc_path.read_text(encoding="utf-8"))
+    raw.pop("schema", None)  # written before documents were versioned
+    doc_path.write_text(json.dumps(raw), encoding="utf-8")
+    before = doc_path.stat().st_mtime_ns
+
+    marker = {"ran": False}
+
+    def to_v2(d: dict) -> dict:
+        marker["ran"] = True
+        return {**d, "user": {**d.get("user", {}), "positions": {}}}
+
+    monkey = {1: to_v2}
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(migrations, "CURRENT_SCHEMA", 2)
+        mp.setattr(migrations, "_STEPS", monkey)
+        lib.vault._loc.clear()
+        doc = lib.vault.load(out.id)
+    assert marker["ran"] and doc is not None and doc.meta.desc == "original"
+    assert doc_path.stat().st_mtime_ns == before  # a read never rewrites the vault
+    lib.close()

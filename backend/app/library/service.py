@@ -22,6 +22,7 @@ from . import media
 from .index import LibraryIndex
 from .models import Author, AuthorWork, ChapterRow, DraftIn, Source, TitleDoc, TitleOut, UserPatch
 from .vault import Vault, safe_id
+from .versions import cache_key, chapter_version, cover_version
 
 
 log = logging.getLogger("longbox.library")
@@ -211,18 +212,11 @@ class Library:
 
     # ---- DTO composition ----
 
-    @staticmethod
-    def _cover_version(name: str, mtime: int, size: int) -> str:
-        """What the cover is cached under. NOT the mtime alone: a cover replaced
-        inside one filesystem tick — or restored from a copy that kept its
-        timestamps — would land on the version it is already cached under."""
-        return f"{mtime:x}.{size}.{name.rsplit('.', 1)[-1]}" if name else ""
-
     @classmethod
     def _cover_of(cls, title_id: str, name: str, mtime: int, size: int) -> str:
         """The cover endpoint URL, versioned so a re-captured cover busts every
         cache. Composed from a scan, never from a fresh stat."""
-        v = cls._cover_version(name, mtime, size)
+        v = cover_version(name, mtime, size)
         return f"/api/titles/{title_id}/cover?v={v}" if v else ""
 
     def _cover_url(self, title_id: str) -> str:
@@ -400,7 +394,7 @@ class Library:
 
         rows, taken = [], set()
         for c in draft.chapters:
-            cid = c.id
+            cid = c.id or self.chapter_id_for(c.num, c.lang, c.group)
             if cid not in old_ids:
                 adopted = by_url.get(c.url) if c.url else None
                 if adopted is None and by_key.get(key(c)):
@@ -509,6 +503,15 @@ class Library:
     def _norm(s: str) -> str:
         return s.strip().casefold()
 
+    @staticmethod
+    def chapter_id_for(num: str, lang: str, group: str) -> str:
+        """The id a chapter identity gets. The ONLY place an id is derived: a
+        client that invents its own would disagree with the row reconciliation
+        writes, and then address media that lives under a different id."""
+        n = Library._norm
+        digest = hashlib.sha1(f"{n(num)}|{n(lang)}|{n(group)}".encode()).hexdigest()[:8]
+        return safe_id(f"ch-{num or 'x'}-{digest}")
+
     def _row_for(self, doc: TitleDoc, *, num: str, lang: str, group: str,
                  url: str = "") -> tuple[ChapterRow, bool]:
         """The chapter row matching (num, lang, group), created in place when the
@@ -521,8 +524,7 @@ class Library:
             if url and not row.url:
                 row.url = url  # a supplied source link tops up the existing row
             return row, False
-        digest = hashlib.sha1(f"{n(num)}|{n(lang)}|{n(group)}".encode()).hexdigest()[:8]
-        row = ChapterRow(id=safe_id(f"ch-{num or 'x'}-{digest}"), num=num, lang=lang, group=group, url=url)
+        row = ChapterRow(id=self.chapter_id_for(num, lang, group), num=num, lang=lang, group=group, url=url)
         if doc.meta.chapterOrder == "manual":
             doc.chapters.append(row)  # the user's arrangement is sacred
         else:
@@ -684,8 +686,8 @@ class Library:
             return None
         ct = media.CT_BY_EXT.get(path.suffix.lower(), "application/octet-stream")
         stat = path.stat()
-        key = (f"cover-{safe_id(title_id)}"
-               f"-{self._cover_version(path.name, stat.st_mtime_ns, stat.st_size)}-{width}")
+        key = cache_key("cover", cover_version(path.name, stat.st_mtime_ns, stat.st_size),
+                        safe_id(title_id), width)
         return self._cached_thumb(key, lambda: (path.read_bytes(), ct), width)
 
     def chapter_pages(self, title_id: str, chapter_id: str) -> list[str] | None:
@@ -704,11 +706,11 @@ class Library:
             return None
         if not width:
             return media.read_entry(path, entries[index])
-        # keyed by the chapter's own revision — every page op bumps it, so an
+        # keyed by the chapter's own version — every page op bumps it, so an
         # edited chapter misses this cache by construction
-        capkey = f"-c{cap:g}" if cap else ""
-        rev = TitleOut._chapter_version(self._sidecars(title_id).get(safe_id(chapter_id)))
-        key = f"{safe_id(title_id)}-{safe_id(chapter_id)}-{rev}-{width}{capkey}-{index}"
+        key = cache_key("page", chapter_version(self._sidecars(title_id).get(safe_id(chapter_id))),
+                        safe_id(title_id), safe_id(chapter_id), width,
+                        f"c{cap:g}" if cap else "", index)
         return self._cached_thumb(key, lambda: media.read_entry(path, entries[index]), width, cap)
 
     # ---- the sidecar: ONE writer for every page operation ----

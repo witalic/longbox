@@ -9,7 +9,7 @@ import Dropdown from '../components/Dropdown.vue'
 import { openInBrowser } from '../browser'
 import { readLocalOne, writeLocalOne } from '../local'
 import { api } from '../api'
-import { chapterIdFor, compareChapterNums, coverAt, faviconFor, filterOptions, orderedChaptersOf, sameChapter } from '../data'
+import { compareChapterNums, coverAt, faviconFor, filterOptions, orderedChaptersOf, sameChapter } from '../data'
 
 // domains whose favicon failed to load → fall back to the initial letters
 const noIcon = reactive<Record<string, boolean>>({})
@@ -463,10 +463,11 @@ const nGroup = ref('')
 async function createEntryFromSelection() {
   if (!t.value || !nLabel.value.trim()) return
   const ch = { num: nLabel.value.trim(), lang: nLang.value.trim(), group: nGroup.value.trim() }
-  if (!(await addChapterRow(t.value, ch))) return
+  const row = await addChapterRow(t.value, ch)
+  if (!row) return
   newFromSel.value = false
   nLabel.value = ''
-  await movePagesTo(chapterIdFor(ch))
+  await movePagesTo(row.id)
 }
 
 // Manual page order — LOCAL-FIRST with STABLE urls: pageMap maps display

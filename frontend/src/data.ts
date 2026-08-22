@@ -282,11 +282,3 @@ export function chapterRowsOf(chapters: ChapterRow[]): ChapterRow[] {
 }
 
 // Stable chapter id when the site provides none: derived from the row's
-// identifying values (url wins — it is the most unique).
-export function chapterIdFor(row: Partial<ChapterRow>): string {
-  const key = row.url || [row.num, row.lang, row.group].map((x) => x || '').join('|')
-  let h = 5381
-  for (let i = 0; i < key.length; i++) h = ((h << 5) + h + key.charCodeAt(i)) | 0
-  const num = (row.num || '').replace(/[^a-z0-9.]+/gi, '') || 'x'
-  return `ch-${num}-${Math.abs(h).toString(36)}`
-}

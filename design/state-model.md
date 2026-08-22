@@ -249,6 +249,12 @@ scanned for, so a queue outlives the chapter being finished and drains into the 
 one; only a failed capture (the entry is gone) discards it. Nothing is skipped because a
 previous page is still downloading — that is what left gaps.
 
+**A document's shape is versioned.** `title.json` carries a `schema` number, and a build
+that reads an older one upgrades it on the way IN (`library/migrations.py`), never on disk —
+the next commit persists the new shape. A document from a NEWER build is left untouched: the
+user may still open that library elsewhere. The vault outlives any single build, so changing
+its shape is a migration step, not an edit.
+
 **Everything cached is keyed by a version that cannot repeat.** Page images and covers are
 served with a long cache lifetime and are cached again on disk as downscaled previews, so a
 version that stays equal across an edit shows the user the file they just deleted — which
@@ -258,7 +264,14 @@ writes share a tick). A chapter is versioned by `revision.size.pages` from its s
 the revision is a counter every page operation bumps; a cover by `mtime.size.ext`, and a
 cover write that would land on the previous stamp moves the timestamp itself. ONE version
 serves the URL and the server-side cache, so the editor, the reader and the library grid can
-never disagree about what a page is.
+never disagree about what a page is. Both live in `library/versions.py`, whose `cache_key`
+REFUSES a key without a version — a new cached artifact cannot quietly opt out of the rule.
+
+**A chapter id is assigned by the vault, never proposed by a client.** A commit can adopt an
+existing row's id (§7), so an id derived on the client is a guess that the vault may not
+share — and media addressed by that guess lands nowhere. The client sends the identity
+(num + language + group) with an empty id; `Library.chapter_id_for` is the only derivation
+in the app.
 
 ## 10. The reader (landed)
 

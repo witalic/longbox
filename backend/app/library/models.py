@@ -12,6 +12,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .versions import chapter_version
+
 # type/status are OPEN vocabularies: the UI suggests the common values, capture
 # normalizes known synonyms onto them, but a user-entered value is stored as-is.
 MediaType = str
@@ -153,18 +155,6 @@ class TitleOut(BaseModel):
     provenance: dict[str, FieldProvenance]
     chapters: list[ChapterOut]
 
-    @staticmethod
-    def _chapter_version(side: dict | None) -> str:
-        """Short stamp of the stored archive. Falls back to size+pages for
-        sidecars written before the mtime was recorded."""
-        if not side:
-            return ""
-        # Everything the stored file can be told apart by. The counter alone is
-        # not enough: it restarts at 1 for a chapter written before it existed,
-        # which can land on the version that chapter is ALREADY cached under —
-        # and a page then keeps being served from the cache after it was deleted.
-        return f"{int(side.get('rev') or 0)}.{side.get('size', 0)}.{side.get('pages', 0)}"
-
     @classmethod
     def from_doc(cls, title_id: str, doc: TitleDoc, cover_url: str = "",
                  media: dict[str, dict] | None = None) -> "TitleOut":
@@ -176,7 +166,7 @@ class TitleOut(BaseModel):
             chapters.append(ChapterOut(
                 **c.model_dump(), read=u.read.get(c.id, "unread"),
                 dl=side is not None, pages=(side or {}).get("pages", 0),
-                v=cls._chapter_version(side),
+                v=chapter_version(side),
                 dlSource=(side or {}).get("pageUrl") or (side or {}).get("fileUrl") or "",
                 dlAt=(side or {}).get("downloadedAt", ""),
             ))

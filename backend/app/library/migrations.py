@@ -1,0 +1,44 @@
+"""Upgrades for `title.json` documents written by older versions.
+
+The vault is the source of truth and it outlives any single build, so a change
+to the document's shape is a MIGRATION, not an edit: the reader upgrades what
+it finds on the way in, and the next commit writes the current shape back. The
+index has always had this (a schema mismatch drops and rebuilds the cache); the
+documents did not, which meant the first feature to change their shape would
+have had to migrate a user's library retroactively.
+
+Each step takes the raw parsed JSON of version N and returns version N + 1.
+Steps must be pure and additive — never drop a field a newer build might still
+be reading, and never touch the user layer.
+"""
+from __future__ import annotations
+
+from collections.abc import Callable
+
+# the shape this build writes
+CURRENT_SCHEMA = 1
+
+_STEPS: dict[int, Callable[[dict], dict]] = {
+    # 1: {…} — the first upgrade lands here, keyed by the version it upgrades FROM
+}
+
+
+def migrate(raw: dict) -> tuple[dict, bool]:
+    """Bring a parsed document up to CURRENT_SCHEMA. Returns (doc, changed).
+
+    An unknown FUTURE version is left exactly as it is: a newer build wrote it,
+    and mangling it here would damage a library the user still opens there.
+    """
+    version = raw.get("schema")
+    if not isinstance(version, int) or version < 1:
+        version = 1  # pre-versioned documents are the original shape
+    changed = False
+    while version < CURRENT_SCHEMA:
+        step = _STEPS.get(version)
+        if step is None:  # a gap in the chain is a bug, not something to guess at
+            break
+        raw = step(raw)
+        version += 1
+        raw["schema"] = version
+        changed = True
+    return raw, changed

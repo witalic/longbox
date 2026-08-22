@@ -4,7 +4,7 @@
 // The draft itself lives in draft.ts; browser tabs live in browser.ts.
 import { reactive, watch, watchEffect } from 'vue'
 import { api, type LibraryQuery } from './api'
-import { chapterIdFor, chapterRowsOf, emptyFacets, metaOf, sameChapter, type Author, type Facets, type ReadState, type Source, type Title } from './data'
+import { chapterRowsOf, emptyFacets, metaOf, sameChapter, type Author, type Chapter, type Facets, type ReadState, type Source, type Title } from './data'
 import { readLocalOne, writeLocalOne } from './local'
 import { stopCaptureFor } from './pagecapture'
 
@@ -508,19 +508,24 @@ export async function editChapterRow(t: Title, id: string,
 }
 
 // Create a bare chapter row (no file) — the manual twin of capturing one.
-export async function addChapterRow(t: Title, ch: { num: string; lang: string; group: string; url?: string }): Promise<boolean> {
+// Returns the row the VAULT ended up with: the id is assigned server-side (a
+// commit can adopt an existing row's id), so anything addressing the new row's
+// media has to read it back rather than assume what it will be.
+export async function addChapterRow(
+  t: Title, ch: { num: string; lang: string; group: string; url?: string }): Promise<Chapter | null> {
   if (t.chapters.some((c) => sameChapter(c, ch))) {
     store.error = `Chapter ${ch.num}${ch.lang ? ' · ' + ch.lang : ''} already exists`
-    return false
+    return null
   }
   try {
     const body = commitBodyFrom(t)
-    body.chapters.push({ id: chapterIdFor(ch), num: ch.num, title: '', url: ch.url || '', lang: ch.lang, group: ch.group, date: '' })
-    cache([await api.commitTitle(t.id, body)])
-    return true
+    body.chapters.push({ id: '', num: ch.num, title: '', url: ch.url || '', lang: ch.lang, group: ch.group, date: '' })
+    const saved = await api.commitTitle(t.id, body)
+    cache([saved])
+    return saved.chapters.find((c) => sameChapter(c, ch)) ?? null
   } catch (e) {
     store.error = e instanceof Error ? e.message : String(e)
-    return false
+    return null
   }
 }
 

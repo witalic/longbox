@@ -29,6 +29,12 @@ content). Full model: `design/state-model.md`; layout: `ARCHITECTURE.md`.
 - **One scan, not three stats per title.** `Vault.scan()` reads the whole vault through
   `os.scandir`, whose entries already carry their stat data; per-title `is_file()` probing (six
   extensions for a cover, say) is what made opening a shared drive take twenty seconds.
+- **Versions and cache keys come from `library/versions.py`.** `cache_key` raises rather than
+  build a key without a version; a new cached artifact adds its version function there.
+- **A `title.json` shape change is a migration step** in `library/migrations.py` (upgrade on
+  read, persist on the next commit), never an in-place rewrite of the user's files.
+- **Chapter ids are assigned server-side** (`Library.chapter_id_for`); a client sends the
+  identity with an empty id and reads the assigned one back from the response.
 - **A cache key must be unable to repeat.** Pages and covers are cached in the browser (by URL)
   and on disk (downscaled previews) under ONE version: `revision.size.pages` for a chapter,
   `mtime.size.ext` for a cover. Never version by page count (delete two, add two) or by a bare

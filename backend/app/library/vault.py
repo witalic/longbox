@@ -24,6 +24,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from . import media
+from .migrations import migrate
 from .models import DraftIn, TitleDoc, UserPatch
 
 _SAFE_ID = re.compile(r"[^a-z0-9._-]+")
@@ -251,10 +252,15 @@ class Vault:
         return self._doc_path(title_id).is_file()
 
     def load(self, title_id: str) -> TitleDoc | None:
+        """The title's document, upgraded to the shape this build writes. The
+        upgrade happens on the way IN and is not written back here — the next
+        commit persists it, so a read never touches the user's files."""
         path = self._doc_path(title_id)
         if not path.is_file():
             return None
-        return TitleDoc.model_validate_json(path.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw, _ = migrate(raw)
+        return TitleDoc.model_validate(raw)
 
     def touched_at(self, title_id: str) -> int:
         """When the title's document was last written — the recency the library's
