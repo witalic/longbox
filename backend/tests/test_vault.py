@@ -2,6 +2,7 @@
 invariants I3/I7 structural (see design/state-model.md §5, §8)."""
 from __future__ import annotations
 
+from app.library.migrations import CURRENT_SCHEMA
 from app.library.models import ChapterRow, DraftIn, FieldProvenance, TitleMeta, UserPatch
 from app.library.vault import Vault, safe_id
 
@@ -53,7 +54,7 @@ def test_on_disk_document_shape(tmp_path):
     v = Vault(tmp_path)
     v.commit_meta("t", _draft(), create=True)
     raw = next(tmp_path.rglob("title.json")).read_text(encoding="utf-8")  # wherever its type shelf is
-    assert '"schema": 1' in raw          # serialized by alias
+    assert f'"schema": {CURRENT_SCHEMA}' in raw   # serialized by alias
     for section in ('"meta"', '"provenance"', '"chapters"', '"user"'):
         assert section in raw
     assert not list(tmp_path.rglob("*.tmp"))  # atomic writes leave no droppings

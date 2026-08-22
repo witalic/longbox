@@ -319,6 +319,10 @@ class Vault:
                 doc.user.rating = max(0, min(5, patch.rating))
             if patch.read:
                 doc.user.read.update(patch.read)
+            if patch.position:
+                # a resume point, not a rating: 0 means "start over", so it is
+                # stored as sent rather than treated as "no value"
+                doc.user.position.update({k: max(0.0, float(v)) for k, v in patch.position.items()})
             self._save(title_id, doc)
             return doc
 

@@ -26,6 +26,7 @@ const P: Record<string, string> = {
   pick: 'M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10M12 2v4M12 18v4M2 12h4M18 12h4',
   moon: 'M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z',
   image: 'M4 16l5-5 4 4 3-3 4 4M4 5h16v14H4z',
+  film: 'M3 5h18v14H3zM7 5v14M17 5v14M3 9h4M3 15h4M17 9h4M17 15h4',
   expand: 'M4 5h7v7H4zM13 5h7v7h-7zM4 14h7v6H4zM13 14h7v6h-7z',
   compass: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M16 8l-2.5 5.5L8 16l2.5-5.5z',
   minus: 'M5 12h14',

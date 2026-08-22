@@ -39,7 +39,11 @@ export interface Chapter extends ChapterRow {
   pages: number     // image pages inside it (0 for non-zip archives)
   dlSource: string  // where the DOWNLOAD came from (independent of meta.source)
   dlAt: string      // when it was downloaded (ISO, from the sidecar)
-  v: string         // archive version — page URLs are cached under it
+  v: string         // media version — page/video URLs are cached under it
+  kind: 'pages' | 'video' // a zip of images, or the episode file itself
+  duration: number  // seconds (video only), learned from the player
+  playable: boolean // whether this container opens in the app's browser engine
+  position: number  // seconds into a video chapter — the resume point
 }
 
 // The metadata layer of a title — exactly what a draft edits and a commit writes.
@@ -83,6 +87,7 @@ export interface UserPatch {
   fav?: boolean
   rating?: number
   read?: Record<string, ReadState>
+  position?: Record<string, number> // chapter id → seconds, for video chapters
 }
 
 export interface AuthorWork { id: string; title: string; cover: string }
@@ -234,6 +239,29 @@ export interface ChapterIdentity { num: string; lang: string; group: string }
 export function sameChapter(a: ChapterIdentity, b: ChapterIdentity): boolean {
   const norm = (s: string) => (s || '').trim().toLowerCase()
   return norm(a.num) === norm(b.num) && norm(a.lang) === norm(b.lang) && norm(a.group) === norm(b.group)
+}
+
+// Running time, as a human reads it.
+export function formatDuration(seconds: number): string {
+  if (!seconds || !Number.isFinite(seconds)) return ''
+  const s = Math.floor(seconds % 60), m = Math.floor(seconds / 60) % 60, h = Math.floor(seconds / 3600)
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+    : `${m}:${String(s).padStart(2, '0')}`
+}
+
+// Whether opening this row shows the human something. A page chapter needs
+// pages; an episode needs only its file — asking for `pages` here is what made
+// video rows unclickable while the vault held the episode all along.
+export function isReadable(c: Chapter): boolean {
+  return c.dl && (c.kind === 'video' || c.pages > 0)
+}
+
+// What a chapter row shows about its media. A title can hold both kinds, so the
+// label has to say WHICH — "12 pg" and "23:41" are the same column.
+export function mediaLabel(c: Chapter, empty = ''): string {
+  if (!c.dl) return empty
+  if (c.kind === 'video') return formatDuration(c.duration) || 'video'
+  return c.pages ? `${c.pages} pg` : 'file'
 }
 
 // The chapter list in READING order: the title's own manual order when it has

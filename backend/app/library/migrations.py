@@ -16,10 +16,19 @@ from __future__ import annotations
 from collections.abc import Callable
 
 # the shape this build writes
-CURRENT_SCHEMA = 1
+CURRENT_SCHEMA = 2
+
+
+def _v1_to_v2(doc: dict) -> dict:
+    """Video chapters remember a playback position, page chapters do not — but
+    both kinds live in one title, so the map belongs to the shared user layer."""
+    user = dict(doc.get("user") or {})
+    user.setdefault("position", {})
+    return {**doc, "user": user}
+
 
 _STEPS: dict[int, Callable[[dict], dict]] = {
-    # 1: {…} — the first upgrade lands here, keyed by the version it upgrades FROM
+    1: _v1_to_v2,
 }
 
 

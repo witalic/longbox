@@ -9,7 +9,7 @@ import Dropdown from '../components/Dropdown.vue'
 import { openInBrowser } from '../browser'
 import { readLocalOne, writeLocalOne } from '../local'
 import { api } from '../api'
-import { compareChapterNums, coverAt, faviconFor, filterOptions, orderedChaptersOf, sameChapter } from '../data'
+import { compareChapterNums, coverAt, faviconFor, filterOptions, isReadable, mediaLabel, orderedChaptersOf, sameChapter } from '../data'
 
 // domains whose favicon failed to load → fall back to the initial letters
 const noIcon = reactive<Record<string, boolean>>({})
@@ -337,6 +337,11 @@ function pageSrc(cid: string, index: number, v: string): string {
 }
 const pagesTitle = ref<string | null>(null) // which TITLE the pane belongs to
 async function selectPages(c: Chapter) {
+  // an episode has no page pane to open — the row IS the play button
+  if (c.kind === 'video') {
+    if (c.dl && t.value) void openReader(t.value.id, c.id, 0)
+    return
+  }
   if (!c.dl || !c.pages) {
     // in edit mode a BARE entry opens too — an empty pane whose "Add images"
     // creates the archive; outside edit mode there is nothing to show
@@ -368,9 +373,9 @@ async function selectPages(c: Chapter) {
 // still open" is only true when the TITLE hasn't changed either.
 watch(() => [t.value?.id, t.value?.chapters], () => {
   const chapters = t.value?.chapters ?? []
-  const current = chapters.find((c) => c.id === openPages.value && c.dl && c.pages)
+  const current = chapters.find((c) => c.id === openPages.value && isReadable(c))
   if (current && pagesTitle.value === t.value?.id) return
-  const first = chapters.find((c) => c.dl && c.pages)
+  const first = chapters.find(isReadable)
   openPages.value = null
   pageCount.value = 0
   if (first) void selectPages(first)
@@ -724,7 +729,7 @@ async function removeRow(c: Chapter) {
               </div>
               <div v-if="!closedNums[node.num]" class="grp">
                 <template v-for="c in node.rows" :key="c.id">
-                  <div class="chrow tr" :class="{ open: openPages === c.id, openable: c.dl && c.pages, dragging: dragRow?.id === c.id }"
+                  <div class="chrow tr" :class="{ open: openPages === c.id, openable: isReadable(c), dragging: dragRow?.id === c.id }"
                        :draggable="canDrag" @dragstart.stop="dragRow = c" @dragend="clearDrag"
                        @dragover.prevent="onDragOverNum(node.num)" @drop.prevent="onRowDrop(node.num)"
                        @click="selectPages(c)">
@@ -735,7 +740,7 @@ async function removeRow(c: Chapter) {
                     <span class="trbadge"><span class="mono" style="color:var(--accent);font-size:9px">{{ c.lang || '?' }}</span><template v-if="c.group">{{ c.group }}</template></span>
                     <span class="chtitle"></span>
                     <span class="chright">
-                      <span class="pgcol mono" :title="c.dlSource">{{ c.dl ? (c.pages ? `${c.pages} pg` : 'file') : '' }}</span>
+                      <span class="pgcol mono" :title="c.dlSource">{{ mediaLabel(c) }}</span>
                       <span v-if="editMode" class="chacts">
                         <button class="chact" title="Edit entry: label · language · group · source link" @click.stop="openEntryEdit(c)"><Icon name="edit" :size="12" :sw="1.9" /></button>
                         <button class="chact" title="Add images to this entry" @click.stop="pickAddImagesRow(c)"><Icon name="image" :size="12" :sw="1.9" /></button>
@@ -759,7 +764,7 @@ async function removeRow(c: Chapter) {
 
             <!-- SINGLE entry -->
             <template v-else>
-              <div class="chrow" :class="{ open: openPages === node.rows[0].id, openable: node.rows[0].dl && node.rows[0].pages, dragging: dragNum === node.num, dropbefore: dropTarget === node.num }"
+              <div class="chrow" :class="{ open: openPages === node.rows[0].id, openable: isReadable(node.rows[0]), dragging: dragNum === node.num, dropbefore: dropTarget === node.num }"
                    :draggable="canDrag"
                    @dragstart="dragNum = node.num" @dragend="clearDrag"
                    @dragover.prevent="onDragOverNum(node.num)" @drop.prevent="onRowDrop(node.num)"
@@ -771,7 +776,7 @@ async function removeRow(c: Chapter) {
                 <span class="chtitle"><b class="chnum mono">{{ node.rows[0].num }}</b><template v-if="node.rows[0].title"> {{ node.rows[0].title }}</template></span>
                 <span class="chright">
                   <span v-if="node.rows[0].lang || node.rows[0].group" class="trbadge"><span class="mono" style="color:var(--accent);font-size:9px">{{ node.rows[0].lang || '?' }}</span><template v-if="node.rows[0].group">{{ node.rows[0].group }}</template></span>
-                  <span class="pgcol mono" :title="node.rows[0].dlSource">{{ node.rows[0].dl ? (node.rows[0].pages ? `${node.rows[0].pages} pg` : 'file') : '' }}</span>
+                  <span class="pgcol mono" :title="node.rows[0].dlSource">{{ mediaLabel(node.rows[0]) }}</span>
                   <span v-if="editMode" class="chacts">
                     <button class="chact" title="Edit entry: label · language · group · source link" @click.stop="openEntryEdit(node.rows[0])"><Icon name="edit" :size="12" :sw="1.9" /></button>
                     <button class="chact" title="Add images to this entry" @click.stop="pickAddImagesRow(node.rows[0])"><Icon name="image" :size="12" :sw="1.9" /></button>
@@ -804,7 +809,7 @@ async function removeRow(c: Chapter) {
       </div>
 
       <!-- the pages pane: fills the right side, open by default -->
-      <div v-if="editMode || t.chapters.some((c) => c.dl && c.pages)" class="pagespane">
+      <div v-if="editMode || t.chapters.some(isReadable)" class="pagespane">
         <div class="pghead">
           <span v-if="openChapter" class="mono pglabel">{{ openChapter.num }}<template v-if="openChapter.lang"> · {{ openChapter.lang }}</template> — {{ pageCount }} pages<template v-if="selPages.length"> · <span style="color:var(--accent)">{{ selPages.length }} selected</span></template></span>
           <div style="flex:1"></div>
@@ -822,7 +827,7 @@ async function removeRow(c: Chapter) {
                     <div v-if="c.id !== openPages" class="mvrow" :class="{ sub: node.rows.length > 1 }" @click="movePagesTo(c.id)">
                       <span v-if="node.rows.length === 1" class="mono mvnum">{{ c.num }}</span>
                       <span v-if="node.rows.length > 1 || c.lang || c.group" class="trbadge"><span class="mono" style="color:var(--accent);font-size:9px">{{ c.lang || '?' }}</span><template v-if="c.group">{{ c.group }}</template></span>
-                      <span class="mvpg mono">{{ c.dl && c.pages ? `${c.pages} pg` : '+ creates file' }}</span>
+                      <span class="mvpg mono">{{ mediaLabel(c, '+ creates file') || '+ creates file' }}</span>
                     </div>
                   </template>
                 </template>

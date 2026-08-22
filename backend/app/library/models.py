@@ -12,6 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .migrations import CURRENT_SCHEMA
 from .versions import chapter_version
 
 # type/status are OPEN vocabularies: the UI suggests the common values, capture
@@ -92,13 +93,18 @@ class UserLayer(BaseModel):
     fav: bool = False
     rating: int = 0  # 0 = unrated, else 1..5
     read: dict[str, ReadState] = {}  # chapter id → read state
+    # chapter id → seconds. Where a page chapter remembers WHICH page, a video
+    # chapter remembers WHERE in the file — "read" alone cannot resume an
+    # episode. Both kinds can appear in one title, so both live here.
+    position: dict[str, float] = {}
 
 
 class TitleDoc(BaseModel):
     """The exact `title.json` document (schema versioned for future migration)."""
     model_config = ConfigDict(populate_by_name=True)
 
-    schema_version: int = Field(default=1, alias="schema")
+    # the shape THIS build writes; migrations.py owns the number and the steps
+    schema_version: int = Field(default=CURRENT_SCHEMA, alias="schema")
     meta: TitleMeta = TitleMeta()
     provenance: dict[str, FieldProvenance] = {}
     chapters: list[ChapterRow] = []
@@ -118,6 +124,7 @@ class UserPatch(BaseModel):
     fav: bool | None = None
     rating: int | None = None
     read: dict[str, ReadState] | None = None
+    position: dict[str, float] | None = None
 
 
 # ---- wire DTOs (flat camelCase, composed from the layers) ----
@@ -129,6 +136,7 @@ class ChapterOut(ChapterRow):
     dlSource: str = ""     # where the DOWNLOAD came from (independent of meta.source)
     dlAt: str = ""         # when it was downloaded (ISO, from the sidecar)
     v: str = ""            # media version — what a page/video URL is cached under
+    position: float = 0.0  # seconds into a video chapter (0 for page media)
     # "pages" (a zip of images) or "video" (the episode file itself). The two
     # kinds are stored differently and READ differently; everything else about a
     # chapter — identity, provenance, translations, progress — is the same.
@@ -174,6 +182,7 @@ class TitleOut(BaseModel):
                 dl=side is not None, pages=(side or {}).get("pages", 0),
                 v=chapter_version(side),
                 kind=(side or {}).get("kind", "pages"),
+                position=float(u.position.get(c.id, 0.0)),
                 duration=float((side or {}).get("duration") or 0.0),
                 playable=bool((side or {}).get("playable", True)),
                 dlSource=(side or {}).get("pageUrl") or (side or {}).get("fileUrl") or "",

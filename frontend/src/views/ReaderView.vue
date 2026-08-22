@@ -9,11 +9,12 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Icon from '../components/Icon.vue'
 import Dropdown from '../components/Dropdown.vue'
+import VideoSurface from '../components/VideoSurface.vue'
 import { api } from '../api'
 import { closeReader, setRead, store, titleById } from '../store'
 import {
-  READ_COLOR as readColor, coverAt, filterOptions, groupByNum, hueFor, orderedChaptersOf,
-  type Chapter, type Title,
+  READ_COLOR as readColor, coverAt, filterOptions, formatDuration, groupByNum, hueFor,
+  isReadable, mediaLabel, orderedChaptersOf, type Chapter, type Title,
 } from '../data'
 import { bindingsFor, keyLabel, matches } from '../keys'
 import { isRecord, readLocal, readLocalOne, writeLocal, writeLocalOne } from '../local'
@@ -22,6 +23,10 @@ const t = computed<Title | undefined>(() => titleById(store.activeTitle))
 const chapter = computed<Chapter | undefined>(() =>
   t.value?.chapters.find((c) => c.id === store.reader.chapterId))
 const count = computed(() => chapter.value?.pages ?? 0)
+// A title can hold BOTH kinds — episodes plus a bonus image set — so what the
+// reader shows is decided per chapter, never per title.
+const isVideo = computed(() => chapter.value?.kind === 'video')
+
 
 // ---- settings, remembered PER TITLE (new titles inherit the last used) ----
 type Mode = 'pages' | 'strip'
@@ -71,8 +76,8 @@ const listRows = computed(() => ordered.value.filter((c) =>
   (langFilter.value === 'all' || c.lang === langFilter.value)
   && (groupFilter.value === 'all' || c.group === groupFilter.value)))
 // reading flow ([ ] and Continue follow the ACTIVE filters)
-const flow = computed(() => listRows.value.filter((c) => c.dl && c.pages > 0))
-const readable = computed(() => ordered.value.filter((c) => c.dl && c.pages > 0))
+const flow = computed(() => listRows.value.filter(isReadable))
+const readable = computed(() => ordered.value.filter(isReadable))
 
 // Advance moves BETWEEN labels, never between translations of one label —
 // the next chapter keeps the CURRENT translation (lang+group) when the next
@@ -94,9 +99,12 @@ function chapterAt(offset: 1 | -1): Chapter | undefined {
 const listTree = computed(() => groupByNum(listRows.value))
 
 function openChapter(c: Chapter, page = 0) {
-  if (!c.dl || !c.pages) return
+  if (!isReadable(c)) return
   store.reader.chapterId = c.id
-  store.reader.page = clamp(page, 0, c.pages - 1)
+  // an episode has no page index — its position lives in the user layer, and
+  // the player restores it; clamping against `pages` (which is 0) would refuse
+  // to open the row at all
+  store.reader.page = c.kind === 'video' ? 0 : clamp(page, 0, c.pages - 1)
   stripTarget = -1
   stripEl.value?.scrollTo({ top: 0 })
   pagesEl.value?.scrollTo({ top: 0 })
@@ -315,8 +323,10 @@ const WIDTH_PRESETS = [600, 720, 900]
       </button>
       <span v-if="chapter" class="rch mono">ch. {{ chapter.num }}<template v-if="chapter.lang"> · {{ chapter.lang }}</template></span>
       <div style="flex:1"></div>
-      <span class="rind mono">{{ mode === 'pages' ? `${store.reader.page + 1} / ${count}` : `${stripPct}%` }}</span>
-      <button class="iconbtn rleft" :class="{ on: thumbs }" title="Toggle the page thumbnails" @click="thumbs = !thumbs">
+      <span class="rind mono">{{ isVideo
+        ? (chapter?.duration ? formatDuration(chapter.duration) : 'video')
+        : (mode === 'pages' ? `${store.reader.page + 1} / ${count}` : `${stripPct}%`) }}</span>
+      <button v-if="!isVideo" class="iconbtn rleft" :class="{ on: thumbs }" title="Toggle the page thumbnails" @click="thumbs = !thumbs">
         <Icon name="panel" :size="15" :sw="1.9" />
       </button>
       <button class="iconbtn" :class="{ on: sidebar }" title="Toggle the sidebar (S)" @click="sidebar = !sidebar">
@@ -327,7 +337,7 @@ const WIDTH_PRESETS = [600, 720, 900]
     <div class="rbody">
       <!-- LEFT RAIL: the open chapter's pages as thumbnails; click to jump.
            The current page keeps itself in view. -->
-      <aside v-if="thumbs" ref="railEl" class="lrail scroll">
+      <aside v-if="thumbs && !isVideo" ref="railEl" class="lrail scroll">
         <div v-if="!count" class="rempty" style="font-size:11px;grid-column:1/-1">No pages</div>
         <button v-for="i in count" :key="`th-${chapter?.id}-${i}`" class="lthumb"
                 :class="{ on: store.reader.page === i - 1 }" :title="`Page ${i}`" @click="goToPage(i - 1)">
@@ -336,15 +346,18 @@ const WIDTH_PRESETS = [600, 720, 900]
         </button>
       </aside>
 
+      <!-- VIDEO: the same shell, a different surface -->
+      <VideoSurface v-if="isVideo && t && chapter" :title="t" :chapter="chapter" />
+
       <!-- PAGES: one page, click left/right thirds to flip -->
-      <div v-if="mode === 'pages'" ref="pagesEl" class="stage scroll" :class="{ fith: fit === 'height' }" @click="onStageClick">
+      <div v-else-if="mode === 'pages'" ref="pagesEl" class="stage scroll" :class="{ fith: fit === 'height' }" @click="onStageClick">
         <img v-if="chapter && count" :key="`${chapter.id}-${store.reader.page}`" class="page"
              :style="pageStyle" :src="pageSrc(store.reader.page)" alt="" @load="onPageLoad" />
         <div v-else class="rempty">No downloaded pages in this chapter.</div>
       </div>
 
       <!-- STRIP: every page stacked, an explicit Continue card at the end -->
-      <div v-else ref="stripEl" class="stage strip scroll" @scroll.passive="onStripScroll">
+      <div v-else-if="!isVideo" ref="stripEl" class="stage strip scroll" @scroll.passive="onStripScroll">
         <template v-if="chapter && count">
           <img v-for="i in count" :key="`${chapter.id}-${i}`" class="page" :style="stripStyle"
                :src="pageSrc(i - 1)" :loading="i - 1 <= store.reader.page + 2 ? 'eager' : 'lazy'"
@@ -418,7 +431,7 @@ const WIDTH_PRESETS = [600, 720, 900]
                        @click="openChapter(c)">
                     <span class="rdot s" :style="{ background: readColor[c.read] }"></span>
                     <span class="rtrb"><span class="mono" style="color:var(--accent);font-size:9px">{{ c.lang || '?' }}</span><template v-if="c.group">{{ c.group }}</template></span>
-                    <span class="rpg mono">{{ c.dl && c.pages ? `${c.pages} pg` : '→' }}</span>
+                    <span class="rpg mono">{{ mediaLabel(c, '→') || '→' }}</span>
                   </div>
                 </div>
               </template>
@@ -429,7 +442,7 @@ const WIDTH_PRESETS = [600, 720, 900]
                 <span class="rdot" :style="{ background: readColor[node.rows[0].read] }"></span>
                 <span class="rname"><b class="mono">{{ node.rows[0].num || '—' }}</b><template v-if="node.rows[0].title"> {{ node.rows[0].title }}</template></span>
                 <span v-if="node.rows[0].lang || node.rows[0].group" class="rtrb"><span class="mono" style="color:var(--accent);font-size:9px">{{ node.rows[0].lang || '?' }}</span><template v-if="node.rows[0].group">{{ node.rows[0].group }}</template></span>
-                <span class="rpg mono">{{ node.rows[0].dl && node.rows[0].pages ? `${node.rows[0].pages} pg` : '→' }}</span>
+                <span class="rpg mono">{{ mediaLabel(node.rows[0], '→') || '→' }}</span>
               </div>
             </template>
           </div>

@@ -134,7 +134,8 @@ function orderedChapterRows(t: Title): Chapter[] {
   return orderedChaptersOf(t.chapters, t.chapterOrder)
 }
 function previewChapter(t: Title): Chapter | undefined {
-  return orderedChapterRows(t).find((c) => c.dl && c.pages > 0)
+  // the expanded strip previews PAGES; an episode has no page tiles to show
+  return orderedChapterRows(t).find((c) => c.dl && c.kind !== 'video' && c.pages > 0)
 }
 function recent(t: Title): Chapter[] {
   return orderedChapterRows(t).slice(0, 8)

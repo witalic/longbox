@@ -101,6 +101,12 @@ export const api = {
   // width×cap from the top — previews only, the reader always loads originals
   chapterPageSrc: (tid: string, cid: string, index: number, v: number | string = 0, w = 0, cap = 0) =>
     `/api/titles/${tid}/chapters/${cid}/pages/${index}?v=${v}${w ? `&w=${w}` : ''}${cap ? `&cap=${cap}` : ''}`,
+  // the episode file itself; the server answers Range, so the player seeks
+  chapterVideoSrc: (tid: string, cid: string, v: string) =>
+    `/api/titles/${tid}/chapters/${cid}/video?v=${encodeURIComponent(v)}`,
+  // what only a player can measure without an ffprobe we do not ship
+  setVideoMeta: (tid: string, cid: string, duration: number) =>
+    req<Title>(`/titles/${tid}/chapters/${cid}/video/meta`, jsonBody('POST', { duration })),
   deleteChapterPages: (tid: string, cid: string, indices: number[]) =>
     req<Title>(`/titles/${tid}/chapters/${cid}/pages/delete`, jsonBody('POST', { indices })),
   // loose images (multi-select or a whole folder) appended to the entry's

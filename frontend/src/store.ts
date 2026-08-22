@@ -413,6 +413,18 @@ export async function setRating(t: Title, value: number) {
   t.rating = v
   try { cache([await api.patchUser(t.id, { rating: v })]) } catch (e) { store.error = String(e) }
 }
+// Where a page chapter remembers WHICH page, an episode remembers WHERE. Same
+// layer, same instant write-through — no draft, no confirm.
+export async function setPlaybackPosition(t: Title, chapterId: string, seconds: number) {
+  const chapter = t.chapters.find((c) => c.id === chapterId)
+  if (chapter) chapter.position = seconds // optimistic: the player is the truth here
+  try {
+    cache([await api.patchUser(t.id, { position: { [chapterId]: seconds } })])
+  } catch (e) {
+    store.error = e instanceof Error ? e.message : String(e)
+  }
+}
+
 export async function setRead(t: Title, chapterId: string, state: ReadState) {
   const c = t.chapters.find((x) => x.id === chapterId)
   if (c) c.read = state

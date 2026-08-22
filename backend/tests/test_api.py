@@ -128,9 +128,12 @@ def test_user_patch_is_partial_and_clamped(client):
 
 
 def test_provenance_persists_in_the_vault(client, tmp_path):
+    from app.library.migrations import CURRENT_SCHEMA
+
     doc = next(tmp_path.rglob("berserk/title.json")).read_text(encoding="utf-8")
     assert '"origin": "auto"' in doc and '"recipeVersion": 1' in doc
-    assert '"schema": 1' in doc
+    # the document says which shape it is in, whatever that shape currently is
+    assert f'"schema": {CURRENT_SCHEMA}' in doc
 
 
 # ---- filters, search, sort, facets ----
