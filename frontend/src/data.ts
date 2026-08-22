@@ -249,6 +249,15 @@ export function formatDuration(seconds: number): string {
     : `${m}:${String(s).padStart(2, '0')}`
 }
 
+// What a chapter's media can be, as the file pickers and the drop handler see
+// it. The vault decides by the same extensions (backend: media.VIDEO_EXTS),
+// and refuses anything whose bytes disagree with its name.
+export const ARCHIVE_RE = /\.(zip|cbz|rar|7z)$/i
+export const IMAGE_RE = /\.(jpe?g|png|webp|gif|avif|bmp)$/i
+export const VIDEO_RE = /\.(mp4|m4v|webm|mkv|mov|avi|ts)$/i
+export const MEDIA_ACCEPT = '.zip,.cbz,.rar,.7z,.mp4,.m4v,.webm,.mkv,.mov,.avi,.ts,image/*'
+export const FILE_ACCEPT = '.zip,.cbz,.rar,.7z,.mp4,.m4v,.webm,.mkv,.mov,.avi,.ts'
+
 // Whether opening this row shows the human something. A page chapter needs
 // pages; an episode needs only its file — asking for `pages` here is what made
 // video rows unclickable while the vault held the episode all along.

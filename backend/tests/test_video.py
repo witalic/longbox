@@ -116,3 +116,22 @@ def test_a_page_chapter_has_no_video_to_serve(tmp_path):
     with TestClient(create_app(lib)) as c:
         assert c.get(f"/api/titles/{out.id}/chapters/{cid}/video").status_code == 404
     lib.close()
+
+
+def test_an_episode_can_be_imported_the_same_way_an_archive_is(tmp_path):
+    """The picker posts a file and the chapter identity; nothing about the flow
+    is video-specific, so attaching an episode is attaching a file."""
+    lib = Library(tmp_path / "v")
+    out = lib.create(DraftIn(meta=TitleMeta(title="Series", type="anime")))
+    payload = _mp4(tmp_path / "Episode 01.mp4").read_bytes()
+
+    with TestClient(create_app(lib)) as c:
+        r = c.post(f"/api/titles/{out.id}/chapters/import",
+                   params={"num": "1", "lang": "EN", "group": "sub",
+                           "filename": "Episode 01.mp4"},
+                   content=payload)
+        assert r.status_code == 200
+        chapter = r.json()["chapters"][0]
+        assert chapter["kind"] == "video" and chapter["dl"] is True
+        assert c.get(f"/api/titles/{out.id}/chapters/{chapter['id']}/video").status_code == 200
+    lib.close()

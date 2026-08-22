@@ -9,7 +9,10 @@ import Dropdown from '../components/Dropdown.vue'
 import { openInBrowser } from '../browser'
 import { readLocalOne, writeLocalOne } from '../local'
 import { api } from '../api'
-import { compareChapterNums, coverAt, faviconFor, filterOptions, isReadable, mediaLabel, orderedChaptersOf, sameChapter } from '../data'
+import {
+  ARCHIVE_RE, FILE_ACCEPT, IMAGE_RE, MEDIA_ACCEPT, VIDEO_RE, compareChapterNums, coverAt,
+  faviconFor, filterOptions, isReadable, mediaLabel, orderedChaptersOf, sameChapter,
+} from '../data'
 
 // domains whose favicon failed to load → fall back to the initial letters
 const noIcon = reactive<Record<string, boolean>>({})
@@ -166,7 +169,7 @@ const iUrl = ref('')
 const importing = ref(false)
 const iLangSuggest = computed(() => langSuggestions(t.value?.chapters ?? []))
 const iGroupSuggest = computed(() => groupSuggestions())
-const ARCHIVE_RE = /\.(zip|cbz|rar|7z)$/i
+
 async function importEntryArchive(file: File) {
   if (!t.value) return
   importing.value = true
@@ -219,15 +222,17 @@ async function uploadEntryImages(files: File[]) {
 // ONE entry point for the entry's media: an archive or a set of images — the
 // branch is decided by what actually arrived. The OS can't put files and a
 // folder into one dialog, so folders come in by DROPPING them onto the form.
-const IMAGE_RE = /\.(jpe?g|png|webp|gif|avif|bmp)$/i
+
 const filesEl = ref<HTMLInputElement | null>(null)
 async function handleEntryFiles(files: File[]) {
   if (!files.length) return
-  const archives = files.filter((f) => ARCHIVE_RE.test(f.name))
+  // one file becomes the entry's media (an archive of pages, or an episode);
+  // several images accumulate into one chapter's pages
+  const whole = files.filter((f) => ARCHIVE_RE.test(f.name) || VIDEO_RE.test(f.name))
   const images = files.filter((f) => IMAGE_RE.test(f.name))
-  if (archives.length === 1 && !images.length) await importEntryArchive(archives[0])
+  if (whole.length === 1 && !images.length) await importEntryArchive(whole[0])
   else if (images.length) await uploadEntryImages(sortFilesNat(images))
-  else store.error = 'Pick ONE archive (.zip/.cbz/.rar/.7z), or image files'
+  else store.error = 'Pick ONE archive or video file, or several images'
 }
 async function onEntryFiles(e: Event) {
   const input = e.target as HTMLInputElement
@@ -700,7 +705,7 @@ async function removeRow(c: Chapter) {
                        :lang-suggest="iLangSuggest" :group-suggest="iGroupSuggest"
                        label-placeholder="5 / 2024 Artworks / Extra" />
           <div class="irow">
-            <span class="drophint mono">drop an archive · images · a whole folder</span>
+            <span class="drophint mono">drop an archive · a video · images · a whole folder</span>
             <div style="flex:1"></div>
             <button class="btn ghost chsmall" :disabled="importing" @click="importOpen = false; iNum = ''; iUrl = ''">Cancel</button>
             <button class="btn ghost chsmall" :disabled="!iNum.trim() || importing" title="Create the entry row without a file — add images later from the pages pane" @click="addRowOnly">Add row only</button>
@@ -708,9 +713,9 @@ async function removeRow(c: Chapter) {
               {{ importing ? 'Importing…' : 'Choose files…' }}
             </button>
           </div>
-          <input ref="filesEl" type="file" accept=".zip,.cbz,.rar,.7z,image/*" multiple style="display:none" @change="onEntryFiles" />
+          <input ref="filesEl" type="file"   :accept="MEDIA_ACCEPT" multiple style="display:none" @change="onEntryFiles" />
         </div>
-        <input ref="attachEl" type="file" accept=".zip,.cbz,.rar,.7z" style="display:none" @change="onAttachFile" />
+        <input ref="attachEl" type="file" :accept="FILE_ACCEPT" style="display:none" @change="onAttachFile" />
 
         <div v-if="tree.length" class="chlist">
           <template v-for="node in tree" :key="node.num">
@@ -744,7 +749,7 @@ async function removeRow(c: Chapter) {
                       <span v-if="editMode" class="chacts">
                         <button class="chact" title="Edit entry: label · language · group · source link" @click.stop="openEntryEdit(c)"><Icon name="edit" :size="12" :sw="1.9" /></button>
                         <button class="chact" title="Add images to this entry" @click.stop="pickAddImagesRow(c)"><Icon name="image" :size="12" :sw="1.9" /></button>
-                        <button class="chact" :title="c.dl ? 'Replace the archive file' : 'Attach an archive file'" @click.stop="pickAttach(c)"><Icon name="download" :size="12" :sw="2" /></button>
+                        <button class="chact" :title="c.dl ? 'Replace the file on this entry' : 'Attach a file — an archive of pages or a video'" @click.stop="pickAttach(c)"><Icon name="download" :size="12" :sw="2" /></button>
                         <button v-if="c.dl" class="chact" title="Remove the file (keep the entry)" @click.stop="removeDownload(c)"><Icon name="minus" :size="12" :sw="2.4" /></button>
                         <button class="chact danger" title="Remove the entry AND its file" @click.stop="removeRow(c)"><Icon name="x" :size="12" :sw="2.4" /></button>
                       </span>
@@ -780,7 +785,7 @@ async function removeRow(c: Chapter) {
                   <span v-if="editMode" class="chacts">
                     <button class="chact" title="Edit entry: label · language · group · source link" @click.stop="openEntryEdit(node.rows[0])"><Icon name="edit" :size="12" :sw="1.9" /></button>
                     <button class="chact" title="Add images to this entry" @click.stop="pickAddImagesRow(node.rows[0])"><Icon name="image" :size="12" :sw="1.9" /></button>
-                    <button class="chact" :title="node.rows[0].dl ? 'Replace the archive file' : 'Attach an archive file'" @click.stop="pickAttach(node.rows[0])"><Icon name="download" :size="12" :sw="2" /></button>
+                    <button class="chact" :title="node.rows[0].dl ? 'Replace the file on this entry' : 'Attach a file — an archive of pages or a video'" @click.stop="pickAttach(node.rows[0])"><Icon name="download" :size="12" :sw="2" /></button>
                     <button v-if="node.rows[0].dl" class="chact" title="Remove the file (keep the entry)" @click.stop="removeDownload(node.rows[0])"><Icon name="minus" :size="12" :sw="2.4" /></button>
                     <button class="chact danger" title="Remove the entry AND its file" @click.stop="removeRow(node.rows[0])"><Icon name="x" :size="12" :sw="2.4" /></button>
                   </span>
