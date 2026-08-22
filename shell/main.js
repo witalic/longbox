@@ -265,6 +265,10 @@ async function main() {
   const win = new BrowserWindow({
     width: 1280, height: 820, minWidth: 960, minHeight: 620,
     backgroundColor: '#0a0b0d',
+    // Shown only once it has something to draw. An empty window that appears
+    // first and fills in seconds later reads as a broken app, and the renderer
+    // boot is not instant however fast the sidecar answers.
+    show: false,
     autoHideMenuBar: true,
     title: APP_META.name,
     icon: path.join(__dirname, IS_WIN ? 'icon.ico' : 'icon.png'),
@@ -448,6 +452,7 @@ async function main() {
   // the OS window carries the app name ONCE — page titles never override it
   win.webContents.on('page-title-updated', (e) => e.preventDefault())
 
+  win.once('ready-to-show', () => win.show())
   win.loadURL(`${origin}/app/`)
 }
 

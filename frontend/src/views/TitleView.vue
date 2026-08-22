@@ -4,6 +4,7 @@
 // (favorite, rating, read state) writes through instantly from here.
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import Icon from '../components/Icon.vue'
+import VideoSurface from '../components/VideoSurface.vue'
 import EntryFields from '../components/EntryFields.vue'
 import Dropdown from '../components/Dropdown.vue'
 import { openInBrowser } from '../browser'
@@ -342,12 +343,15 @@ function pageSrc(cid: string, index: number, v: string): string {
 }
 const pagesTitle = ref<string | null>(null) // which TITLE the pane belongs to
 async function selectPages(c: Chapter) {
-  // An episode has no page pane. This runs on AUTO-SELECT too (the pane opens
-  // on the first readable chapter), so it must never navigate — doing so threw
-  // the user back into the player every time they returned to the title.
+  // An episode opens in the SAME pane a chapter's pages do — it just shows a
+  // player instead of a page grid, and plays right there. Only the pane's
+  // fullscreen button hands over to the reader.
   if (c.kind === 'video') {
-    openPages.value = null
+    pagesTitle.value = t.value?.id ?? null
+    openPages.value = c.id
+    selPages.value = []
     pageCount.value = 0
+    pagesError.value = ''
     return
   }
   if (!c.dl || !c.pages) {
@@ -388,16 +392,6 @@ watch(() => [t.value?.id, t.value?.chapters], () => {
   pageCount.value = 0
   if (first) void selectPages(first)
 }, { immediate: true, deep: false })
-// Clicking a row: pages open their pane, an episode opens the player. Only a
-// real click does this — never the automatic selection above.
-function onRowClick(c: Chapter) {
-  if (c.kind === 'video') {
-    if (c.dl && t.value) void openReader(t.value.id, c.id, 0)
-    return
-  }
-  void selectPages(c)
-}
-
 function togglePageSel(index: number) {
   if (!editMode.value) return
   const k = selPages.value.indexOf(index)
@@ -750,7 +744,7 @@ async function removeRow(c: Chapter) {
                   <div class="chrow tr" :class="{ open: openPages === c.id, openable: isReadable(c), dragging: dragRow?.id === c.id }"
                        :draggable="canDrag" @dragstart.stop="dragRow = c" @dragend="clearDrag"
                        @dragover.prevent="onDragOverNum(node.num)" @drop.prevent="onRowDrop(node.num)"
-                       @click="onRowClick(c)">
+                       @click="selectPages(c)">
                     <span class="chslot">
                       <span v-if="canDrag" class="grip mono" title="Drag onto another label to move this translation">&#8942;&#8942;</span>
                       <span v-else class="chdot s" :style="{ background: readColor[c.read] }" :title="`${c.read} — click to change`" @click.stop="cycleRead(c)"></span>
@@ -786,7 +780,7 @@ async function removeRow(c: Chapter) {
                    :draggable="canDrag"
                    @dragstart="dragNum = node.num" @dragend="clearDrag"
                    @dragover.prevent="onDragOverNum(node.num)" @drop.prevent="onRowDrop(node.num)"
-                   @click="onRowClick(node.rows[0])">
+                   @click="selectPages(node.rows[0])">
                 <span class="chslot">
                   <span v-if="canDrag" class="grip mono" title="Drag to reorder">&#8942;&#8942;</span>
                   <span v-else class="chdot" :style="{ background: readColor[node.rows[0].read] }" :title="`${node.rows[0].read} — click to change`" @click.stop="cycleRead(node.rows[0])"></span>
@@ -829,8 +823,13 @@ async function removeRow(c: Chapter) {
       <!-- the pages pane: fills the right side, open by default -->
       <div v-if="editMode || t.chapters.some(isReadable)" class="pagespane">
         <div class="pghead">
-          <span v-if="openChapter" class="mono pglabel">{{ openChapter.num }}<template v-if="openChapter.lang"> · {{ openChapter.lang }}</template> — {{ pageCount }} pages<template v-if="selPages.length"> · <span style="color:var(--accent)">{{ selPages.length }} selected</span></template></span>
+          <span v-if="openChapter" class="mono pglabel">{{ openChapter.num }}<template v-if="openChapter.lang"> · {{ openChapter.lang }}</template> — {{ openChapter.kind === 'video' ? (mediaLabel(openChapter) || 'video') : `${pageCount} pages` }}<template v-if="selPages.length"> · <span style="color:var(--accent)">{{ selPages.length }} selected</span></template></span>
           <div style="flex:1"></div>
+          <button v-if="openChapter?.kind === 'video' && openChapter.dl" class="btn ghost chsmall"
+                  title="Play full screen (opens the reader)"
+                  @click="t && openReader(t.id, openChapter.id, 0)">
+            <Icon name="expand" :size="12" :sw="2" />Full screen
+          </button>
           <template v-if="editMode && openChapter">
             <button class="btn ghost chsmall" :disabled="importing" title="Append image files to this entry (its archive is created on first add)" @click="addImgEl?.click()">
               <Icon name="plus" :size="12" :sw="2.2" />{{ importing ? 'Adding…' : 'Add images' }}
@@ -871,8 +870,10 @@ async function removeRow(c: Chapter) {
                     :title="`Thumbnail size: ${k.toUpperCase()}`" @click="thumbKey = k">{{ k.toUpperCase() }}</button>
           </div>
         </div>
-        <div v-if="pagesError" class="pgerror">Could not read the archive's pages: {{ pagesError }}</div>
-        <div v-else-if="openChapter && !pageCount" class="pgerror">
+        <VideoSurface v-if="openChapter?.kind === 'video' && openChapter.dl && t"
+                      :title="t" :chapter="openChapter" class="panevideo" />
+        <div v-else-if="pagesError" class="pgerror">Could not read the archive's pages: {{ pagesError }}</div>
+        <div v-else-if="openChapter && openChapter.kind !== 'video' && !pageCount" class="pgerror">
           {{ openChapter.dl ? "No readable pages in this archive." : "No pages yet — use “Add images” to start this entry." }}
         </div>
         <div v-else-if="openChapter" class="pgrid scroll">
@@ -1023,6 +1024,7 @@ async function removeRow(c: Chapter) {
 .chact.danger:hover { color: var(--adult); border-color: color-mix(in srgb, var(--adult) 45%, var(--line)); }
 
 /* the pages pane: right column, sticky, its own scroll */
+.panevideo { min-height: 320px; }
 .pagespane { flex: 1; min-width: 0; position: sticky; top: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); overflow: hidden; display: flex; flex-direction: column; max-height: calc(100vh - 120px); }
 .pghead { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--line); flex: none; }
 .pglabel { font-size: 11px; color: var(--tx2); }

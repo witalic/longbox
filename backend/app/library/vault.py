@@ -453,8 +453,11 @@ class Vault:
             # a re-ingest over an existing chapter continues its revision, so a
             # browser holding the previous pages cannot match the new URLs
             prev = self.chapter_sidecars(title_id).get(stem, {})
+            probe = media.probe_mp4(final) if as_video else {}
             sidecar = {**sidecar,
                        "kind": "video" if as_video else "pages",
+                       **({"codec": probe.get("codec", ""),
+                           "faststart": probe.get("faststart", False)} if as_video else {}),
                        "pages": 0 if as_video else len(media.image_entries(final)),
                        "size": final.stat().st_size,
                        "rev": int(prev.get("rev") or 0) + 1}

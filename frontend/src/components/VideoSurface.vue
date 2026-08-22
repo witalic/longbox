@@ -17,6 +17,23 @@ const props = defineProps<{ title: Title; chapter: Chapter }>()
 
 const el = ref<HTMLVideoElement | null>(null)
 const failed = ref(false)
+const stalled = ref(false)
+
+// Why a file may behave badly, stated plainly instead of looking like a bug in
+// the app. Both come from the file itself and both are fixed by a remux.
+const caveat = computed(() => {
+  const c = props.chapter
+  if (c.kind !== 'video') return ''
+  if (c.codec === 'hevc') {
+    return 'This episode is HEVC (H.265). It plays only where the system decodes it in '
+      + 'hardware — otherwise it stutters however fast the disk is.'
+  }
+  if (c.faststart === false) {
+    return 'This file keeps its index at the end, so the player has to fetch the tail '
+      + 'before the first frame. That is the slow start you see.'
+  }
+  return ''
+})
 const src = computed(() => api.chapterVideoSrc(props.title.id, props.chapter.id, props.chapter.v))
 
 // A container Chromium cannot open (mkv, avi…) is stored and listed like any
@@ -80,7 +97,12 @@ onBeforeUnmount(() => {
       @seeked="remember(el?.currentTime ?? 0, true)"
       @ended="remember(0, true)"
       @error="failed = true"
+      @stalled="stalled = true"
+      @playing="stalled = false"
     ></video>
+
+    <!-- said once, quietly, and only when the file explains itself -->
+    <div v-if="playable && caveat" class="vcaveat">{{ caveat }}</div>
 
     <!-- stored, listed, catalogued — just not openable by this browser engine -->
     <div v-else class="vunplayable">
@@ -97,7 +119,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.vstage { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; background: #000; }
+.vstage { position: relative; flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; background: #000; }
 .vplayer { width: 100%; height: 100%; max-height: 100%; background: #000; }
 .vunplayable {
   display: flex; flex-direction: column; align-items: center; gap: 10px;
@@ -105,5 +127,11 @@ onBeforeUnmount(() => {
   width: 100%; height: 100%; justify-content: center;
 }
 .vtitle { font: 600 15px/1.3 system-ui; color: var(--tx); }
+.vcaveat {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  padding: 8px 14px; font: 400 11px/1.4 system-ui;
+  color: var(--tx2); background: color-mix(in srgb, var(--bg) 88%, transparent);
+  border-top: 1px solid var(--line);
+}
 .vhint { font: 400 12px/1.5 system-ui; color: var(--tx3); max-width: 420px; }
 </style>

@@ -44,6 +44,8 @@ export interface Chapter extends ChapterRow {
   duration: number  // seconds (video only), learned from the player
   playable: boolean // whether this container opens in the app's browser engine
   position: number  // seconds into a video chapter — the resume point
+  codec: string     // h264 / hevc / av1 … — what the file actually holds
+  faststart: boolean // its index sits before the media, so playback starts at once
 }
 
 // The metadata layer of a title — exactly what a draft edits and a commit writes.

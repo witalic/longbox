@@ -34,6 +34,61 @@ def is_video(name: str | Path) -> bool:
     return Path(name).suffix.lower() in VIDEO_EXTS
 
 
+# fourcc -> what a browser calls it. Anything absent here is stored and listed
+# like any other episode; the app simply does not claim it can play it.
+_VIDEO_CODECS = {b"avc1": "h264", b"avc3": "h264", b"hvc1": "hevc", b"hev1": "hevc",
+                 b"av01": "av1", b"vp09": "vp9", b"vp08": "vp8"}
+
+
+def probe_mp4(path: Path) -> dict:
+    """What an mp4 says about itself, without decoding it.
+
+    Two things decide whether playback FEELS instant, and neither is visible
+    from the file name:
+
+    * where `moov` sits. A player cannot start until it has that index, so a
+      file with `moov` behind the media makes the browser fetch the tail of a
+      600 MB file before the first frame ("slow loading" that is not the
+      network's fault).
+    * the video codec. HEVC plays only where the platform decodes it in
+      hardware; everywhere else the browser stutters or refuses.
+    """
+    out: dict = {"faststart": False, "codec": ""}
+    try:
+        size = path.stat().st_size
+        with path.open("rb") as fh:
+            offset, moov = 0, None
+            while offset < size:
+                fh.seek(offset)
+                header = fh.read(8)
+                if len(header) < 8:
+                    break
+                box = int.from_bytes(header[:4], "big")
+                name = header[4:8]
+                if box == 1:  # 64-bit size follows the header
+                    box = int.from_bytes(fh.read(8), "big")
+                if box <= 0:
+                    break
+                if name == b"moov":
+                    moov = (offset, min(box, 32 * 1024 * 1024))
+                    out["faststart"] = out.get("_seen_mdat") is not True
+                    break
+                if name == b"mdat":
+                    out["_seen_mdat"] = True
+                offset += box
+            if moov is not None:
+                fh.seek(moov[0])
+                blob = fh.read(moov[1])
+                for code, label in _VIDEO_CODECS.items():
+                    if code in blob:
+                        out["codec"] = label
+                        break
+    except OSError:
+        return {"faststart": False, "codec": ""}
+    out.pop("_seen_mdat", None)
+    return out
+
+
 def looks_like_video(path: Path) -> bool:
     """Whether the file's own bytes agree with its video extension.
 

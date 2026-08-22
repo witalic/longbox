@@ -438,8 +438,10 @@ def chapter_video(request: Request, title_id: str, chapter_id: str) -> FileRespo
     return FileResponse(
         path,
         media_type=media.VIDEO_CT_BY_EXT.get(path.suffix.lower(), "application/octet-stream"),
-        # the vault is the only source; a stale cached episode is never wanted
-        headers={"Cache-Control": "no-store", "Accept-Ranges": "bytes"})
+        # the URL carries the media version, so a cached range can only ever be
+        # the right one — and re-fetching ranges the player already holds is
+        # what makes scrubbing feel slow
+        headers={"Cache-Control": "private, max-age=604800", "Accept-Ranges": "bytes"})
 
 
 class PlaybackIn(BaseModel):

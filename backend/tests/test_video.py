@@ -135,3 +135,25 @@ def test_an_episode_can_be_imported_the_same_way_an_archive_is(tmp_path):
         assert chapter["kind"] == "video" and chapter["dl"] is True
         assert c.get(f"/api/titles/{out.id}/chapters/{chapter['id']}/video").status_code == 200
     lib.close()
+
+
+def test_the_vault_records_why_a_file_may_start_slowly(tmp_path):
+    """Two properties decide whether playback feels instant, and neither shows
+    in the file name: where the index sits, and which codec it holds. The app
+    reads both at ingest so it can say WHY instead of looking broken."""
+    lib = Library(tmp_path / "v")
+    out = lib.create(DraftIn(meta=TitleMeta(title="Series", type="anime")))
+
+    # moov AFTER the media, as a file straight off a muxer usually is
+    src = tmp_path / "tail.mp4"
+    moov = b"moov" + b"\x00" * 4 + b"hvc1" + b"\x00" * 64
+    src.write_bytes(
+        b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2"
+        + (len(b"mdat") + 4 + 2048).to_bytes(4, "big") + b"mdat" + b"\x00" * 2048
+        + (len(moov) + 4).to_bytes(4, "big") + moov)
+    lib.attach_chapter_media(out.id, num="1", lang="", group="", src=src,
+                             sidecar={"filename": "tail.mp4"})
+    chapter = lib.get(out.id).chapters[0]
+    assert chapter.codec == "hevc"
+    assert chapter.faststart is False
+    lib.close()
