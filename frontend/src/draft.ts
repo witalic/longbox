@@ -12,7 +12,7 @@ import {
   type ChapterRow, type FieldProvenance, type Flags, type Provenance, type Title, type TitleMeta,
 } from './data'
 import { isRecord, readLocal } from './local'
-import { LIST_KEYS, captureValue, type CleanFlags } from './normalize'
+import { captureValue, type CleanFlags } from './normalize'
 import { askConfirm, cache, refreshLibrary, store } from './store'
 
 // The draft's view of the cover — decoupled from any page:
@@ -91,7 +91,7 @@ function rememberDraftDefaults(meta: TitleMeta) {
 }
 
 export function newDraft() {
-  const meta = blankMeta()
+  const meta = blankMeta(store.fields)
   const last = newDraftDefaults()
   if (last.type) meta.type = last.type.toLowerCase()
   if (last.status) meta.status = last.status.toLowerCase()
@@ -106,7 +106,7 @@ export function draftFromTitle(t: Title) {
   setDraft({
     targetId: t.id,
     targetLabel: t.title,
-    meta: metaOf(t),
+    meta: metaOf(t, store.fields),
     provenance: JSON.parse(JSON.stringify(t.provenance || {})),
     chapters: chapterRowsOf(t.chapters),
     cover: { kind: t.cover ? 'keep' : 'none', preview: t.cover },
@@ -132,17 +132,23 @@ export function discardDraft() {
 
 // ---- field writes ----
 
-const META_STRINGS = ['title', 'alt', 'year', 'desc', 'type', 'status'] as const
-export type EditableField =
-  | (typeof META_STRINGS)[number] | 'authors' | 'artists' | 'characters' | 'genres' | 'tags' | 'cover'
+// A field id from the served registry (backend library/fields.py). The compiler
+// cannot know a field the user defined this morning, so this is checked at
+// runtime instead — see isEditableField.
+export type EditableField = string
 
-// What a DRAFT can hold — the one list. A recipe also stores rules that are not
-// draft fields (page capture teaches `pages`), and merging one of those would
-// write a joined list of image URLs into the title, with `auto` provenance
-// committed to the vault beside it.
-export const EDITABLE_FIELDS: ReadonlySet<string> = new Set<EditableField>([
-  ...META_STRINGS, 'authors', 'artists', 'characters', 'genres', 'tags', 'cover',
-])
+// What a DRAFT can hold. A recipe also stores rules that are NOT draft fields
+// (page capture teaches `pages`), and merging one of those would write a joined
+// list of image URLs into the title, with `auto` provenance committed to the
+// vault beside it.
+export function isEditableField(key: string): boolean {
+  return store.fields.some((f) => f.editable && f.id === key)
+}
+
+// A chips control is the list-of-strings one; `flags` and `cover` are neither.
+export function isListField(key: string): boolean {
+  return store.fields.some((f) => f.id === key && f.control === 'chips')
+}
 
 function fieldValue(meta: TitleMeta, field: string): string | string[] {
   return (meta as unknown as Record<string, string | string[]>)[field]
@@ -169,7 +175,7 @@ export function clearField(field: EditableField) {
   if (field === 'cover') {
     d.cover = { kind: 'none', preview: '' }
     d.meta.coverSource = ''
-  } else if (LIST_KEYS.includes(field)) {
+  } else if (isListField(field)) {
     setFieldValue(d.meta, field, [])
   } else {
     setFieldValue(d.meta, field, '') // type/status clear to empty too — no auto value
@@ -192,7 +198,7 @@ export function applyCapture(
   const d = draftState.cur
   if (!d) return
   if (field === 'cover') return // cover bytes go through applyCoverCapture
-  setFieldValue(d.meta, field, captureValue(field, raw, clean))
+  setFieldValue(d.meta, field, captureValue(field, raw, clean, isListField(field)))
   d.provenance[field] = { origin: 'auto', ...prov }
 }
 
@@ -242,7 +248,7 @@ export function mergeSnapshot(snap: Snapshot): string[] {
     // the merge invariant: auto may write only into `auto` or empty fields
     const cur = fieldValue(d.meta, field)
     if (!(d.provenance[field]?.origin === 'auto' || isEmpty(cur))) continue
-    const cleaned = captureValue(field, raw, snap.flags?.[field])
+    const cleaned = captureValue(field, raw, snap.flags?.[field], isListField(field))
     if (isEmpty(cleaned)) continue
     // status/type: known synonyms normalize onto the common vocabulary
     // (captureValue), anything else is stored as the custom value it is

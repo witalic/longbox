@@ -133,9 +133,9 @@ def test_characters_field_and_facet(tmp_path):
     lib = Library(tmp_path)
     lib.create(DraftIn(meta=TitleMeta(title="A", characters=["Guts", "Griffith"])))
     lib.create(DraftIn(meta=TitleMeta(title="B", characters=["Guts"])))
-    assert sorted(t.id for t in lib.query(characters=("Guts",))) == ["a", "b"]
-    assert [t.id for t in lib.query(characters=("Griffith",))] == ["a"]
-    assert [t.id for t in lib.query(characters_not=("Griffith",))] == ["b"]
+    assert sorted(t.id for t in lib.query(include={"characters": ("Guts",)})) == ["a", "b"]
+    assert [t.id for t in lib.query(include={"characters": ("Griffith",)})] == ["a"]
+    assert [t.id for t in lib.query(exclude={"characters": ("Griffith",)})] == ["b"]
     chars = {x["v"]: x["n"] for x in lib.facets()["characters"]}
     assert chars == {"Guts": 2, "Griffith": 1}
     lib.close()

@@ -19,6 +19,8 @@ import threading
 from collections import Counter
 from pathlib import Path
 
+from . import fields
+from .fields import Field
 from .models import TitleDoc
 
 _SCHEMA_VERSION = 5
@@ -57,11 +59,6 @@ _SORTS = {
 
 def _counted(counter: Counter) -> list[dict]:
     return [{"v": v, "n": n} for v, n in sorted(counter.items(), key=lambda x: (-x[1], x[0]))]
-
-
-def _flag_names(doc: TitleDoc) -> set[str]:
-    f = doc.meta.flags
-    return {name for name in ("adult", "ai", "censored") if getattr(f, name)}
 
 
 class LibraryIndex:
@@ -220,42 +217,27 @@ class LibraryIndex:
         fav: bool | None = None,
         min_rating: int | None = None,
         progress: str | None = None,  # unread | reading | completed (reading progress, NOT manga status)
-        types: tuple[str, ...] = (),
-        types_not: tuple[str, ...] = (),
-        statuses: tuple[str, ...] = (),
-        statuses_not: tuple[str, ...] = (),
-        genres: tuple[str, ...] = (),
-        genres_not: tuple[str, ...] = (),
-        tags: tuple[str, ...] = (),
-        tags_not: tuple[str, ...] = (),
-        languages: tuple[str, ...] = (),
-        languages_not: tuple[str, ...] = (),
-        flags: tuple[str, ...] = (),
-        flags_not: tuple[str, ...] = (),
-        authors: tuple[str, ...] = (),
-        authors_not: tuple[str, ...] = (),
-        characters: tuple[str, ...] = (),
-        characters_not: tuple[str, ...] = (),
+        include: dict[str, tuple[str, ...]] | None = None,
+        exclude: dict[str, tuple[str, ...]] | None = None,
         sort: str = "updated",
     ) -> list[tuple[str, TitleDoc, dict[str, dict], str]]:
+        """Field filters arrive keyed by field id (`fields.py`), so a field this
+        module has never heard of filters exactly like one it has."""
+        include, exclude = include or {}, exclude or {}
         where: list[str] = []
         params: list[object] = []
         if search:
             where.append("(title LIKE ? OR people LIKE ?)")
             like = f"%{search}%"
             params += [like, like]
-        if types:
-            where.append(f"type IN ({','.join('?' * len(types))})")
-            params += list(types)
-        if types_not:
-            where.append(f"type NOT IN ({','.join('?' * len(types_not))})")
-            params += list(types_not)
-        if statuses:
-            where.append(f"status IN ({','.join('?' * len(statuses))})")
-            params += list(statuses)
-        if statuses_not:
-            where.append(f"status NOT IN ({','.join('?' * len(statuses_not))})")
-            params += list(statuses_not)
+        # single-valued fields have an indexed column — let SQLite do those
+        for f in fields.FACETS:
+            if not f.column:
+                continue
+            for values, op in ((include.get(f.id, ()), "IN"), (exclude.get(f.id, ()), "NOT IN")):
+                if values:
+                    where.append(f"{f.column} {op} ({','.join('?' * len(values))})")
+                    params += list(values)
         if fav:
             where.append("fav = 1")
         if min_rating:
@@ -277,37 +259,19 @@ class LibraryIndex:
         out = [(r["id"], TitleDoc.model_validate_json(r["doc"]), json.loads(r["media"]), r["cover"])
                for r in rows]
 
-        # multi-valued facets live in the JSON doc — filter in Python (local scale)
+        # multi-valued fields live in the JSON doc — filter in Python (local scale)
         def keep(doc: TitleDoc) -> bool:
-            g, t = set(doc.meta.genres), set(doc.meta.tags)
-            langs = {c.lang for c in doc.chapters if c.lang}
-            fl = _flag_names(doc)
-            people = {*doc.meta.authors, *doc.meta.artists}
-            if genres and not set(genres) <= g:
-                return False
-            if genres_not and set(genres_not) & g:
-                return False
-            if tags and not set(tags) <= t:
-                return False
-            if tags_not and set(tags_not) & t:
-                return False
-            if languages and not set(languages) <= langs:
-                return False
-            if languages_not and set(languages_not) & langs:
-                return False
-            if flags and not set(flags) <= fl:
-                return False
-            if flags_not and set(flags_not) & fl:
-                return False
-            if authors and not set(authors) <= people:
-                return False
-            if authors_not and set(authors_not) & people:
-                return False
-            chars = set(doc.meta.characters)
-            if characters and not set(characters) <= chars:
-                return False
-            if characters_not and set(characters_not) & chars:
-                return False
+            for f in fields.FACETS:
+                if f.column:
+                    continue
+                inc, exc = include.get(f.id, ()), exclude.get(f.id, ())
+                if not inc and not exc:
+                    continue
+                have = fields.facet_values(f, doc)
+                if inc and not set(inc) <= have:
+                    return False
+                if exc and set(exc) & have:
+                    return False
             return True
 
         return [(i, d, m, c) for i, d, m, c in out if keep(d)]
@@ -317,33 +281,23 @@ class LibraryIndex:
         with every OTHER facet's filters applied. Single-valued facets (type,
         status) ignore their own selection so the alternatives stay visible;
         multi-valued ones keep their own includes (co-occurrence counts)."""
-        # Eight facets ask eight questions, but they collapse to ONE whenever the
-        # override does not actually change the selection — which is the whole
-        # unfiltered library, i.e. every launch.
+        # Every facet asks its own question, but they collapse to ONE whenever
+        # the override does not actually change the selection — which is the
+        # whole unfiltered library, i.e. every launch.
         seen: dict[tuple, list[TitleDoc]] = {}
 
-        def docs(**over) -> list[TitleDoc]:
-            kw = {**sel, **over}
-            key = tuple(sorted((k, v) for k, v in kw.items() if v))
+        def docs(without: Field) -> list[TitleDoc]:
+            kw = dict(sel)
+            kw["exclude"] = {k: v for k, v in (sel.get("exclude") or {}).items() if k != without.id}
+            if without.column:  # single-valued: its own include hides the alternatives
+                kw["include"] = {k: v for k, v in (sel.get("include") or {}).items()
+                                 if k != without.id}
+            key = (kw.get("search"), kw.get("fav"), kw.get("min_rating"), kw.get("progress"),
+                   tuple(sorted((k, tuple(v)) for k, v in (kw.get("include") or {}).items() if v)),
+                   tuple(sorted((k, tuple(v)) for k, v in (kw.get("exclude") or {}).items() if v)))
             if key not in seen:
                 seen[key] = [d for _, d, _m, _c in self.query(**kw)]
             return seen[key]
 
-        out: dict[str, list[dict]] = {}
-        type_docs = docs(types=(), types_not=())
-        out["types"] = _counted(Counter(d.meta.type for d in type_docs if d.meta.type))
-        status_docs = docs(statuses=(), statuses_not=())
-        out["statuses"] = _counted(Counter(d.meta.status for d in status_docs if d.meta.status))
-        genre_docs = docs(genres_not=())
-        out["genres"] = _counted(Counter(g for d in genre_docs for g in set(d.meta.genres)))
-        tag_docs = docs(tags_not=())
-        out["tags"] = _counted(Counter(t for d in tag_docs for t in set(d.meta.tags)))
-        lang_docs = docs(languages_not=())
-        out["languages"] = _counted(Counter(l for d in lang_docs for l in {c.lang for c in d.chapters if c.lang}))
-        flag_docs = docs(flags_not=())
-        out["flags"] = _counted(Counter(f for d in flag_docs for f in _flag_names(d)))
-        author_docs = docs(authors_not=())
-        out["authors"] = _counted(Counter(n for d in author_docs for n in {*d.meta.authors, *d.meta.artists} if n))
-        char_docs = docs(characters_not=())
-        out["characters"] = _counted(Counter(c for d in char_docs for c in set(d.meta.characters)))
-        return out
+        return {f.id: _counted(Counter(v for d in docs(f) for v in fields.facet_values(f, d) if v))
+                for f in fields.FACETS}

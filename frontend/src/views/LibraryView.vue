@@ -13,7 +13,7 @@ import Pager from '../components/Pager.vue'
 import {
   store, openTitle, openTitleBackground, openReader, toggleFav, resetFilters,
   toggleFacet, facetState, anyFilterActive, askConfirm, deleteTitles, goAuthorsFor, setRating,
-  opening, type FacetKey,
+  opening, facetFields, type FacetKey,
 } from '../store'
 import { startNewTitle } from '../browser'
 import { api } from '../api'
@@ -35,16 +35,25 @@ const progRows = [
 ] as const
 
 const FLAG_LABELS: Record<string, string> = { adult: '18+', ai: 'AI', censored: 'Censored' }
-const SECTIONS: { key: FacetKey; label: string; cap: boolean; labels?: Record<string, string> }[] = [
-  { key: 'authors', label: 'AUTHOR', cap: false },
-  { key: 'characters', label: 'CHARACTERS', cap: false },
-  { key: 'types', label: 'TYPE', cap: true },
-  { key: 'statuses', label: 'STATUS', cap: true },
-  { key: 'flags', label: 'FLAGS', cap: false, labels: FLAG_LABELS },
-  { key: 'genres', label: 'GENRES', cap: false },
-  { key: 'tags', label: 'TAGS', cap: false },
-  { key: 'languages', label: 'LANGUAGE', cap: false },
-]
+// The sidebar's reading ORDER is a view preference, not a field list: the set of
+// sections comes from the served registry, and anything it gains — a custom
+// field — simply appends after the ones spelled out here.
+const FACET_ORDER = ['authors', 'characters', 'studio', 'type', 'status', 'flags',
+  'genres', 'tags', 'language']
+const VALUE_LABELS: Record<string, Record<string, string>> = { flags: FLAG_LABELS }
+// A selection bag only holds the fields actually filtered on, so a section that
+// has never been touched — or a field added since — reads as empty, not as a crash.
+function picked(bag: Record<string, string[]>, key: FacetKey): string[] {
+  return bag[key] ?? []
+}
+const SECTIONS = computed(() => [...facetFields()]
+  .sort((a, b) => ((FACET_ORDER.indexOf(a.id) + 1) || 99) - ((FACET_ORDER.indexOf(b.id) + 1) || 99))
+  .map((f) => ({
+    key: f.id as FacetKey,
+    label: f.label.toUpperCase(),
+    cap: f.control === 'vocab',   // type/status are stored folded, shown capitalized
+    labels: VALUE_LABELS[f.id],
+  })))
 const SEARCH_MIN = 7 // facets longer than this get their type-to-filter box
 const facetQuery = reactive<Record<string, string>>({})
 
@@ -59,7 +68,7 @@ const openSec = reactive<Record<string, boolean>>(
 watch(openSec, () => writeLocal('lb.facetOpen', { ...openSec }), { deep: true })
 function toggleSec(k: string) { openSec[k] = !openSec[k] }
 function selCount(key: FacetKey): number {
-  return lib.include[key].length + lib.exclude[key].length
+  return picked(lib.include, key).length + picked(lib.exclude, key).length
 }
 const PROG_LABEL: Record<string, string> = { unread: 'Unread', reading: 'Reading', completed: 'Completed' }
 
@@ -69,7 +78,7 @@ function rowsFor(key: FacetKey): FacetValue[] {
   const cur = new Map((store.facets[key] ?? []).map((x) => [x.v, x.n]))
   const rows = (store.globalFacets[key] ?? []).map((g) => ({ v: g.v, n: cur.get(g.v) ?? 0 }))
   const seen = new Set(rows.map((r) => r.v))
-  for (const v of [...lib.include[key], ...lib.exclude[key]]) {
+  for (const v of [...picked(lib.include, key), ...picked(lib.exclude, key)]) {
     if (!seen.has(v)) rows.push({ v, n: cur.get(v) ?? 0 })
   }
   return rows
@@ -89,7 +98,7 @@ function visibleRows(key: FacetKey): FacetValue[] {
   return q ? rows.filter((r) => r.v.toLowerCase().includes(q)) : rows
 }
 function sectionActive(key: FacetKey): boolean {
-  return lib.include[key].length > 0 || lib.exclude[key].length > 0
+  return picked(lib.include, key).length > 0 || picked(lib.exclude, key).length > 0
 }
 function clearSection(key: FacetKey) {
   lib.include[key] = []

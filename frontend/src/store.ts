@@ -4,7 +4,7 @@
 // The draft itself lives in draft.ts; browser tabs live in browser.ts.
 import { reactive, watch, watchEffect } from 'vue'
 import { api, type LibraryQuery } from './api'
-import { chapterRowsOf, emptyFacets, metaOf, sameChapter, type Author, type Chapter, type Facets, type ReadState, type Source, type Title } from './data'
+import { chapterRowsOf, emptyFacets, metaOf, sameChapter, type Author, type Chapter, type Facets, type FieldDef, type ReadState, type Source, type Title } from './data'
 import { readLocalOne, writeLocalOne } from './local'
 import { stopCaptureFor } from './pagecapture'
 
@@ -12,9 +12,13 @@ export type View = 'library' | 'title' | 'reader' | 'authors' | 'sources' | 'set
 export type Density = 'grid' | 'dense' | 'expanded'
 export type ThemePref = 'dark' | 'light' | 'system'
 
-// Facet keys with include/exclude selections (linked filtering).
-export type FacetKey = 'types' | 'statuses' | 'genres' | 'tags' | 'languages' | 'flags' | 'authors' | 'characters'
-export const FACET_KEYS: FacetKey[] = ['types', 'statuses', 'genres', 'tags', 'languages', 'flags', 'authors', 'characters']
+// A facet is keyed by FIELD ID (library/fields.py), and the set of them arrives
+// from the backend — so a field added there, or defined by the user, filters
+// here without a line of code.
+export type FacetKey = string
+export function facetFields(): FieldDef[] {
+  return store.fields.filter((f) => f.facet)
+}
 
 interface LibraryFilters {
   density: Density
@@ -28,7 +32,10 @@ interface LibraryFilters {
 }
 
 function blankSelection(): Record<FacetKey, string[]> {
-  return { types: [], statuses: [], genres: [], tags: [], languages: [], flags: [], authors: [], characters: [] }
+  return {}
+}
+function selected(bag: Record<FacetKey, string[]>, key: FacetKey): string[] {
+  return bag[key] ?? (bag[key] = [])
 }
 
 interface State {
@@ -45,7 +52,9 @@ interface State {
   sources: Source[]
   facets: Facets // linked counts for the CURRENT selection
   globalFacets: Facets // unfiltered counts — the STABLE row order for the sidebar
-  vocab: { types: string[]; statuses: string[]; genres: string[]; tags: string[]; authors: string[]; characters: string[] }
+  fields: FieldDef[] // the metadata field registry, served by the backend
+  // suggestion vocabulary per field id — everything the library already holds
+  vocab: Record<string, string[]>
   byId: Record<string, Title> // cache for open tabs / detail view
   loading: boolean
   error: string | null
@@ -74,7 +83,8 @@ export const store = reactive<State>({
   sources: [],
   facets: emptyFacets(),
   globalFacets: emptyFacets(),
-  vocab: { types: [], statuses: [], genres: [], tags: [], authors: [], characters: [] },
+  fields: [],
+  vocab: {},
   byId: {},
   loading: false,
   error: null,
@@ -125,6 +135,11 @@ export function cache(list: Title[]) {
   }
 }
 
+// `{genres: ['action']}` → `['genres:action']` — the one filter shape.
+function pairs(bag: Record<FacetKey, string[]>): string[] {
+  return Object.entries(bag).flatMap(([id, values]) => values.map((v) => `${id}:${v}`))
+}
+
 function buildQuery(): LibraryQuery {
   const f = store.library
   return {
@@ -133,14 +148,8 @@ function buildQuery(): LibraryQuery {
     fav: f.favOnly || undefined,
     min_rating: f.minRating || undefined,
     sort: f.sort,
-    types: f.include.types, types_not: f.exclude.types,
-    statuses: f.include.statuses, statuses_not: f.exclude.statuses,
-    genres: f.include.genres, genres_not: f.exclude.genres,
-    tags: f.include.tags, tags_not: f.exclude.tags,
-    languages: f.include.languages, languages_not: f.exclude.languages,
-    flags: f.include.flags, flags_not: f.exclude.flags,
-    authors: f.include.authors, authors_not: f.exclude.authors,
-    characters: f.include.characters, characters_not: f.exclude.characters,
+    f: pairs(f.include),
+    nf: pairs(f.exclude),
   }
 }
 
@@ -165,14 +174,8 @@ export async function reloadLibrary() {
 // sidebar's stable row order (rows never appear/disappear/reshuffle mid-filter).
 function applyVocab(full: Facets) {
   store.globalFacets = full
-  store.vocab = {
-    types: full.types.map((x) => x.v),
-    statuses: full.statuses.map((x) => x.v),
-    genres: full.genres.map((x) => x.v),
-    tags: full.tags.map((x) => x.v),
-    authors: full.authors.map((x) => x.v),
-    characters: full.characters.map((x) => x.v),
-  }
+  store.vocab = Object.fromEntries(
+    Object.entries(full).map(([id, rows]) => [id, rows.map((x) => x.v)]))
 }
 async function refreshVocab() {
   try { applyVocab(await api.facets()) } catch { /* keep the previous vocab */ }
@@ -201,8 +204,11 @@ export async function init() {
   try {
     // the sync status comes WITH the first paint: an index still being filled
     // must read as "reading the library", never as "your library is empty"
-    const [all, facets, settings, sync] = await Promise.all(
-      [api.library(), api.facets(), api.settings(), api.libraryStatus()])
+    // the field registry rides along: it is a dozen rows, and nothing that
+    // shows metadata can draw a thing without it
+    const [all, facets, settings, sync, fields] = await Promise.all(
+      [api.library(), api.facets(), api.settings(), api.libraryStatus(), api.fields()])
+    store.fields = fields
     Object.assign(opening, { active: sync.running, path: sync.path, done: sync.done, total: sync.total })
     cache(all)
     store.total = all.length
@@ -235,13 +241,13 @@ export function resetFilters() {
 
 // ---- faceted selection: off → include → exclude → off ----
 export function facetState(key: FacetKey, value: string): 'in' | 'out' | '' {
-  if (store.library.include[key].includes(value)) return 'in'
-  if (store.library.exclude[key].includes(value)) return 'out'
+  if (selected(store.library.include, key).includes(value)) return 'in'
+  if (selected(store.library.exclude, key).includes(value)) return 'out'
   return ''
 }
 export function toggleFacet(key: FacetKey, value: string) {
-  const inc = store.library.include[key]
-  const exc = store.library.exclude[key]
+  const inc = selected(store.library.include, key)
+  const exc = selected(store.library.exclude, key)
   const i = inc.indexOf(value)
   const e = exc.indexOf(value)
   if (i >= 0) { inc.splice(i, 1); exc.push(value) }
@@ -251,7 +257,7 @@ export function toggleFacet(key: FacetKey, value: string) {
 export function anyFilterActive(): boolean {
   const f = store.library
   return !!f.search || f.favOnly || f.progress !== 'all' || f.minRating !== 0
-    || FACET_KEYS.some((k) => f.include[k].length || f.exclude[k].length)
+    || [...Object.values(f.include), ...Object.values(f.exclude)].some((v) => v.length)
 }
 
 // ---- navigation ----
@@ -354,7 +360,7 @@ export function moveTitleTabBefore(dragId: string, targetId: string) {
 export function langSuggestions(chapters: { lang: string }[] = []): string[] {
   return [...new Set([
     ...chapters.map((c) => c.lang),
-    ...store.globalFacets.languages.map((x) => x.v),
+    ...(store.vocab.language ?? []),   // the field id, not a facet name of its own
   ])].filter(Boolean)
 }
 export function groupSuggestions(chapters: { group: string }[] = []): string[] {
@@ -368,7 +374,7 @@ export function groupSuggestions(chapters: { group: string }[] = []): string[] {
 export function filterBy(kind: 'genre' | 'tag' | 'type' | 'status' | 'character', value: string) {
   resetFilters()
   const key: FacetKey = kind === 'genre' ? 'genres' : kind === 'tag' ? 'tags'
-    : kind === 'type' ? 'types' : kind === 'character' ? 'characters' : 'statuses'
+    : kind === 'type' ? 'type' : kind === 'character' ? 'characters' : 'status'
   store.library.include[key] = [value]
   store.view = 'library'
 }
@@ -441,7 +447,7 @@ export async function setRead(t: Title, chapterId: string, state: ReadState) {
 // edits (source unlink, chapter reorder) outside the draft flow.
 function commitBodyFrom(t: Title) {
   return {
-    meta: metaOf(t),
+    meta: metaOf(t, store.fields),
     provenance: JSON.parse(JSON.stringify(t.provenance || {})),
     chapters: chapterRowsOf(t.chapters),
   }

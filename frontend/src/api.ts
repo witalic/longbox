@@ -1,7 +1,8 @@
 // Single backend client. URLs are relative to the origin: in production the
 // FastAPI sidecar serves this UI at /app/ so /api is same-origin; in dev, Vite
 // proxies /api to the sidecar (see vite.config.ts).
-import type { Author, DraftCommit, Facets, Recipe, Source, Title, UserPatch } from './data'
+import type { Author, DraftCommit, Facets, FieldDef, Recipe, Source, Title, UserPatch }
+  from './data'
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -31,22 +32,10 @@ export interface LibraryQuery {
   fav?: boolean
   min_rating?: number
   sort?: string
-  types?: string[]
-  types_not?: string[]
-  statuses?: string[]
-  statuses_not?: string[]
-  genres?: string[]
-  genres_not?: string[]
-  tags?: string[]
-  tags_not?: string[]
-  languages?: string[]
-  languages_not?: string[]
-  flags?: string[]
-  flags_not?: string[]
-  authors?: string[]
-  authors_not?: string[]
-  characters?: string[]
-  characters_not?: string[]
+  // field filters as `<field id>:<value>` — include and exclude. One shape for
+  // every field, so a field the client has never heard of filters like any other.
+  f?: string[]
+  nf?: string[]
 }
 
 function qs(params: Record<string, string | number | boolean | string[] | undefined>): string {
@@ -70,6 +59,9 @@ export interface CoverUpload {
 }
 
 export const api = {
+  // what a metadata field IS — served, not hardcoded, so a new one needs no
+  // frontend change (design/metadata-model.md)
+  fields: () => req<FieldDef[]>('/fields'),
   library: (q: LibraryQuery = {}) => req<Title[]>(`/library${qs({ ...q })}`),
   // the unfiltered size of the vault — never list titles just to count them
   libraryCount: () => req<{ total: number }>('/library/count'),

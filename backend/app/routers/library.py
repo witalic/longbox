@@ -17,8 +17,8 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..config_store import config_transaction, load_config
-from ..library import media
-from ..library.models import Author, DraftIn, Facets, Source, TitleOut, UserPatch
+from ..library import fields, media
+from ..library.models import Author, DraftIn, FacetCounts, Source, TitleOut, UserPatch
 from ..library.service import Library
 from ..scraper.covers import fetch_cover
 
@@ -42,31 +42,49 @@ def _lib(request: Request) -> Library:
     return request.app.state.library
 
 
-def _selection(
-    search: str | None,
-    progress: str | None,
-    fav: bool,
-    min_rating: int | None,
-    types: list[str], types_not: list[str],
-    statuses: list[str], statuses_not: list[str],
-    genres: list[str], genres_not: list[str],
-    tags: list[str], tags_not: list[str],
-    languages: list[str], languages_not: list[str],
-    flags: list[str], flags_not: list[str],
-    authors: list[str], authors_not: list[str],
-    characters: list[str], characters_not: list[str],
-) -> dict:
+def _by_field(pairs: list[str]) -> dict[str, tuple[str, ...]]:
+    """`field:value` strings into {field id: (values, …)}.
+
+    The FIRST colon separates: a field id never contains one, a tag well might.
+    An id no longer in the registry is dropped rather than refused — a filter
+    saved before a custom field was deleted must not 400 the whole library."""
+    out: dict[str, list[str]] = {}
+    for pair in pairs:
+        fid, sep, value = pair.partition(":")
+        if sep and value and fid in fields.BY_ID:
+            out.setdefault(fid, []).append(value)
+    return {k: tuple(v) for k, v in out.items()}
+
+
+def _selection(search: str | None, progress: str | None, fav: bool,
+               min_rating: int | None, f: list[str], nf: list[str]) -> dict:
     return {
         "search": search, "progress": progress, "fav": fav or None, "min_rating": min_rating,
-        "types": tuple(types), "types_not": tuple(types_not),
-        "statuses": tuple(statuses), "statuses_not": tuple(statuses_not),
-        "genres": tuple(genres), "genres_not": tuple(genres_not),
-        "tags": tuple(tags), "tags_not": tuple(tags_not),
-        "languages": tuple(languages), "languages_not": tuple(languages_not),
-        "flags": tuple(flags), "flags_not": tuple(flags_not),
-        "authors": tuple(authors), "authors_not": tuple(authors_not),
-        "characters": tuple(characters), "characters_not": tuple(characters_not),
+        "include": _by_field(f), "exclude": _by_field(nf),
     }
+
+
+class FieldOut(BaseModel):
+    """A metadata field as the UI needs to know it. Served so that a field the
+    app gains — or the user defines — is rendered without a frontend change."""
+    id: str
+    label: str
+    type: str
+    control: str
+    builtin: bool
+    required: bool
+    editable: bool
+    facet: bool
+    placeholder: str
+    vocab: str
+
+
+@router.get("/fields", response_model=list[FieldOut])
+def list_fields() -> list[FieldOut]:
+    return [FieldOut(id=f.id, label=f.label, type=f.type, control=f.control,
+                     builtin=f.builtin, required=f.required, editable=f.editable,
+                     facet=f.facet, placeholder=f.placeholder, vocab=f.vocab or f.id)
+            for f in fields.BUILTIN]
 
 
 @router.get("/library", response_model=list[TitleOut])
@@ -77,27 +95,10 @@ def list_library(
     fav: bool = False,
     min_rating: int | None = None,
     sort: str = "updated",
-    types: list[str] = Query(default=[]),
-    types_not: list[str] = Query(default=[]),
-    statuses: list[str] = Query(default=[]),
-    statuses_not: list[str] = Query(default=[]),
-    genres: list[str] = Query(default=[]),
-    genres_not: list[str] = Query(default=[]),
-    tags: list[str] = Query(default=[]),
-    tags_not: list[str] = Query(default=[]),
-    languages: list[str] = Query(default=[]),
-    languages_not: list[str] = Query(default=[]),
-    flags: list[str] = Query(default=[]),
-    flags_not: list[str] = Query(default=[]),
-    authors: list[str] = Query(default=[]),
-    authors_not: list[str] = Query(default=[]),
-    characters: list[str] = Query(default=[]),
-    characters_not: list[str] = Query(default=[]),
+    f: list[str] = Query(default=[], description="include, as field:value"),
+    nf: list[str] = Query(default=[], description="exclude, as field:value"),
 ) -> list[TitleOut]:
-    sel = _selection(search, progress, fav, min_rating, types, types_not,
-                     statuses, statuses_not, genres, genres_not, tags, tags_not,
-                     languages, languages_not, flags, flags_not, authors, authors_not,
-                     characters, characters_not)
+    sel = _selection(search, progress, fav, min_rating, f, nf)
     return _lib(request).query(sort=sort, **sel)
 
 
@@ -108,36 +109,19 @@ def library_count(request: Request) -> dict[str, int]:
     return {"total": _lib(request).count()}
 
 
-@router.get("/library/facets", response_model=Facets)
+@router.get("/library/facets", response_model=FacetCounts)
 def library_facets(
     request: Request,
     search: str | None = None,
     progress: str | None = None,
     fav: bool = False,
     min_rating: int | None = None,
-    types: list[str] = Query(default=[]),
-    types_not: list[str] = Query(default=[]),
-    statuses: list[str] = Query(default=[]),
-    statuses_not: list[str] = Query(default=[]),
-    genres: list[str] = Query(default=[]),
-    genres_not: list[str] = Query(default=[]),
-    tags: list[str] = Query(default=[]),
-    tags_not: list[str] = Query(default=[]),
-    languages: list[str] = Query(default=[]),
-    languages_not: list[str] = Query(default=[]),
-    flags: list[str] = Query(default=[]),
-    flags_not: list[str] = Query(default=[]),
-    authors: list[str] = Query(default=[]),
-    authors_not: list[str] = Query(default=[]),
-    characters: list[str] = Query(default=[]),
-    characters_not: list[str] = Query(default=[]),
-) -> Facets:
+    f: list[str] = Query(default=[], description="include, as field:value"),
+    nf: list[str] = Query(default=[], description="exclude, as field:value"),
+) -> FacetCounts:
     """Linked facet counts for the CURRENT selection (no params = the full vocab)."""
-    sel = _selection(search, progress, fav, min_rating, types, types_not,
-                     statuses, statuses_not, genres, genres_not, tags, tags_not,
-                     languages, languages_not, flags, flags_not, authors, authors_not,
-                     characters, characters_not)
-    return Facets(**_lib(request).facets(sel))
+    sel = _selection(search, progress, fav, min_rating, f, nf)
+    return _lib(request).facets(sel)
 
 
 @router.get("/titles/{title_id}", response_model=TitleOut)

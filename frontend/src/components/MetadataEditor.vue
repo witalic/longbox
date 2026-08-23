@@ -4,9 +4,13 @@
 // one label row (name · provenance badge · pick/clear actions) over a full-width
 // control, in a single column so it works in the 344px capture dock as-is.
 // A human edit marks the field `manual`, making it untouchable for auto capture.
+//
+// WHICH fields exist is not decided here. The registry is served by the backend
+// (design/metadata-model.md), so a field the app gains — or the user defines —
+// draws itself without a line of code in this file.
 import { computed } from 'vue'
-import { DEFAULT_STATUSES, DEFAULT_TYPES } from '../data'
-import { clearField, draftState, setCoverUrl, setManual, type EditableField } from '../draft'
+import { DEFAULT_STATUSES, DEFAULT_TYPES, type FieldDef } from '../data'
+import { clearField, draftState, setCoverUrl, setManual } from '../draft'
 import { store } from '../store'
 import Combo from './Combo.vue'
 import Icon from './Icon.vue'
@@ -15,43 +19,60 @@ const props = withDefaults(defineProps<{
   capture?: boolean // show per-field pick buttons (browser context)
 }>(), { capture: false })
 
-const emit = defineEmits<{ (e: 'capture', field: EditableField): void }>()
+const emit = defineEmits<{ (e: 'capture', field: string): void }>()
 
 const d = computed(() => draftState.cur)
+const rows = computed(() => store.fields.filter((f) => f.editable))
 
-// open vocabularies: common values + whatever already exists in the library;
-// the Combo lets the user type a value that isn't there yet
-const typeOptions = computed(() =>
-  [...new Set([...DEFAULT_TYPES, ...store.vocab.types])])
-const statusOptions = computed(() =>
-  [...new Set([...DEFAULT_STATUSES, ...store.vocab.statuses])])
+// The draft's meta as a bag: which keys are in it is the registry's business,
+// not this component's.
+type Bag = Record<string, unknown>
+const bag = () => (d.value!.meta as unknown as Bag)
+
+function text(f: FieldDef): string { return String(bag()[f.id] ?? '') }
+function setText(f: FieldDef, value: string) { bag()[f.id] = value; setManual(f.id) }
+// A chips value is a list. A draft saved before a field became one — or a
+// capture that stored text — must not be spread into one chip per CHARACTER,
+// which is what `v-for` over a string does.
+function list(f: FieldDef): string[] {
+  const v = bag()[f.id]
+  if (Array.isArray(v)) return v as string[]
+  return typeof v === 'string' && v.trim() ? [v] : []
+}
 
 function badge(field: string): 'auto' | 'manual' | '' {
   return d.value?.provenance[field]?.origin ?? ''
 }
-function markManual(field: string) { setManual(field) }
 
-// chip lists
-function addChip(field: 'authors' | 'artists' | 'characters' | 'genres' | 'tags', value: string) {
+// Open vocabularies: the common values for the two fields that have any, plus
+// everything the library already holds, minus what this title already carries.
+const COMMON: Record<string, readonly string[]> = { type: DEFAULT_TYPES, status: DEFAULT_STATUSES }
+function suggestions(f: FieldDef): string[] {
+  const all = [...new Set([...(COMMON[f.id] ?? []), ...(store.vocab[f.vocab] ?? [])])]
+  return f.control === 'chips' ? all.filter((v) => !list(f).includes(v)) : all
+}
+
+function addChip(f: FieldDef, value: string) {
   const s = value.trim()
-  const list = d.value!.meta[field]
-  if (s && !list.includes(s)) { list.push(s); setManual(field) }
+  const b = bag()
+  if (!Array.isArray(b[f.id])) b[f.id] = []
+  const l = b[f.id] as string[]
+  if (s && !l.includes(s)) { l.push(s); setManual(f.id) }
 }
-function removeChip(field: 'authors' | 'artists' | 'characters' | 'genres' | 'tags', i: number) {
-  d.value!.meta[field].splice(i, 1)
-  setManual(field)
+function removeChip(f: FieldDef, i: number) {
+  list(f).splice(i, 1)
+  setManual(f.id)
 }
-const authorSuggest = computed(() => store.vocab.authors.filter((a) => !d.value?.meta.authors.includes(a)))
-const characterSuggest = computed(() => store.vocab.characters.filter((c) => !d.value?.meta.characters.includes(c)))
-const artistSuggest = computed(() => store.vocab.authors.filter((a) => !d.value?.meta.artists.includes(a)))
-const genreSuggest = computed(() => store.vocab.genres.filter((g) => !d.value?.meta.genres.includes(g)))
-const tagSuggest = computed(() => store.vocab.tags.filter((g) => !d.value?.meta.tags.includes(g)))
 
+// `flags` is the one field whose values are named switches rather than text.
 const flagDefs = [
   { key: 'adult', label: '18+', color: 'var(--adult)' },
   { key: 'ai', label: 'AI', color: 'var(--ai)' },
   { key: 'censored', label: 'Censored', color: 'var(--cens)' },
 ] as const
+type FlagKey = (typeof flagDefs)[number]['key']
+function flag(k: FlagKey): boolean { return !!d.value?.meta.flags[k] }
+function toggleFlag(k: FlagKey) { if (d.value) d.value.meta.flags[k] = !d.value.meta.flags[k] }
 
 function promptCoverUrl() {
   const url = window.prompt('Cover image URL:', d.value?.cover.sourceUrl || '')
@@ -64,45 +85,47 @@ function coverBg(preview: string) {
 
 <template>
   <div v-if="d" class="me">
-    <!-- title -->
-    <div class="fieldrow">
+    <div v-for="f in rows" :key="f.id" class="fieldrow">
       <div class="lblrow">
-        <span class="lbl">TITLE<span class="req">*</span></span>
-        <span v-if="badge('title')" class="pbadge" :class="badge('title')">{{ badge('title') }}</span>
-        <span class="acts">
-          <button v-if="props.capture" class="fact" title="Pick on page" @click="emit('capture', 'title')"><Icon name="pick" :size="12" :sw="1.9" /></button>
-          <button class="fact" title="Clear" @click="clearField('title')"><Icon name="x" :size="10" :sw="2.4" /></button>
+        <span class="lbl">{{ f.label.toUpperCase() }}<span v-if="f.required" class="req">*</span></span>
+        <span v-if="badge(f.id)" class="pbadge" :class="badge(f.id)">{{ badge(f.id) }}</span>
+        <span v-if="f.control !== 'flags'" class="acts">
+          <button v-if="props.capture" class="fact" title="Pick on page" @click="emit('capture', f.id)"><Icon name="pick" :size="12" :sw="1.9" /></button>
+          <button v-if="f.control === 'cover'" class="fact wide" title="Use an image URL" @click="promptCoverUrl">URL</button>
+          <button class="fact" :disabled="f.control === 'cover' && d.cover.kind === 'none'"
+                  :title="f.required ? 'Clear' : `Clear — ${f.label.toLowerCase()} is optional`"
+                  @click="clearField(f.id)"><Icon name="x" :size="10" :sw="2.4" /></button>
         </span>
       </div>
-      <input v-model="d.meta.title" class="in tin" :class="{ needed: !d.meta.title.trim() }"
-             placeholder="Title (required)" @input="markManual('title')" />
-    </div>
 
-    <!-- alt titles -->
-    <div class="fieldrow">
-      <div class="lblrow">
-        <span class="lbl">ALT TITLES</span>
-        <span v-if="badge('alt')" class="pbadge" :class="badge('alt')">{{ badge('alt') }}</span>
-        <span class="acts">
-          <button v-if="props.capture" class="fact" title="Pick on page" @click="emit('capture', 'alt')"><Icon name="pick" :size="12" :sw="1.9" /></button>
-          <button class="fact" title="Clear" @click="clearField('alt')"><Icon name="x" :size="10" :sw="2.4" /></button>
-        </span>
-      </div>
-      <input v-model="d.meta.alt" class="in" placeholder="Alternate titles" @input="markManual('alt')" />
-    </div>
+      <!-- one control per shape; the registry says which -->
+      <input v-if="f.control === 'line'" :value="text(f)" class="in"
+             :class="{ tin: f.id === 'title', needed: f.required && !text(f).trim(), yearin: f.id === 'year' }"
+             :placeholder="f.placeholder" @input="setText(f, ($event.target as HTMLInputElement).value)" />
 
-    <!-- cover: same widget shape — label row + a body -->
-    <div class="fieldrow">
-      <div class="lblrow">
-        <span class="lbl">COVER</span>
-        <span v-if="badge('cover')" class="pbadge" :class="badge('cover')">{{ badge('cover') }}</span>
-        <span class="acts">
-          <button v-if="props.capture" class="fact" title="Pick the cover on the page" @click="emit('capture', 'cover')"><Icon name="pick" :size="12" :sw="1.9" /></button>
-          <button class="fact wide" title="Use an image URL" @click="promptCoverUrl">URL</button>
-          <button class="fact" :disabled="d.cover.kind === 'none'" title="Remove cover" @click="clearField('cover')"><Icon name="x" :size="10" :sw="2.4" /></button>
-        </span>
+      <textarea v-else-if="f.control === 'multiline'" :value="text(f)" class="in ta"
+                :placeholder="f.placeholder"
+                @input="setText(f, ($event.target as HTMLTextAreaElement).value)"></textarea>
+
+      <Combo v-else-if="f.control === 'vocab'" :model-value="text(f)" :suggestions="suggestions(f)"
+             wide :placeholder="f.placeholder" @update:model-value="setText(f, $event)" />
+
+      <div v-else-if="f.control === 'chips'" class="chips">
+        <span v-for="(v, i) in list(f)" :key="v" class="chip">{{ v }}<span class="rm" @click="removeChip(f, i)">×</span></span>
+        <Combo :suggestions="suggestions(f)" add-mode :placeholder="f.placeholder" @add="addChip(f, $event)" />
       </div>
-      <div class="coverrow">
+
+      <div v-else-if="f.control === 'flags'" class="flagrow">
+        <label v-for="fl in flagDefs" :key="fl.key" class="flag"
+               :style="{ color: flag(fl.key) ? fl.color : 'var(--tx2)', borderColor: flag(fl.key) ? fl.color : 'var(--line)' }"
+               @click="toggleFlag(fl.key)">
+          <span class="box" :style="{ borderColor: flag(fl.key) ? fl.color : 'var(--line)', background: flag(fl.key) ? fl.color : 'transparent' }">
+            <Icon v-if="flag(fl.key)" name="check" :size="9" :sw="3.2" style="color:var(--accent-ink)" />
+          </span>{{ fl.label }}
+        </label>
+      </div>
+
+      <div v-else-if="f.control === 'cover'" class="coverrow">
         <div class="coverthumb" :style="coverBg(d.cover.preview)">
           <Icon v-if="!d.cover.preview" name="image" :size="16" style="color:var(--tx3)" />
         </div>
@@ -114,97 +137,6 @@ function coverBg(preview: string) {
         </div>
       </div>
     </div>
-
-    <!-- type: dropdown-with-typing (custom values welcome), pickable like any field -->
-    <div class="fieldrow">
-      <div class="lblrow">
-        <span class="lbl">TYPE</span>
-        <span v-if="badge('type')" class="pbadge" :class="badge('type')">{{ badge('type') }}</span>
-        <span class="acts">
-          <button v-if="props.capture" class="fact" title="Pick on page" @click="emit('capture', 'type')"><Icon name="pick" :size="12" :sw="1.9" /></button>
-          <button class="fact" :disabled="!d.meta.type" title="Clear — type is optional" @click="clearField('type')"><Icon name="x" :size="10" :sw="2.4" /></button>
-        </span>
-      </div>
-      <Combo :model-value="d.meta.type" :suggestions="typeOptions" wide placeholder="manga / manhwa / your own…"
-             @update:model-value="d.meta.type = $event; markManual('type')" />
-    </div>
-
-    <!-- status: same open vocabulary widget -->
-    <div class="fieldrow">
-      <div class="lblrow">
-        <span class="lbl">STATUS</span>
-        <span v-if="badge('status')" class="pbadge" :class="badge('status')">{{ badge('status') }}</span>
-        <span class="acts">
-          <button v-if="props.capture" class="fact" title="Pick on page" @click="emit('capture', 'status')"><Icon name="pick" :size="12" :sw="1.9" /></button>
-          <button class="fact" :disabled="!d.meta.status" title="Clear — status is optional" @click="clearField('status')"><Icon name="x" :size="10" :sw="2.4" /></button>
-        </span>
-      </div>
-      <Combo :model-value="d.meta.status" :suggestions="statusOptions" wide placeholder="ongoing / completed / your own…"
-             @update:model-value="d.meta.status = $event; markManual('status')" />
-    </div>
-
-    <!-- year -->
-    <div class="fieldrow">
-      <div class="lblrow">
-        <span class="lbl">YEAR</span>
-        <span v-if="badge('year')" class="pbadge" :class="badge('year')">{{ badge('year') }}</span>
-        <span class="acts">
-          <button v-if="props.capture" class="fact" title="Pick on page" @click="emit('capture', 'year')"><Icon name="pick" :size="12" :sw="1.9" /></button>
-          <button class="fact" title="Clear" @click="clearField('year')"><Icon name="x" :size="10" :sw="2.4" /></button>
-        </span>
-      </div>
-      <input v-model="d.meta.year" class="in yearin" placeholder="Year" @input="markManual('year')" />
-    </div>
-
-    <!-- flags -->
-    <div class="fieldrow">
-      <div class="lblrow"><span class="lbl">FLAGS</span></div>
-      <div class="flagrow">
-        <label v-for="f in flagDefs" :key="f.key" class="flag"
-               :style="{ color: d.meta.flags[f.key] ? f.color : 'var(--tx2)', borderColor: d.meta.flags[f.key] ? f.color : 'var(--line)' }"
-               @click="d.meta.flags[f.key] = !d.meta.flags[f.key]">
-          <span class="box" :style="{ borderColor: d.meta.flags[f.key] ? f.color : 'var(--line)', background: d.meta.flags[f.key] ? f.color : 'transparent' }">
-            <Icon v-if="d.meta.flags[f.key]" name="check" :size="9" :sw="3.2" style="color:var(--accent-ink)" />
-          </span>{{ f.label }}
-        </label>
-      </div>
-    </div>
-
-    <!-- people & taxonomy: the same list widget four times -->
-    <div v-for="lf in ([
-           { key: 'authors', label: 'AUTHORS', suggest: authorSuggest, ph: 'add author…' },
-           { key: 'artists', label: 'ARTISTS', suggest: artistSuggest, ph: 'add artist…' },
-           { key: 'characters', label: 'CHARACTERS', suggest: characterSuggest, ph: 'add character…' },
-           { key: 'genres', label: 'GENRES', suggest: genreSuggest, ph: 'add genre…' },
-           { key: 'tags', label: 'TAGS', suggest: tagSuggest, ph: 'add tag…' },
-         ] as const)" :key="lf.key" class="fieldrow">
-      <div class="lblrow">
-        <span class="lbl">{{ lf.label }}</span>
-        <span v-if="badge(lf.key)" class="pbadge" :class="badge(lf.key)">{{ badge(lf.key) }}</span>
-        <span class="acts">
-          <button v-if="props.capture" class="fact" title="Pick on page" @click="emit('capture', lf.key)"><Icon name="pick" :size="12" :sw="1.9" /></button>
-          <button class="fact" title="Clear" @click="clearField(lf.key)"><Icon name="x" :size="10" :sw="2.4" /></button>
-        </span>
-      </div>
-      <div class="chips">
-        <span v-for="(v, i) in d.meta[lf.key]" :key="v" class="chip">{{ v }}<span class="rm" @click="removeChip(lf.key, i)">×</span></span>
-        <Combo :suggestions="lf.suggest" add-mode :placeholder="lf.ph" @add="addChip(lf.key, $event)" />
-      </div>
-    </div>
-
-    <!-- description -->
-    <div class="fieldrow">
-      <div class="lblrow">
-        <span class="lbl">DESCRIPTION</span>
-        <span v-if="badge('desc')" class="pbadge" :class="badge('desc')">{{ badge('desc') }}</span>
-        <span class="acts">
-          <button v-if="props.capture" class="fact" title="Pick on page" @click="emit('capture', 'desc')"><Icon name="pick" :size="12" :sw="1.9" /></button>
-          <button class="fact" title="Clear" @click="clearField('desc')"><Icon name="x" :size="10" :sw="2.4" /></button>
-        </span>
-      </div>
-      <textarea v-model="d.meta.desc" class="in ta" placeholder="Description" @input="markManual('desc')"></textarea>
-    </div>
-
   </div>
 </template>
 

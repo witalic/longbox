@@ -4,7 +4,8 @@
 // every pick, for every field. The live preview is truthful: it shows exactly
 // the cleaned value that would land in the draft.
 import { computed, reactive, watch } from 'vue'
-import { LIST_KEYS, captureValue, defaultClean, type CleanFlags } from '../normalize'
+import { captureValue, defaultClean, type CleanFlags } from '../normalize'
+import { isListField } from '../draft'
 import Icon from './Icon.vue'
 
 export interface ChainNode {
@@ -63,7 +64,7 @@ const state = reactive({
   attrOp: {} as Record<string, 'off' | 'prefix' | 'exact'>,
   useNth: false,
   ctxOn: {} as Record<number, boolean>, // ancestor chain levels included as selector context
-  scope: (LIST_KEYS.includes(props.field) || props.field === 'pages' ? 'all' : 'one') as 'one' | 'all',
+  scope: (isListField(props.field) || props.field === 'pages' ? 'all' : 'one') as 'one' | 'all',
   index: 0,
   // re-teaching a field starts from its SAVED cleanup flags, not the defaults
   lower: props.saved?.lower ?? dc.lower,
@@ -177,7 +178,8 @@ function stepIndex(d: number) {
 }
 // exactly what would be stored (year → year, status → vocab, list item → cleaned)
 function cleanView(v: string | undefined): string {
-  const r = captureValue(props.field, v ?? '', { lower: state.lower, stripCounts: state.stripCounts })
+  const r = captureValue(props.field, v ?? '', { lower: state.lower, stripCounts: state.stripCounts },
+                        isListField(props.field))
   return Array.isArray(r) ? (r[0] ?? '') : String(r)
 }
 

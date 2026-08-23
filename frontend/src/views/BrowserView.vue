@@ -11,7 +11,7 @@ import CapturePanel from '../components/CapturePanel.vue'
 import Icon from '../components/Icon.vue'
 import PickInspector, { type ChainNode, type PickUse, type ProbeReq, type ProbeResult } from '../components/PickInspector.vue'
 import {
-  applyCapture, applyCoverCapture, applyCoverUrlAuto, draftState, EDITABLE_FIELDS,
+  applyCapture, applyCoverCapture, applyCoverUrlAuto, draftState, isEditableField,
   mergeSnapshot, noteCaptureSource, type EditableField, type Snapshot,
 } from '../draft'
 import { pageCapture, pageFilter, pageKeyFor, stopCaptureFor, type PickField } from '../pagecapture'
@@ -138,7 +138,7 @@ const OG_FALLBACKS: Record<string, Candidate[]> = {
 function snapshotRules(recipe: Recipe | null): Record<string, FieldRule> {
   const out: Record<string, FieldRule> = {}
   for (const [key, rule] of Object.entries(recipe?.fields || {})) {
-    if (!EDITABLE_FIELDS.has(key)) continue
+    if (!isEditableField(key)) continue
     const extra = (OG_FALLBACKS[key] || []).filter(
       (f) => !rule.candidates.some((c) => c.kind === 'meta' && c.selector === f.selector))
     out[key] = { ...rule, candidates: [...rule.candidates, ...extra] }

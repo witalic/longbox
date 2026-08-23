@@ -62,8 +62,6 @@ export function defaultClean(key: string): CleanFlags {
   return { lower: false, stripCounts: false }
 }
 
-export const LIST_KEYS = ['authors', 'artists', 'characters', 'genres', 'tags']
-
 function normOne(s: string, c: CleanFlags): string {
   let v = c.stripCounts ? stripCount(s) : String(s).replace(/\s+/g, ' ').trim()
   if (c.lower) v = v.toLowerCase()
@@ -72,13 +70,17 @@ function normOne(s: string, c: CleanFlags): string {
 
 // Exactly what would be stored for a captured raw value: status → vocabulary,
 // year → the year, lists → cleaned + deduped, everything else → cleaned text.
-export function captureValue(key: string, raw: string | string[], clean?: CleanFlags): string | string[] {
+// `asList` is the FIELD's shape, asked of the registry by the caller — this
+// module stays pure. It used to be a list of field names kept here, which is
+// how `studio` came to be stored as the string "Edge" and drawn as four chips.
+export function captureValue(key: string, raw: string | string[], clean?: CleanFlags,
+                             asList = false): string | string[] {
   const c = clean || defaultClean(key)
   const text = Array.isArray(raw) ? raw.join(' ') : String(raw)
   if (key === 'status') return normStatus(text) || normOne(text, c)
   if (key === 'type') return normType(text) || normOne(text, c)
   if (key === 'year') return normYear(text)
-  if (LIST_KEYS.includes(key)) {
+  if (asList) {
     const list = Array.isArray(raw) ? raw : [raw]
     const out: string[] = []
     for (const x of list) {

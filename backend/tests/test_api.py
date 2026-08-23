@@ -139,32 +139,32 @@ def test_provenance_persists_in_the_vault(client, tmp_path):
 # ---- filters, search, sort, facets ----
 
 def test_filter_type(client):
-    assert {t["id"] for t in client.get("/api/library", params={"types": "manga"}).json()} == {"berserk"}
-    both = {t["id"] for t in client.get("/api/library", params={"types": ["manga", "manhwa"]}).json()}
+    assert {t["id"] for t in client.get("/api/library", params={"f": "type:manga"}).json()} == {"berserk"}
+    both = {t["id"] for t in client.get("/api/library", params={"f": ["type:manga", "type:manhwa"]}).json()}
     assert both == {"berserk", "solo-ascension"}  # single-valued facet: include = OR
 
 
 def test_filter_status_and_excludes(client):
     # vocab values are folded to lowercase on write ("Paused" was seeded)
-    assert {t["id"] for t in client.get("/api/library", params={"statuses": "paused"}).json()} == {"berserk"}
-    rest = {t["id"] for t in client.get("/api/library", params={"statuses_not": "paused"}).json()}
+    assert {t["id"] for t in client.get("/api/library", params={"f": "status:paused"}).json()} == {"berserk"}
+    rest = {t["id"] for t in client.get("/api/library", params={"nf": "status:paused"}).json()}
     assert rest == {"solo-ascension", "immortal-ledger"}
 
 
 def test_filter_genre_tag_language(client):
-    assert {t["id"] for t in client.get("/api/library", params={"genres": "Xianxia"}).json()} == {"immortal-ledger"}
-    assert {t["id"] for t in client.get("/api/library", params={"tags": "Cultivation"}).json()} == {"solo-ascension", "immortal-ledger"}
-    assert {t["id"] for t in client.get("/api/library", params={"languages": "UA"}).json()} == {"berserk"}
+    assert {t["id"] for t in client.get("/api/library", params={"f": "genres:Xianxia"}).json()} == {"immortal-ledger"}
+    assert {t["id"] for t in client.get("/api/library", params={"f": "tags:Cultivation"}).json()} == {"solo-ascension", "immortal-ledger"}
+    assert {t["id"] for t in client.get("/api/library", params={"f": "language:UA"}).json()} == {"berserk"}
     # multi-valued facet: include = AND (narrowing), exclude removes carriers
-    narrowed = {t["id"] for t in client.get("/api/library", params={"tags": "Cultivation", "genres": "Action"}).json()}
+    narrowed = {t["id"] for t in client.get("/api/library", params={"f": ["tags:Cultivation", "genres:Action"]}).json()}
     assert narrowed == {"solo-ascension"}
-    excluded = {t["id"] for t in client.get("/api/library", params={"tags_not": "Cultivation"}).json()}
+    excluded = {t["id"] for t in client.get("/api/library", params={"nf": "tags:Cultivation"}).json()}
     assert excluded == {"berserk"}
 
 
 def test_filter_flags(client):
-    assert {t["id"] for t in client.get("/api/library", params={"flags": "adult"}).json()} == {"berserk"}
-    rest = {t["id"] for t in client.get("/api/library", params={"flags_not": "adult"}).json()}
+    assert {t["id"] for t in client.get("/api/library", params={"f": "flags:adult"}).json()} == {"berserk"}
+    rest = {t["id"] for t in client.get("/api/library", params={"nf": "flags:adult"}).json()}
     assert rest == {"solo-ascension", "immortal-ledger"}
     f = client.get("/api/library/facets").json()
     assert {x["v"]: x["n"] for x in f["flags"]} == {"adult": 1}
@@ -203,21 +203,21 @@ def _facet(f: dict, key: str) -> dict[str, int]:
 
 def test_facets_carry_counts(client):
     f = client.get("/api/library/facets").json()
-    assert _facet(f, "types") == {"manga": 1, "manhwa": 1, "manhua": 1}
-    assert _facet(f, "statuses") == {"paused": 1, "ongoing": 2}
+    assert _facet(f, "type") == {"manga": 1, "manhwa": 1, "manhua": 1}
+    assert _facet(f, "status") == {"paused": 1, "ongoing": 2}
     assert _facet(f, "tags")["Cultivation"] == 2
-    assert _facet(f, "languages") == {"EN": 2, "UA": 1}
+    assert _facet(f, "language") == {"EN": 2, "UA": 1}
     assert _facet(f, "authors")["Bai Ye"] == 2
 
 
 def test_facets_are_linked_to_the_selection(client):
     # with tag=Cultivation applied, the other facets count only its two titles —
     # while the single-valued type facet keeps showing the alternatives
-    f = client.get("/api/library/facets", params={"tags": "Cultivation"}).json()
+    f = client.get("/api/library/facets", params={"f": "tags:Cultivation"}).json()
     assert _facet(f, "genres") == {"Action": 1, "Xianxia": 1}
     assert _facet(f, "authors") == {"Bai Ye": 2}
-    assert _facet(f, "types") == {"manhwa": 1, "manhua": 1}
-    assert "manga" not in _facet(f, "types")  # berserk has no Cultivation tag
+    assert _facet(f, "type") == {"manhwa": 1, "manhua": 1}
+    assert "manga" not in _facet(f, "type")  # berserk has no Cultivation tag
 
 
 # ---- delete ----

@@ -116,18 +116,29 @@ export interface Source {
 }
 
 export interface FacetValue { v: string; n: number }
-export interface Facets {
-  types: FacetValue[]
-  statuses: FacetValue[]
-  genres: FacetValue[]
-  tags: FacetValue[]
-  languages: FacetValue[]
-  flags: FacetValue[]
-  authors: FacetValue[]
-  characters: FacetValue[]
+// What a metadata field is, as the backend describes it (library/fields.py).
+// The UI renders from THIS — never from a list of field names of its own.
+export interface FieldDef {
+  id: string
+  label: string
+  type: 'text' | 'number' | 'list' | 'date' | 'boolean'
+  // 'cover' and 'flags' are the two bespoke rows: they have a label, a body and
+  // a place in the order like any field, but their body is not a value control
+  control: 'line' | 'multiline' | 'vocab' | 'chips' | 'number' | 'date' | 'toggle'
+    | 'cover' | 'flags'
+  builtin: boolean
+  required: boolean
+  editable: boolean
+  facet: boolean
+  placeholder: string
+  vocab: string // the field id whose suggestions this one offers
 }
+
+// Facet counts keyed by field id.
+export type Facets = Record<string, FacetValue[]>
+
 export function emptyFacets(): Facets {
-  return { types: [], statuses: [], genres: [], tags: [], languages: [], flags: [], authors: [], characters: [] }
+  return {}
 }
 
 export function faviconFor(domain: string): string {
@@ -181,12 +192,33 @@ export function statusColor(status: string): string {
 
 // type/status start EMPTY on purpose: no built-in value is ever auto-substituted
 // — a fresh draft gets only the remembered last choice (draft.ts), or nothing.
-export function blankMeta(): TitleMeta {
+// An empty meta layer. The FIELDS come from the served registry, so one added
+// there is carried without a change here; the spine is named, because it is not
+// a field with a value but structure the app has logic for.
+export function blankMeta(fields: FieldDef[]): TitleMeta {
+  return { ...valuesOf({}, fields), ...SPINE() } as unknown as TitleMeta
+}
+
+function SPINE() {
   return {
-    title: '', alt: '', authors: [], artists: [], characters: [], type: '', status: '',
-    year: '', genres: [], tags: [], flags: { adult: false, ai: false, censored: false },
-    desc: '', coverSource: '', source: { domain: '', url: '' }, chapterOrder: 'auto',
+    flags: { adult: false, ai: false, censored: false },
+    coverSource: '', source: { domain: '', url: '' }, chapterOrder: 'auto',
   }
+}
+
+// Field values copied off a bag, one entry per registry field, each an empty
+// value of the right shape when the bag has none.
+function valuesOf(bag: Record<string, unknown>, fields: FieldDef[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const f of fields) {
+    if (!f.editable || f.control === 'cover' || f.control === 'flags') continue
+    const v = bag[f.id]
+    if (f.type === 'list') out[f.id] = Array.isArray(v) ? [...v] : []
+    else if (f.type === 'number') out[f.id] = typeof v === 'number' ? v : 0
+    else if (f.type === 'boolean') out[f.id] = v === true
+    else out[f.id] = typeof v === 'string' ? v : ''
+  }
+  return out
 }
 
 // ---- presentation helpers ----
@@ -327,15 +359,16 @@ export function groupByNum<T extends { num: string }>(rows: T[]): { num: string;
 }
 
 // The meta layer of a title, copied — draft seeding and targeted commits build
-// the SAME shape from one place, so a new meta field can't be missed in either.
-export function metaOf(t: Title): TitleMeta {
+// the SAME shape from one place, so a meta field can't be missed in either.
+export function metaOf(t: Title, fields: FieldDef[]): TitleMeta {
   return {
-    title: t.title, alt: t.alt, authors: [...t.authors], artists: [...t.artists],
-    characters: [...(t.characters ?? [])],
-    type: t.type, status: t.status, year: t.year, genres: [...t.genres], tags: [...t.tags],
-    flags: { ...t.flags }, desc: t.desc, coverSource: t.coverSource,
-    source: { ...t.source }, chapterOrder: t.chapterOrder || 'auto',
-  }
+    ...valuesOf(t as unknown as Record<string, unknown>, fields),
+    ...SPINE(),
+    flags: { ...t.flags },
+    coverSource: t.coverSource,
+    source: { ...t.source },
+    chapterOrder: t.chapterOrder || 'auto',
+  } as unknown as TitleMeta
 }
 
 // Strip derived fields (read/dl/pages/…) down to the committable rows.

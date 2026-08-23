@@ -238,12 +238,6 @@ class FacetValue(BaseModel):
     n: int  # titles matching, with the other facets' filters applied
 
 
-class Facets(BaseModel):
-    types: list[FacetValue]
-    statuses: list[FacetValue]
-    genres: list[FacetValue]
-    tags: list[FacetValue]
-    languages: list[FacetValue]
-    flags: list[FacetValue]
-    characters: list[FacetValue]
-    authors: list[FacetValue]
+# Counts keyed by FIELD ID (see library/fields.py). A fixed class here would
+# mean a field the user defines could never have a facet.
+FacetCounts = dict[str, list[FacetValue]]
