@@ -138,10 +138,12 @@ watch([() => store.reader.chapterId, () => store.reader.page], () => {
 })
 
 // entering a chapter (from anywhere) marks it 'reading'; a dead/missing id
-// falls back to the first readable chapter
+// falls back to the first readable chapter. What counts as readable is asked of
+// the ONE rule — an episode has no pages, and judging it by their number sent
+// every click on a later episode straight back to the first one.
 watch([() => t.value?.id, () => store.reader.chapterId], () => {
   const c = chapter.value
-  if (!c || !c.dl || !c.pages) {
+  if (!c || !isReadable(c)) {
     const first = readable.value[0]
     if (first && first.id !== store.reader.chapterId) {
       store.reader.chapterId = first.id
@@ -376,7 +378,8 @@ const WIDTH_PRESETS = [600, 720, 900]
       <!-- SIDEBAR (S): settings (collapsible — hide them and only the chapter
            list remains) + the chapter list with lang/group filters -->
       <aside v-if="sidebar" class="rside">
-        <div class="rsec">
+        <!-- page layout: meaningless for an episode, so it is not offered -->
+        <div v-if="!isVideo" class="rsec">
           <div class="rhead click" @click="settingsOpen = !settingsOpen">
             <Icon name="chevron" :size="10" :sw="2.4" class="rchev" :style="{ transform: settingsOpen ? '' : 'rotate(-90deg)' }" />
             <span class="rlbl">SETTINGS</span>
@@ -426,8 +429,8 @@ const WIDTH_PRESETS = [600, 720, 900]
                 </div>
                 <div class="rgrp">
                   <div v-for="c in node.rows" :key="c.id" class="rrow"
-                       :class="{ on: c.id === chapter?.id, dead: !c.dl || !c.pages }"
-                       :title="!c.dl || !c.pages ? 'Not downloaded' : ''"
+                       :class="{ on: c.id === chapter?.id, dead: !isReadable(c) }"
+                       :title="isReadable(c) ? '' : 'Not downloaded'"
                        @click="openChapter(c)">
                     <span class="rdot s" :style="{ background: readColor[c.read] }"></span>
                     <span class="rtrb"><span class="mono" style="color:var(--accent);font-size:9px">{{ c.lang || '?' }}</span><template v-if="c.group">{{ c.group }}</template></span>
@@ -436,8 +439,8 @@ const WIDTH_PRESETS = [600, 720, 900]
                 </div>
               </template>
               <div v-else class="rrow"
-                   :class="{ on: node.rows[0].id === chapter?.id, dead: !node.rows[0].dl || !node.rows[0].pages }"
-                   :title="!node.rows[0].dl || !node.rows[0].pages ? 'Not downloaded' : ''"
+                   :class="{ on: node.rows[0].id === chapter?.id, dead: !isReadable(node.rows[0]) }"
+                   :title="isReadable(node.rows[0]) ? '' : 'Not downloaded'"
                    @click="openChapter(node.rows[0])">
                 <span class="rdot" :style="{ background: readColor[node.rows[0].read] }"></span>
                 <span class="rname"><b class="mono">{{ node.rows[0].num || '—' }}</b><template v-if="node.rows[0].title"> {{ node.rows[0].title }}</template></span>
