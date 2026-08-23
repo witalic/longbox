@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 # the shape this build writes
-CURRENT_SCHEMA = 2
+CURRENT_SCHEMA = 3
 
 
 def _v1_to_v2(doc: dict) -> dict:
@@ -27,8 +27,17 @@ def _v1_to_v2(doc: dict) -> dict:
     return {**doc, "user": user}
 
 
+def _v2_to_v3(doc: dict) -> dict:
+    """The vault holds more than one kind of work now, and an episode has a
+    studio the way a manga has an author."""
+    meta = dict(doc.get("meta") or {})
+    meta.setdefault("studio", [])
+    return {**doc, "meta": meta}
+
+
 _STEPS: dict[int, Callable[[dict], dict]] = {
     1: _v1_to_v2,
+    2: _v2_to_v3,
 }
 
 

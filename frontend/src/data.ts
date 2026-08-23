@@ -56,6 +56,7 @@ export interface TitleMeta {
   authors: string[]
   artists: string[]
   characters: string[]
+  studio: string[]
   type: MediaType
   status: Status
   year: string

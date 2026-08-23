@@ -3,7 +3,7 @@
 Everything that has to iterate fields reads this: filtering, facet counting, the
 query API, the editor, the filter sidebar, the vocabulary of suggestions. A field
 named anywhere else is a field one of them will forget — which is exactly what
-adding one field by hand cost: thirty edits across ten files.
+adding `studio` by hand cost, thirty edits across ten files.
 
 The registry is also SERVED to the client (`GET /api/fields`), so a field the
 user defines is a field the UI renders without a line of code.
@@ -100,6 +100,8 @@ BUILTIN: tuple[Field, ...] = (
           placeholder="add artist…", vocab="authors"),
     Field("characters", "Characters", "list", "chips", facet=True, attr="characters",
           placeholder="add character…", values=_attr_values("characters")),
+    Field("studio", "Studio", "list", "chips", facet=True, attr="studio",
+          placeholder="add studio…", values=_attr_values("studio")),
     Field("genres", "Genres", "list", "chips", facet=True, attr="genres",
           placeholder="add genre…", values=_attr_values("genres")),
     Field("tags", "Tags", "list", "chips", facet=True, attr="tags",

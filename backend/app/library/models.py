@@ -43,6 +43,7 @@ class TitleMeta(BaseModel):
     authors: list[str] = []
     artists: list[str] = []
     characters: list[str] = []
+    studio: list[str] = []  # a list: co-productions are normal
     # empty = the user hasn't chosen yet; nothing is ever auto-substituted
     type: MediaType = ""
     status: Status = ""
@@ -154,6 +155,7 @@ class TitleOut(BaseModel):
     alt: str
     authors: list[str]
     artists: list[str]
+    studio: list[str]
     year: str
     type: MediaType
     status: Status
@@ -196,6 +198,7 @@ class TitleOut(BaseModel):
             ))
         return cls(
             id=title_id, title=m.title, alt=m.alt, authors=m.authors, artists=m.artists,
+            studio=m.studio,
             year=m.year, type=m.type, status=m.status, genres=m.genres, tags=m.tags,
             characters=m.characters,
             flags=m.flags, desc=m.desc, source=m.source, coverSource=m.coverSource,
