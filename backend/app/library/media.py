@@ -7,6 +7,7 @@ natural order; page edits rewrite the archive atomically.
 from __future__ import annotations
 
 import os
+import time
 import re
 import shutil
 import uuid
@@ -123,6 +124,25 @@ class UnsupportedArchiveError(ValueError):
     stored leftover rather than overwrite it with a fresh zip."""
 
 
+# A rename ONTO a file someone is reading is DENIED on Windows: reads are
+# lock-free by design, and Python opens a file without sharing the right to
+# delete it. Over a network vault that window is wide enough to lose writes —
+# a page rewrite lands on an archive the reader may be serving from. The reader
+# always finishes, so wait it out instead of failing a write.
+_REPLACE_ATTEMPTS = 8
+
+
+def replace_atomically(tmp: Path, final: Path) -> None:
+    for attempt in range(_REPLACE_ATTEMPTS):
+        try:
+            os.replace(tmp, final)  # atomic on the same filesystem
+            return
+        except PermissionError:
+            if attempt == _REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(0.02 * (attempt + 1))
+
+
 def tmp_path(path: Path) -> Path:
     """The scratch name a `tmp → rename` write goes through. Unique per call:
     a fixed ".tmp" would let two concurrent rewrites of one file interleave
@@ -217,7 +237,7 @@ def repack_to_zip(src: Path, dst: Path) -> int:
                 if ext != Path(name).suffix:
                     name = Path(name).with_suffix(ext).as_posix()  # zip names use forward slashes
             z.writestr(name, data)
-    os.replace(tmp, dst)
+    replace_atomically(tmp, dst)
     return len(image_entries(dst))
 
 
@@ -305,7 +325,7 @@ def remove_entries(path: Path, names: set[str]) -> int:
             if info.filename in names:
                 continue
             dst.writestr(info, src.read(info.filename))
-    os.replace(tmp, path)
+    replace_atomically(tmp, path)
     return len(image_entries(path))
 
 
@@ -355,7 +375,7 @@ def _write_renumbered(path: Path, pages: list[tuple[bytes, str]], junk: list[tup
             z.writestr(f"{i:0{width}d}.{_norm_ext(ext)}", data)
         for name, data in junk:
             z.writestr(name, data)
-    os.replace(tmp, path)
+    replace_atomically(tmp, path)
 
 
 _SEQ_NAME = re.compile(r"^(\d+)\.([A-Za-z0-9]+)$")
@@ -406,7 +426,7 @@ def renumber_and_append(path: Path, extra: list[tuple[bytes, str]]) -> int:
         except Exception:
             tmp.unlink(missing_ok=True)
             raise
-        os.replace(tmp, path)
+        replace_atomically(tmp, path)
         return len(names) + len(extra)
     existing: list[tuple[bytes, str]] = []
     for name in names:

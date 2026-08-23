@@ -796,7 +796,7 @@ def test_a_write_through_survives_a_reader_holding_the_document(tmp_path, monkey
     someone has open — over a network vault that window is wide enough to hit.
     The reader always finishes, and a resume point written mid-playback has no
     second chance, so the write waits it out instead of failing."""
-    from app.library import vault as vault_mod
+    from app.library import media as media_mod
     from app.library.models import UserPatch
 
     lib = Library(tmp_path / "v")
@@ -810,8 +810,8 @@ def test_a_write_through_survives_a_reader_holding_the_document(tmp_path, monkey
             raise PermissionError(5, "Access is denied")
         return real(src, dst)
 
-    monkeypatch.setattr(vault_mod.os, "replace", denied_at_first)
-    monkeypatch.setattr(vault_mod.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(media_mod.os, "replace", denied_at_first)
+    monkeypatch.setattr(media_mod.time, "sleep", lambda _s: None)
 
     assert lib.patch_user(out.id, UserPatch(rating=4)) is not None
     assert len(calls) == 4                      # three denials, then the write lands
@@ -822,7 +822,7 @@ def test_a_write_through_survives_a_reader_holding_the_document(tmp_path, monkey
 def test_a_rename_that_never_happens_leaves_no_scratch_file(tmp_path, monkeypatch):
     """A temp that outlives its write would be swept as a stray, or worse,
     mistaken for media. Uniqueness alone is not enough — it has to be cleaned."""
-    from app.library import vault as vault_mod
+    from app.library import media as media_mod
     from app.library.models import UserPatch
 
     lib = Library(tmp_path / "v")
@@ -832,8 +832,8 @@ def test_a_rename_that_never_happens_leaves_no_scratch_file(tmp_path, monkeypatc
     def always_denied(_src, _dst):
         raise PermissionError(5, "Access is denied")
 
-    monkeypatch.setattr(vault_mod.os, "replace", always_denied)
-    monkeypatch.setattr(vault_mod.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(media_mod.os, "replace", always_denied)
+    monkeypatch.setattr(media_mod.time, "sleep", lambda _s: None)
 
     with pytest.raises(PermissionError):
         lib.patch_user(out.id, UserPatch(rating=4))
