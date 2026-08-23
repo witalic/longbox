@@ -143,6 +143,7 @@ class ChapterOut(ChapterRow):
     kind: str = "pages"
     duration: float = 0.0  # seconds, learned from the player on first play
     playable: bool = True  # a browser can open this container as it stands
+    container: str = ""    # mp4 / mkv / avi … — named in the list when it cannot play
     codec: str = ""        # h264 / hevc / av1 … — what the file actually holds
     faststart: bool = True # the index sits before the media, so playback starts at once
 
@@ -187,6 +188,7 @@ class TitleOut(BaseModel):
                 position=float(u.position.get(c.id, 0.0)),
                 duration=float((side or {}).get("duration") or 0.0),
                 playable=bool((side or {}).get("playable", True)),
+                container=(side or {}).get("container", ""),
                 codec=(side or {}).get("codec", ""),
                 faststart=bool((side or {}).get("faststart", True)),
                 dlSource=(side or {}).get("pageUrl") or (side or {}).get("fileUrl") or "",

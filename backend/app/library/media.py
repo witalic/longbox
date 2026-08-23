@@ -24,6 +24,8 @@ VIDEO_EXTS = {".mp4", ".m4v", ".webm", ".mkv", ".mov", ".avi", ".ts"}
 # what a browser can actually play; the rest is stored and offered to the
 # system player until the app learns to remux (see design/state-model.md §13)
 PLAYABLE_VIDEO_EXTS = {".mp4", ".m4v", ".webm"}
+# where an index can be moved to the front: the mp4 box layout
+FASTSTART_EXTS = {".mp4", ".m4v"}
 VIDEO_CT_BY_EXT = {
     ".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm",
     ".mkv": "video/x-matroska", ".mov": "video/quicktime",
@@ -88,6 +90,154 @@ def probe_mp4(path: Path) -> dict:
         return {"faststart": False, "codec": ""}
     out.pop("_seen_mdat", None)
     return out
+
+
+# Boxes on the path from `moov` down to the sample tables. Anything else is a
+# leaf as far as this rewrite is concerned: descending into arbitrary payloads
+# looking for four bytes that read like a box name is how a parser corrupts a
+# file it did not understand.
+_INDEX_CONTAINERS = frozenset({b"trak", b"mdia", b"minf", b"stbl"})
+_MAX_MOOV = 64 * 1024 * 1024
+
+
+def _top_level_boxes(fh, size: int) -> list[tuple[bytes, int, int]]:
+    """(name, offset, total length) per top-level box, or [] if the file does
+    not read as a clean sequence of them."""
+    boxes: list[tuple[bytes, int, int]] = []
+    offset = 0
+    while offset < size:
+        fh.seek(offset)
+        header = fh.read(8)
+        if len(header) < 8:
+            break
+        length = int.from_bytes(header[:4], "big")
+        name = header[4:8]
+        if length == 1:
+            length = int.from_bytes(fh.read(8), "big")
+        elif length == 0:
+            length = size - offset  # "to the end of the file"
+        if length < 8 or offset + length > size:
+            return []
+        boxes.append((name, offset, length))
+        offset += length
+    return boxes
+
+
+def _shift_chunk_offsets(moov: bytearray, delta: int, media_box: tuple[int, int]) -> bool:
+    """Add `delta` to every chunk offset in the index.
+
+    False means the rewrite must be abandoned: an offset that does not land in
+    the media box is one this code did not account for, and a 32-bit `stco`
+    entry that no longer fits would silently point somewhere else."""
+    lo, hi = media_box
+    ok = True
+
+    def walk(start: int, end: int) -> None:
+        nonlocal ok
+        pos = start
+        while ok and pos + 8 <= end:
+            length = int.from_bytes(moov[pos:pos + 4], "big")
+            name = bytes(moov[pos + 4:pos + 8])
+            head = 8
+            if length == 1:
+                length = int.from_bytes(moov[pos + 8:pos + 16], "big")
+                head = 16
+            if length < head or pos + length > end:
+                ok = False
+                return
+            if name in _INDEX_CONTAINERS:
+                walk(pos + head, pos + length)
+            elif name in (b"stco", b"co64"):
+                width = 4 if name == b"stco" else 8
+                body = pos + head + 4  # version+flags, then the entry count
+                count = int.from_bytes(moov[body:body + 4], "big")
+                first = body + 4
+                if first + count * width > pos + length:
+                    ok = False
+                    return
+                for at in range(first, first + count * width, width):
+                    old = int.from_bytes(moov[at:at + width], "big")
+                    moved = old + delta
+                    if not lo <= old < hi or moved >= 1 << (width * 8):
+                        ok = False
+                        return
+                    moov[at:at + width] = moved.to_bytes(width, "big")
+            pos += length
+
+    walk(8, len(moov))  # the children of `moov`, past its own header
+    return ok
+
+
+def remux_faststart(path: Path) -> bool:
+    """Move an mp4's index in front of its media. Returns whether it rewrote.
+
+    A player cannot show a frame until it holds `moov`. Behind the media that
+    costs a fetch of the file's tail before the first frame, and every far seek
+    pays for it again. Moving it forward rearranges bytes — nothing is decoded
+    or re-encoded, and the file keeps its exact length — but each chunk offset
+    in the index is an ABSOLUTE file position, so all of them travel with the
+    media.
+
+    Refuses, leaving the file untouched, anything it cannot prove it
+    understands: a fragmented file, more than one media box, an index that
+    points outside it, or an offset that would no longer fit its field. The
+    rewrite goes through a second copy in the same directory, so ingest needs
+    the episode's size free while it runs.
+    """
+    try:
+        size = path.stat().st_size
+        with path.open("rb") as fh:
+            boxes = _top_level_boxes(fh, size)
+            names = [name for name, _, _ in boxes]
+            if not boxes or b"moof" in names:
+                return False
+            if names.count(b"moov") != 1 or names.count(b"mdat") != 1:
+                return False
+            moov_at, moov_len = next((o, ln) for n, o, ln in boxes if n == b"moov")
+            mdat_at, mdat_len = next((o, ln) for n, o, ln in boxes if n == b"mdat")
+            if moov_at < mdat_at or moov_len > _MAX_MOOV:
+                return False  # already in front, or an index too big to hold
+
+            fh.seek(moov_at)
+            moov = bytearray(fh.read(moov_len))
+            if len(moov) != moov_len:
+                return False
+            if not _shift_chunk_offsets(moov, moov_len, (mdat_at, mdat_at + mdat_len)):
+                return False
+
+            tmp = tmp_path(path)
+            try:
+                with tmp.open("wb") as out:
+                    for name, offset, length in boxes:
+                        if name == b"ftyp":
+                            _copy_range(fh, out, offset, length)
+                    out.write(moov)
+                    for name, offset, length in boxes:
+                        if name not in (b"ftyp", b"moov"):
+                            _copy_range(fh, out, offset, length)
+                # a rearrangement that changed the byte count, or left the index
+                # where it was, is one to throw away rather than trust
+                if tmp.stat().st_size != size or not probe_mp4(tmp).get("faststart"):
+                    tmp.unlink(missing_ok=True)
+                    return False
+            except OSError:
+                tmp.unlink(missing_ok=True)
+                raise
+        replace_atomically(tmp, path)
+        return True
+    except OSError:
+        return False
+
+
+def _copy_range(fh, out, offset: int, length: int) -> None:
+    fh.seek(offset)
+    left = length
+    while left > 0:
+        chunk = fh.read(min(4 * 1024 * 1024, left))
+        if not chunk:
+            raise OSError("short read while rearranging an episode")
+        left -= len(chunk)
+        out.write(chunk)
 
 
 def looks_like_video(path: Path) -> bool:

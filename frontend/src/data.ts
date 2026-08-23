@@ -43,6 +43,7 @@ export interface Chapter extends ChapterRow {
   kind: 'pages' | 'video' // a zip of images, or the episode file itself
   duration: number  // seconds (video only), learned from the player
   playable: boolean // whether this container opens in the app's browser engine
+  container: string // mp4 / mkv / avi … — named in the list when it cannot play
   position: number  // seconds into a video chapter — the resume point
   codec: string     // h264 / hevc / av1 … — what the file actually holds
   faststart: boolean // its index sits before the media, so playback starts at once
@@ -271,8 +272,30 @@ export function isReadable(c: Chapter): boolean {
 // label has to say WHICH — "12 pg" and "23:41" are the same column.
 export function mediaLabel(c: Chapter, empty = ''): string {
   if (!c.dl) return empty
-  if (c.kind === 'video') return formatDuration(c.duration) || 'video'
+  if (c.kind === 'video') {
+    // an episode the app cannot open is named by what it IS: a duration it
+    // never measured would be a blank where the reason belongs
+    if (!c.playable) return (c.container || 'video').toUpperCase()
+    return formatDuration(c.duration) || 'video'
+  }
   return c.pages ? `${c.pages} pg` : 'file'
+}
+
+// Stored, listed, catalogued — and not openable here. Asked in ONE place so the
+// list and the pane can never disagree about it.
+export function isUnsupported(c: Chapter): boolean {
+  return c.dl && c.kind === 'video' && !c.playable
+}
+
+// Why a stored episode has no player. Said once here, so the list and the pane
+// cannot word it differently — and with no promise of a remux the app cannot do.
+export function unsupportedTitle(c: Chapter): string {
+  return `${(c.container || '').toUpperCase() || 'This format'} is not supported`
+}
+export const UNSUPPORTED_HINT =
+  'The file is stored in your vault, but the app cannot play it. MP4, M4V and WebM play.'
+export function unsupportedNote(c: Chapter): string {
+  return `${unsupportedTitle(c)} — ${UNSUPPORTED_HINT}`
 }
 
 // The chapter list in READING order: the title's own manual order when it has

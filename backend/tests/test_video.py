@@ -240,3 +240,140 @@ def test_an_open_ended_ask_is_answered_with_a_window(tmp_path):
         r = c.get(url, headers={"Range": "bytes=-50"})
         assert r.status_code == 206 and len(r.content) == 50
     lib.close()
+
+
+def _box(name: bytes, payload: bytes) -> bytes:
+    return (len(payload) + 8).to_bytes(4, "big") + name + payload
+
+
+def _index_last_mp4(path: Path, payload: bytes, *, fragmented: bool = False,
+                    stray_offset: bool = False) -> Path:
+    """An mp4 shaped the way a muxer leaves one: media first, index behind it,
+    and a chunk offset that is an ABSOLUTE position inside the media."""
+    ftyp = _box(b"ftyp", b"isomiso2")
+    mdat = _box(b"mdat", payload)
+    first_sample = 0 if stray_offset else len(ftyp) + 8
+    stco = _box(b"stco", b"\x00" * 4 + (1).to_bytes(4, "big")
+                + first_sample.to_bytes(4, "big"))
+    moov = _box(b"moov", _box(b"trak", _box(b"mdia", _box(b"minf", _box(b"stbl", stco)))))
+    parts = [ftyp, mdat] + ([_box(b"moof", b"")] if fragmented else []) + [moov]
+    path.write_bytes(b"".join(parts))
+    return path
+
+
+def _stco_entry(raw: bytes) -> int:
+    at = raw.index(b"stco") + 4 + 4 + 4  # past the name, version+flags, the count
+    return int.from_bytes(raw[at:at + 4], "big")
+
+
+def test_the_index_moves_in_front_and_the_media_moves_with_it(tmp_path):
+    """The rewrite is a rearrangement, not a re-encode: same bytes, same
+    length. What makes it delicate is that every chunk offset is an absolute
+    file position, so the index has to be corrected as the media slides."""
+    src = _index_last_mp4(tmp_path / "tail.mp4", b"\xab" * 4096)
+    before = src.stat().st_size
+
+    assert media.probe_mp4(src)["faststart"] is False
+    assert media.remux_faststart(src) is True
+    assert src.stat().st_size == before
+    assert media.probe_mp4(src)["faststart"] is True
+
+    raw = src.read_bytes()
+    assert raw.index(b"moov") < raw.index(b"mdat")
+    # the offset still lands on the first sample, not where it used to be
+    assert raw[_stco_entry(raw):_stco_entry(raw) + 4] == b"\xab" * 4
+
+
+def test_a_file_the_rewrite_cannot_prove_it_understands_is_left_alone(tmp_path):
+    """Refusing costs a slow start. Guessing costs the episode."""
+    fragmented = _index_last_mp4(tmp_path / "frag.mp4", b"\xab" * 512, fragmented=True)
+    stray = _index_last_mp4(tmp_path / "stray.mp4", b"\xab" * 512, stray_offset=True)
+    for path in (fragmented, stray):
+        before = path.read_bytes()
+        assert media.remux_faststart(path) is False
+        assert path.read_bytes() == before
+
+    # nothing to do for a file that already leads with its index
+    done = _index_last_mp4(tmp_path / "done.mp4", b"\xab" * 512)
+    assert media.remux_faststart(done) is True
+    assert media.remux_faststart(done) is False
+
+
+def test_an_arriving_episode_is_stored_ready_to_play(tmp_path):
+    lib = Library(tmp_path / "v")
+    out = lib.create(DraftIn(meta=TitleMeta(title="Series", type="anime")))
+    lib.attach_chapter_media(out.id, num="1", lang="", group="",
+                             src=_index_last_mp4(tmp_path / "ep.mp4", b"\xab" * 8192),
+                             sidecar={"filename": "ep.mp4"})
+    assert lib.get(out.id).chapters[0].faststart is True
+    lib.close()
+
+
+def test_episodes_already_in_the_vault_are_fixed_once(tmp_path):
+    """What was stored before the app could do this gets a one-time pass. The
+    bytes are rearranged without changing their number, so the media version
+    would REPEAT — and a repeated version is what serves a stale range back."""
+    lib = Library(tmp_path / "v")
+    out = lib.create(DraftIn(meta=TitleMeta(title="Series")))
+    lib.attach_chapter_media(out.id, num="1", lang="", group="",
+                             src=_mp4(tmp_path / "ep.mp4"), sidecar={"filename": "ep.mp4"})
+    cid = lib.get(out.id).chapters[0].id
+
+    # plant the pre-invariant shape under the stored name
+    stored = lib.vault.chapter_media_path(out.id, cid)
+    _index_last_mp4(stored, b"\xab" * 4096)
+    lib._sidecar_cache.clear()
+    lib._index(out.id, lib.vault.load(out.id))
+    before = lib.get(out.id).chapters[0].v
+
+    # the pass is consumed when a vault is first opened; this one is the
+    # re-run, the way Settings would ask for it
+    assert lib.vault.needs_faststart() is False
+    assert lib.refresh_episodes() == 1
+
+    chapter = lib.get(out.id).chapters[0]
+    assert chapter.faststart is True
+    assert chapter.v != before                        # the version cannot repeat
+    assert lib.refresh_episodes() == 0
+    lib.close()
+
+
+def test_a_container_the_app_cannot_play_says_so_before_it_is_opened(tmp_path):
+    """Storing it is right — the vault is an archive, not a player. Letting the
+    human find out by clicking is not."""
+    lib = Library(tmp_path / "v")
+    out = lib.create(DraftIn(meta=TitleMeta(title="Series")))
+    mkv = tmp_path / "ep.mkv"
+    mkv.write_bytes(bytes((0x1A, 0x45, 0xDF, 0xA3)) + b"\x00" * 2048)  # EBML
+    lib.attach_chapter_media(out.id, num="1", lang="", group="", src=mkv,
+                             sidecar={"filename": "ep.mkv"})
+
+    chapter = lib.get(out.id).chapters[0]
+    assert chapter.kind == "video" and chapter.dl is True
+    assert chapter.playable is False and chapter.container == "mkv"
+    lib.close()
+
+
+def test_learning_what_a_stored_episode_is_does_not_invalidate_it(tmp_path):
+    """The one-time pass describes the same bytes. Bumping the version for that
+    would throw away every cache of a file that did not change."""
+    lib = Library(tmp_path / "v")
+    out = lib.create(DraftIn(meta=TitleMeta(title="Series")))
+    lib.attach_chapter_media(out.id, num="1", lang="", group="",
+                             src=_mp4(tmp_path / "ep.mp4"), sidecar={"filename": "ep.mp4"})
+    cid = lib.get(out.id).chapters[0].id
+
+    side_path = lib.vault.chapters_dir(out.id) / f"{cid}.json"
+    side = json.loads(side_path.read_text(encoding="utf-8"))
+    del side["playable"], side["container"]
+    side_path.write_text(json.dumps(side), encoding="utf-8")
+    lib._sidecar_cache.clear()
+    lib._index(out.id, lib.vault.load(out.id))
+    before = lib.get(out.id).chapters[0].v
+
+    assert lib.refresh_episodes() == 1
+    chapter = lib.get(out.id).chapters[0]
+    assert chapter.container == "mp4" and chapter.playable is True
+    assert chapter.v == before                    # the bytes never moved
+    assert lib.refresh_episodes() == 0            # and nothing is left to do
+    lib.close()

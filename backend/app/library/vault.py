@@ -43,6 +43,7 @@ _COVER_EXTS = ("jpg", "jpeg", "png", "webp", "gif", "avif")
 # Bump when the archive-normalization pass learns something new — every vault
 # then earns exactly ONE more sweep.
 NORMALIZE_VERSION = 1
+FASTSTART_VERSION = 1
 
 
 def _translit(s: str) -> str:
@@ -457,10 +458,22 @@ class Vault:
             # browser holding the previous pages cannot match the new URLs
             prev = self.chapter_sidecars(title_id).get(stem, {})
             probe = media.probe_mp4(final) if as_video else {}
+            # Do it now, while the file is arriving anyway: an index behind the
+            # media costs a fetch of the file's tail before the first frame, and
+            # every far seek pays again. A refusal is not a failure — the
+            # episode is stored either way, and the sidecar records which it is.
+            if as_video and video_ext in media.FASTSTART_EXTS and not probe.get("faststart"):
+                if media.remux_faststart(final):
+                    probe = media.probe_mp4(final)
             sidecar = {**sidecar,
                        "kind": "video" if as_video else "pages",
                        **({"codec": probe.get("codec", ""),
-                           "faststart": probe.get("faststart", False)} if as_video else {}),
+                           "faststart": probe.get("faststart", False),
+                           # what the app can actually open, decided ONCE at
+                           # ingest — a list must not have to guess, and the
+                           # human must not find out by clicking
+                           "playable": video_ext in media.PLAYABLE_VIDEO_EXTS,
+                           "container": video_ext.lstrip(".")} if as_video else {}),
                        "pages": 0 if as_video else len(media.image_entries(final)),
                        "size": final.stat().st_size,
                        "rev": int(prev.get("rev") or 0) + 1}
@@ -492,6 +505,71 @@ class Vault:
         meta = {**self._vault_meta(), "zipNormalized": NORMALIZE_VERSION}
         _atomic_write(self._vault_meta_path(),
                       json.dumps(meta, indent=2, ensure_ascii=False).encode("utf-8"))
+
+    def needs_faststart(self) -> bool:
+        return int(self._vault_meta().get("videoFaststart", 0)) < FASTSTART_VERSION
+
+    def mark_faststart(self) -> None:
+        meta = {**self._vault_meta(), "videoFaststart": FASTSTART_VERSION}
+        _atomic_write(self._vault_meta_path(),
+                      json.dumps(meta, indent=2, ensure_ascii=False).encode("utf-8"))
+
+    def refresh_stored_episodes(self, *, stop=None) -> int:
+        """Bring stored episodes up to what the app now records: the index moved
+        in front of the media where that applies, plus the two facts a listing
+        must never guess — which container it is, and whether the app can play
+        it. Ingest does all of this for anything arriving now; this is the
+        one-time pass for what was already in the vault."""
+        changed = 0
+        for sid in self.list_ids():
+            if stop is not None and stop.is_set():
+                break  # the library is closing — the rest waits for next time
+            home = self._find(sid)
+            d = home / "chapters" if home is not None else None
+            if d is None or not d.is_dir():
+                continue
+            for p in list(d.glob("*")):
+                ext = p.suffix.lower()
+                if ext not in media.VIDEO_EXTS or not p.is_file():
+                    continue
+                with self._lock(sid):
+                    if not p.is_file():
+                        continue
+                    stamp = {"container": ext.lstrip("."),
+                             "playable": ext in media.PLAYABLE_VIDEO_EXTS}
+                    rewrote = False
+                    if ext in media.FASTSTART_EXTS:
+                        # the file is open anyway — record everything it says,
+                        # not just the one property this pass came for
+                        probe = media.probe_mp4(p)
+                        if not probe.get("faststart") and media.remux_faststart(p):
+                            rewrote, probe = True, media.probe_mp4(p)
+                        stamp["faststart"] = bool(probe.get("faststart"))
+                        if probe.get("codec"):
+                            stamp["codec"] = probe["codec"]
+                    if self._restamp_episode(d, p.stem, stamp, bump=rewrote):
+                        changed += 1
+        return changed
+
+    def _restamp_episode(self, chapters: Path, stem: str, stamp: dict, *, bump: bool) -> bool:
+        """The revision moves ONLY when the bytes did. A remux rearranges them
+        without changing their number, so the media version would otherwise
+        REPEAT — and a repeated version is what serves a stale range back.
+        Describing the same bytes better must invalidate nothing."""
+        side_path = chapters / f"{stem}.json"
+        side: dict = {}
+        if side_path.is_file():
+            try:
+                side = json.loads(side_path.read_text(encoding="utf-8"))
+            except (ValueError, OSError):
+                side = {}
+        merged = {**side, **stamp}
+        if bump:
+            merged["rev"] = int(side.get("rev") or 0) + 1
+        if merged == side:
+            return False
+        _atomic_write(side_path, json.dumps(merged, indent=2, ensure_ascii=False).encode("utf-8"))
+        return True
 
     def normalize_chapter_archives(self, *, force: bool = False, stop=None) -> int:
         """Consistency pass over the whole vault (part of the zip invariant):

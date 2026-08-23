@@ -65,16 +65,32 @@ class Library:
         # runs only for a vault that never had it, off the startup path (large
         # repacks are slow), and marks the vault when done. Settings re-runs it.
         self._normalize_thread: threading.Thread | None = None
-        if self.vault.needs_normalize():
+        if self.vault.needs_normalize() or self.vault.needs_faststart():
             self._normalize_thread = threading.Thread(
-                target=self._normalize_archives_bg, name="lb-normalize", daemon=True)
+                target=self._migrations_bg, name="lb-migrate", daemon=True)
             self._normalize_thread.start()
 
-    def _normalize_archives_bg(self) -> None:
+    def _migrations_bg(self) -> None:
+        """One-time vault passes, in sequence — never in parallel: both walk the
+        whole vault, and on a network share two sweeps only get in each other's
+        way."""
         try:
-            self.normalize_archives()
+            if self.vault.needs_normalize():
+                self.normalize_archives()
+            if self.vault.needs_faststart():
+                self.refresh_episodes()
         except Exception:  # noqa: BLE001 — a failed pass must never take the app down
             pass
+
+    def refresh_episodes(self) -> int:
+        """Bring stored episodes up to what the app records about them, once per
+        vault. Anything arriving now gets it at ingest."""
+        changed = self.vault.refresh_stored_episodes(stop=self._closing)
+        if not self._closing.is_set():
+            self.vault.mark_faststart()
+        if changed and not self._closing.is_set():
+            self.sync()  # the media version moved; the index carries it
+        return changed
 
     def normalize_archives(self, *, force: bool = False) -> int:
         """Run the archive sweep and mark the vault as normalized. `force`

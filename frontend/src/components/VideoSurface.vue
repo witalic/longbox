@@ -11,7 +11,8 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import { api } from '../api'
 import { setPlaybackPosition } from '../store'
-import { formatDuration, type Chapter, type Title } from '../data'
+import { UNSUPPORTED_HINT, formatDuration, unsupportedTitle, type Chapter, type Title }
+  from '../data'
 
 const props = withDefaults(
   defineProps<{ title: Title; chapter: Chapter; autoplay?: boolean }>(),
@@ -139,14 +140,14 @@ onBeforeUnmount(() => {
       @error="failed = true"
     ></video>
 
-    <!-- stored, listed, catalogued — just not openable by this browser engine -->
+    <!-- stored, listed, catalogued — the app simply cannot open this container -->
     <div v-else class="vunplayable">
       <Icon name="film" :size="28" :sw="1.6" />
-      <div class="vtitle">This container cannot be played here yet</div>
+      <div class="vtitle">{{ unsupportedTitle(chapter) }}</div>
       <div class="vhint">
         {{ chapter.num }}<template v-if="chapter.lang"> · {{ chapter.lang }}</template>
-        — stored in your vault{{ chapter.duration ? `, ${formatDuration(chapter.duration)}` : '' }}.
-        MP4 and WebM play in the app; the rest waits for remuxing.
+        <template v-if="chapter.duration"> · {{ formatDuration(chapter.duration) }}</template>
+        — {{ UNSUPPORTED_HINT }}
       </div>
       <a class="btn ghost" :href="src" download>Save a copy</a>
     </div>

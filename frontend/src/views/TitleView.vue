@@ -12,7 +12,8 @@ import { readLocalOne, writeLocalOne } from '../local'
 import { api } from '../api'
 import {
   ARCHIVE_RE, FILE_ACCEPT, IMAGE_RE, MEDIA_ACCEPT, VIDEO_RE, compareChapterNums, coverAt,
-  faviconFor, filterOptions, isReadable, mediaLabel, orderedChaptersOf, sameChapter,
+  faviconFor, filterOptions, isReadable, isUnsupported, mediaLabel, orderedChaptersOf,
+  sameChapter, unsupportedNote,
 } from '../data'
 
 // domains whose favicon failed to load → fall back to the initial letters
@@ -752,7 +753,8 @@ async function removeRow(c: Chapter) {
                     <span class="trbadge"><span class="mono" style="color:var(--accent);font-size:9px">{{ c.lang || '?' }}</span><template v-if="c.group">{{ c.group }}</template></span>
                     <span class="chtitle"></span>
                     <span class="chright">
-                      <span class="pgcol mono" :title="c.dlSource">{{ mediaLabel(c) }}</span>
+                      <span class="pgcol mono" :class="{ unsup: isUnsupported(c) }"
+                            :title="isUnsupported(c) ? unsupportedNote(c) : c.dlSource">{{ mediaLabel(c) }}</span>
                       <span v-if="editMode" class="chacts">
                         <button class="chact" title="Edit entry: label · language · group · source link" @click.stop="openEntryEdit(c)"><Icon name="edit" :size="12" :sw="1.9" /></button>
                         <button class="chact" title="Add images to this entry" @click.stop="pickAddImagesRow(c)"><Icon name="image" :size="12" :sw="1.9" /></button>
@@ -788,7 +790,8 @@ async function removeRow(c: Chapter) {
                 <span class="chtitle"><b class="chnum mono">{{ node.rows[0].num }}</b><template v-if="node.rows[0].title"> {{ node.rows[0].title }}</template></span>
                 <span class="chright">
                   <span v-if="node.rows[0].lang || node.rows[0].group" class="trbadge"><span class="mono" style="color:var(--accent);font-size:9px">{{ node.rows[0].lang || '?' }}</span><template v-if="node.rows[0].group">{{ node.rows[0].group }}</template></span>
-                  <span class="pgcol mono" :title="node.rows[0].dlSource">{{ mediaLabel(node.rows[0]) }}</span>
+                  <span class="pgcol mono" :class="{ unsup: isUnsupported(node.rows[0]) }"
+                    :title="isUnsupported(node.rows[0]) ? unsupportedNote(node.rows[0]) : node.rows[0].dlSource">{{ mediaLabel(node.rows[0]) }}</span>
                   <span v-if="editMode" class="chacts">
                     <button class="chact" title="Edit entry: label · language · group · source link" @click.stop="openEntryEdit(node.rows[0])"><Icon name="edit" :size="12" :sw="1.9" /></button>
                     <button class="chact" title="Add images to this entry" @click.stop="pickAddImagesRow(node.rows[0])"><Icon name="image" :size="12" :sw="1.9" /></button>
@@ -982,6 +985,8 @@ async function removeRow(c: Chapter) {
 .grp .chrow.open { background: var(--accentSoft); }
 /* fixed right columns: pages(56px) then actions — buttons on one vertical */
 .pgcol { flex: none; width: 56px; text-align: right; font-size: 10.5px; color: var(--good); }
+/* the same column, saying the app cannot open this one */
+.pgcol.unsup { color: var(--warn); }
 .chacts { display: inline-flex; gap: 5px; flex: none; }
 /* the inline entry form (LABEL · LANG · GROUP · LINK) */
 .entryform { margin: 2px 0 4px 26px; padding: 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); display: flex; flex-direction: column; gap: 7px; }
