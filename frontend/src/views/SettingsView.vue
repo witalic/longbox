@@ -5,7 +5,10 @@
 // to a flow live IN that flow (the page-capture filter is in the capture dock).
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import Icon from '../components/Icon.vue'
-import { store, setLibraryPath, askConfirm, opening, type ThemePref } from '../store'
+import {
+  askConfirm, opening, refreshLibrary, setLibraryPath, store, type ThemePref,
+} from '../store'
+import type { FieldDef } from '../data'
 import { api } from '../api'
 import { isBoolMap, readLocal, writeLocal } from '../local'
 import { KEY_ACTIONS, bindingsFor, isOverridden, keyLabel, rebind, resetKey, resetAllKeys, keyOverrides } from '../keys'
@@ -187,6 +190,108 @@ function onCaptureKey(e: KeyboardEvent) {
 onMounted(() => window.addEventListener('keydown', onCaptureKey, true))
 onBeforeUnmount(() => window.removeEventListener('keydown', onCaptureKey, true))
 const anyOverride = computed(() => Object.keys(keyOverrides).length > 0)
+// ---- the field registry ----
+//
+// The list IS the manager: a row per field, and the one you open unfolds its
+// definition underneath. Built-ins are shown but locked — their id, type and
+// behaviour carry logic, not just a value (backend library/fields.py).
+const FIELD_TYPES = [
+  { v: 'text', label: 'Text', hint: 'One line of free text — a note, an id, a title.' },
+  { v: 'number', label: 'Number', hint: 'A score or a count. Stored and shown; ranges come later.' },
+  { v: 'list', label: 'List', hint: 'Many values per title, filtered by ticking them — like tags.' },
+  { v: 'date', label: 'Date', hint: 'A calendar day, stored as YYYY-MM-DD.' },
+] as const
+
+const custom = computed(() => store.fields.filter((f) => !f.builtin))
+const builtin = computed(() => store.fields.filter((f) => f.builtin))
+
+// How many titles hold a value here. Counted over the library as loaded, so a
+// filtered view counts what it shows — the row says so.
+function usedBy(f: FieldDef): number {
+  return store.titles.filter((t) => {
+    const v = f.builtin
+      ? (t as unknown as Record<string, unknown>)[f.id]
+      : (t.custom ?? {})[f.id]
+    return Array.isArray(v) ? v.length > 0 : !!v
+  }).length
+}
+
+const fEdit = ref<string | null>(null) // field id being edited, '' while creating
+const fId = ref('')
+const fLabel = ref('')
+const fType = ref<string>('list')
+const fFacet = ref(true)
+const fMultiline = ref(false)
+const fBusy = ref(false)
+const fErr = ref('')
+
+// The id is what every stored value hangs on, so it is derived once from the
+// first label and then frozen — renaming the label later is free.
+const slug = computed(() => fLabel.value.toLowerCase().replace(/[^a-z0-9]+/g, '_')
+  .replace(/^_+|_+$/g, '').slice(0, 32))
+const canSaveField = computed(() => !!fLabel.value.trim() && !!(fId.value || slug.value))
+const typeHint = computed(() => FIELD_TYPES.find((t) => t.v === fType.value)?.hint ?? '')
+const retypeCount = computed(() => {
+  const cur = custom.value.find((f) => f.id === fId.value)
+  if (!cur || cur.type === fType.value) return 0
+  return usedBy(cur)
+})
+
+function openField(f: FieldDef) {
+  fErr.value = ''
+  fEdit.value = f.id
+  fId.value = f.id
+  fLabel.value = f.label
+  fType.value = f.type
+  fFacet.value = f.facet
+  fMultiline.value = f.control === 'multiline'
+}
+function newField() {
+  fErr.value = ''
+  fEdit.value = ''
+  fId.value = ''
+  fLabel.value = ''
+  fType.value = 'list'
+  fFacet.value = true
+  fMultiline.value = false
+}
+async function saveField() {
+  const id = fId.value || slug.value
+  if (!id) return
+  fBusy.value = true
+  fErr.value = ''
+  try {
+    store.fields = await api.putField(id, {
+      label: fLabel.value.trim(), type: fType.value,
+      facet: fFacet.value, multiline: fMultiline.value,
+    })
+    fEdit.value = null
+    await refreshLibrary() // a new facet changes what the library can be asked
+  } catch (e) {
+    fErr.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    fBusy.value = false
+  }
+}
+async function removeField(f: FieldDef) {
+  const ok = await askConfirm({
+    title: 'Remove field', danger: true, okLabel: 'Remove',
+    message: `Stop offering “${f.label}”? Every title that holds a value keeps it — `
+      + 'defining the field again brings those values back.',
+  })
+  if (!ok) return
+  fBusy.value = true
+  try {
+    store.fields = await api.deleteField(f.id)
+    fEdit.value = null
+    await refreshLibrary()
+  } catch (e) {
+    fErr.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    fBusy.value = false
+  }
+}
+
 </script>
 
 <template>
@@ -233,7 +338,104 @@ const anyOverride = computed(() => Object.keys(keyOverrides).length > 0)
       </div>
     </section>
 
-    <!-- 2 · BROWSER -->
+    <!-- 2 · FIELDS -->
+    <section class="card">
+      <div class="title click" @click="toggleSec('fields')">
+        <Icon name="chevron" :size="11" :sw="2.4" class="chev" :style="{ transform: isOpen('fields') ? '' : 'rotate(-90deg)' }" />
+        Fields
+        <span v-if="!isOpen('fields')" class="mini mono">{{ store.fields.length }} · {{ custom.length }} yours</span>
+      </div>
+      <div v-if="isOpen('fields')" class="rowcol">
+        <div class="hint" style="margin-top:0">
+          One registry draws the metadata editor, the filters and the capture picker. Add a field
+          here and every one of them offers it — no screen has a list of its own.
+        </div>
+
+        <div class="flbl">YOURS</div>
+        <div v-if="!custom.length" class="hint">None yet.</div>
+        <template v-for="f in custom" :key="f.id">
+          <div class="frow" :class="{ on: fEdit === f.id }" @click="openField(f)">
+            <span class="fnm">{{ f.label }}</span>
+            <span class="ftype">{{ f.type }}</span>
+            <span class="fwhere">{{ f.facet ? 'title page · filters' : 'title page' }}</span>
+            <span class="fused mono" title="Titles with a value, among the ones the library currently lists">{{ usedBy(f) }} titles</span>
+          </div>
+          <div v-if="fEdit === f.id" class="fform" @click.stop>
+            <div class="fgrid">
+              <label class="flabel2">NAME</label>
+              <input v-model="fLabel" class="in" placeholder="Shelf, Bought on, MAL score…" />
+              <label class="flabel2">ID</label>
+              <div class="idfixed mono">{{ fId }} · fixed, every stored value hangs on it</div>
+              <label class="flabel2">TYPE</label>
+              <div>
+                <div class="seg" style="width: fit-content">
+                  <button v-for="t in FIELD_TYPES" :key="t.v" class="opt" :class="{ on: fType === t.v }" @click="fType = t.v">{{ t.label }}</button>
+                </div>
+                <div class="hint">{{ typeHint }}</div>
+              </div>
+            </div>
+            <div v-if="fType === 'text'" class="fcheck" @click="fMultiline = !fMultiline">
+              <span class="fbox" :class="{ on: fMultiline }"><Icon v-if="fMultiline" name="check" :size="9" :sw="3.2" /></span>Multi-line
+            </div>
+            <div class="fcheck" @click="fFacet = !fFacet">
+              <span class="fbox" :class="{ on: fFacet }"><Icon v-if="fFacet" name="check" :size="9" :sw="3.2" /></span>Offer it as a library filter
+            </div>
+            <div v-if="retypeCount" class="fwarn">
+              {{ retypeCount }} title(s) already hold a value here. Changing the type converts what
+              converts and leaves the rest in the vault untouched.
+            </div>
+            <div v-if="fErr" class="fwarn err">{{ fErr }}</div>
+            <div class="frowend">
+              <button class="btn ghost danger" :disabled="fBusy" @click="removeField(f)">Remove</button>
+              <div style="flex:1"></div>
+              <button class="btn ghost" :disabled="fBusy" @click="fEdit = null">Cancel</button>
+              <button class="btn accent" :disabled="!canSaveField || fBusy" @click="saveField">Save</button>
+            </div>
+          </div>
+        </template>
+
+        <div v-if="fEdit !== ''" class="fnew" @click="newField">
+          <Icon name="plus" :size="13" :sw="2.2" />New field
+        </div>
+        <div v-else class="fform">
+          <div class="fgrid">
+            <label class="flabel2">NAME</label>
+            <input v-model="fLabel" class="in" placeholder="Shelf, Bought on, MAL score…" autofocus />
+            <label class="flabel2">ID</label>
+            <div class="idfixed mono">{{ slug || '—' }} · derived from the name, then fixed</div>
+            <label class="flabel2">TYPE</label>
+            <div>
+              <div class="seg" style="width: fit-content">
+                <button v-for="t in FIELD_TYPES" :key="t.v" class="opt" :class="{ on: fType === t.v }" @click="fType = t.v">{{ t.label }}</button>
+              </div>
+              <div class="hint">{{ typeHint }}</div>
+            </div>
+          </div>
+          <div v-if="fType === 'text'" class="fcheck" @click="fMultiline = !fMultiline">
+            <span class="fbox" :class="{ on: fMultiline }"><Icon v-if="fMultiline" name="check" :size="9" :sw="3.2" /></span>Multi-line
+          </div>
+          <div class="fcheck" @click="fFacet = !fFacet">
+            <span class="fbox" :class="{ on: fFacet }"><Icon v-if="fFacet" name="check" :size="9" :sw="3.2" /></span>Offer it as a library filter
+          </div>
+          <div v-if="fErr" class="fwarn err">{{ fErr }}</div>
+          <div class="frowend">
+            <button class="btn ghost" :disabled="fBusy" @click="fEdit = null">Cancel</button>
+            <button class="btn accent" :disabled="!canSaveField || fBusy" @click="saveField">Create field</button>
+          </div>
+        </div>
+
+        <div class="flbl" style="margin-top:6px">BUILT IN<span class="flblhint">name and type are fixed — hide them where they are in the way</span></div>
+        <div v-for="f in builtin" :key="f.id" class="frow locked">
+          <span class="fnm">{{ f.label }}</span>
+          <span class="ftype">{{ f.type }}</span>
+          <span class="fwhere">{{ f.facet ? 'title page · filters' : 'title page' }}</span>
+          <span class="fused mono" title="Titles with a value, among the ones the library currently lists">{{ usedBy(f) }} titles</span>
+          <Icon name="lock" :size="12" :sw="2" style="color:var(--tx3);opacity:.5" />
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 · BROWSER -->
     <section class="card">
       <div class="title click" @click="toggleSec('browser')">
         <Icon name="chevron" :size="11" :sw="2.4" class="chev" :style="{ transform: isOpen('browser') ? '' : 'rotate(-90deg)' }" />
@@ -257,7 +459,7 @@ const anyOverride = computed(() => Object.keys(keyOverrides).length > 0)
       </template>
     </section>
 
-    <!-- 3 · KEYBOARD -->
+    <!-- 4 · KEYBOARD -->
     <section class="card">
       <div class="title click" @click="toggleSec('keys')">
         <Icon name="chevron" :size="11" :sw="2.4" class="chev" :style="{ transform: isOpen('keys') ? '' : 'rotate(-90deg)' }" />
@@ -280,7 +482,7 @@ const anyOverride = computed(() => Object.keys(keyOverrides).length > 0)
       </div>
     </section>
 
-    <!-- 4 · APPEARANCE -->
+    <!-- 5 · APPEARANCE -->
     <section class="card">
       <div class="title click" @click="toggleSec('appearance')">
         <Icon name="chevron" :size="11" :sw="2.4" class="chev" :style="{ transform: isOpen('appearance') ? '' : 'rotate(-90deg)' }" />
@@ -295,7 +497,7 @@ const anyOverride = computed(() => Object.keys(keyOverrides).length > 0)
       </div>
     </section>
 
-    <!-- 5 · MAINTENANCE -->
+    <!-- 6 · MAINTENANCE -->
     <section class="card">
       <div class="title click" @click="toggleSec('index')">
         <Icon name="chevron" :size="11" :sw="2.4" class="chev" :style="{ transform: isOpen('index') ? '' : 'rotate(-90deg)' }" />
@@ -324,7 +526,7 @@ const anyOverride = computed(() => Object.keys(keyOverrides).length > 0)
     </section>
 
 
-    <!-- 6 · ABOUT — the app's metadata, from ONE source (app-meta.json) -->
+    <!-- 7 · ABOUT — the app's metadata, from ONE source (app-meta.json) -->
     <section class="card">
       <div class="title click" @click="toggleSec('about')">
         <Icon name="chevron" :size="11" :sw="2.4" class="chev" :style="{ transform: isOpen('about') ? '' : 'rotate(-90deg)' }" />
@@ -368,6 +570,31 @@ const anyOverride = computed(() => Object.keys(keyOverrides).length > 0)
 .text { flex: 1; }
 .label { font: 500 13px/1 system-ui; color: var(--tx); }
 .hint { margin-top: 5px; font: 400 12px/1.4 system-ui; color: var(--tx3); }
+
+/* the field registry, in the settings' own row grammar */
+.flbl { display: flex; align-items: center; gap: 10px; font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); margin-top: 4px; }
+.flblhint { font: 400 10.5px/1 system-ui; letter-spacing: 0; text-transform: none; }
+.frow { display: flex; align-items: center; gap: 12px; height: 34px; padding: 0 8px; border-radius: 7px; color: var(--tx2); cursor: pointer; }
+.frow:hover { background: var(--hover); }
+.frow.on { background: var(--panel2); }
+.frow.locked { cursor: default; }
+.frow.locked:hover { background: transparent; }
+.fnm { flex: none; min-width: 132px; font: 600 12.5px/1 system-ui; color: var(--tx); }
+.ftype { flex: none; width: 62px; font: 700 8.5px/1 ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; color: var(--tx3); border: 1px solid var(--line); border-radius: 4px; padding: 4px 5px; text-align: center; }
+.fwhere { flex: 1; min-width: 0; font: 400 11px/1 system-ui; color: var(--tx3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fused { flex: none; width: 78px; text-align: right; font-size: 10.5px; color: var(--tx3); }
+.fnew { display: flex; align-items: center; gap: 9px; height: 34px; padding: 0 8px; border-radius: 7px; color: var(--tx3); font: 600 12.5px/1 system-ui; cursor: pointer; }
+.fnew:hover { background: var(--hover); color: var(--accent); }
+.fform { display: flex; flex-direction: column; gap: 10px; padding: 12px; margin: 2px 0 6px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); }
+.fgrid { display: grid; grid-template-columns: 62px 1fr; gap: 9px 12px; align-items: center; }
+.flabel2 { font: 700 8.5px/1 ui-monospace, monospace; letter-spacing: .08em; color: var(--tx3); }
+.idfixed { font-size: 11px; color: var(--tx3); }
+.fcheck { display: inline-flex; align-items: center; gap: 9px; font: 500 12px/1 system-ui; color: var(--tx2); cursor: pointer; user-select: none; }
+.fcheck:hover { color: var(--tx); }
+.fwarn { padding: 9px 11px; border-radius: 8px; font: 400 11.5px/1.5 system-ui; color: var(--tx2); border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line)); background: color-mix(in srgb, var(--warn) 8%, transparent); }
+.fwarn.err { border-color: color-mix(in srgb, var(--adult) 45%, var(--line)); background: color-mix(in srgb, var(--adult) 8%, transparent); }
+.frowend { display: flex; align-items: center; gap: 8px; }
+.btn.danger { color: var(--adult); border-color: color-mix(in srgb, var(--adult) 40%, var(--line)); }
 
 .liblist { display: flex; flex-direction: column; gap: 6px; }
 .librow { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel2); min-width: 0; }

@@ -15,6 +15,8 @@ export interface BrowserTab {
   pinned: boolean    // pinned tabs collapse to icon-only and stick to the front
   zoom: number       // per-tab zoom factor
   loading: boolean   // a page request is in flight — the tab shows a spinner
+  audible: boolean   // something is playing in it — the strip says which tab
+  muted: boolean     // …and the same mark is the switch that silences it
 }
 
 export const browser = reactive<{
@@ -30,8 +32,15 @@ function labelFor(url: string): string {
 }
 
 function makeTab(url: string): BrowserTab {
-  return { id: `bt-${++tabSeq}`, initialUrl: url, url, label: labelFor(url), title: '', pinned: false, zoom: 1, loading: false }
+  return { id: `bt-${++tabSeq}`, initialUrl: url, url, label: labelFor(url), title: '',
+           pinned: false, zoom: 1, loading: false, audible: false, muted: false }
 }
+
+// The last few closed tabs, newest first — Ctrl+Shift+T walks back through
+// them. Only their address is kept: a restored tab is a fresh page at the URL
+// that was open, never a resurrected process.
+const closed: string[] = []
+const CLOSED_KEPT = 12
 
 export function activeTab(): BrowserTab | undefined {
   return browser.tabs.find((t) => t.id === browser.activeId)
@@ -54,6 +63,18 @@ export function setTabTitle(id: string, title: string) {
 export function setTabLoading(id: string, value: boolean) {
   const t = tabById(id)
   if (t) t.loading = value
+}
+
+export function setTabAudible(id: string, value: boolean) {
+  const t = tabById(id)
+  if (t) t.audible = value
+}
+
+export function toggleTabMute(id: string): boolean {
+  const t = tabById(id)
+  if (!t) return false
+  t.muted = !t.muted
+  return t.muted
 }
 
 export function toggleTabPin(id: string) {
@@ -94,12 +115,31 @@ export function activateTab(id: string) {
 export function closeTab(id: string) {
   const i = browser.tabs.findIndex((t) => t.id === id)
   if (i < 0) return
-  browser.tabs.splice(i, 1)
+  const [gone] = browser.tabs.splice(i, 1)
+  if (gone?.url) {
+    closed.unshift(gone.url)
+    closed.length = Math.min(closed.length, CLOSED_KEPT)
+  }
   if (browser.activeId === id) {
     const next = browser.tabs[i] ?? browser.tabs[i - 1] ?? null
     browser.activeId = next?.id ?? null
     if (!next) store.view = store.activeTitle ? 'title' : 'library'
   }
+}
+
+/** Reopen the most recently closed tab, and front it. */
+export function reopenClosedTab(): boolean {
+  const url = closed.shift()
+  if (!url) return false
+  newTab(url)
+  return true
+}
+
+/** The tab at a 1-based position; 9 means the LAST one, as in every browser. */
+export function activateTabAt(n: number) {
+  const list = [...browser.tabs.filter((t) => t.pinned), ...browser.tabs.filter((t) => !t.pinned)]
+  const tab = n >= 9 ? list[list.length - 1] : list[n - 1]
+  if (tab) activateTab(tab.id)
 }
 
 // Plain "Browse" nav: show the tabs, or open a fresh one if none.
@@ -122,13 +162,18 @@ export function openInBrowser(titleId: string, url?: string) {
   else newTab(target)
 }
 
-// "Add title": a FRESH draft opened straight in the browser's capture panel —
-// there is no separate in-app edit screen. Reuses the active tab when one is
-// open; otherwise opens one at the homepage.
+// "Add title": a FRESH draft opened on ITS OWN PAGE. The record is what the
+// user asked for, not a web page — the browser opens only when they ask for it
+// with "Capture from web". Pass a url to start from a page instead (the capture
+// entry point): then the draft opens in the browser with that tab loaded.
 export async function startNewTitle(url?: string) {
   if (!(await confirmDiscard())) return
   newDraft()
-  browser.panelOpen = true
-  if (url || !browser.tabs.length) newTab(url)
-  else store.view = 'browser'
+  if (url) {
+    browser.panelOpen = true
+    newTab(url)
+    return
+  }
+  store.activeTitle = null // no record yet: the page renders the draft alone
+  store.view = 'title'
 }

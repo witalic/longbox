@@ -124,16 +124,3 @@ export function pageKeyFor(url: string): string {
   return url
 }
 
-// The next label after this one, so finishing a chapter arms the following one
-// with a single keystroke: "5" → "6", "5.5" → "6.5", "Extra" → "" (name it).
-export function nextLabel(label: string): string {
-  const m = /^(\D*?)(\d+(?:[.,]\d+)?)(\D*)$/.exec(label.trim())
-  if (!m) return ''
-  const [, head, num, tail] = m
-  const dec = num.includes(',') ? ',' : '.'
-  const parts = num.split(/[.,]/)
-  const next = parts.length > 1
-    ? `${Number(parts[0]) + 1}${dec}${parts[1]}`
-    : String(Number(num) + 1)
-  return `${head}${next}${tail}`
-}

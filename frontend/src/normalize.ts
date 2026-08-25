@@ -51,7 +51,7 @@ function normYear(s: string): string {
   return m ? m[0] : ''
 }
 
-export interface CleanFlags { lower: boolean; stripCounts: boolean }
+export interface CleanFlags { lower: boolean; stripCounts: boolean; join?: string }
 
 // Default cleanup per field — every pick can override it in the inspector.
 // Taxonomy-ish fields (type/status/genres/tags) all lowercase custom values the
@@ -68,6 +68,15 @@ function normOne(s: string, c: CleanFlags): string {
   return v
 }
 
+// A list picked into a TEXT field has to keep its parts apart, or three
+// alternative titles arrive as one unreadable run. Most text reads as a
+// sentence, so a space is right; ALT TITLES are a set of names, and the bar is
+// how the app already tells one from the next. The pick can override it, and
+// the override is stored in the rule — so the next page joins them the same way.
+export function defaultJoin(key: string): string {
+  return key === 'alt' ? ' | ' : ' '
+}
+
 // Exactly what would be stored for a captured raw value: status → vocabulary,
 // year → the year, lists → cleaned + deduped, everything else → cleaned text.
 // `asList` is the FIELD's shape, asked of the registry by the caller — this
@@ -76,7 +85,7 @@ function normOne(s: string, c: CleanFlags): string {
 export function captureValue(key: string, raw: string | string[], clean?: CleanFlags,
                              asList = false): string | string[] {
   const c = clean || defaultClean(key)
-  const text = Array.isArray(raw) ? raw.join(' ') : String(raw)
+  const text = Array.isArray(raw) ? raw.join(c.join || defaultJoin(key)) : String(raw)
   if (key === 'status') return normStatus(text) || normOne(text, c)
   if (key === 'type') return normType(text) || normOne(text, c)
   if (key === 'year') return normYear(text)

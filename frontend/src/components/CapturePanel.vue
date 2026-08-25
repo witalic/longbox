@@ -2,20 +2,29 @@
 // The capture panel IS the draft (design/state-model.md §4): a new record or an
 // edit target chosen on purpose — never "whatever page I'm on". Navigation can't
 // change it; auto-fill is explicit and writes only auto/empty fields.
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import {
   commitDraft, confirmDiscard, discardDraft, draftFromTitle, draftState, isDirty, newDraft,
 } from '../draft'
-import { addChapterRow, groupSuggestions, langSuggestions, openTitle, refreshTitle, store, titleById } from '../store'
-import { browser, newTab } from '../browser'
-import { api, type DownloadItem, type DownloadsState } from '../api'
-import { compareChapterNums, coverAt, faviconFor, groupByNum, sameChapter, type Chapter } from '../data'
 import {
-  PAGE_FILTER_DEFAULTS, nextLabel, pageCapture, pageFilter, resetPageFilter, savePageFilter,
+  addChapterRow, askConfirm, cache, downloads, groupRings, langRings, openTitle, pollDownloads,
+  refreshTitle as refreshTitleOf, store, titleById, watchDownloads,
+} from '../store'
+import { browser, newTab } from '../browser'
+import { api, type DownloadItem } from '../api'
+import {
+  chaptersInScope, compareChapterNums, coverAt, faviconFor, groupByNum, hostOf, labelChoices,
+  matchTitles, nextLabel, nextLabels, sameChapter,
+  type Chapter,
+} from '../data'
+import {
+  PAGE_FILTER_DEFAULTS, pageCapture, pageFilter, resetPageFilter, savePageFilter,
   startPageCapture, stopPageCapture, type PickField,
 } from '../pagecapture'
 import Combo from './Combo.vue'
+import FieldVisibility from './FieldVisibility.vue'
 import Icon from './Icon.vue'
+import MenuButton from './MenuButton.vue'
 import MetadataEditor from './MetadataEditor.vue'
 
 const props = defineProps<{
@@ -23,11 +32,31 @@ const props = defineProps<{
   busy: boolean
   pageUrl: string        // the live page — pre-fills entry source links, ranks targets
   pageTitle: string
+  domain: string         // whose recipe decides which fields this panel offers
+  hiddenFields: string[] // ids this source does not offer (from that recipe)
+  // Library records this page's title may already belong to. Set only for a
+  // BRAND-NEW draft: filling one that already targets a title is an edit, and
+  // an edit needs no warning.
+  fillMatches: { id: string; title: string; score: number }[]
 }>()
 const emit = defineEmits<{
   (e: 'autofill'): void
   (e: 'capture', field: PickField): void
+  // gather THIS page's values into a list field that already has some
+  (e: 'merge', field: string): void
+  // the decision on that warning: fill anyway, or leave the page alone
+  (e: 'fillAnyway'): void
+  (e: 'fillCancel'): void
+  (e: 'hideField', id: string, hidden: boolean): void
 }>()
+
+// The rows this SOURCE offers, and the ones you told it to stop offering. The
+// registry is shared; which of it a site is worth showing is the site's business.
+const editableFields = computed(() => store.fields.filter((f) => f.editable))
+const offered = computed(() =>
+  editableFields.value.filter((f) => f.required || !props.hiddenFields.includes(f.id)))
+const notOffered = computed(() =>
+  editableFields.value.filter((f) => !f.required && props.hiddenFields.includes(f.id)))
 
 const d = computed(() => draftState.cur)
 const pickTarget = ref(false)
@@ -49,6 +78,11 @@ watch(() => d.value?.meta.source.domain, () => { srcIconFail.value = false })
 // ---- the Contents tab: entries + armed downloads ----
 const tab = ref<'meta' | 'downloads'>('meta')
 const dLabel = ref('') // the entry's single free-text label
+// The next number IS the answer nearly every time, so it is already in the box
+// and the dropdown is for the exception — a bonus, a chapter out of order. A
+// label the human typed is never overwritten; creating an entry ends that claim
+// and the count carries on from what was just filed.
+const labelTouched = ref(false)
 const dLang = ref('')
 const dGroup = ref('')
 // SOURCE LINK pre-fills from the active page but never clobbers a hand edit
@@ -56,37 +90,50 @@ const dUrl = ref('')
 const urlTouched = ref(false)
 watch(() => props.pageUrl, (u) => { if (!urlTouched.value) dUrl.value = u || '' }, { immediate: true })
 function onUrlInput() { urlTouched.value = dUrl.value.trim() !== '' }
-const dl = ref<DownloadsState>({ armed: null, items: [] })
-const armed = computed(() => dl.value.armed)
-const seenDone = new Set<string>() // items already reported as finished
-let pollTimer: number | undefined
+// Downloads are APP state (store.ts polls them once for everyone) — the dock
+// reads them and says what finished, which is the one part that belongs here.
+const armed = computed(() => downloads.armed)
+const told = new Set<string>()
+watch(() => downloads.items.map((i) => `${i.id}:${i.state}`).join(), () => {
+  for (const it of downloads.items) {
+    if (it.state === 'done' && !told.has(it.id)) {
+      told.add(it.id)
+      showFlash(`✓ ch. ${it.num} saved`)
+    } else if (it.state !== 'downloading') told.add(it.id)
+  }
+})
+// the Contents tab is a live view of them: keep the poll warm while it is open
+watch(tab, (v) => watchDownloads(v === 'downloads'), { immediate: true })
+onBeforeUnmount(() => { if (tab.value === 'downloads') watchDownloads(false) })
 
-// Poll ONLY while there is something to watch: the Downloads tab is open, an
-// arm is pending, or a download is still streaming. Idle panel = zero requests.
-function shouldPoll(): boolean {
-  return tab.value === 'downloads'
-    || dl.value.armed !== null
-    || dl.value.items.some((i) => i.state === 'downloading')
+// Stop a download, or clear one that failed. The transfer belongs to the SHELL
+// (it owns the Electron item), the record belongs to the sidecar — so both are
+// told, in that order, and the row is gone by the next poll.
+async function stopDownload(id: string, running: boolean) {
+  if (running) await window.longbox?.cancelDownload(id)
+  try { await api.forgetDownload(id) } catch { /* already gone */ }
+  told.add(id) // its 'failed' report is expected, and is not news
+  await pollDownloads(true)
 }
-async function pollDownloads() {
-  if (!shouldPoll()) return
+
+// An entry the human no longer wants: the row AND whatever was downloaded into
+// it. The title page owns the fuller editing; the dock owns what it captured.
+async function removeEntry(r: PanelRow) {
+  const tid = d.value?.targetId
+  if (!tid || !r.chapter) return
+  const ok = await askConfirm({
+    title: 'Remove entry', danger: true, okLabel: 'Remove',
+    message: `Remove ${r.num}${r.lang ? ' · ' + r.lang : ''}${r.group ? ' · ' + r.group : ''}`
+      + ' and its downloaded file?',
+  })
+  if (!ok) return
   try {
-    const s = await api.downloadsState()
-    for (const it of s.items) {
-      if (it.state === 'done' && !seenDone.has(it.id)) {
-        seenDone.add(it.id)
-        showFlash(`✓ ch. ${it.num} saved`)
-        void refreshTitle(it.titleId)
-      } else if (it.state === 'failed') {
-        seenDone.add(it.id)
-      }
-    }
-    dl.value = s
-  } catch { /* sidecar unreachable — keep the current state */ }
+    cache([await api.deleteChapterRow(tid, r.chapter.id)])
+  } catch (e) {
+    // a 409 says the player still holds the file — that message IS the answer
+    showFlash(e instanceof Error ? e.message : String(e))
+  }
 }
-onMounted(() => { pollTimer = window.setInterval(pollDownloads, 1000) })
-onBeforeUnmount(() => window.clearInterval(pollTimer))
-watch(tab, (v) => { if (v === 'downloads') void pollDownloads() })
 
 // Add an entry row; with `arm`, also arm the NEXT browser download into it
 // (an already-existing entry just arms — re-downloading a chapter is normal).
@@ -105,7 +152,8 @@ async function addEntry(arm: boolean) {
   }
   if (arm) {
     try {
-      dl.value = await api.armDownload({ titleId: cur.targetId, num: ch.num, lang: ch.lang, group: ch.group })
+      Object.assign(downloads,
+        await api.armDownload({ titleId: cur.targetId, num: ch.num, lang: ch.lang, group: ch.group }))
     } catch (e) {
       store.error = String(e)
       return
@@ -114,7 +162,9 @@ async function addEntry(arm: boolean) {
     // feeding one entry file-by-file (image sets) re-arms with a single click
   } else {
     showFlash('✓ entry added')
-    dLabel.value = '' // batch-adding rows: the next entry gets a fresh label
+    // batch-adding rows: line up the one after it, not an empty box
+    dLabel.value = nextLabel(ch.num)
+    labelTouched.value = false
   }
 }
 // ---- the download MODE: an archive per chapter, or the reader page itself ----
@@ -158,8 +208,9 @@ function finishCapture() {
   const pages = pageCapture.added
   stopPageCapture()
   dLabel.value = nextLabel(done)
+  labelTouched.value = false
   showFlash(pages ? `✓ ch. ${done} — ${pages} pages` : `ch. ${done} — nothing captured`)
-  void refreshTitle(draftState.cur?.targetId || '')
+  void refreshTitleOf(draftState.cur?.targetId || '')
 }
 // the capture binds to ONE title — switching the draft target must not keep
 // filing pages into the previous one
@@ -172,11 +223,12 @@ async function armRow(r: PanelRow) {
   const cur = draftState.cur
   if (!cur?.targetId) return
   try {
-    dl.value = await api.armDownload({ titleId: cur.targetId, num: r.num, lang: r.lang, group: r.group })
+    Object.assign(downloads,
+      await api.armDownload({ titleId: cur.targetId, num: r.num, lang: r.lang, group: r.group }))
   } catch (e) { store.error = String(e) }
 }
 async function disarm() {
-  dl.value = { ...dl.value, armed: null }
+  downloads.armed = null
   try { await api.disarmDownload() } catch { /* already gone */ }
 }
 function pct(it: { received: number; total: number }): number {
@@ -198,13 +250,28 @@ interface PanelRow {
   chapter?: Chapter
   item?: DownloadItem
 }
+// A row is in exactly ONE state, and the icon on the left says which; the
+// number on the right is the amount, not a second copy of the state.
+function stateOf(r: PanelRow): 'ok' | 'run' | 'fail' | '' {
+  if (r.item) return r.item.state === 'failed' ? 'fail' : 'run'
+  return r.chapter?.dl ? 'ok' : ''
+}
+function amountOf(r: PanelRow): string {
+  if (r.item) {
+    if (r.item.state === 'failed') return 'failed'
+    return r.item.total ? `${pct(r.item)}%` : mb(r.item.received)
+  }
+  if (!r.chapter?.dl) return ''
+  return r.chapter.pages ? `${r.chapter.pages} pg` : 'file'
+}
+
 const panelRows = computed<PanelRow[]>(() => {
   const tid = d.value?.targetId
   const norm = (s: string) => s.trim().toLowerCase()
   const rows: PanelRow[] = targetChapters.value.map((c) => ({
     key: c.id, num: c.num, lang: c.lang, group: c.group, chapter: c,
   }))
-  for (const it of dl.value.items) {
+  for (const it of downloads.items) {
     if (it.titleId !== tid || it.state === 'done') continue
     const match = rows.find((r) =>
       norm(r.num) === norm(it.num) && norm(r.lang) === norm(it.lang) && norm(r.group) === norm(it.group))
@@ -215,9 +282,6 @@ const panelRows = computed<PanelRow[]>(() => {
 })
 // the same label with several translations → a group (v3 row grammar)
 const panelTree = computed(() => groupByNum(panelRows.value))
-function hostOf(u: string): string {
-  try { return new URL(u).hostname.replace(/^www\./, '') } catch { return u }
-}
 // "new" for an hour after download, then a short date
 function freshness(iso: string): string {
   if (!iso) return ''
@@ -229,15 +293,31 @@ function freshness(iso: string): string {
 }
 // suggestions for the download form: every language / translator group already
 // known to the library (searchable Combo), the target's own values first
-const langSuggest = computed(() => langSuggestions(targetChapters.value))
-const groupSuggest = computed(() => groupSuggestions(targetChapters.value))
+// Near = this title's entries and everything captured from THIS source; the
+// rest joins the search once the user types (Combo's `moreSuggestions`).
+const langSuggest = computed(() => langRings(targetChapters.value, props.domain))
+const groupSuggest = computed(() => groupRings(targetChapters.value, props.domain))
+// the next few numbers for THIS title; a fresh draft starts at 1
+// the rows this entry would join: same language, same group
+const labelScope = computed(() =>
+  chaptersInScope(targetChapters.value, dLang.value, dGroup.value))
+const labelSuggest = computed(() => labelChoices(labelScope.value))
+const labelNext = computed(() => nextLabels(labelScope.value))
+// a different title — or a fresh draft — counts from its own beginning
+watch(() => d.value?.targetId, () => { labelTouched.value = false })
+// the NEXT one is what lands in the box; the dropdown's first row is the last
+// one used, which is a choice, not a default
+watch(labelNext, (next) => {
+  if (!labelTouched.value) dLabel.value = next[0] ?? ''
+}, { immediate: true })
 
 // Edit-target suggestions, ranked by relevance to the LIVE page: the title
 // captured from exactly this page first, then titles whose name/alt/author
 // appears in the page title — each explicitly badged — then the rest; a search
 // box filters the whole list.
 const targetSearch = ref('')
-type TargetBadge = '' | 'page' | 'match'
+type TargetBadge = '' | 'page' | 'match' | 'near'
+const RANK: Record<TargetBadge, number> = { page: 0, match: 1, near: 2, '': 3 }
 // Canonical page identity: host (no www) + decoded path — protocol, query,
 // hash and trailing slashes never make "the same page" look different.
 function canon(u: string): string {
@@ -247,27 +327,42 @@ function canon(u: string): string {
       + decodeURIComponent(x.pathname).replace(/\/$/, '')
   } catch { return u }
 }
+// What you are looking at, and what you typed, are two different questions.
+// With no query the list ranks by how close each record is to THIS PAGE; typing
+// re-ranks by how close it is to what you typed. Either way the comparison runs
+// over the title AND its alts, and scores partial hits instead of dropping them
+// — the same record is filed under a romaji name as often as not.
 const targetRows = computed(() => {
-  const q = targetSearch.value.trim().toLowerCase()
+  const q = targetSearch.value.trim()
   const page = props.pageUrl ? canon(props.pageUrl) : ''
-  const ptitle = props.pageTitle.toLowerCase()
-  const rank: Record<TargetBadge, number> = { page: 0, match: 1, '': 2 }
-  return Object.values(store.byId)
+  const all = Object.values(store.byId)
+  const scored = new Map<string, number>()
+  for (const { t, score } of matchTitles(q || props.pageTitle, all, 0.34, 999)) {
+    scored.set(t.id, score)
+  }
+  const ql = q.toLowerCase()
+  return all
     .map((t) => {
+      const score = scored.get(t.id) ?? 0
       let badge: TargetBadge = ''
       if (page && t.source.url && canon(t.source.url) === page) badge = 'page'
-      else if (ptitle && (
-        (t.title && ptitle.includes(t.title.toLowerCase()))
-        || (t.alt && ptitle.includes(t.alt.toLowerCase()))
-        || t.authors.some((a) => a && ptitle.includes(a.toLowerCase()))
-      )) badge = 'match'
-      return { t, badge }
+      else if (score >= 0.99) badge = 'match'
+      else if (score > 0) badge = 'near'
+      return { t, badge, score }
     })
-    .filter(({ t }) => !q || t.title.toLowerCase().includes(q)
-      || t.alt.toLowerCase().includes(q) || t.authors.some((a) => a.toLowerCase().includes(q)))
-    .sort((a, b) => rank[a.badge] - rank[b.badge] || a.t.title.localeCompare(b.t.title))
+    .filter(({ t, score }) => {
+      if (!q) return true
+      // a typed query also matches plainly: a person's name, part of a word
+      return score > 0 || t.title.toLowerCase().includes(ql)
+        || t.alt.toLowerCase().includes(ql) || t.authors.some((a) => a.toLowerCase().includes(ql))
+    })
+    .sort((a, b) => RANK[a.badge] - RANK[b.badge] || b.score - a.score
+      || a.t.title.localeCompare(b.t.title))
 })
-const BADGE_LABEL: Record<string, string> = { page: 'THIS PAGE', match: 'ON PAGE' }
+const BADGE_LABEL: Record<string, string> = { page: 'THIS PAGE', match: 'SAME NAME' }
+// a near hit says HOW near, because "maybe this one" is only useful with a number
+const badgeText = (r: { badge: TargetBadge; score: number }) =>
+  r.badge === 'near' ? `${Math.round(r.score * 100)}% MATCH` : BADGE_LABEL[r.badge] ?? ''
 // a short list beats a wall: page hits + best matches first, search digs deeper
 const TARGET_LIMIT = 12
 const targetShown = computed(() => targetRows.value.slice(0, TARGET_LIMIT))
@@ -279,6 +374,23 @@ async function startNew() {
   pickTarget.value = false
   tab.value = 'meta' // a fresh draft has no Contents (needs a saved title) — land on Metadata
 }
+// What the record IS, in one line: its kind, where it was captured from, and how
+// much of it is already here.
+function matchLine(id: string): string {
+  const t = titleById(id)
+  if (!t) return 'no longer in the library'
+  const n = t.chapters.length
+  return [t.type, t.source.domain || 'no source', n ? `${n} ${n === 1 ? 'entry' : 'entries'}` : 'empty']
+    .filter(Boolean).join(' · ')
+}
+
+// "that one, not a new one": the draft is re-seeded from the existing title and
+// the page is NOT filled over it — the human came here to edit that record.
+async function openInstead(id: string) {
+  emit('fillCancel')
+  await switchTarget(id)
+}
+
 async function switchTarget(id: string) {
   const t = titleById(id)
   if (!t) return
@@ -290,10 +402,17 @@ async function discard() {
   if (!(await confirmDiscard())) return
   discardDraft()
 }
+// What happened to the draft belongs ON the button that did it — a line of
+// green text beside three buttons is read last, if at all, and in a 344px dock
+// it wraps into a column.
+const saved = ref<'' | 'created' | 'updated'>('')
+let savedTimer: ReturnType<typeof setTimeout> | undefined
 async function save(asNew: boolean) {
   const wasNew = asNew || !d.value?.targetId
-  const saved = await commitDraft(asNew)
-  if (saved) showFlash(wasNew ? '✓ Created — saved to the library' : '✓ Saved')
+  if (!(await commitDraft(asNew))) return
+  saved.value = wasNew ? 'created' : 'updated'
+  if (savedTimer) clearTimeout(savedTimer)
+  savedTimer = setTimeout(() => { saved.value = '' }, 2600)
 }
 </script>
 
@@ -310,7 +429,7 @@ async function save(asNew: boolean) {
         <div v-for="r in targetShown" :key="r.t.id" class="ndrow" :class="{ hit: r.badge }" @click="switchTarget(r.t.id)">
           <span class="swatch" :style="r.t.cover ? { background: `#181a1f url('${coverAt(r.t.cover, 64)}') center/cover` } : {}"></span>
           <span class="ndname">{{ r.t.title }}</span>
-          <span v-if="r.badge" class="ndbadge" :class="r.badge">{{ BADGE_LABEL[r.badge] }}</span>
+          <span v-if="r.badge" class="ndbadge" :class="r.badge">{{ badgeText(r) }}</span>
         </div>
         <div v-if="targetHidden" class="ndnone">+ {{ targetHidden }} more — search to narrow down.</div>
         <div v-if="!targetRows.length" class="ndnone">No titles match “{{ targetSearch }}”.</div>
@@ -326,7 +445,17 @@ async function save(asNew: boolean) {
         <div class="txt">
           <div class="eyebrow">{{ d.targetId ? 'EDITING LIBRARY TITLE' : 'NEW MANGA' }}</div>
           <div class="mname">{{ d.targetId ? d.targetLabel : (d.meta.title || 'Untitled') }}</div>
-          <div class="msub">{{ d.targetId ? 'captures and edits update this record' : 'set the Title to save' }}<span v-if="isDirty()" class="dirty"> · unsaved</span></div>
+          <div class="msub">
+            <span v-if="d.meta.source.url" class="srclink" :title="`${d.meta.source.url} — open in a browser tab`"
+                  @click.stop="newTab(d.meta.source.url)">
+              <span class="srcinit">
+                <img v-if="!srcIconFail" class="favimg" :src="faviconFor(d.meta.source.domain)" alt="" @error="srcIconFail = true" />
+                <template v-else>{{ (d.meta.source.domain.slice(0, 2) || '?').toUpperCase() }}</template>
+              </span>{{ d.meta.source.domain || d.meta.source.url }}
+            </span>
+            <span v-else>{{ d.targetId ? 'captures and edits update this record' : 'set the Title to save' }}</span>
+            <span v-if="isDirty()" class="dirty">· unsaved</span>
+          </div>
         </div>
         <button class="hact" title="Switch draft target" @click.stop="pickTarget = !pickTarget"><Icon name="chevron" :size="13" :sw="2" /></button>
       </div>
@@ -344,16 +473,34 @@ async function save(asNew: boolean) {
         <div v-if="targetHidden" class="ndnone">+ {{ targetHidden }} more — search to narrow down.</div>
       </div>
 
-      <!-- the source this draft is bound to — a proper tile, like the title page -->
-      <div v-if="d.meta.source.url" class="srcbar">
-        <span class="srclbl">SOURCE</span>
-        <span class="srcchip" :title="`${d.meta.source.url} — open in a browser tab`" @click="newTab(d.meta.source.url)">
-          <span class="srcinit">
-            <img v-if="!srcIconFail" class="favimg" :src="faviconFor(d.meta.source.domain)" alt="" @error="srcIconFail = true" />
-            <template v-else>{{ (d.meta.source.domain.slice(0, 2) || '?').toUpperCase() }}</template>
-          </span>{{ d.meta.source.domain || d.meta.source.url }}
-          <Icon name="forward" :size="10" :sw="2.2" style="color:var(--tx3)" />
-        </span>
+      <!-- A new draft over a page the library may already hold. Auto-fill would
+           quietly become a SECOND record of the same work, and the duplicate is
+           only obvious weeks later — so the choice is put here, before it. -->
+      <div v-if="props.fillMatches.length" class="guard">
+        <div class="gtitle">Already in your library?</div>
+        <div class="ghint">
+          This page looks like {{ props.fillMatches.length === 1 ? 'a title' : 'titles' }} you
+          already have. Open one to capture INTO it, or fill this new draft anyway.
+        </div>
+        <button v-for="m in props.fillMatches" :key="m.id" class="grow" @click="openInstead(m.id)">
+          <span class="swatch"
+                :style="titleById(m.id)?.cover
+                  ? { background: `#181a1f url('${coverAt(titleById(m.id)!.cover, 64)}') center/cover` }
+                  : {}"></span>
+          <span class="gmain">
+            <span class="ndname">{{ titleById(m.id)?.title || m.title }}</span>
+            <!-- a name alone cannot answer "is this the same work": the manga and
+                 its anime share it, and so do two rips from different sites -->
+            <span class="gmeta">{{ matchLine(m.id) }}</span>
+          </span>
+          <span class="ndbadge" :class="m.score >= 0.99 ? 'match' : 'near'">
+            {{ m.score >= 0.99 ? 'SAME NAME' : `${Math.round(m.score * 100)}%` }}
+          </span>
+        </button>
+        <div class="gacts">
+          <button class="btn ghost chsmall" @click="emit('fillCancel')">Leave it</button>
+          <button class="btn accent chsmall" @click="emit('fillAnyway')">Fill anyway</button>
+        </div>
       </div>
 
       <!-- two workstreams: metadata capture and the contents (entries + downloads) -->
@@ -426,17 +573,19 @@ async function save(asNew: boolean) {
           </div>
           <div class="dlrow">
             <label class="dllbl">LABEL *</label>
-            <input v-model="dLabel" class="dlin" placeholder="5 / 2024 Artworks / Extra" />
+            <Combo :model-value="dLabel" :suggestions="labelSuggest" wide
+                   placeholder="5 / 2024 Artworks / Extra"
+                   @update:model-value="dLabel = $event; labelTouched = true" />
           </div>
           <div class="dlrow2">
             <div class="dlrow" style="flex:1;min-width:0">
               <label class="dllbl">LANGUAGE</label>
-              <Combo :model-value="dLang" :suggestions="langSuggest" wide placeholder="EN"
+              <Combo :model-value="dLang" :suggestions="langSuggest.near" :more-suggestions="langSuggest.all" wide placeholder="EN"
                      @update:model-value="dLang = $event" />
             </div>
             <div class="dlrow" style="flex:1.4;min-width:0">
               <label class="dllbl">GROUP / SOURCE NAME</label>
-              <Combo :model-value="dGroup" :suggestions="groupSuggest" wide placeholder="translator / site"
+              <Combo :model-value="dGroup" :suggestions="groupSuggest.near" :more-suggestions="groupSuggest.all" wide placeholder="translator / site"
                      @update:model-value="dGroup = $event" />
             </div>
           </div>
@@ -463,17 +612,19 @@ async function save(asNew: boolean) {
           <div class="dllbl">ADD ENTRY</div>
           <div class="dlrow">
             <label class="dllbl">LABEL *</label>
-            <input v-model="dLabel" class="dlin" placeholder="5 / 2024 Artworks / Extra" />
+            <Combo :model-value="dLabel" :suggestions="labelSuggest" wide
+                   placeholder="5 / 2024 Artworks / Extra"
+                   @update:model-value="dLabel = $event; labelTouched = true" />
           </div>
           <div class="dlrow2">
             <div class="dlrow" style="flex:1;min-width:0">
               <label class="dllbl">LANGUAGE</label>
-              <Combo :model-value="dLang" :suggestions="langSuggest" wide placeholder="EN"
+              <Combo :model-value="dLang" :suggestions="langSuggest.near" :more-suggestions="langSuggest.all" wide placeholder="EN"
                      @update:model-value="dLang = $event" />
             </div>
             <div class="dlrow" style="flex:1.4;min-width:0">
               <label class="dllbl">GROUP / SOURCE NAME</label>
-              <Combo :model-value="dGroup" :suggestions="groupSuggest" wide placeholder="translator / site"
+              <Combo :model-value="dGroup" :suggestions="groupSuggest.near" :more-suggestions="groupSuggest.all" wide placeholder="translator / site"
                      @update:model-value="dGroup = $event" />
             </div>
           </div>
@@ -494,40 +645,57 @@ async function save(asNew: boolean) {
         <div class="dllist">
           <div class="dllbl" style="margin-bottom:6px">ENTRIES · {{ targetChapters.length }}</div>
           <div v-if="!panelRows.length" class="afnote">No entries yet.</div>
+          <!-- One row per entry: state on the LEFT, one action on the right, and
+               the two columns between them never move. A version row fills the
+               label column with its language instead of leaving it empty. -->
           <template v-for="g in panelTree" :key="g.num">
-            <!-- group header when one label has several translations -->
-            <div v-if="g.rows.length > 1" class="dlchrow">
-              <span class="dlslot"></span>
-              <span class="dlttl"><b class="mono">{{ g.num }}</b><template v-if="g.rows.find((r) => r.chapter?.title)"> {{ g.rows.find((r) => r.chapter?.title)?.chapter?.title }}</template></span>
+            <div v-if="g.rows.length > 1" class="ghead">
+              <span class="est"></span>
+              <span class="elabel">{{ g.num }}</span>
+              <span class="ettl">{{ g.rows.find((r) => r.chapter?.title)?.chapter?.title || '' }}</span>
+              <span class="ecount mono">{{ g.rows.length }} versions</span>
             </div>
-            <div :class="{ dlgrp: g.rows.length > 1 }">
+            <div :class="{ vers: g.rows.length > 1 }">
               <template v-for="r in g.rows" :key="r.key">
-                <div class="dlchrow">
-                  <span v-if="g.rows.length === 1" class="dlttl"><b class="mono">{{ r.num }}</b><template v-if="r.chapter?.title"> {{ r.chapter.title }}</template></span>
-                  <span v-if="r.lang || r.group" class="dlbadge"><span class="mono" style="color:var(--accent);font-size:9px">{{ r.lang || '?' }}</span><template v-if="r.group">{{ r.group }}</template></span>
-                  <span v-if="g.rows.length > 1" style="flex:1"></span>
-                  <template v-if="r.item">
-                    <span v-if="r.item.state === 'failed'" class="dlfail mono" :title="r.item.error">✗ failed</span>
-                    <span v-else class="dlprog mono">{{ r.item.total ? `${pct(r.item)}%` : mb(r.item.received) }}</span>
-                  </template>
-                  <template v-else-if="r.chapter">
-                    <span v-if="r.chapter.dl && freshness(r.chapter.dlAt) === 'new'" class="dlnew mono">new</span>
-                    <span v-if="r.chapter.dl" class="dlok mono">✓ {{ r.chapter.pages ? `${r.chapter.pages} pg` : 'file' }}</span>
-                  </template>
-                  <button v-if="!r.item" class="dlarm" :title="`Arm the next download into ${r.num}${r.lang ? ' · ' + r.lang : ''}`" @click="armRow(r)">
-                    <Icon name="download" :size="11" :sw="2" />
-                  </button>
-                </div>
-                <div v-if="r.item && r.item.state === 'downloading'" class="dlbar">
-                  <div class="dlfill" :class="{ indet: !r.item.total }" :style="r.item.total ? { width: pct(r.item) + '%' } : {}"></div>
-                </div>
-                <!-- the download source, tree-style under the downloaded entry -->
-                <div v-if="r.chapter?.dl && r.chapter.dlSource" class="dlsrc" :title="r.chapter.dlSource"
-                     @click="newTab(r.chapter!.dlSource)">
-                  <span class="dltree mono">└</span>
-                  <Icon name="compass" :size="11" :sw="2" />
-                  <span class="dlsrcname">{{ hostOf(r.chapter.dlSource) }}</span>
-                  <Icon name="forward" :size="10" :sw="2.2" style="margin-left:auto;flex:none" />
+                <div class="erow" :class="{ live: r.item?.state === 'downloading' }">
+                  <span class="est" :class="stateOf(r)" :title="r.item?.error || ''">
+                    <Icon v-if="stateOf(r) === 'ok'" name="check" :size="12" :sw="2.6" />
+                    <Icon v-else-if="stateOf(r) === 'run'" name="download" :size="11" :sw="2.4" />
+                    <Icon v-else-if="stateOf(r) === 'fail'" name="x" :size="11" :sw="2.6" />
+                  </span>
+                  <span class="elabel" :class="{ fresh: r.chapter?.dl && freshness(r.chapter.dlAt) === 'new' }"
+                        :title="r.chapter?.dl && freshness(r.chapter.dlAt) === 'new' ? 'downloaded just now' : ''">
+                    {{ g.rows.length > 1 ? (r.lang || '?') : r.num }}
+                  </span>
+                  <span class="ettl">
+                    {{ g.rows.length > 1 ? (r.group || '') : (r.chapter?.title || '') }}
+                  </span>
+                  <span v-if="g.rows.length === 1 && r.lang" class="elang mono">{{ r.lang }}</span>
+                  <span class="ecnt mono" :class="{ run: r.item?.state === 'downloading' }">{{ amountOf(r) }}</span>
+                  <span class="eacts">
+                    <button v-if="r.chapter?.dl && r.chapter.dlSource" class="eact"
+                            :title="`From ${hostOf(r.chapter.dlSource)} — open it in a tab`"
+                            @click="newTab(r.chapter!.dlSource)">
+                      <Icon name="forward" :size="11" :sw="2" />
+                    </button>
+                    <button v-if="!r.item" class="eact"
+                            :title="`Arm the next download into ${r.num}${r.lang ? ' · ' + r.lang : ''}`"
+                            @click="armRow(r)">
+                      <Icon name="download" :size="11" :sw="2" />
+                    </button>
+                    <!-- one X, two jobs: stop what is running, clear what failed -->
+                    <button v-if="r.item" class="eact danger"
+                            :title="r.item.state === 'failed' ? 'Clear this failed download'
+                              : 'Stop this download'"
+                            @click="stopDownload(r.item.id, r.item.state !== 'failed')">
+                      <Icon name="x" :size="11" :sw="2.4" />
+                    </button>
+                    <button v-else-if="r.chapter" class="eact danger"
+                            title="Remove this entry and its downloaded file"
+                            @click="removeEntry(r)">
+                      <Icon name="x" :size="11" :sw="2.4" />
+                    </button>
+                  </span>
                 </div>
               </template>
             </div>
@@ -540,27 +708,41 @@ async function save(asNew: boolean) {
       <template v-if="tab === 'meta'">
       <!-- the one-button snapshot: recipe + page metadata, fills auto/empty only -->
       <div class="autofill">
-        <button class="btn accent wide" :disabled="!props.hasPage || props.busy" @click="emit('autofill')">
-          <Icon name="refresh" :size="13" :sw="2" />{{ props.busy ? 'Reading page…' : 'Auto-fill from this page' }}
-        </button>
+        <div class="afrow">
+          <button class="btn accent" style="flex:1" :disabled="!props.hasPage || props.busy" @click="emit('autofill')">
+            <Icon name="refresh" :size="13" :sw="2" />{{ props.busy ? 'Reading page…' : 'Auto-fill from this page' }}
+          </button>
+          <MenuButton icon="settings" :title="`Which fields ${props.domain || 'this source'} offers`" :width="290">
+            <FieldVisibility :title="`FIELDS · ${(props.domain || 'this source').toUpperCase()}`"
+                             :fields="offered" :hidden="notOffered"
+                             note="This source's setting — a site that never shows a studio should not show the row. What YOU hide on title pages is a separate list."
+                             @set="(id, h) => emit('hideField', id, h)" />
+          </MenuButton>
+        </div>
         <div class="afnote">Runs the site's recipe + page metadata. Fills only empty or auto fields — your manual edits are untouchable.</div>
       </div>
 
       <!-- the shared editor, capture-enabled -->
       <div class="body scroll">
-        <MetadataEditor capture @capture="emit('capture', $event)" />
+        <MetadataEditor capture :hidden="props.hiddenFields"
+                        @capture="emit('capture', $event)" @merge="emit('merge', $event)" />
       </div>
       </template>
 
       <!-- explicit commit — on BOTH tabs (captured chapter rows commit too) -->
       <div class="foot">
-        <span v-if="flash" class="flash">{{ flash }}</span>
+        <div v-if="flash" class="notice" :class="{ plain: !flash.startsWith('✓') }">{{ flash }}</div>
+        <div class="footrow">
         <div style="flex:1"></div>
         <button class="btn ghost" @click="discard">Discard</button>
         <button v-if="d.targetId" class="btn ghost" :disabled="d.saving || !d.meta.title.trim()" title="Create a separate new title from this draft" @click="save(true)">Save as new</button>
-        <button class="btn accent" :disabled="d.saving || !d.meta.title.trim()" @click="save(false)">
-          <Icon name="check" :size="13" :sw="2.2" />{{ d.saving ? 'Saving…' : (d.targetId ? 'Save' : 'Create') }}
+        <button class="btn accent" :class="{ done: saved }"
+                :disabled="d.saving || !d.meta.title.trim()" @click="save(false)">
+          <Icon name="check" :size="13" :sw="2.2" />{{ d.saving ? 'Saving…'
+            : saved === 'created' ? 'Created' : saved === 'updated' ? 'Saved'
+            : (d.targetId ? 'Save' : 'Create') }}
         </button>
+        </div>
       </div>
     </template>
   </aside>
@@ -581,6 +763,15 @@ async function save(asNew: boolean) {
 .ndbadge { margin-left: auto; flex: none; font: 700 8px/1 ui-monospace, monospace; letter-spacing: .08em; padding: 3px 6px; border-radius: 4px; }
 .ndbadge.page { color: var(--good); border: 1px solid color-mix(in srgb, var(--good) 45%, var(--line)); }
 .ndbadge.match { color: var(--accent); background: var(--accentSoft); }
+.ndbadge.near { color: var(--tx2); border: 1px solid var(--line); }
+.guard { margin: 10px 12px 0; padding: 10px; border-radius: 9px; background: color-mix(in srgb, var(--warn) 10%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line)); }
+.gtitle { font: 600 12.5px/1 system-ui; color: var(--tx); }
+.ghint { margin-top: 5px; font: 400 11px/1.45 system-ui; color: var(--tx2); }
+.grow { width: 100%; margin-top: 6px; display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--tx); cursor: pointer; text-align: left; }
+.gmain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.gmeta { font: 400 10px/1.2 system-ui; color: var(--tx3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grow:hover { border-color: var(--accent); }
+.gacts { margin-top: 9px; display: flex; gap: 7px; justify-content: flex-end; }
 .ndsearch { display: flex; align-items: center; gap: 7px; padding: 6px 8px; margin: 2px 0 6px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--tx3); }
 .ndsearchin { border: none; background: transparent; outline: none; color: var(--tx); font: 400 11.5px/1 system-ui; width: 100%; }
 .ndnone { padding: 8px 6px; font: 400 11px/1.4 system-ui; color: var(--tx3); }
@@ -593,17 +784,15 @@ async function save(asNew: boolean) {
 .eyebrow { font: 700 8.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--warn); }
 .bind.newm .eyebrow { color: var(--good); }
 .mname { margin-top: 4px; font: 600 13.5px/1.2 system-ui; color: var(--tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.msub { margin-top: 4px; font: 400 10.5px/1.3 system-ui; color: var(--tx3); }
+.msub { margin-top: 5px; font: 400 10.5px/1.3 system-ui; color: var(--tx3); display: flex; align-items: center; gap: 5px; min-width: 0; }
+.srclink { display: inline-flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--tx2); cursor: pointer; }
+.srclink:hover { color: var(--accent); }
 .dirty { color: var(--warn); font-weight: 600; }
 .hact { border: none; background: transparent; color: var(--tx3); cursor: pointer; padding: 4px; border-radius: 5px; }
 .hact:hover { background: var(--hover); color: var(--tx); }
 .targetmenu { max-height: 220px; overflow: auto; border-bottom: 1px solid var(--line); padding: 8px; background: var(--panel); }
 .newrow { display: flex; align-items: center; gap: 9px; padding: 9px 14px; border-bottom: 1px solid var(--line); font: 600 12px/1 system-ui; color: var(--accent); cursor: pointer; }
 .newrow:hover { background: var(--accentSoft); }
-.srcbar { display: flex; align-items: center; gap: 9px; padding: 9px 14px; border-bottom: 1px solid var(--line); min-width: 0; }
-.srclbl { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); flex: none; }
-.srcchip { display: inline-flex; align-items: center; gap: 7px; font: 500 11.5px/1 system-ui; color: var(--tx); background: var(--panel); border: 1px solid var(--line); padding: 4px 8px 4px 4px; border-radius: 6px; cursor: pointer; min-width: 0; overflow: hidden; }
-.srcchip:hover { border-color: var(--accent); }
 .srcinit { width: 18px; height: 18px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; font: 600 8px/1 system-ui; color: #fff; background: var(--panel2); border: 1px solid var(--line); overflow: hidden; flex: none; }
 .favimg { width: 12px; height: 12px; object-fit: contain; }
 
@@ -639,41 +828,54 @@ async function save(asNew: boolean) {
 .pcfnote { font: 400 10.5px/1.45 system-ui; color: var(--tx3); }
 .dlrow { display: flex; flex-direction: column; gap: 5px; }
 .dlrow2 { display: flex; gap: 8px; }
+.ghead { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px; color: var(--tx3); }
+.vers { margin-left: 15px; padding-left: 7px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 1px; }
+.erow { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 6px 0 8px; border-radius: 6px; color: var(--tx2); }
+.erow:hover { background: var(--hover); }
+.erow.live { background: color-mix(in srgb, var(--good) 7%, transparent); box-shadow: inset 2px 0 0 var(--good); }
+.est { width: 14px; flex: none; display: inline-flex; align-items: center; justify-content: center; color: var(--tx3); }
+.est.ok { color: var(--good); }
+.est.run { color: var(--accent); }
+.est.fail { color: var(--adult); }
+.elabel { flex: none; max-width: 118px; font: 600 11.5px/1 ui-monospace, monospace; color: var(--tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.elabel.fresh { color: var(--accent); }
+.ettl { flex: 1; min-width: 0; font: 500 11.5px/1.3 system-ui; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.elang { flex: none; font-size: 10px; color: var(--tx3); }
+.ecnt { flex: none; width: 44px; text-align: right; font-size: 10px; color: var(--tx3); }
+.ecnt.run { color: var(--accent); }
+.eacts { display: flex; gap: 4px; flex: none; justify-content: flex-end; }
+.eact { width: 24px; height: 24px; flex: none; border: 1px solid transparent; background: transparent; border-radius: 6px; color: var(--tx3); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.erow:hover .eact { border-color: var(--line); }
+.eact.danger:hover { color: var(--adult); border-color: color-mix(in srgb, var(--adult) 45%, var(--line)); }
+.eact:hover { border-color: var(--accent); color: var(--accent); }
+.ecount { font-size: 10px; color: var(--tx3); flex: none; }
 .dllbl { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
 .dlin { font: 500 12.5px/1.3 system-ui; color: var(--tx); background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; outline: none; width: 100%; }
 .dlin:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accentSoft); }
 .dllist { border-top: 1px solid var(--line); padding-top: 12px; }
-.dlchrow { display: flex; align-items: center; gap: 8px; padding: 5px 4px; border-radius: 6px; }
-.dlchrow:hover { background: var(--hover); }
-.dlslot { flex: none; width: 4px; }
-.dlttl { flex: 1; min-width: 0; font: 500 12px/1.3 system-ui; color: var(--tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dlttl b { font: 600 12px/1 ui-monospace, monospace; }
-.dlbadge { display: inline-flex; align-items: center; gap: 5px; font: 500 10px/1 system-ui; color: var(--tx2); background: var(--panel2); border: 1px solid var(--line); padding: 3px 6px; border-radius: 5px; flex: none; }
-/* translations group: the same guide line as the title page */
-.dlgrp { margin-left: 8px; padding-left: 9px; border-left: 2px solid var(--line); }
-.dlarm { width: 22px; height: 22px; border: 1px solid var(--line); border-radius: 5px; background: transparent; color: var(--tx3); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex: none; }
-.dlarm:hover { color: var(--accent); border-color: var(--accent); }
-.dlok { font-size: 10px; color: var(--good); flex: none; }
 .dlfail { font-size: 10px; color: var(--adult); flex: none; }
-.dlprog { font-size: 10px; color: var(--accent); flex: none; }
-.dlnew { font-size: 9px; color: var(--accent-ink); background: var(--accent); padding: 2px 5px; border-radius: 4px; flex: none; }
-.dlsrc { display: flex; align-items: center; gap: 6px; margin: 0 4px 3px 14px; padding: 3px 6px; border-radius: 5px; color: var(--tx3); cursor: pointer; font: 400 10.5px/1 system-ui; }
-.dlsrc:hover { background: var(--hover); color: var(--accent); }
-.dltree { color: var(--line); font-size: 10px; }
-.dlsrcname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .bind.linked { cursor: pointer; }
 .bind.linked:hover { background: var(--hover); }
-.dlbar { margin: 2px 4px 6px 14px; height: 4px; border-radius: 3px; background: var(--panel2); overflow: hidden; }
-.dlfill { height: 100%; border-radius: 3px; background: var(--accent); transition: width .4s; }
-.dlfill.indet { width: 35%; animation: dlslide 1.1s linear infinite; }
 @keyframes dlslide { from { margin-left: -35%; } to { margin-left: 100%; } }
 
+.afrow { display: flex; align-items: center; gap: 8px; }
+.afrow { display: flex; align-items: center; gap: 8px; }
 .autofill { padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .wide { width: 100%; justify-content: center; }
 .afnote { margin-top: 7px; font: 400 10.5px/1.45 system-ui; color: var(--tx3); }
 
 .body { flex: 1; min-height: 0; overflow: auto; padding: 14px; }
 
-.foot { display: flex; align-items: center; gap: 7px; padding: 12px 14px; border-top: 1px solid var(--line); }
-.flash { font: 600 11px/1.3 system-ui; color: var(--good); }
+/* A notice never competes with the buttons for the row: it is its own strip
+   above them, full width, free to wrap. In a 344px dock the old inline span
+   folded into a column and pushed Discard/Save off their line. */
+.foot { display: flex; flex-direction: column; gap: 9px; padding: 12px 14px; border-top: 1px solid var(--line); }
+.footrow { display: flex; align-items: center; gap: 7px; }
+.notice {
+  padding: 7px 10px; border-radius: 7px; font: 500 11px/1.45 system-ui;
+  color: var(--good); background: color-mix(in srgb, var(--good) 11%, transparent);
+  border: 1px solid color-mix(in srgb, var(--good) 34%, var(--line));
+}
+.notice.plain { color: var(--tx2); background: var(--panel2); border-color: var(--line); }
+.btn.done { background: var(--good); border-color: var(--good); color: var(--bg); }
 </style>

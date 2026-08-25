@@ -38,6 +38,19 @@ a { color: var(--accent); text-decoration: none; }
    the grid enough to not need it — and flickers in a feedback loop. Reserving
    the gutter removes the width jump (and the phantom scrollbar with it). */
 .lmain, .amain, .viewscroll, .fbody { scrollbar-gutter: stable; }
+
+/* EVERY player, everywhere. Scrubbing with the arrows flips Chromium into
+   keyboard modality, and it answers with a focus ring — on the element, on the
+   built-in timeline, on whichever control last held focus. The keys are the
+   app's (VideoSurface handles them wherever it runs), so the ring marks nothing
+   a human can act on. Separate rules on purpose: a pseudo-element this engine
+   does not know would drop a whole comma-joined group with it. */
+video:focus { outline: none; }
+video:focus-visible { outline: none; }
+video::-webkit-media-controls-panel { outline: none; }
+video::-webkit-media-controls-timeline { outline: none; }
+video::-webkit-media-controls-play-button { outline: none; }
+video::-webkit-media-controls-fullscreen-button { outline: none; }
 *::-webkit-scrollbar { width: 11px; height: 11px; }
 *::-webkit-scrollbar-thumb { background: var(--hover); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
 *::-webkit-scrollbar-thumb:hover { background: var(--tx3); background-clip: padding-box; border: 2px solid transparent; }
@@ -58,6 +71,10 @@ a { color: var(--accent); text-decoration: none; }
 .btn.accent:hover { filter: brightness(1.08); border-color: var(--accent); }
 .btn.ghost { background: transparent; color: var(--tx2); }
 .btn.ghost:hover { border-color: var(--accent); color: var(--accent); }
+/* a band button whose panel is open (Filters) */
+.btn.acton { border-color: var(--accent); color: var(--accent); background: var(--accentSoft); }
+/* the count badge a button or a row carries */
+.numbadge { font: 600 9.5px/1 ui-monospace, monospace; color: var(--accent-ink); background: var(--accent); border-radius: 999px; padding: 3px 5px; flex: none; }
 
 .iconbtn {
   width: 30px; height: 30px; flex: none; border: 1px solid var(--line);
@@ -86,6 +103,17 @@ a { color: var(--accent); text-decoration: none; }
   font: 500 12px/1 system-ui; color: var(--tx2);
 }
 .seg .opt:hover { color: var(--tx); }
+/* compact variant: label text instead of icons, inside a panel */
+.seg.text { height: 26px; }
+.seg.text .opt { width: auto; padding: 0 8px; font: 500 11px/1 system-ui; }
+
+/* a text input, wherever one is typed into */
+.in { font: 500 12.5px/1.3 system-ui; color: var(--tx); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; outline: none; width: 100%; }
+.in:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accentSoft); }
+.in::placeholder { color: var(--tx3); }
+/* a checkbox — the app draws its own, so it looks the same in every panel */
+.fbox { width: 14px; height: 14px; flex: none; border: 1.5px solid var(--line); border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; color: var(--accent-ink); }
+.fbox.on { background: var(--accent); border-color: var(--accent); }
 .seg .opt.on { background: var(--accentSoft); color: var(--accent); }
 
 /* dropdown menu */
@@ -130,5 +158,5 @@ html.frameless .tabbar .alltabs,
 html.frameless .tabbar .tabsmenu { -webkit-app-region: no-drag; }
 
 .h1 { margin: 0; font: 600 22px/1 system-ui; letter-spacing: -.4px; color: var(--tx); }
-.count { font: 500 13px/1 ui-monospace, monospace; color: var(--tx3); }
+.count { font: 500 13px/1 ui-monospace, monospace; color: var(--tx3); white-space: nowrap; flex: none; }
 .eyebrow { font: 600 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); text-transform: uppercase; }

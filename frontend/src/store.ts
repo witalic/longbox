@@ -3,9 +3,9 @@
 // write-through — they never go through a draft (design/state-model.md §11).
 // The draft itself lives in draft.ts; browser tabs live in browser.ts.
 import { reactive, watch, watchEffect } from 'vue'
-import { api, type LibraryQuery } from './api'
-import { chapterRowsOf, emptyFacets, metaOf, sameChapter, type Author, type Chapter, type Facets, type FieldDef, type ReadState, type Source, type Title } from './data'
-import { readLocalOne, writeLocalOne } from './local'
+import { api, type DownloadItem, type DownloadsState, type LibraryQuery } from './api'
+import { chapterRowsOf, emptyFacets, metaOf, sameChapter, type Chapter, type Facets, type FieldDef, type ReadState, type Source, type Title } from './data'
+import { isBoolMap, readLocal, readLocalOne, writeLocal, writeLocalOne } from './local'
 import { stopCaptureFor } from './pagecapture'
 
 export type View = 'library' | 'title' | 'reader' | 'authors' | 'sources' | 'settings' | 'browser'
@@ -20,6 +20,55 @@ export function facetFields(): FieldDef[] {
   return store.fields.filter((f) => f.facet)
 }
 
+// Which registry fields a SURFACE offers. Hiding one is a user setting kept per
+// surface — you may not want Studio among your filters yet still edit it on a
+// title. What a SOURCE offers the capture picker is a different scope entirely
+// and does not live here (design/state-model.md §4).
+// 'title' | 'filters' | one per shelf: `axes:<shelf>`. The axes are configured
+// PER SHELF — what is worth browsing by in manga is not what is worth browsing
+// by in an anime shelf, and the shelf is what you are looking at when you
+// decide. One global list made every shelf's setting overwrite the others.
+export type FieldSurface = string
+export function axisSurface(shelf = store.library.shelf): FieldSurface {
+  return `axes:${shelf}`
+}
+const HIDDEN_KEY = 'lb.hiddenFields'
+function isHiddenMap(v: unknown): v is Record<FieldSurface, Record<string, boolean>> {
+  return !!v && typeof v === 'object' && !Array.isArray(v)
+    && Object.values(v as Record<string, unknown>).every(isBoolMap)
+}
+const hiddenFields = reactive<Record<FieldSurface, Record<string, boolean>>>(
+  readLocal(HIDDEN_KEY, isHiddenMap, { title: {}, filters: {}, axes: {} }))
+watch(hiddenFields, () => writeLocal(HIDDEN_KEY, { ...hiddenFields }), { deep: true })
+
+// A required field is never hidden: the record cannot be saved without it.
+function hiddenIn(surface: FieldSurface): Record<string, boolean> {
+  // a map written before this surface existed has no key for it
+  if (!hiddenFields[surface]) hiddenFields[surface] = {}
+  return hiddenFields[surface]
+}
+export function visibleFields(surface: FieldSurface, base: FieldDef[]): FieldDef[] {
+  return base.filter((f) => f.required || !hiddenIn(surface)[f.id])
+}
+export function hiddenOf(surface: FieldSurface, base: FieldDef[]): FieldDef[] {
+  return base.filter((f) => !f.required && hiddenIn(surface)[f.id])
+}
+export function setFieldHidden(surface: FieldSurface, id: string, hidden: boolean) {
+  if (hidden) hiddenIn(surface)[id] = true
+  else delete hiddenIn(surface)[id]
+  // Hiding a FILTER field means "I do not filter by this" — and an active
+  // selection left behind on a row nobody can see is exactly the invisible
+  // filtering that makes a library look like it lost titles.
+  if (surface === 'filters' && hidden) {
+    const lib = store.library
+    if (selected(lib.include, id as FacetKey).length || selected(lib.exclude, id as FacetKey).length) {
+      delete lib.include[id as FacetKey]
+      delete lib.exclude[id as FacetKey]
+      onSelectionChange(reloadLibrary)
+    }
+  }
+}
+
 interface LibraryFilters {
   density: Density
   search: string
@@ -27,6 +76,9 @@ interface LibraryFilters {
   favOnly: boolean
   progress: 'all' | 'unread' | 'reading' | 'completed' // READING progress, not manga status
   minRating: number // 0 = any
+  // which TYPE shelf is open ('' = all). Navigation, not a filter: the filter
+  // block never shows it and Clear all never touches it.
+  shelf: string
   include: Record<FacetKey, string[]>
   exclude: Record<FacetKey, string[]>
 }
@@ -48,10 +100,15 @@ interface State {
   // data from the backend
   titles: Title[] // current (filtered) library results
   total: number
-  authors: Author[]
   sources: Source[]
+  sourceGroups: string[] // the user's ordered group names
+  browseAxis: string     // which list field the browse view groups by
   facets: Facets // linked counts for the CURRENT selection
   globalFacets: Facets // unfiltered counts — the STABLE row order for the sidebar
+  // Counts under the SHELF alone: what an axis would actually find if you
+  // opened it from here. Deliberately NOT the live selection — an axis list
+  // that appears and disappears while you type in the search box is not a list.
+  shelfFacets: Facets
   fields: FieldDef[] // the metadata field registry, served by the backend
   // suggestion vocabulary per field id — everything the library already holds
   vocab: Record<string, string[]>
@@ -79,10 +136,12 @@ export const store = reactive<State>({
   browseHomepage: 'https://www.google.com',
   titles: [],
   total: 0,
-  authors: [],
   sources: [],
+  sourceGroups: [],
+  browseAxis: 'authors',
   facets: emptyFacets(),
   globalFacets: emptyFacets(),
+  shelfFacets: emptyFacets(),
   fields: [],
   vocab: {},
   byId: {},
@@ -90,7 +149,9 @@ export const store = reactive<State>({
   error: null,
   library: {
     density: 'grid', search: '', sort: 'updated', favOnly: false, progress: 'all',
-    minRating: 0, include: blankSelection(), exclude: blankSelection(),
+    // the shelf is which TYPE you are looking at — navigation, kept apart from
+    // the filter bags so the filter UI never has to pretend it owns it
+    minRating: 0, shelf: '', include: blankSelection(), exclude: blankSelection(),
   },
   ui: { libPage: 1, auPage: 1 },
   appMeta: {},
@@ -109,6 +170,8 @@ function resolveTheme(pref: ThemePref): 'dark' | 'light' {
 // restore persisted UI prefs before wiring the auto-save
 store.theme = readLocalOne('lb.theme', ['dark', 'light', 'system'] as const, store.theme)
 store.library.density = readLocalOne('lb.density', ['grid', 'dense', 'expanded'] as const, store.library.density)
+// an axis is any list field, custom ones included, so it is not a fixed set
+store.browseAxis = readLocal('lb.browseAxis', (v): v is string => typeof v === 'string', 'authors')
 // the shell's native window-controls overlay follows the theme
 const TITLEBAR = {
   dark: { color: '#0f1115', symbolColor: '#9aa1ad' },
@@ -124,6 +187,7 @@ document.documentElement.classList.toggle('frameless', !!window.longbox)
 watchEffect(() => {
   writeLocalOne('lb.theme', store.theme)
   writeLocalOne('lb.density', store.library.density)
+  writeLocal('lb.browseAxis', store.browseAxis)
 })
 
 // ---- data loading ----
@@ -140,7 +204,18 @@ function pairs(bag: Record<FacetKey, string[]>): string[] {
   return Object.entries(bag).flatMap(([id, values]) => values.map((v) => `${id}:${v}`))
 }
 
-function buildQuery(): LibraryQuery {
+// Every keystroke in a search box is a selection change, and each one costs a
+// round trip (the browse view pays a full re-aggregation). Coalesce the burst:
+// a click still feels instant at this delay, typing stops thrashing the sidecar.
+function onSelectionChange(fn: () => void, ms = 140) {
+  let t: ReturnType<typeof setTimeout> | undefined
+  return watch(() => JSON.stringify(buildQuery()), () => {
+    if (t) clearTimeout(t)
+    t = setTimeout(fn, ms)
+  })
+}
+
+export function buildQuery(): LibraryQuery {
   const f = store.library
   return {
     search: f.search || undefined,
@@ -148,7 +223,9 @@ function buildQuery(): LibraryQuery {
     fav: f.favOnly || undefined,
     min_rating: f.minRating || undefined,
     sort: f.sort,
-    f: pairs(f.include),
+    // the shelf rides in as an ordinary field filter — the backend needs no
+    // second concept for it
+    f: [...pairs(f.include), ...(f.shelf ? [`type:${f.shelf}`] : [])],
     nf: pairs(f.exclude),
   }
 }
@@ -181,15 +258,35 @@ async function refreshVocab() {
   try { applyVocab(await api.facets()) } catch { /* keep the previous vocab */ }
 }
 
-// Authors, sources and the vocab are derived from the titles — refetch after
-// any commit / delete or the Authors tab and suggestions go stale.
+export async function refreshShelfFacets() {
+  const shelf = store.library.shelf
+  try {
+    store.shelfFacets = await api.facets(shelf ? { f: [`type:${shelf}`] } : {})
+  } catch { /* keep the previous counts */ }
+}
+watch(() => store.library.shelf, () => void refreshShelfFacets())
+
+// THE axis list, for the rail and for the menu that configures it — one answer,
+// so the two can never disagree. An axis with nothing to group is not offered
+// whatever the setting says: opening it could only ever show an empty page.
+function liveAxes(): FieldDef[] {
+  const lists = store.fields.filter((f) => f.type === 'list')
+  if (!Object.keys(store.shelfFacets).length) return lists // not counted yet
+  return lists.filter((f) => (store.shelfFacets[f.id] ?? []).some((v) => v.n > 0))
+}
+export function shownAxes(): FieldDef[] { return visibleFields(axisSurface(), liveAxes()) }
+export function hiddenAxes(): FieldDef[] { return hiddenOf(axisSurface(), liveAxes()) }
+
+// Sources and the vocab are derived from the titles — refetch after any commit
+// or delete, or the source list and the suggestions go stale. Browse groups are
+// NOT here: that view loads the axis it is actually showing.
 export async function refreshDerived() {
   try {
-    const [authors, sources] = await Promise.all([api.authors(), api.sources()])
-    store.authors = authors
+    const [sources, groups] = await Promise.all([api.sources(), api.sourceGroups()])
     store.sources = sources
+    store.sourceGroups = groups
   } catch { /* leave the previous values in place */ }
-  await refreshVocab()
+  await Promise.all([refreshVocab(), refreshShelfFacets()])
 }
 
 // One refresh for "the library changed": results, counts and derived collections.
@@ -217,6 +314,8 @@ export async function init() {
     // whole-library scan too many
     store.facets = facets
     applyVocab(facets)
+    // no shelf is open at startup, so the unfiltered counts ARE the shelf's
+    store.shelfFacets = facets
     if (settings.homepage) store.browseHomepage = settings.homepage
     store.appMeta = settings.app || {}
   } catch (e) {
@@ -228,10 +327,15 @@ export async function init() {
   void refreshDerived()
   // …and the vault check runs behind the window, refreshing it if disk moved on
   watchLibrarySync()
+  // what a previous run left unfinished is already on the sidecar's list
+  void pollDownloads(true)
+  window.setInterval(() => void pollDownloads(), 1000)
   // refetch results whenever a server-side filter changes (density is client-only)
-  watch(() => JSON.stringify(buildQuery()), reloadLibrary)
+  onSelectionChange(reloadLibrary)
 }
 
+// Clears the FILTERS. The shelf survives: you asked to see this type, and
+// clearing a genre is not a request to leave it.
 export function resetFilters() {
   Object.assign(store.library, {
     search: '', favOnly: false, progress: 'all', minRating: 0,
@@ -357,32 +461,66 @@ export function moveTitleTabBefore(dragId: string, targetId: string) {
 // Combo suggestions for entry LANG / GROUP fields — the chapters at hand
 // first, then the library-wide vocabulary (shared by the title page's entry
 // forms and the browser dock's ADD ENTRY).
-export function langSuggestions(chapters: { lang: string }[] = []): string[] {
-  return [...new Set([
-    ...chapters.map((c) => c.lang),
-    ...(store.vocab.language ?? []),   // the field id, not a facet name of its own
-  ])].filter(Boolean)
-}
-export function groupSuggestions(chapters: { group: string }[] = []): string[] {
-  return [...new Set([
-    ...chapters.map((c) => c.group),
-    ...Object.values(store.byId).flatMap((x) => x.chapters.map((c) => c.group)),
-  ])].filter(Boolean)
+// What an entry form offers for LANGUAGE and GROUP, in two rings: what is NEAR
+// (this title's own entries, then everything captured from the same source) and
+// what exists anywhere. The near ring is the list you see; the far one joins the
+// search the moment you type — a group you used once on another site is worth
+// finding, but not worth being offered by default.
+function ringsOf(chapters: { lang: string; group: string }[], domain: string,
+                 pick: (c: { lang: string; group: string }) => string): { near: string[]; all: string[] } {
+  const near = new Set(chapters.map(pick).filter(Boolean))
+  const all = new Set(near)
+  const host = domain.toLowerCase()
+  for (const t of Object.values(store.byId)) {
+    const sameSource = host && (t.source.domain || '').toLowerCase() === host
+    for (const c of t.chapters) {
+      const v = pick(c)
+      if (!v) continue
+      if (sameSource) near.add(v)
+      all.add(v)
+    }
+  }
+  return { near: [...near], all: [...all] }
 }
 
-// Clickable metadata chips → jump to the library filtered by that value.
-export function filterBy(kind: 'genre' | 'tag' | 'type' | 'status' | 'character', value: string) {
+export function langRings(chapters: { lang: string; group: string }[] = [], domain = '') {
+  const rings = ringsOf(chapters, domain, (c) => c.lang)
+  // the vocabulary the library already knows is near enough for a language
+  for (const v of store.vocab.language ?? []) {
+    if (!rings.near.includes(v)) rings.near.push(v)
+    if (!rings.all.includes(v)) rings.all.push(v)
+  }
+  return rings
+}
+export function groupRings(chapters: { lang: string; group: string }[] = [], domain = '') {
+  return ringsOf(chapters, domain, (c) => c.group)
+}
+
+// Jump to the library filtered by ONE value of ONE field. Everything that
+// links out of a chip, a card or a browse group lands here.
+// How many things the current selection has switched on — what the Filters
+// button counts, in the library and in the browse view alike.
+export function activeFilterCount(): number {
+  const f = store.library
+  const n = (bag: Record<string, string[]>) => Object.values(bag).reduce((t, v) => t + v.length, 0)
+  return n(f.include) + n(f.exclude)
+    + (f.favOnly ? 1 : 0) + (f.progress !== 'all' ? 1 : 0) + (f.minRating ? 1 : 0)
+}
+
+export function filterByField(field: FacetKey, value: string) {
   resetFilters()
-  const key: FacetKey = kind === 'genre' ? 'genres' : kind === 'tag' ? 'tags'
-    : kind === 'type' ? 'type' : kind === 'character' ? 'characters' : 'status'
-  store.library.include[key] = [value]
+  store.library.shelf = '' // a jump from a chip means THIS value, not this value on this shelf
+  store.library.include[field] = [value]
   store.view = 'library'
+}
+// The singular vocabulary the title page and the cards speak, over that one.
+export function filterBy(kind: 'genre' | 'tag' | 'type' | 'status' | 'character', value: string) {
+  filterByField(kind === 'genre' ? 'genres' : kind === 'tag' ? 'tags'
+    : kind === 'character' ? 'characters' : kind, value)
 }
 // Jump to the library filtered to ONE person via the dedicated AUTHOR facet.
 export function filterByPerson(name: string) {
-  resetFilters()
-  store.library.include.authors = [name]
-  store.view = 'library'
+  filterByField('authors', name)
 }
 
 // One-shot handoff: jump to the Authors tab focused on one person — the view
@@ -390,6 +528,7 @@ export function filterByPerson(name: string) {
 let pendingAuthorFocus = ''
 export function goAuthorsFor(name: string) {
   pendingAuthorFocus = name
+  store.browseAxis = 'authors' // the browse view may have been left on another axis
   goView('authors')
 }
 export function takeAuthorFocus(): string {
@@ -403,21 +542,77 @@ export function titleById(id: string | null): Title | undefined {
   return id ? store.byId[id] : undefined
 }
 
+// ---- downloads: ONE poller for the whole app -------------------------------
+//
+// The capture dock used to own this, which meant the rest of the app could not
+// know a transfer was running — and the window could not warn about one on its
+// way out. It is app state: the dock, the sidebar count and the panel all read
+// the same rows.
+export const downloads = reactive<DownloadsState>({ armed: null, items: [] })
+const seenDone = new Set<string>()
+let watchers = 0
+
+/** Something on screen is showing downloads — keep the poll warm while it is. */
+export function watchDownloads(on: boolean) {
+  watchers = Math.max(0, watchers + (on ? 1 : -1))
+}
+export function runningDownloads(): DownloadItem[] {
+  return downloads.items.filter((i) => i.state === 'downloading')
+}
+export function unfinishedDownloads(): DownloadItem[] {
+  return downloads.items.filter((i) => i.state === 'downloading' || i.state === 'interrupted')
+}
+
+export async function pollDownloads(force = false): Promise<void> {
+  if (!force && !watchers && !downloads.armed && !runningDownloads().length) return
+  try {
+    const s = await api.downloadsState()
+    for (const it of s.items) {
+      if (it.state === 'done' && !seenDone.has(it.id)) {
+        seenDone.add(it.id)
+        void refreshTitle(it.titleId) // its chapter now has media
+      } else if (it.state === 'failed' || it.state === 'interrupted') {
+        seenDone.add(it.id)
+      }
+    }
+    downloads.armed = s.armed
+    downloads.items = s.items
+  } catch { /* the sidecar is busy or gone — keep what we have */ }
+}
+
 export async function refreshTitle(id: string): Promise<void> {
   try { cache([await api.title(id)]) } catch { /* keep the cached copy */ }
 }
 
 // ---- user-layer write-through (optimistic; instant, no draft, no confirm) ----
+//
+// Optimistic means the value changes HERE first, so a click never waits on a
+// disk. It also means the value has to change BACK when the write is refused:
+// a star left lit over a patch that never landed is a lie the screen keeps
+// telling until something else reloads the title. One helper, so every user
+// field rolls back the same way.
+async function writeThrough(apply: (v: never) => void, next: unknown, prev: unknown,
+                            send: () => Promise<Title>) {
+  const set = apply as (v: unknown) => void
+  set(next)
+  try {
+    cache([await send()])
+  } catch (e) {
+    set(prev)
+    store.error = e instanceof Error ? e.message : String(e)
+  }
+}
+
 export async function setFavorite(t: Title, value: boolean) {
-  t.fav = value
-  try { cache([await api.patchUser(t.id, { fav: value })]) } catch (e) { store.error = String(e) }
+  await writeThrough((v) => { t.fav = v }, value, t.fav,
+                     () => api.patchUser(t.id, { fav: value }))
 }
 export async function toggleFav(t: Title) { await setFavorite(t, !t.fav) }
 export async function setRating(t: Title, value: number) {
   // clicking the current rating again clears it — every star widget toggles
   const v = value === t.rating ? 0 : value
-  t.rating = v
-  try { cache([await api.patchUser(t.id, { rating: v })]) } catch (e) { store.error = String(e) }
+  await writeThrough((n) => { t.rating = n }, v, t.rating,
+                     () => api.patchUser(t.id, { rating: v }))
 }
 // Where a page chapter remembers WHICH page, an episode remembers WHERE.
 //
@@ -429,18 +624,22 @@ export async function setRating(t: Title, value: number) {
 // would also replace the chapter list mid-playback and re-render the reader.
 export async function setPlaybackPosition(t: Title, chapterId: string, seconds: number) {
   const chapter = t.chapters.find((c) => c.id === chapterId)
-  if (chapter) chapter.position = seconds
+  if (!chapter) return
+  const before = chapter.position
+  chapter.position = seconds
   try {
     await api.patchUser(t.id, { position: { [chapterId]: seconds } })
   } catch (e) {
+    chapter.position = before // the player keeps playing; the vault did not move
     store.error = e instanceof Error ? e.message : String(e)
   }
 }
 
 export async function setRead(t: Title, chapterId: string, state: ReadState) {
   const c = t.chapters.find((x) => x.id === chapterId)
-  if (c) c.read = state
-  try { cache([await api.patchUser(t.id, { read: { [chapterId]: state } })]) } catch (e) { store.error = String(e) }
+  if (!c) return
+  await writeThrough((v) => { c.read = v }, state, c.read,
+                     () => api.patchUser(t.id, { read: { [chapterId]: state } }))
 }
 
 // A commit body built from a title's CURRENT state — for targeted meta-layer

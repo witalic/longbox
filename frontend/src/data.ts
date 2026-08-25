@@ -33,6 +33,10 @@ export interface ChapterRow {
   group: string
   date: string
 }
+// The two stills an episode can carry — one frame for a tile, a grid of them
+// for a preview. Both are cut in the same pass and kept in the vault.
+export type FrameKind = 'poster' | 'sheet'
+
 export interface Chapter extends ChapterRow {
   read: ReadState
   dl: boolean       // a downloaded archive exists in the vault
@@ -47,6 +51,9 @@ export interface Chapter extends ChapterRow {
   position: number  // seconds into a video chapter — the resume point
   codec: string     // h264 / hevc / av1 … — what the file actually holds
   faststart: boolean // its index sits before the media, so playback starts at once
+  poster: boolean   // the one frame a tile wears is cut and stored
+  sheet: string     // the geometry of the stored contact grid, '' when none
+  stills: string    // the version those two are cached under (NOT the media's)
 }
 
 // The metadata layer of a title — exactly what a draft edits and a commit writes.
@@ -68,6 +75,7 @@ export interface TitleMeta {
   source: SourceRef
   // chapter display order: 'auto' = smart by number; 'manual' = as arranged
   chapterOrder: string
+  custom: Record<string, string | string[]>
 }
 
 // The flat wire DTO (meta + user layer + derived), as served by the backend.
@@ -95,15 +103,20 @@ export interface UserPatch {
 }
 
 export interface AuthorWork { id: string; title: string; cover: string }
-export interface Author {
+export interface Bookmark { name: string; url: string }
+
+// Titles grouped by ONE value of ONE list field. People are this plus the two
+// things only they have (a role, a favourite mark) — not a separate shape.
+export interface BrowseGroup {
   id: string
-  name: string
-  role: 'author' | 'artist' | 'both'
+  field: string
+  value: string
   works: AuthorWork[]
-  fav: boolean // user layer — persisted in the vault's authors.json
   titles: number
   chapters: number
   topTags: string[]
+  role: 'author' | 'artist' | 'both' | null
+  fav: boolean
 }
 
 export interface Source {
@@ -114,6 +127,8 @@ export interface Source {
   hasRecipe: boolean
   recipeVer: number
   fields: string[] // recipe field names mapped for this domain
+  group: string    // the user's grouping; '' = ungrouped
+  bookmarks: Bookmark[]
 }
 
 export interface FacetValue { v: string; n: number }
@@ -133,6 +148,7 @@ export interface FieldDef {
   facet: boolean
   placeholder: string
   vocab: string // the field id whose suggestions this one offers
+  group: string // which block of the editor draws it
 }
 
 // Facet counts keyed by field id.
@@ -163,6 +179,7 @@ export interface FieldRule {
   index?: number
   lower?: boolean
   stripCounts?: boolean
+  join?: string // what separates several matches inside a one-value field
   candidates: Candidate[]
 }
 export interface ChapterRule {
@@ -180,6 +197,8 @@ export interface Recipe {
   version: number
   fields: Record<string, FieldRule>
   chapters?: ChapterRule | null
+  // registry field ids this source does not offer (a fact about the SITE)
+  hidden?: string[]
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -203,20 +222,23 @@ export function blankMeta(fields: FieldDef[]): TitleMeta {
 function SPINE() {
   return {
     flags: { adult: false, ai: false, censored: false },
-    coverSource: '', source: { domain: '', url: '' }, chapterOrder: 'auto',
+    coverSource: '', source: { domain: '', url: '' }, chapterOrder: 'auto', custom: {},
   }
 }
 
 // Field values copied off a bag, one entry per registry field, each an empty
 // value of the right shape when the bag has none.
 function valuesOf(bag: Record<string, unknown>, fields: FieldDef[]): Record<string, unknown> {
+  const custom = (bag.custom ?? {}) as Record<string, unknown>
   const out: Record<string, unknown> = {}
   for (const f of fields) {
     if (!f.editable || f.control === 'cover' || f.control === 'flags') continue
-    const v = bag[f.id]
+    // A user-defined value is stored under `custom` but edited like any other:
+    // the draft carries every field flat, and commit puts it back (draft.ts).
+    const v = f.builtin ? bag[f.id] : custom[f.id]
+    // Numbers and dates are edited and stored as text, exactly like `year`:
+    // an unset number must stay unset, and 0 is a value somebody may mean.
     if (f.type === 'list') out[f.id] = Array.isArray(v) ? [...v] : []
-    else if (f.type === 'number') out[f.id] = typeof v === 'number' ? v : 0
-    else if (f.type === 'boolean') out[f.id] = v === true
     else out[f.id] = typeof v === 'string' ? v : ''
   }
   return out
@@ -259,6 +281,75 @@ export function compareChapterNums(a: string, b: string): number {
 // A sized cover variant — the backend serves a cached LANCZOS downscale, so
 // grids never decode (or blurrily GPU-scale) multi-MB originals. Pick w ≈ 2×
 // the CSS width so DPR-2 screens stay crisp.
+// ---- title matching -------------------------------------------------------
+//
+// Two records are the same work far more often than they are spelled the same:
+// a page says "Onee-chan Gets Carried Away", the library holds it with a ♡ in
+// the name and the romaji only in an alt. So a comparison drops what casing and
+// punctuation can differ by, and scores the remainder by the words shared —
+// with a containment pass, because a page title is usually the library title
+// plus a subtitle ("… The Animation").
+const NOT_WORD = /[^\p{L}\p{N}]+/gu
+
+export function titleKey(s: string): string {
+  return s.toLowerCase().normalize('NFKD').replace(NOT_WORD, ' ').trim()
+}
+
+export function altNames(alt: string): string[] {
+  // alt titles are ONE field holding several names — the separator is whatever
+  // the capture joined them with (see normalize.ts) or whatever a human typed
+  return alt.split(/[|·/;]|\s{2,}/).map((s) => s.trim()).filter(Boolean)
+}
+
+export function titleSimilarity(a: string, b: string): number {
+  const ka = titleKey(a)
+  const kb = titleKey(b)
+  if (!ka || !kb) return 0
+  if (ka === kb) return 1
+  const wa = new Set(ka.split(' ').filter((w) => w.length > 1))
+  const wb = new Set(kb.split(' ').filter((w) => w.length > 1))
+  if (!wa.size || !wb.size) return 0
+  let shared = 0
+  for (const w of wa) if (wb.has(w)) shared++
+  const dice = (2 * shared) / (wa.size + wb.size) // shared words, both ways
+  const inside = ka.includes(kb) || kb.includes(ka) ? 0.85 : 0
+  return Math.max(dice, inside)
+}
+
+export interface TitleMatch { t: Title; score: number }
+
+/** The library records a name may already belong to — alts included. */
+export function matchTitles(name: string, titles: Title[], min = 0.5, limit = 6): TitleMatch[] {
+  if (!name.trim()) return []
+  const out: TitleMatch[] = []
+  for (const t of titles) {
+    let best = 0
+    for (const n of [t.title, ...altNames(t.alt)]) {
+      best = Math.max(best, titleSimilarity(name, n))
+      if (best === 1) break
+    }
+    if (best >= min) out.push({ t, score: best })
+  }
+  return out.sort((a, b) => b.score - a.score || a.t.title.localeCompare(b.t.title)).slice(0, limit)
+}
+
+// The cover of a card, a tile or a title page: the stored image if there is
+// one, else the colour that title always gets. Written out in two views with
+// two different widths and two different fallback keys — one of which fell back
+// on the id and the other on the title, so the same title could be two colours.
+export function coverStyle(t: { cover: string; id: string; title?: string }, w = 420) {
+  return t.cover
+    ? { background: `#181a1f url("${coverAt(t.cover, w)}") center/cover no-repeat` }
+    : { background: hueFor(t.id || t.title || '') }
+}
+
+// The site a URL belongs to, as a human names it. One of the two copies
+// returned the whole URL when it could not be parsed, the other an empty
+// string; a caller could not know which it had.
+export function hostOf(url: string): string {
+  try { return new URL(url).hostname.replace(/^www\./, '') } catch { return '' }
+}
+
 export function coverAt(cover: string, w: number): string {
   return cover ? `${cover}${cover.includes('?') ? '&' : '?'}w=${w}` : ''
 }
@@ -370,6 +461,85 @@ export function metaOf(t: Title, fields: FieldDef[]): TitleMeta {
     source: { ...t.source },
     chapterOrder: t.chapterOrder || 'auto',
   } as unknown as TitleMeta
+}
+
+// The draft edits EVERY field flat — that is what keeps one editor for both
+// kinds. The document nests the user-defined ones, so the split happens once,
+// here, on the way to the wire.
+export function metaForWire(meta: TitleMeta, fields: FieldDef[]): TitleMeta {
+  const out = { ...meta } as unknown as Record<string, unknown>
+  const custom: Record<string, unknown> = {}
+  for (const f of fields) {
+    if (f.builtin || !f.editable) continue
+    if (f.id in out) {
+      custom[f.id] = out[f.id]
+      delete out[f.id]
+    }
+  }
+  out.custom = custom
+  return out as unknown as TitleMeta
+}
+
+// The next label after this one, so finishing a chapter arms the following one
+// with a single keystroke: "5" → "6", "5.5" → "6.5", "Extra" → "" (name it).
+export function nextLabel(label: string): string {
+  const m = /^(\D*?)(\d+(?:[.,]\d+)?)(\D*)$/.exec(label.trim())
+  if (!m) return ''
+  const [, head, num, tail] = m
+  const dec = num.includes(',') ? ',' : '.'
+  const parts = num.split(/[.,]/)
+  const next = parts.length > 1
+    ? `${Number(parts[0]) + 1}${dec}${parts[1]}`
+    : String(Number(num) + 1)
+  return `${head}${next}${tail}`
+}
+
+// The labels an entry form should OFFER: the next few, continuing from the
+// highest numeric one this title already holds. A named label ("Extra") is not
+// a position, so it does not set the sequence; an empty title starts at 1. They
+// are suggestions — the field stays free text.
+// Numbering runs PER TRANSLATION. A title can hold chapter 6 in EN from one
+// group and chapter 2 in UA from another, and "the next one" is a different
+// number in each — so the count is taken over the rows that share the language
+// and group being filled in. An empty field is not a filter: until a language
+// is chosen the scope is everything, which is what a single-track title wants.
+export function chaptersInScope<T extends { lang: string; group: string }>(
+  rows: T[], lang: string, group: string): T[] {
+  const l = lang.trim().toLowerCase()
+  const g = group.trim().toLowerCase()
+  if (!l && !g) return rows
+  return rows.filter((c) => (!l || (c.lang || '').trim().toLowerCase() === l)
+    && (!g || (c.group || '').trim().toLowerCase() === g))
+}
+
+/** The last label used in this scope — the one an added version repeats. */
+export function lastLabel(chapters: { num: string }[] = []): string {
+  const numeric = chapters.map((c) => String(c.num))
+    .filter((n) => /\d/.test(n))
+    .sort(compareChapterNums)
+  return numeric.length ? numeric[numeric.length - 1] : ''
+}
+
+/** What the LABEL dropdown offers: the last one used, then the next few.
+ *
+ * The previous label is there because the commonest exception is not a new
+ * chapter at all — it is the SAME chapter in another language or from another
+ * group, which carries the same number. */
+export function labelChoices(chapters: { num: string }[] = [], count = 5): string[] {
+  const last = lastLabel(chapters)
+  const next = nextLabels(chapters, count)
+  return last ? [last, ...next] : next
+}
+
+export function nextLabels(chapters: { num: string }[] = [], count = 5): string[] {
+  let cur = lastLabel(chapters)
+  const out: string[] = []
+  for (let i = 0; i < count; i++) {
+    cur = cur ? nextLabel(cur) : String(i + 1)
+    if (!cur) break
+    out.push(cur)
+  }
+  return out
 }
 
 // Strip derived fields (read/dl/pages/…) down to the committable rows.

@@ -22,6 +22,12 @@ export function isBoolMap(v: unknown): v is Record<string, boolean> {
   return isRecord(v) && Object.values(v).every((x) => typeof x === 'boolean')
 }
 
+// Remembered sizes (panel group heights). A non-number came from an older build
+// or a hand-edited store: drop it rather than let a NaN reach a style binding.
+export function isNumMap(v: unknown): v is Record<string, number> {
+  return isRecord(v) && Object.values(v).every((x) => typeof x === 'number' && Number.isFinite(x))
+}
+
 export function readLocalOne<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   try {
     const raw = localStorage.getItem(key)

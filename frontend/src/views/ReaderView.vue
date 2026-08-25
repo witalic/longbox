@@ -275,6 +275,8 @@ function onKey(e: KeyboardEvent) {
   if (store.view !== 'reader') return
   const tag = (e.target as HTMLElement | null)?.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+  // an episode is scrubbed, not paged: the surface owns those keys
+  if (isVideo.value && (matches('video.back', e) || matches('video.fwd', e))) return
   const k = e.key
   if (matches('reader.next', e) || k === 'PageDown') { e.preventDefault(); nextPage() }
   else if (matches('reader.prev', e) || k === 'PageUp') { e.preventDefault(); prevPage() }

@@ -4,19 +4,25 @@
 // dock holds the capture panel (the draft) and, during a pick, the inspector.
 // All page-facing work goes through the preload: pick chains, live selector
 // previews, and one-shot snapshots (rendered DOM + cover bytes via page context).
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { api, ApiError } from '../api'
-import { activeTab, browser, newTab, newTabBackground, onTabNavigated, setTabLoading, setTabTitle, tabById } from '../browser'
+import {
+  activateTabAt, activeTab, browser, closeTab as closeBrowserTab, newTab, newTabBackground,
+  onTabNavigated, reopenClosedTab, setTabAudible, setTabLoading, setTabTitle, tabById,
+} from '../browser'
 import CapturePanel from '../components/CapturePanel.vue'
+import MenuButton from '../components/MenuButton.vue'
+import RailSection from '../components/RailSection.vue'
 import Icon from '../components/Icon.vue'
 import PickInspector, { type ChainNode, type PickUse, type ProbeReq, type ProbeResult } from '../components/PickInspector.vue'
 import {
   applyCapture, applyCoverCapture, applyCoverUrlAuto, draftState, isEditableField,
-  mergeSnapshot, noteCaptureSource, type EditableField, type Snapshot,
+  mergeCapture, mergeSnapshot, noteCaptureSource, type EditableField, type Snapshot,
 } from '../draft'
 import { pageCapture, pageFilter, pageKeyFor, stopCaptureFor, type PickField } from '../pagecapture'
-import type { Candidate, FieldRule, Recipe } from '../data'
-import { cache, store } from '../store'
+import { hostOf, matchTitles, type Candidate, type FieldRule, type Recipe } from '../data'
+import type { CleanFlags } from '../normalize'
+import { cache, refreshDerived, store } from '../store'
 
 const isElectron = typeof navigator !== 'undefined' && navigator.userAgent.includes('Electron')
 
@@ -30,8 +36,12 @@ function wvRef(id: string): (el: any) => void {
 }
 function wv(): any { return browser.activeId ? wvRefs.get(browser.activeId) : null }
 
+// The strip owns the switch; the element is where it takes effect.
+watch(() => browser.tabs.map((t) => `${t.id}:${t.muted ? 1 : 0}`).join(), () => {
+  for (const t of browser.tabs) wvRefs.get(t.id)?.setAudioMuted?.(t.muted)
+})
+
 const active = computed(() => activeTab())
-function hostOf(url: string): string { try { return new URL(url).hostname.replace(/^www\./, '') } catch { return '' } }
 const domain = computed(() => hostOf(active.value?.url || ''))
 const isHttps = computed(() => (active.value?.url || '').startsWith('https://'))
 
@@ -56,12 +66,15 @@ function go() {
       : 'https://www.google.com/search?q=' + encodeURIComponent(q)
   loadInActive(url)
 }
-function nav(dir: 'back' | 'forward' | 'reload') {
+function nav(dir: 'back' | 'forward' | 'reload' | 'reload-hard') {
   const el = wv()
   if (!el) return
   if (dir === 'back' && el.canGoBack?.()) el.goBack()
   else if (dir === 'forward' && el.canGoForward?.()) el.goForward()
   else if (dir === 'reload') el.reload?.()
+  // a site whose CSS or script is being edited upstream needs the bypass, and
+  // it is the same key everywhere else: Shift with the reload
+  else if (dir === 'reload-hard') el.reloadIgnoringCache?.()
 }
 function goHomePage() { loadInActive(store.browseHomepage) }
 
@@ -84,8 +97,12 @@ function zoomReset() {
   wv()?.setZoomFactor?.(1)
 }
 
-// find in page
+// Find in page. A browser's find is a small panel that FLOATS over the page —
+// it must not push the document down, because the thing being searched is what
+// the human is looking at. Ctrl+F opens it from anywhere in the app window; the
+// shell forwards the same key when the guest page had focus.
 const findOpen = ref(false)
+const findEl = ref<HTMLInputElement | null>(null)
 const findText = ref('')
 const findCount = reactive({ active: 0, total: 0 })
 function findNext(forward = true) {
@@ -95,6 +112,73 @@ watch(findText, (t) => {
   if (t) wv()?.findInPage?.(t)
   else { wv()?.stopFindInPage?.('clearSelection'); findCount.active = 0; findCount.total = 0 }
 })
+const addrEl = ref<HTMLInputElement | null>(null)
+async function focusAddress() {
+  await nextTick()
+  addrEl.value?.focus()
+  addrEl.value?.select() // Ctrl+L means "type a new address", not "edit this one"
+}
+
+async function openFind() {
+  findOpen.value = true
+  await nextTick()
+  findEl.value?.focus()
+  findEl.value?.select() // reopening starts on the last query, ready to replace
+}
+// The browser's own shortcuts, in ONE place. They are not in keys.ts on
+// purpose: that map is for the app's rebindable actions and refuses modified
+// keys, while these are platform conventions a browser must simply have.
+// THE browser shortcuts, in one table. They are not in keys.ts on purpose:
+// that map is for the app's rebindable actions and refuses modified keys, while
+// these are platform conventions a browser is simply expected to have. Both
+// ways in land here — the app's own document, and the shell forwarding a key
+// pressed while the page had focus, where nothing else would ever have seen it.
+interface Chord { code: string; ctrl: boolean; shift: boolean; alt: boolean }
+function pageKey(k: Chord): boolean {
+  const { code, ctrl, shift, alt } = k
+  if (code === 'Escape') {
+    if (!pickingField.value && !inspect.value) return false
+    closeInspect()
+    return true
+  }
+  if (code === 'F5' || (ctrl && code === 'KeyR')) { nav(shift ? 'reload-hard' : 'reload'); return true }
+  if (!ctrl && !alt) return false
+  if (ctrl && code === 'KeyF') { void openFind(); return true }
+  if (ctrl && code === 'KeyL') { void focusAddress(); return true }
+  if (ctrl && code === 'KeyT') {
+    if (shift) reopenClosedTab()
+    else newTab()
+    return true
+  }
+  if (ctrl && code === 'KeyW') {
+    if (browser.activeId) closeBrowserTab(browser.activeId)
+    return true
+  }
+  if (alt && code === 'ArrowLeft') { nav('back'); return true }
+  if (alt && code === 'ArrowRight') { nav('forward'); return true }
+  if (ctrl && code === 'Digit0') { zoomReset(); return true }
+  if (ctrl && code === 'Minus') { zoomStep(-1); return true }
+  if (ctrl && code === 'Equal') { zoomStep(1); return true }
+  if (ctrl && /^Digit[1-9]$/.test(code)) { activateTabAt(Number(code.slice(5))); return true }
+  return false
+}
+function onKey(e: KeyboardEvent) {
+  if (store.view !== 'browser') return
+  const k = { code: e.code, ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey, alt: e.altKey }
+  if (!pageKey(k)) return
+  if (e.code !== 'Escape') e.preventDefault()
+}
+let dropPageKeys: (() => void) | null = null
+onMounted(() => {
+  document.addEventListener('keydown', onKey)
+  // the same shortcuts, arriving from the shell when the PAGE had focus
+  dropPageKeys = window.longbox?.onPageKey((k) => { pageKey(k) }) ?? null
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onKey)
+  dropPageKeys?.()
+})
+
 function closeFind() {
   findOpen.value = false
   findText.value = ''
@@ -117,6 +201,9 @@ async function getRecipe(host: string): Promise<Recipe | null> {
 }
 watch(domain, async (h) => {
   if (!h) return
+  // the star reads this domain's saved links, and the browser can be the first
+  // screen a session ever opens
+  if (!store.sources.length) void refreshDerived()
   const r = await getRecipe(h)
   // page capture is taught PER DOMAIN — a site that already knows its reader
   // arms with the right selector immediately. An ACTIVE capture keeps its own:
@@ -152,13 +239,84 @@ function snapshotRules(recipe: Recipe | null): Record<string, FieldRule> {
   return out
 }
 
+// ---- bookmarks: saved from here, kept under the page's own domain ----
+//
+// The source is decided by the DOMAIN, so a link files itself where it belongs
+// without asking. The list lives with the source (app config), not in a recipe.
+const sourceHere = computed(() => store.sources.find((x) => x.domain === domain.value))
+const bookmarksHere = computed(() => sourceHere.value?.bookmarks ?? [])
+const bookmarked = computed(() =>
+  bookmarksHere.value.some((b) => b.url === (active.value?.url || '')))
+
+// The rail lists the sites you capture from; a source unfolds into its links.
+const railOpen = reactive<Record<string, boolean>>({})
+// No cap: the rail scrolls, and a source silently missing from the list is a
+// source the user thinks longbox never learned.
+// The rail follows the grouping you made in Sources — as plain bands, not a
+// tree: one label, its sites, the next label. With no groups yet there is one
+// band, and it is simply called SOURCES.
+const railSections = computed(() => {
+  const by = (name: string) => [...store.sources]
+    .filter((x) => (x.group || '') === name)
+    .sort((a, b) => b.titles - a.titles)
+  const named = store.sourceGroups.map((g) => ({ label: g.toUpperCase(), rows: by(g) }))
+    .filter((sec) => sec.rows.length)
+  const rest = by('')
+  const restLabel = named.length ? 'UNGROUPED' : 'SOURCES'
+  return rest.length ? [...named, { label: restLabel, rows: rest }] : named
+})
+
+async function toggleBookmark() {
+  const host = domain.value
+  const url = active.value?.url || ''
+  if (!host || !url) return
+  const cur = bookmarksHere.value
+  const next = bookmarked.value
+    ? cur.filter((b) => b.url !== url)
+    : [...cur, { name: (active.value?.title || url).slice(0, 80), url }]
+  try {
+    store.sources = await api.putSourcePrefs(host, { bookmarks: next })
+  } catch (e) {
+    store.error = String(e)
+  }
+}
+
+// Which fields this SOURCE offers the picker. Stored in its recipe, because it
+// is a fact about the site — not about the user (that scope lives in store.ts).
+const sourceHidden = computed(() => recipes[domain.value]?.hidden ?? [])
+async function setSourceHidden(id: string, hidden: boolean) {
+  const host = domain.value
+  if (!host) return
+  // built on the STORED recipe, like every other write to it — see saveRecipeField
+  const cur = await getRecipe(host)
+  const next: Recipe = {
+    domain: host,
+    version: cur?.version ?? 1,
+    fields: { ...(cur?.fields || {}) },
+    chapters: cur?.chapters ?? null,
+    hidden: hidden
+      ? [...new Set([...(cur?.hidden || []), id])]
+      : (cur?.hidden || []).filter((x) => x !== id),
+  }
+  try {
+    recipes[host] = await api.saveRecipe(host, next)
+  } catch {
+    recipes[host] = next // the panel keeps working even if persisting failed
+  }
+}
+
 async function saveRecipeField(host: string, field: string, rule: FieldRule | null) {
-  const cur = recipes[host]
+  // A save REPLACES the domain's recipe, so it must be built on what the domain
+  // actually holds — not on whatever happens to be cached. Picking a field on a
+  // tab whose recipe had not been fetched yet used to PUT a recipe containing
+  // only that field, wiping every rule the site had been taught.
+  const cur = await getRecipe(host)
   const next: Recipe = {
     domain: host,
     version: cur?.version ?? 1,
     fields: { ...(cur?.fields || {}) },
     chapters: cur?.chapters ?? null, // a previously learned list rule is kept as-is
+    hidden: [...(cur?.hidden || [])], // and so is what this source does not offer
   }
   if (field && rule) next.fields[field] = rule
   try {
@@ -194,6 +352,27 @@ const panel = ref<InstanceType<typeof CapturePanel> | null>(null)
 
 // The explicit snapshot: recipe + page metadata → merge into the draft
 // (auto/empty fields only — the merge invariant lives in draft.ts).
+// A snapshot waiting on a decision: the page was read, but the draft is new and
+// the library may already hold this work. Nothing is written until the human
+// says which it is.
+const heldFill = ref<Snapshot | null>(null)
+const fillMatches = ref<{ id: string; title: string; score: number }[]>([])
+function fillAnyway() {
+  const s = heldFill.value
+  heldFill.value = null
+  fillMatches.value = []
+  if (s) applyFill(s)
+}
+function cancelFill() {
+  heldFill.value = null
+  fillMatches.value = []
+}
+function applyFill(s: Snapshot) {
+  const written = mergeIntoDraft(s)
+  panel.value?.showFlash(written.length
+    ? `✓ filled: ${written.join(', ')}` : 'nothing new — manual fields are kept')
+}
+
 async function autofill() {
   const tab = active.value
   if (!tab || !draftState.cur) return
@@ -202,21 +381,57 @@ async function autofill() {
     const recipe = await getRecipe(domain.value)
     const snap = await requestSnapshot(snapshotRules(recipe))
     if (!snap) { panel.value?.showFlash('could not read the page'); return }
-    // clean captured values with the rules' SAVED flags, not the defaults
-    const flags: Record<string, { lower: boolean; stripCounts: boolean }> = {}
+    // Clean captured values with the rules' SAVED flags, not the defaults —
+    // including the separator a list-into-text field was taught, or autofill
+    // would glue on the next page what the pick spaced out on this one.
+    const flags: Record<string, CleanFlags> = {}
     for (const [key, rule] of Object.entries(recipe?.fields || {})) {
-      flags[key] = { lower: !!rule.lower, stripCounts: !!rule.stripCounts }
+      flags[key] = { lower: !!rule.lower, stripCounts: !!rule.stripCounts, join: rule.join }
     }
     const s: Snapshot = {
       url: snap.url, domain: domain.value, recipeVersion: recipe?.version ?? 0,
       fields: snap.fields, flags, cover: snap.cover ?? undefined,
     }
-    const written = mergeIntoDraft(s)
-    panel.value?.showFlash(written.length ? `✓ filled: ${written.join(', ')}` : 'nothing new — manual fields are kept')
+    // Only for a draft that is not yet a record: filling one that already
+    // targets a title is an edit of that title, and needs no second opinion.
+    if (!draftState.cur.targetId) {
+      const name = String(s.fields.title || tab.title || '')
+      const near = matchTitles(name, Object.values(store.byId), 0.55, 4)
+      if (near.length) {
+        heldFill.value = s
+        fillMatches.value = near.map((m) => ({ id: m.t.id, title: m.t.title, score: m.score }))
+        return
+      }
+    }
+    applyFill(s)
   } finally {
     busy.value = false
   }
 }
+// ONE field, from THIS page, added to what the draft already holds. Autofill
+// answers "what does this page say about the title"; merge answers "what else
+// does this page have", which is the only question a title spread over many
+// pages can be asked.
+async function mergeField(field: string) {
+  const tab = active.value
+  if (!tab || !draftState.cur || !isEditableField(field)) return
+  busy.value = true
+  try {
+    const recipe = await getRecipe(domain.value)
+    const rule = snapshotRules(recipe)[field]
+    if (!rule) { panel.value?.showFlash(`${field} is not taught on this site yet — pick it first`); return }
+    const snap = await requestSnapshot({ [field]: rule })
+    const raw = snap?.fields[field]
+    if (!snap || raw === undefined) { panel.value?.showFlash('could not read the page'); return }
+    const added = mergeCapture(field, raw, { lower: !!rule.lower, stripCounts: !!rule.stripCounts },
+                               { url: snap.url, recipeVersion: recipe?.version ?? 0 })
+    panel.value?.showFlash(added ? `✓ ${field} +${added}` : `nothing new in ${field} on this page`)
+    if (added) noteCaptureSource(domain.value, tab.url)
+  } finally {
+    busy.value = false
+  }
+}
+
 function mergeIntoDraft(s: Snapshot): string[] {
   // cover arrived as URL-only (byte fetch failed)? hand it to the merge as a field
   const written = new Set<string>()
@@ -248,7 +463,11 @@ function startPick(field: PickField) {
 }
 function repick() { wv()?.send?.('set-picking', true) }
 function closeInspect() {
+  // BOTH: `stop-inspect` drops the highlight, `set-picking false` leaves pick
+  // mode itself — without the second one the page keeps its crosshair and the
+  // next click is still swallowed by a pick nobody is waiting for.
   wv()?.send?.('stop-inspect')
+  wv()?.send?.('set-picking', false)
   inspect.value = null
   pickingField.value = null
 }
@@ -610,6 +829,9 @@ function onNav(e: any, tabId: string) {
 function onReady(tabId: string) {
   const tab = tabById(tabId)
   if (tab && tab.zoom !== 1) wvRefs.get(tabId)?.setZoomFactor?.(tab.zoom)
+  // zoom and mute are properties of the LIVE view, so a fresh document has to
+  // be told both again — otherwise a muted tab starts shouting on every reload
+  if (tab?.muted) wvRefs.get(tabId)?.setAudioMuted?.(true)
   // the preload of the new document is live only now — an earlier scan request
   // would have been sent into the previous one
   if (pageCapture.active && tabId === pageCapture.tabId) scanNow(tabId)
@@ -623,31 +845,67 @@ function onReady(tabId: string) {
     <div class="toolbar">
       <span class="nb" title="Back" @click="nav('back')"><Icon name="back" :size="16" :sw="1.9" /></span>
       <span class="nb" title="Forward" @click="nav('forward')"><Icon name="forward" :size="16" :sw="1.9" /></span>
-      <span class="nb" title="Reload" @click="nav('reload')"><Icon name="refresh" :size="14" :sw="1.9" /></span>
+      <span class="nb" title="Reload (F5) · Shift for a cache bypass"
+            @click="nav($event.shiftKey ? 'reload-hard' : 'reload')">
+        <Icon name="refresh" :size="14" :sw="1.9" />
+      </span>
       <span class="nb" title="Home" @click="goHomePage"><Icon name="home" :size="15" :sw="1.9" /></span>
       <div class="url">
         <Icon name="lock" :size="12" :sw="1.9" :style="{ color: isHttps ? 'var(--good)' : 'var(--tx3)' }" />
-        <input v-model="addr" class="urlin mono" placeholder="Search or type a URL" @keydown.enter="go" />
+        <input ref="addrEl" v-model="addr" class="urlin mono" placeholder="Search or type a URL" @keydown.enter="go" />
       </div>
-      <div class="zoom">
-        <span class="nb" title="Zoom out" @click="zoomStep(-1)"><Icon name="minus" :size="13" :sw="2" /></span>
-        <span class="zlevel mono" title="Reset zoom" @click="zoomReset">{{ Math.round((active?.zoom ?? 1) * 100) }}%</span>
-        <span class="nb" title="Zoom in" @click="zoomStep(1)"><Icon name="plus" :size="13" :sw="2" /></span>
-      </div>
-      <span class="nb" :class="{ act: findOpen }" title="Find in page (Ctrl+F)" @click="findOpen ? closeFind() : (findOpen = true)"><Icon name="search" :size="14" :sw="2" /></span>
-      <span class="nb" title="Open DevTools" @click="devtools"><Icon name="code" :size="14" :sw="2" /></span>
+      <!-- one click saves or unsaves; the LIST of a source's links lives in the
+           rail, where you go to open one — a menu here just to hold one verb -->
+      <span class="nb bm" :class="{ saved: bookmarked }"
+            :title="!domain ? 'Bookmarks' : bookmarked
+              ? `Saved under ${domain} — click to remove`
+              : `Save this page under ${domain}`"
+            @click="toggleBookmark">
+        <Icon name="star" :size="15" :sw="1.9" :fill="bookmarked ? 'currentColor' : 'none'" />
+      </span>
+      <span class="bsep"></span>
       <span class="nb" :class="{ act: browser.panelOpen }" title="Toggle capture panel" @click="browser.panelOpen = !browser.panelOpen"><Icon name="panel" :size="14" :sw="1.9" /></span>
+      <!-- what is not worth a permanent slot: zoom (three of them), find (it is
+           on Ctrl+F anyway) and devtools -->
+      <MenuButton class="ovbtn" title="More" :width="240">
+        <template #default="{ close }">
+          <div class="zrow">
+            <span class="zlbl">Zoom</span>
+            <div style="flex:1"></div>
+            <span class="nb" title="Zoom out" @click="zoomStep(-1)"><Icon name="minus" :size="13" :sw="2" /></span>
+            <span class="zlevel mono" title="Reset zoom" @click="zoomReset">{{ Math.round((active?.zoom ?? 1) * 100) }}%</span>
+            <span class="nb" title="Zoom in" @click="zoomStep(1)"><Icon name="plus" :size="13" :sw="2" /></span>
+          </div>
+          <hr />
+          <button @click="close(); openFind()"><Icon name="search" :size="14" :sw="2" />Find in page<span class="kbd">Ctrl+F</span></button>
+          <button @click="close(); devtools()"><Icon name="code" :size="14" :sw="2" />Open DevTools</button>
+        </template>
+      </MenuButton>
     </div>
 
-    <!-- find bar -->
-    <div v-if="findOpen" class="findbar">
-      <Icon name="search" :size="13" :sw="2" />
-      <input v-model="findText" class="findin" placeholder="Find in page…" @keydown.enter="findNext(!$event.shiftKey)" @keydown.esc="closeFind" />
-      <span class="mono fcount">{{ findCount.total ? `${findCount.active}/${findCount.total}` : '—' }}</span>
-      <span class="nb" @click="findNext(false)"><Icon name="back" :size="13" :sw="2" style="transform:rotate(90deg)" /></span>
-      <span class="nb" @click="findNext(true)"><Icon name="forward" :size="13" :sw="2" style="transform:rotate(90deg)" /></span>
-      <span class="nb" @click="closeFind"><Icon name="x" :size="13" :sw="2" /></span>
-    </div>
+    <Teleport v-if="store.view === 'browser'" to="#siderail">
+      <RailSection v-for="sec in railSections" :key="sec.label" :label="sec.label">
+          <template v-for="src in sec.rows" :key="src.id">
+            <button :class="{ on: src.domain === domain }"
+                    :title="`${src.homepage}${src.hasRecipe ? ` · recipe v${src.recipeVer}` : ' · no recipe yet'}`"
+                    @click="newTab(src.homepage)">
+              <span class="rdot" :style="{ background: src.hasRecipe ? 'var(--good)' : 'transparent' }"></span>
+              <span class="rlbl">{{ src.domain }}</span>
+              <span class="n mono">{{ src.titles }}</span>
+              <span v-if="src.bookmarks.length" class="rchev"
+                    @click.stop="railOpen[src.domain] = !railOpen[src.domain]">
+                <Icon name="chevron" :size="10" :sw="2.4"
+                      :style="{ transform: railOpen[src.domain] ? '' : 'rotate(-90deg)' }" />
+              </span>
+            </button>
+            <button v-for="b in (railOpen[src.domain] ? src.bookmarks : [])" :key="b.url"
+                    class="sub" :title="b.url" @click="newTab(b.url)">
+              <Icon name="star" :size="11" :sw="1.8" fill="currentColor" style="color:var(--fav);flex:none" />
+              <span class="rlbl">{{ b.name }}</span>
+            </button>
+          </template>
+      </RailSection>
+    </Teleport>
 
     <div v-if="!isElectron" class="notice">
       <div class="nt">The browser runs in the desktop app</div>
@@ -671,7 +929,20 @@ function onReady(tabId: string) {
           @did-stop-loading="setTabLoading(t.id, false)"
           @dom-ready="onReady(t.id)"
           @found-in-page="onFound"
+          @media-started-playing="setTabAudible(t.id, true)"
+          @media-paused="setTabAudible(t.id, false)"
         />
+        <!-- find in page: over the DOCUMENT, inside the box the page occupies —
+             anchored to the view it would otherwise cover the toolbar and rail -->
+        <div v-if="findOpen" class="findbar">
+          <input ref="findEl" v-model="findText" class="findin" placeholder="Find in page"
+                 @keydown.enter="findNext(!$event.shiftKey)" @keydown.esc="closeFind" />
+          <span class="mono fcount">{{ findCount.total ? `${findCount.active}/${findCount.total}` : '0/0' }}</span>
+          <span class="fsep"></span>
+          <span class="nb" @click="findNext(false)"><Icon name="back" :size="13" :sw="2" style="transform:rotate(90deg)" /></span>
+          <span class="nb" @click="findNext(true)"><Icon name="forward" :size="13" :sw="2" style="transform:rotate(90deg)" /></span>
+          <span class="nb" @click="closeFind"><Icon name="x" :size="13" :sw="2" /></span>
+        </div>
         <div v-if="pickingField && !inspect" class="pickhint">
           Click the <b>{{ pickingField }}</b> on the page · Esc to cancel
         </div>
@@ -689,7 +960,10 @@ function onReady(tabId: string) {
           v-show="!inspect" ref="panel"
           :has-page="!!active && !!domain" :busy="busy"
           :page-url="active?.url || ''" :page-title="active?.title || ''"
-          @autofill="autofill" @capture="startPick($event)"
+          :domain="domain" :hidden-fields="sourceHidden"
+          @autofill="autofill" @capture="startPick($event)" @merge="mergeField($event)"
+          :fill-matches="fillMatches" @fill-anyway="fillAnyway" @fill-cancel="cancelFill"
+          @hide-field="setSourceHidden"
         />
       </div>
     </div>
@@ -705,14 +979,31 @@ function onReady(tabId: string) {
 .nb.act { background: var(--accentSoft); color: var(--accent); }
 .url { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; margin: 0 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
 .urlin { flex: 1; min-width: 0; border: none; background: transparent; outline: none; color: var(--tx); font-size: 11.5px; }
-.zoom { display: flex; align-items: center; gap: 1px; }
+.rdot { width: 5px; height: 5px; border-radius: 50%; flex: none; }
+.rlbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.n { font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); flex: none; }
+.rchev { width: 18px; height: 18px; flex: none; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; color: var(--tx3); }
+.rchev:hover { background: var(--panel); color: var(--tx); }
+.nb.bm.saved { color: var(--fav); }
+.bsep { width: 1px; height: 20px; background: var(--line); flex: none; margin: 0 4px; }
+.ovbtn :deep(.iconbtn) { width: 28px; height: 28px; border-radius: 7px; border-color: transparent; background: transparent; }
+.ovbtn :deep(.iconbtn:hover) { background: var(--hover); color: var(--tx); }
+/* the overflow's own rows: a zoom stepper is not a menu command */
+.zrow { display: flex; align-items: center; gap: 4px; height: 34px; padding: 0 9px; color: var(--tx2); }
+.zlbl { font: 500 12.5px/1 system-ui; }
+.kbd { margin-left: auto; font: 500 10px/1 ui-monospace, monospace; color: var(--tx3); border: 1px solid var(--line); border-radius: 4px; padding: 3px 5px; }
 .zlevel { font-size: 10px; color: var(--tx3); width: 38px; text-align: center; cursor: pointer; }
 .zlevel:hover { color: var(--tx); }
 
-.findbar { display: flex; align-items: center; gap: 7px; padding: 6px 12px; flex: none; background: var(--bg2); border-bottom: 1px solid var(--line); color: var(--tx3); }
-.findin { width: 240px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--tx); font: 400 12px/1 system-ui; padding: 6px 9px; outline: none; }
-.findin:focus { border-color: var(--accent); }
-.fcount { font-size: 10.5px; color: var(--tx3); min-width: 44px; text-align: center; }
+/* Top-right of the PAGE AREA and floating over it, the way every browser puts
+   it: a band in the layout would move the page the moment you searched it, and
+   anchoring it to the whole view put it over the toolbar and the rail instead
+   of over the document it searches. */
+.findbar { position: absolute; top: 10px; right: 16px; z-index: 60; display: flex; align-items: center; gap: 4px; padding: 5px 6px 5px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 14px 34px rgba(0,0,0,.5); color: var(--tx3); }
+.findin { width: 210px; border: none; background: transparent; color: var(--tx); font: 400 12.5px/1 system-ui; padding: 5px 2px; outline: none; }
+.fcount { font-size: 10.5px; color: var(--tx3); min-width: 40px; text-align: center; }
+.findbar .nb { width: 26px; height: 26px; }
+.fsep { width: 1px; height: 18px; background: var(--line); margin: 0 3px; flex: none; }
 
 .notice { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
 .nt { font: 600 15px/1 system-ui; color: var(--tx); }

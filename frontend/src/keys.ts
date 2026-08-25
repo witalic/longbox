@@ -21,6 +21,10 @@ export const KEY_ACTIONS: KeyAction[] = [
   { id: 'reader.marginsDec', label: 'Narrower margins', def: ['Comma'] },
   { id: 'reader.marginsInc', label: 'Wider margins', def: ['Period'] },
   { id: 'reader.back', label: 'Back to the title page', def: ['Escape'] },
+  // An episode has no pages to turn, so the same keys scrub it instead — in the
+  // reader and on the title page alike, wherever a player is running.
+  { id: 'video.back', label: 'Video: back 5 seconds', def: ['ArrowLeft'] },
+  { id: 'video.fwd', label: 'Video: forward 5 seconds', def: ['ArrowRight'] },
 ]
 
 const STORE_KEY = 'lb.keys'

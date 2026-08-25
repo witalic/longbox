@@ -1,8 +1,9 @@
 // Single backend client. URLs are relative to the origin: in production the
 // FastAPI sidecar serves this UI at /app/ so /api is same-origin; in dev, Vite
 // proxies /api to the sidecar (see vite.config.ts).
-import type { Author, DraftCommit, Facets, FieldDef, Recipe, Source, Title, UserPatch }
-  from './data'
+import type {
+  Bookmark, BrowseGroup, DraftCommit, Facets, FieldDef, FrameKind, Recipe, Source, Title, UserPatch,
+} from './data'
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -67,16 +68,26 @@ export const api = {
   libraryCount: () => req<{ total: number }>('/library/count'),
   facets: (q: LibraryQuery = {}) => req<Facets>(`/library/facets${qs({ ...q })}`),
   title: (id: string) => req<Title>(`/titles/${id}`),
-  authors: () => req<Author[]>('/authors'),
   setAuthorFav: (id: string, value: boolean) =>
-    req<Author[]>(`/authors/${id}/favorite?value=${value}`, { method: 'POST' }),
+    req<BrowseGroup[]>(`/authors/${id}/favorite?value=${value}`, { method: 'POST' }),
+  browse: (field: string, q: LibraryQuery = {}) =>
+    req<BrowseGroup[]>(`/browse/${field}${qs({ ...q })}`),
   sources: () => req<Source[]>('/sources'),
+  putSourcePrefs: (domain: string, body: { group?: string; bookmarks?: Bookmark[] }) =>
+    req<Source[]>(`/sources/${domain}`, jsonBody('PUT', body)),
+  sourceGroups: () => req<string[]>('/source-groups'),
+  putSourceGroups: (groups: string[]) =>
+    req<string[]>('/source-groups', jsonBody('PUT', { groups })),
   createTitle: (draft: DraftCommit) => req<Title>('/titles', jsonBody('POST', draft)),
   commitTitle: (id: string, draft: DraftCommit) => req<Title>(`/titles/${id}`, jsonBody('PUT', draft)),
   removeTitle: (id: string) => reqVoid(`/titles/${id}`, { method: 'DELETE' }),
   patchUser: (id: string, patch: UserPatch) => req<Title>(`/titles/${id}/user`, jsonBody('PATCH', patch)),
   setCover: (id: string, body: CoverUpload) => req<Title>(`/titles/${id}/cover`, jsonBody('POST', body)),
   deleteCover: (id: string) => req<Title>(`/titles/${id}/cover`, { method: 'DELETE' }),
+  putField: (id: string, body: {
+    label: string; type: string; facet?: boolean; multiline?: boolean; placeholder?: string
+  }) => req<FieldDef[]>(`/fields/${id}`, jsonBody('PUT', body)),
+  deleteField: (id: string) => req<FieldDef[]>(`/fields/${id}`, { method: 'DELETE' }),
   recipe: (domain: string) => req<Recipe>(`/recipes/${domain}`),
   saveRecipe: (domain: string, recipe: Recipe) => req<Recipe>(`/recipes/${domain}`, jsonBody('PUT', recipe)),
   removeRecipe: (domain: string) => reqVoid(`/recipes/${domain}`, { method: 'DELETE' }),
@@ -85,7 +96,13 @@ export const api = {
   // armed downloads: the arm is consumed when a download STARTS (its chapter
   // binding is claimed immediately), so downloads run in parallel
   armDownload: (body: ArmInfo) => req<DownloadsState>('/downloads/arm', jsonBody('POST', body)),
+  // drop a download record (after the shell has stopped it, or to clear a
+  // failed one). Stopping the transfer itself is the shell's — it owns it.
+  forgetDownload: (id: string) => req<void>(`/downloads/${id}`, { method: 'DELETE' }),
   downloadsState: () => req<DownloadsState>('/downloads'),
+  // arm the chapter an interrupted transfer was bound to, so restarting it
+  // claims the same entry it was claiming before
+  rearmDownload: (id: string) => req<DownloadsState>(`/downloads/${id}/rearm`, { method: 'POST' }),
   disarmDownload: () => reqVoid('/downloads/arm', { method: 'DELETE' }),
   // chapter media
   chapterPages: (tid: string, cid: string) => req<{ count: number }>(`/titles/${tid}/chapters/${cid}/pages`),
@@ -96,6 +113,17 @@ export const api = {
   // the episode file itself; the server answers Range, so the player seeks
   chapterVideoSrc: (tid: string, cid: string, v: string) =>
     `/api/titles/${tid}/chapters/${cid}/video?v=${encodeURIComponent(v)}`,
+  // an episode's stored stills — `poster` is the one frame a tile wears, `sheet`
+  // the contact grid a preview shows. The window cuts them (frames.ts), the
+  // vault keeps them.
+  // `v` here is the chapter's STILLS version — keying these by the media
+  // version would re-point the <video> of a playing episode when a poster lands
+  chapterFramesSrc: (tid: string, cid: string, kind: FrameKind, v: string, w = 0) =>
+    `/api/titles/${tid}/chapters/${cid}/frames/${kind}`
+    + `?v=${encodeURIComponent(v)}${w ? `&w=${w}` : ''}`,
+  putChapterFrames: (tid: string, cid: string, kind: FrameKind, jpeg: Blob, grid = '') =>
+    req<Title>(`/titles/${tid}/chapters/${cid}/frames/${kind}${grid ? `?grid=${grid}` : ''}`,
+      { method: 'PUT', headers: { 'Content-Type': 'image/jpeg' }, body: jpeg }),
   // what only a player can measure without an ffprobe we do not ship
   setVideoMeta: (tid: string, cid: string, duration: number) =>
     req<Title>(`/titles/${tid}/chapters/${cid}/video/meta`, jsonBody('POST', { duration })),
@@ -166,8 +194,13 @@ export interface DownloadItem {
   pageUrl: string
   received: number
   total: number
-  state: 'downloading' | 'done' | 'failed'
+  // interrupted = stopped with its place kept, and resumable
+  state: 'downloading' | 'done' | 'failed' | 'interrupted'
   error: string
+  resume?: {
+    path: string; urlChain: string[]; offset: number; total: number
+    eTag: string; lastModified: string
+  } | null
 }
 
 export interface DownloadsState {

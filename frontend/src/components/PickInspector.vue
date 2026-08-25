@@ -4,7 +4,7 @@
 // every pick, for every field. The live preview is truthful: it shows exactly
 // the cleaned value that would land in the draft.
 import { computed, reactive, watch } from 'vue'
-import { captureValue, defaultClean, type CleanFlags } from '../normalize'
+import { captureValue, defaultClean, defaultJoin, type CleanFlags } from '../normalize'
 import { isListField } from '../draft'
 import Icon from './Icon.vue'
 
@@ -29,6 +29,7 @@ export interface PickUse {
   index: number
   lower: boolean
   stripCounts: boolean
+  join: string // only meaningful when a list lands in a one-value field
   useAnchor: boolean // prefer matching the value by its row label (position-independent)
   values: string[]
 }
@@ -39,7 +40,7 @@ const props = defineProps<{
   target: number
   probe: ProbeResult // live result for the composed selector (owned by the browser)
   anchor?: string    // the row label naming the picked value, when one was detected
-  saved?: { lower?: boolean; stripCounts?: boolean } // the field's stored recipe flags
+  saved?: { lower?: boolean; stripCounts?: boolean; join?: string } // the field's stored recipe flags
 }>()
 
 export interface ProbeReq { selector: string; anchor: string }
@@ -69,6 +70,7 @@ const state = reactive({
   // re-teaching a field starts from its SAVED cleanup flags, not the defaults
   lower: props.saved?.lower ?? dc.lower,
   stripCounts: props.saved?.stripCounts ?? dc.stripCounts,
+  join: props.saved?.join || defaultJoin(props.field),
   // a detected row label beats any class/position selector across pages
   useAnchor: !!props.anchor && props.field !== 'cover' && props.field !== 'pages',
 })
@@ -183,6 +185,15 @@ function cleanView(v: string | undefined): string {
   return Array.isArray(r) ? (r[0] ?? '') : String(r)
 }
 
+// A one-value field taking several matches has to string them together, and the
+// string is what gets stored — so it is a decision, shown and made here.
+const joining = computed(() => state.scope === 'all' && !isListField(props.field) && !isImage.value)
+const JOIN_PRESETS = [
+  { label: 'bar', v: ' | ' }, { label: 'comma', v: ', ' }, { label: 'space', v: ' ' },
+]
+const joinedView = computed(() => String(captureValue(props.field, props.probe.values,
+  { lower: state.lower, stripCounts: state.stripCounts, join: state.join }, false)))
+
 function use() {
   emit('use', {
     selector: selector.value,
@@ -190,6 +201,7 @@ function use() {
     index: state.scope === 'one' ? state.index : 0,
     lower: state.lower,
     stripCounts: state.stripCounts,
+    join: state.join,
     useAnchor: state.useAnchor,
     values: state.scope === 'all' ? props.probe.values.slice() : [props.probe.values[state.index] ?? ''],
   })
@@ -288,6 +300,16 @@ function use() {
         <span v-if="state.scope === 'one' && probe.count > 12" class="anote">Loose match — enable an “inside” ancestor or a class above instead of relying on position.</span>
       </div>
 
+      <!-- how several matches become one value (text fields only) -->
+      <div v-if="joining" class="isec">
+        <span class="ilbl">JOIN WITH · {{ props.field }} keeps one value, so the matches are strung together</span>
+        <div class="mrow">
+          <input v-model="state.join" class="joinin mono" :placeholder="defaultJoin(props.field)" />
+          <button v-for="p in JOIN_PRESETS" :key="p.label" class="tok" :class="{ on: state.join === p.v }"
+                  @click="state.join = p.v">{{ p.label }}</button>
+        </div>
+      </div>
+
       <!-- cleanup flags (per field) -->
       <div v-if="!isImage" class="isec">
         <span class="ilbl">CLEANUP</span>
@@ -296,27 +318,29 @@ function use() {
           <button class="tok" :class="{ on: state.lower }" @click="state.lower = !state.lower"><span class="box">{{ state.lower ? '✓' : '' }}</span>lowercase</button>
         </div>
       </div>
-
-      <!-- selector + truthful preview -->
-      <div class="isec">
-        <span class="ilbl">SELECTOR</span>
-        <div class="selbox mono">{{ selector || '—' }}</div>
-        <div class="matchline" :class="{ warn: !probe.count }">
-          {{ state.useAnchor && props.anchor
-            ? (probe.count ? `✓ label “${props.anchor}” → ${probe.count} value${probe.count === 1 ? '' : 's'}` : `label “${props.anchor}” not found — selector fallback applies`)
-            : (probe.count ? `✓ matches ${probe.count}` : 'no matches') }}
-        </div>
-        <div v-if="field === 'cover'" class="covprevi">
-          <span class="thumb" :style="{ backgroundImage: `url(${probe.preview || probe.values[0] || ''})` }"></span>
-          <span class="curl mono">{{ probe.values[0] || '—' }}</span>
-        </div>
-        <div v-else-if="state.scope === 'all'" class="pvv">
-          <span v-for="(v, i) in probe.values.slice(0, 12)" :key="i" class="pvchip">{{ cleanView(v) }}</span>
-          <span v-if="probe.values.length > 12" class="pvchip more">+{{ probe.values.length - 12 }}</span>
-        </div>
-        <div v-else class="pvv"><span class="pvchip">{{ cleanView(probe.values[state.index]) || '∅' }}</span></div>
-      </div>
     </div>
+
+    <div class="ianswer">
+      <span class="ilbl">SELECTOR</span>
+      <div class="selbox mono">{{ selector || '—' }}</div>
+      <div class="matchline" :class="{ warn: !probe.count }">
+        {{ state.useAnchor && props.anchor
+          ? (probe.count ? `✓ label “${props.anchor}” → ${probe.count} value${probe.count === 1 ? '' : 's'}` : `label “${props.anchor}” not found — selector fallback applies`)
+          : (probe.count ? `✓ matches ${probe.count}` : 'no matches') }}
+      </div>
+      <div v-if="field === 'cover'" class="covprevi">
+        <span class="thumb" :style="{ backgroundImage: `url(${probe.preview || probe.values[0] || ''})` }"></span>
+        <span class="curl mono">{{ probe.values[0] || '—' }}</span>
+      </div>
+      <!-- joined into one value: show the VALUE, not the parts it came from -->
+      <div v-else-if="joining" class="pvv"><span class="pvchip joined">{{ joinedView || '∅' }}</span></div>
+      <div v-else-if="state.scope === 'all'" class="pvv">
+        <span v-for="(v, i) in probe.values.slice(0, 12)" :key="i" class="pvchip">{{ cleanView(v) }}</span>
+        <span v-if="probe.values.length > 12" class="pvchip more">+{{ probe.values.length - 12 }}</span>
+      </div>
+      <div v-else class="pvv"><span class="pvchip">{{ cleanView(probe.values[state.index]) || '∅' }}</span></div>
+    </div>
+
     <div class="ifoot">
       <button class="btn ghost" title="Click a different element on the page" @click="emit('repick')">Pick again</button>
       <button class="btn accent" :disabled="!probe.count" @click="use">Use</button>
@@ -365,6 +389,8 @@ function use() {
 .pbtn:disabled { opacity: .4; cursor: default; }
 .pnum { font-size: 11px; color: var(--tx2); }
 .pval { font: 400 11px/1.4 system-ui; color: var(--tx2); min-width: 0; }
+.joinin { width: 74px; height: 26px; padding: 0 8px; border-radius: 6px; background: var(--panel2); border: 1px solid var(--line); color: var(--tx); font-size: 11.5px; outline: none; }
+.joinin:focus { border-color: var(--accent); }
 .pstore { color: var(--accent); }
 .selbox { font-size: 11px; color: var(--tx); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; word-break: break-all; }
 .matchline { font: 600 10.5px/1 system-ui; color: var(--good); }
@@ -375,7 +401,9 @@ function use() {
 .pvv { display: flex; flex-wrap: wrap; gap: 5px; }
 .pvchip { font: 500 10.5px/1.3 system-ui; color: var(--tx2); background: var(--panel2); border: 1px solid var(--line); padding: 4px 7px; border-radius: 5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pvchip.more { color: var(--tx3); }
+.pvchip.joined { white-space: normal; overflow: visible; text-overflow: clip; }
 .anote { font: 400 10px/1.5 system-ui; color: var(--tx3); }
 .pickedmark { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .05em; color: var(--good); border: 1px solid color-mix(in srgb, var(--good) 40%, var(--line)); padding: 3px 6px; border-radius: 4px; flex: none; }
+.ianswer { flex: none; border-top: 1px solid var(--line); background: var(--panel); padding: 11px 14px; display: flex; flex-direction: column; gap: 8px; }
 .ifoot { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 14px; border-top: 1px solid var(--line); }
 </style>

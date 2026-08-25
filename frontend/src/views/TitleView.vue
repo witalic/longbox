@@ -1,35 +1,84 @@
 <script setup lang="ts">
-// View-only: ALL editing happens through THE draft in the browser's capture
-// panel (one editor, one flow — design/state-model.md §4). Only the user layer
-// (favorite, rating, read state) writes through instantly from here.
+// The record's home. Metadata is edited HERE, through THE draft (one working
+// copy, one editor — design/state-model.md §4): entering edit seeds the draft
+// from this title and hands it to MetadataEditor; a brand-new title is the same
+// editor with no seed. The capture dock edits the same draft when you are on a
+// page. Metadata edit and contents edit are exclusive, so Save is never
+// ambiguous. The user layer (favorite, rating, read state) writes through
+// instantly in either mode.
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import Icon from '../components/Icon.vue'
+import FieldVisibility from '../components/FieldVisibility.vue'
+import MenuButton from '../components/MenuButton.vue'
+import MetadataEditor from '../components/MetadataEditor.vue'
 import VideoSurface from '../components/VideoSurface.vue'
 import EntryFields from '../components/EntryFields.vue'
 import Dropdown from '../components/Dropdown.vue'
 import { openInBrowser } from '../browser'
+import {
+  commitDraft, confirmDiscard, discardDraft, draftFromTitle, draftState, isDirty,
+} from '../draft'
 import { readLocalOne, writeLocalOne } from '../local'
 import { api } from '../api'
 import {
-  ARCHIVE_RE, FILE_ACCEPT, IMAGE_RE, MEDIA_ACCEPT, VIDEO_RE, compareChapterNums, coverAt,
+  ARCHIVE_RE, FILE_ACCEPT, IMAGE_RE, MEDIA_ACCEPT, VIDEO_RE, compareChapterNums, coverStyle,
   faviconFor, filterOptions, isReadable, isUnsupported, mediaLabel, orderedChaptersOf,
-  sameChapter, unsupportedNote,
+  chaptersInScope, labelChoices, nextLabel, nextLabels, sameChapter, unsupportedNote,
 } from '../data'
 
 // domains whose favicon failed to load → fall back to the initial letters
 const noIcon = reactive<Record<string, boolean>>({})
 import {
   addChapterRow, askConfirm, cache, clearTitleSource, commitChapterOrder, deleteTitle,
-  editChapterRow, filterBy, filterByPerson, groupSuggestions, langSuggestions, openReader,
-  setFavorite, setRating, setRead, store, titleById,
+  editChapterRow, filterBy, filterByPerson, goView, groupRings, hiddenOf,
+  langRings, openReader, openTitle, setFavorite, setFieldHidden, setRating, setRead,
+  store, titleById, visibleFields,
 } from '../store'
 import {
-  READ_COLOR as readColor, groupByNum, statusColor, hueFor, initials,
+  READ_COLOR as readColor, groupByNum, statusColor, initials,
   type Chapter, type ReadState, type Title,
 } from '../data'
 
 const t = computed<Title | undefined>(() => titleById(store.activeTitle))
-const pagesTotal = computed(() => (t.value?.chapters ?? []).reduce((n, c) => n + (c.pages || 0), 0))
+
+// Metadata editing binds to the draft. Creating a title is the same state with
+// nothing to seed from: no record yet, so the page IS the draft.
+const metaEdit = ref(false)
+const creating = computed(() => !t.value && !!draftState.cur && !draftState.cur.targetId)
+const editing = computed(() => metaEdit.value || creating.value)
+const pageTitle = computed(() => t.value?.title || draftState.cur?.meta.title || 'New title')
+
+// The rows this page offers, and the ones you told it to stop offering.
+const editableFields = computed(() => store.fields.filter((f) => f.editable))
+const shownFields = computed(() => visibleFields('title', editableFields.value))
+const hiddenFieldsHere = computed(() => hiddenOf('title', editableFields.value))
+
+watch(() => store.activeTitle, () => { metaEdit.value = false })
+
+async function startMetaEdit() {
+  if (!t.value || !(await confirmDiscard())) return
+  draftFromTitle(t.value)
+  editMode.value = false // contents editing steps aside; one Save, one meaning
+  metaEdit.value = true
+}
+function startContentsEdit() {
+  metaEdit.value = false
+  editMode.value = true
+}
+async function cancelMetaEdit() {
+  if (!(await confirmDiscard())) return
+  const wasCreating = creating.value
+  discardDraft()
+  metaEdit.value = false
+  if (wasCreating) goView('library')
+}
+async function saveMeta() {
+  const id = await commitDraft()
+  if (!id) return
+  discardDraft() // committed: the page reads the vault again, not a working copy
+  metaEdit.value = false
+  if (store.activeTitle !== id) void openTitle(id)
+}
 
 const NEXT_READ: Record<ReadState, ReadState> = { unread: 'reading', reading: 'read', read: 'unread' }
 
@@ -51,11 +100,6 @@ async function removeSourceLink() {
     message: `Unlink ${t.value.source.domain} from “${t.value.title}”? The title and its data stay; only the link to the source page is removed.`,
   })
   if (ok) await clearTitleSource(t.value)
-}
-function coverStyle(x: { cover: string; id: string; title: string }) {
-  return x.cover
-    ? { background: `#181a1f url("${coverAt(x.cover, 480)}") center/cover no-repeat` }
-    : { background: hueFor(x.id || x.title) }
 }
 const flagDefs = [
   { key: 'adult', tag: '18+', color: 'var(--adult)' },
@@ -169,8 +213,19 @@ const iLang = ref('')
 const iGroup = ref('')
 const iUrl = ref('')
 const importing = ref(false)
-const iLangSuggest = computed(() => langSuggestions(t.value?.chapters ?? []))
-const iGroupSuggest = computed(() => groupSuggestions())
+// This title's own entries first, then everything from the site it came from.
+const iLangSuggest = computed(() => langRings(t.value?.chapters ?? [], t.value?.source.domain ?? ''))
+const iGroupSuggest = computed(() => groupRings(t.value?.chapters ?? [], t.value?.source.domain ?? ''))
+const iLabelScope = computed(() =>
+  chaptersInScope(t.value?.chapters ?? [], iLang.value, iGroup.value))
+const iLabelSuggest = computed(() => labelChoices(iLabelScope.value))
+const iLabelNext = computed(() => nextLabels(iLabelScope.value))
+// The next number is already in the box — the dropdown is for the exception, not
+// the rule. A label the human typed stands until an entry is filed, and every
+// title counts from its own beginning.
+const iTouched = ref(false)
+watch(() => t.value?.id, () => { iTouched.value = false })
+watch(iLabelNext, (next) => { if (!iTouched.value) iNum.value = next[0] ?? '' }, { immediate: true })
 
 async function importEntryArchive(file: File) {
   if (!t.value) return
@@ -179,7 +234,8 @@ async function importEntryArchive(file: File) {
     cache([await api.importChapterArchive(t.value.id,
       { num: iNum.value.trim(), lang: iLang.value.trim(), group: iGroup.value.trim(), url: iUrl.value.trim() }, file)])
     importOpen.value = false
-    iNum.value = ''
+    iNum.value = nextLabel(iNum.value.trim())
+    iTouched.value = false
     iUrl.value = ''
   } catch (err) {
     store.error = err instanceof Error ? err.message : String(err)
@@ -193,7 +249,8 @@ async function addRowOnly() {
   if (await addChapterRow(t.value, {
     num: iNum.value.trim(), lang: iLang.value.trim(), group: iGroup.value.trim(), url: iUrl.value.trim(),
   })) {
-    iNum.value = ''
+    iNum.value = nextLabel(iNum.value.trim())
+    iTouched.value = false
     iUrl.value = ''
   }
 }
@@ -213,7 +270,8 @@ async function uploadEntryImages(files: File[]) {
     if (!row) return
     cache([await api.addChapterPages(t.value.id, row.id, files)])
     importOpen.value = false
-    iNum.value = ''
+    iNum.value = nextLabel(iNum.value.trim())
+    iTouched.value = false
     iUrl.value = ''
   } catch (err) {
     store.error = err instanceof Error ? err.message : String(err)
@@ -337,6 +395,42 @@ const thumb = computed(() => THUMB_SIZES[thumbKey.value])
 
 const openChapter = computed<Chapter | undefined>(() =>
   t.value?.chapters.find((c) => c.id === openPages.value))
+
+// How tall the pane may be. It is STICKY, so the viewport alone cannot answer:
+// at the top of the page it begins below the metadata band, and a height taken
+// from `100vh` there runs off the bottom of the window — which is what cut the
+// player's controls off. So it is measured from where the pane actually begins,
+// and only when the layout above it changes: a max-height that moved with the
+// scroll would resize a playing video under the cursor.
+// The page itself does not scroll: the record's head is the head, and what
+// scrolls is the content under it — the entry list, or the pages.
+
+// THE HEAD. Collapsed it is a fixed slab that always fits, so the page never
+// grows a scrollbar of its own; opened it shows everything a title carries and
+// takes its scroll with it. A record with little metadata never clips, and then
+// there is nothing to open — the control only appears when something is hidden.
+const bandEl = ref<HTMLElement | null>(null)
+const headOpen = ref(readLocalOne('lb.titleHead', ['on', 'off'] as const, 'off') === 'on')
+const headClipped = ref(false)
+watch(headOpen, (v) => writeLocalOne('lb.titleHead', v ? 'on' : 'off'))
+function measureHead() {
+  const el = bandEl.value
+  if (el) headClipped.value = el.scrollHeight > el.clientHeight + 4
+}
+// The pane is ONE box: the row's whole right side, the same for a page grid, a
+// preview sheet and a playing episode. Nothing is measured and nothing resizes
+// when playback starts — only what is drawn inside it changes.
+let headWatch: ResizeObserver | null = null
+onMounted(() => {
+  headWatch = new ResizeObserver(measureHead)
+  // the band's own box does not change when its CONTENT grows past the cap, so
+  // what is watched is the content
+  const band = bandEl.value
+  if (band) for (const el of [band, ...band.children]) headWatch.observe(el)
+  measureHead()
+})
+onBeforeUnmount(() => headWatch?.disconnect())
+watch(() => [t.value?.id, editing.value, headOpen.value], () => void nextTick(measureHead))
 
 function pageSrc(cid: string, index: number, v: string): string {
   // cap 1.5 crops webtoon-length pages to the tiles' 2:3 shape (previews only)
@@ -554,6 +648,17 @@ async function deleteSelectedPages() {
     pageCount.value = (await api.chapterPages(t.value.id, cid)).count
   } catch (e) { store.error = String(e) }
 }
+// Windows refuses to unlink a file that is still open, and the surface showing
+// this very entry is the one holding it. So it is closed FIRST and given a beat
+// to drop the connection — otherwise deleting the episode you are watching
+// fails, and (before the vault deleted in a safe order) left the entry gutted.
+async function releaseIfOpen(cid: string) {
+  if (openPages.value !== cid) return
+  openPages.value = null
+  await nextTick()
+  await new Promise((r) => setTimeout(r, 150))
+}
+
 async function removeDownload(c: Chapter) {
   if (!t.value) return
   const ok = await askConfirm({
@@ -562,8 +667,8 @@ async function removeDownload(c: Chapter) {
   })
   if (!ok) return
   try {
+    await releaseIfOpen(c.id)
     cache([await api.deleteChapterMedia(t.value.id, c.id)])
-    if (openPages.value === c.id) openPages.value = null
   } catch (e) { store.error = String(e) }
 }
 async function removeRow(c: Chapter) {
@@ -574,24 +679,67 @@ async function removeRow(c: Chapter) {
   })
   if (!ok) return
   try {
+    await releaseIfOpen(c.id)
     cache([await api.deleteChapterRow(t.value.id, c.id)])
-    if (openPages.value === c.id) openPages.value = null
   } catch (e) { store.error = String(e) }
 }
 </script>
 
 <template>
-  <div class="tv viewcol" v-if="t">
-    <div class="viewscroll scroll">
-    <div class="band">
-      <div class="coverwrap">
-        <div class="cover" :style="coverStyle(t)">
+  <div class="tv viewcol" v-if="t || editing">
+    <!-- ONE band over the record: where you are, and what you can do to it -->
+    <div class="head">
+      <template v-if="!editing">
+        <span class="crumb" @click="goView('library')">Library</span>
+        <span class="csep">›</span>
+        <span class="cnow">{{ pageTitle }}</span>
+        <div style="flex:1"></div>
+        <button class="btn" @click="startMetaEdit"><Icon name="edit" :size="14" :sw="1.9" />Edit metadata</button>
+        <button v-if="t" class="btn" title="Open the source page with this title as the capture target"
+                @click="openInBrowser(t.id)">
+          <Icon name="browser" :size="14" :sw="1.9" />Capture from web
+        </button>
+        <MenuButton v-if="t" v-slot="{ close }">
+          <button :disabled="!t.source.url" @click="close(); openInBrowser(t.id, t.source.url)">
+            <Icon name="forward" :size="14" :sw="2" />Open source page
+          </button>
+          <button :disabled="!t.source.url" @click="close(); removeSourceLink()">
+            <Icon name="x" :size="14" :sw="2" />Unlink the source
+          </button>
+          <hr />
+          <button class="danger" @click="close(); removeTitle()">
+            <Icon name="x" :size="14" :sw="2" />Delete this title
+          </button>
+        </MenuButton>
+      </template>
+      <template v-else>
+        <span class="editing"><Icon name="edit" :size="14" :sw="1.9" />{{ creating ? 'New title' : 'Editing metadata' }}</span>
+        <span v-if="isDirty()" class="dirtymark">· unsaved</span>
+        <div style="flex:1"></div>
+        <MenuButton icon="settings" title="Which fields this page shows" :width="300">
+          <FieldVisibility title="FIELDS ON TITLE PAGES" :fields="shownFields" :hidden="hiddenFieldsHere"
+                           note="Your setting — it applies to every title. What a source offers the capture picker is set in the capture panel."
+                           @set="(id, h) => setFieldHidden('title', id, h)" />
+        </MenuButton>
+        <button class="btn ghost" @click="cancelMetaEdit">Cancel</button>
+        <button class="btn accent" :disabled="!draftState.cur?.meta.title.trim() || draftState.cur?.saving"
+                @click="saveMeta">
+          <Icon name="check" :size="13" :sw="2.2" />{{ draftState.cur?.saving ? 'Saving…' : (creating ? 'Create' : 'Save') }}
+        </button>
+      </template>
+    </div>
+
+    <div class="viewscroll">
+    <div ref="bandEl" class="band" :class="{ open: headOpen || editing, clipped: headClipped && !headOpen && !editing }">
+      <!-- editing? the cover is a field of the editor like any other -->
+      <div v-if="t && !editing" class="coverwrap">
+        <div class="cover" :style="coverStyle(t, 480)">
           <template v-if="!t.cover">
             <div class="ctitle">{{ t.title }}</div>
             <div class="cstory mono">{{ t.authors.join(', ') }}</div>
           </template>
           <button class="favbtn" :style="{ color: t.fav ? 'var(--fav)' : '#cfd3dc' }" @click="setFavorite(t, !t.fav)">
-            <Icon name="heart" :size="16" :fill="t.fav ? 'var(--fav)' : 'none'" />
+            <Icon name="star" :size="16" :sw="1.8" :fill="t.fav ? 'var(--fav)' : 'none'" />
           </button>
           <div class="covacts">
             <button class="covbtn" :title="t.cover ? 'Replace the cover with an image file' : 'Set a cover from an image file'" @click="coverFileEl?.click()">
@@ -605,16 +753,11 @@ async function removeRow(c: Chapter) {
         </div>
       </div>
 
-      <div class="info">
+      <div v-if="t && !editing" class="info">
         <div class="badges">
           <span v-if="t.type" class="typebadge">{{ t.type }}</span>
           <span v-if="t.status" class="statusbadge"><span class="sdot" :style="{ background: statusColor(t.status) }"></span>{{ t.status }}</span>
           <span v-if="t.year" class="yearbadge mono">{{ t.year }}</span>
-          <div style="flex:1"></div>
-          <button class="iconbtn" title="Delete" @click="removeTitle"><Icon name="x" :size="15" :sw="2" /></button>
-          <button class="btn" title="Edit in the browser's capture panel (draft seeded from this title)" @click="openInBrowser(t.id)">
-            <Icon name="edit" :size="14" :sw="1.9" />Edit
-          </button>
         </div>
 
         <h1 class="title">{{ t.title }}</h1>
@@ -681,11 +824,23 @@ async function removeRow(c: Chapter) {
           </button>
         </div>
       </div>
+
+      <!-- THE editor — the same component the capture dock renders, with room -->
+      <div v-else class="info">
+        <MetadataEditor wide surface="title" />
+      </div>
+
+      <button v-if="!editing && (headClipped || headOpen)" class="btn ghost chsmall headmore"
+              :title="headOpen ? 'Show less of the record' : 'Show everything this record carries'"
+              @click="headOpen = !headOpen">
+        <Icon name="chevron" :size="12" :sw="2.2" :style="headOpen ? 'transform:rotate(180deg)' : ''" />
+        {{ headOpen ? 'Less' : 'More' }}
+      </button>
     </div>
 
     <!-- CONTENTS: entries with ONE free-text label; a label with several
          translations groups into a guide-lined block (contents-editor-mockup v3) -->
-    <div class="lower">
+    <div v-if="t" class="lower">
       <div class="chapters">
         <div class="chhead">
           <h2>Contents</h2>
@@ -698,7 +853,7 @@ async function removeRow(c: Chapter) {
             <button v-if="t.chapterOrder === 'manual'" class="btn ghost chsmall" title="Back to smart number order" @click="sortAuto">Sort №</button>
             <button class="btn accent chsmall" @click="editMode = false; selPages = []; importOpen = false; editRow = null">Done</button>
           </template>
-          <button v-else class="iconbtn chedit" title="Edit contents: add/edit entries, attach files, drag to reorder" @click="editMode = true">
+          <button v-else class="iconbtn chedit" title="Edit contents: add/edit entries, attach files, drag to reorder" @click="startContentsEdit()">
             <Icon name="edit" :size="13" :sw="1.9" />
           </button>
         </div>
@@ -709,13 +864,16 @@ async function removeRow(c: Chapter) {
         <!-- add entry — the SAME form design as the inline edit below -->
         <div v-if="editMode && importOpen" class="entryform addform" :class="{ drophot: entryDropHot }"
              @dragover.prevent="entryDropHot = true" @dragleave="entryDropHot = false" @drop.prevent="onEntryDrop">
-          <EntryFields v-model:label="iNum" v-model:lang="iLang" v-model:group="iGroup" v-model:url="iUrl"
-                       :lang-suggest="iLangSuggest" :group-suggest="iGroupSuggest"
+          <EntryFields :label="iNum" @update:label="iNum = $event; iTouched = true"
+                       v-model:lang="iLang" v-model:group="iGroup" v-model:url="iUrl"
+                       :lang-suggest="iLangSuggest.near" :group-suggest="iGroupSuggest.near"
+                       :lang-more="iLangSuggest.all" :group-more="iGroupSuggest.all"
+                       :label-suggest="iLabelSuggest"
                        label-placeholder="5 / 2024 Artworks / Extra" />
           <div class="irow">
             <span class="drophint mono">drop an archive · a video · images · a whole folder</span>
             <div style="flex:1"></div>
-            <button class="btn ghost chsmall" :disabled="importing" @click="importOpen = false; iNum = ''; iUrl = ''">Cancel</button>
+            <button class="btn ghost chsmall" :disabled="importing" @click="importOpen = false; iUrl = ''">Cancel</button>
             <button class="btn ghost chsmall" :disabled="!iNum.trim() || importing" title="Create the entry row without a file — add images later from the pages pane" @click="addRowOnly">Add row only</button>
             <button class="btn accent chsmall" :disabled="!iNum.trim() || importing" title="One archive (.zip/.cbz/.rar/.7z) or a set of images (webp converts to a standard format); drop a folder onto the form" @click="filesEl?.click()">
               {{ importing ? 'Importing…' : 'Choose files…' }}
@@ -725,7 +883,7 @@ async function removeRow(c: Chapter) {
         </div>
         <input ref="attachEl" type="file" :accept="FILE_ACCEPT" style="display:none" @change="onAttachFile" />
 
-        <div v-if="tree.length" class="chlist">
+        <div v-if="tree.length" class="chlist scroll">
           <template v-for="node in tree" :key="node.num">
             <!-- GROUP: header row + translations inside a guide-lined block -->
             <template v-if="node.rows.length > 1">
@@ -766,7 +924,9 @@ async function removeRow(c: Chapter) {
                   </div>
                   <div v-if="editMode && editRow === c.id" class="entryform">
                     <EntryFields v-model:label="eLabel" v-model:lang="eLang" v-model:group="eGroup" v-model:url="eUrl"
-                                 :lang-suggest="iLangSuggest" :group-suggest="iGroupSuggest" />
+                                 :lang-suggest="iLangSuggest.near" :group-suggest="iGroupSuggest.near"
+                       :lang-more="iLangSuggest.all" :group-more="iGroupSuggest.all"
+                       :label-suggest="iLabelSuggest" />
                     <div class="irow" style="justify-content:flex-end">
                       <button class="btn ghost chsmall" @click="editRow = null">Cancel</button>
                       <button class="btn accent chsmall" :disabled="!eLabel.trim()" @click="saveEntryEdit">Save</button>
@@ -803,7 +963,9 @@ async function removeRow(c: Chapter) {
               </div>
               <div v-if="editMode && editRow === node.rows[0].id" class="entryform">
                 <EntryFields v-model:label="eLabel" v-model:lang="eLang" v-model:group="eGroup" v-model:url="eUrl"
-                             :lang-suggest="iLangSuggest" :group-suggest="iGroupSuggest" />
+                             :lang-suggest="iLangSuggest.near" :group-suggest="iGroupSuggest.near"
+                       :lang-more="iLangSuggest.all" :group-more="iGroupSuggest.all"
+                       :label-suggest="iLabelSuggest" />
                 <div class="irow" style="justify-content:flex-end">
                   <button class="btn ghost chsmall" @click="editRow = null">Cancel</button>
                   <button class="btn accent chsmall" :disabled="!eLabel.trim()" @click="saveEntryEdit">Save</button>
@@ -819,7 +981,7 @@ async function removeRow(c: Chapter) {
         </div>
         <div v-else class="emptychapters">
           No entries yet — capture or download them from the source in the browser,
-          or <a class="emptyact" @click="editMode = true; importOpen = true">add them by hand</a> (rows, archives, loose images).
+          or <a class="emptyact" @click="startContentsEdit(); importOpen = true">add them by hand</a> (rows, archives, loose images).
         </div>
       </div>
 
@@ -829,9 +991,9 @@ async function removeRow(c: Chapter) {
           <span v-if="openChapter" class="mono pglabel">{{ openChapter.num }}<template v-if="openChapter.lang"> · {{ openChapter.lang }}</template> — {{ openChapter.kind === 'video' ? (mediaLabel(openChapter) || 'video') : `${pageCount} pages` }}<template v-if="selPages.length"> · <span style="color:var(--accent)">{{ selPages.length }} selected</span></template></span>
           <div style="flex:1"></div>
           <button v-if="openChapter?.kind === 'video' && openChapter.dl" class="btn ghost chsmall"
-                  title="Play full screen (opens the reader)"
+                  title="Open this episode in the full window — the episode list travels with it. The player's own button is what fills the screen."
                   @click="t && openReader(t.id, openChapter.id, 0)">
-            <Icon name="expand" :size="12" :sw="2" />Full screen
+            <Icon name="forward" :size="12" :sw="2" />Open player
           </button>
           <template v-if="editMode && openChapter">
             <button class="btn ghost chsmall" :disabled="importing" title="Append image files to this entry (its archive is created on first add)" @click="addImgEl?.click()">
@@ -868,7 +1030,8 @@ async function removeRow(c: Chapter) {
             <input ref="addImgEl" type="file" accept="image/*" multiple style="display:none" @change="onAddImages" />
             <input ref="addDirEl" type="file" webkitdirectory style="display:none" @change="onAddImages" />
           </template>
-          <div class="seg zseg">
+          <!-- page thumbnails have a size; an episode's surface is the pane -->
+          <div v-if="openChapter?.kind !== 'video'" class="seg zseg">
             <button v-for="k in (['s', 'm', 'l'] as const)" :key="k" :class="{ on: thumbKey === k }"
                     :title="`Thumbnail size: ${k.toUpperCase()}`" @click="thumbKey = k">{{ k.toUpperCase() }}</button>
           </div>
@@ -900,14 +1063,33 @@ async function removeRow(c: Chapter) {
       </div>
     </div>
     </div>
-    <div class="lfoot">
-      <span class="mono lfinfo">{{ t.chapters.length }} entr{{ t.chapters.length === 1 ? 'y' : 'ies' }}<template v-if="pagesTotal"> · {{ pagesTotal }} pages</template></span>
-    </div>
   </div>
 </template>
 
 <style scoped>
-.band { display: flex; gap: 28px; padding: 26px 30px 24px; align-items: flex-start; }
+.head { height: 44px; flex: none; border-bottom: 1px solid var(--line); display: flex; flex-wrap: nowrap; min-width: 0; align-items: center; gap: 10px; padding: 0 16px 0 24px; }
+.crumb { font: 500 13px/1 system-ui; color: var(--tx3); cursor: pointer; flex: none; }
+.crumb:hover { color: var(--accent); }
+.csep { color: var(--tx3); flex: none; }
+.cnow { font: 600 13px/1 system-ui; color: var(--tx); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editing { display: inline-flex; align-items: center; gap: 8px; font: 600 13px/1 system-ui; color: var(--warn); flex: none; }
+.dirtymark { font: 500 10.5px/1 ui-monospace, monospace; color: var(--warn); flex: none; }
+/* One screen: a head that always fits, a row under it that takes what is left,
+   and scrolling only where content genuinely runs long — the entry list and the
+   pages. Opening the head is what a long record gets instead of a scrollbar. */
+.viewscroll { display: flex; flex-direction: column; overflow: hidden; }
+/* The cap is ONE number for both states, and the open one is never the smaller
+   of the two: `62%` of a short window is less than the collapsed slab, so on a
+   small screen opening the head used to make it shrink. Both states shrink the
+   same way when the row below claims its minimum, so the two never disagree
+   about who gives way. */
+.band { position: relative; display: flex; gap: 28px; padding: 26px 30px 24px; align-items: flex-start; flex: 0 1 auto; min-height: 0; max-height: var(--head-cap, 336px); overflow: hidden; }
+.band.open { max-height: max(var(--head-cap, 336px), 62%); overflow-y: auto; }
+.band.clipped::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 56px; pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--bg));
+}
+.headmore { position: absolute; right: 26px; bottom: 10px; z-index: 2; }
 .coverwrap { flex: none; width: 196px; }
 .cover { position: relative; width: 196px; height: 284px; border-radius: 8px; overflow: hidden; box-shadow: 0 10px 28px rgba(0,0,0,.45); border: 1px solid var(--line); display: flex; flex-direction: column; justify-content: flex-end; padding: 16px; }
 .ctitle { font: 600 26px/1.02 Georgia, serif; letter-spacing: -.5px; color: #f2ede6; text-shadow: 0 2px 10px rgba(0,0,0,.5); }
@@ -955,11 +1137,16 @@ async function removeRow(c: Chapter) {
 .srcx { width: 22px; height: 22px; border: none; border-radius: 5px; background: transparent; color: var(--tx3); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 .srcx:hover { background: var(--hover); color: var(--adult); }
 
-.lower { border-top: 1px solid var(--line); padding: 22px 26px 30px; display: flex; gap: 20px; align-items: flex-start; }
-.chapters { flex: 0 1 470px; min-width: 340px; }
+.lower { border-top: 1px solid var(--line); padding: 22px 26px 24px; display: flex; gap: 20px; align-items: flex-start; flex: 1 1 0; min-height: 240px; overflow: hidden; }
+/* The split is a PROPORTION of the window, never the content: a basis of `auto`
+   measured what was in the column, so every chapter with a different page count
+   moved the boundary. A third of the row is right at every size — 560px of
+   entry list is generous beside a wide pane and absurd beside a narrow one —
+   and the clamp keeps it readable at the bottom and sane at the top. */
+.chapters { flex: 0 1 clamp(300px, 32%, 560px); min-width: 0; align-self: stretch; display: flex; flex-direction: column; min-height: 0; }
 .chhead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .chhead h2 { margin: 0; font: 600 16px/1 system-ui; color: var(--tx); }
-.chlist { margin-top: 14px; display: flex; flex-direction: column; gap: 3px; }
+.chlist { margin-top: 14px; display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .chrow { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; border: 1px solid transparent; }
 .chrow:hover { background: var(--panel2); }
 .chrow.node { color: var(--tx2); cursor: pointer; }
@@ -1028,10 +1215,15 @@ async function removeRow(c: Chapter) {
 .chact:hover { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
 .chact.danger:hover { color: var(--adult); border-color: color-mix(in srgb, var(--adult) 45%, var(--line)); }
 
-/* the pages pane: right column, sticky, its own scroll */
-.panevideo { min-height: 320px; }
-.pagespane { flex: 1; min-width: 0; position: sticky; top: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); overflow: hidden; display: flex; flex-direction: column; max-height: calc(100vh - 120px); }
-.pghead { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--line); flex: none; }
+/* the pages pane: right column, its own scroll.
+   The episode surface is EXACTLY the room left under the pane's head — a basis
+   of zero and nothing else, so it can neither claim the head's band nor spill
+   past the pane's bottom edge, where a play button and a player's own controls
+   would be cut off with it. The same box for the preview and for playback. */
+.panevideo { flex: 1 1 0; min-height: 0; }
+.pagespane { flex: 1 1 0; min-width: 0; align-self: stretch; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); overflow: hidden; display: flex; flex-direction: column; }
+.pghead { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--line); flex: none; flex-wrap: wrap; }
+.pglabel { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pglabel { font-size: 11px; color: var(--tx2); }
 .zseg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .zseg button { border: none; background: transparent; color: var(--tx3); font: 700 9.5px/1 ui-monospace, monospace; padding: 5px 8px; cursor: pointer; }

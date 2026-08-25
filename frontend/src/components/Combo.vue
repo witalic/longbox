@@ -6,31 +6,59 @@ const props = withDefaults(defineProps<{
   suggestions: string[]
   placeholder?: string
   addMode?: boolean // true: emit 'add' on pick/Enter then clear; false: two-way bind the value
+  // Everything else that may be picked. The near list is what this SOURCE (or
+  // this title) already uses; the rest joins in the moment you start typing,
+  // because then you are looking for something, not being offered something.
+  moreSuggestions?: string[]
+  // Commit on Enter / pick / blur instead of on every keystroke — for a value
+  // whose write costs something (a request, a new group) rather than a filter.
+  lazy?: boolean
   wide?: boolean
-}>(), { modelValue: '', placeholder: '', addMode: false, wide: false })
+}>(), { modelValue: '', placeholder: '', addMode: false, lazy: false, wide: false,
+        moreSuggestions: () => [] })
 const emit = defineEmits<{ (e: 'update:modelValue', v: string): void; (e: 'add', v: string): void }>()
 
 const root = ref<HTMLElement | null>(null)
 const open = ref(false)
 const local = ref('')
+const draft = ref<string | null>(null) // lazy mode: what is typed but not committed
+// A prefilled value is not a query. Until a key is pressed the list shows what
+// there IS; filtering by the value already in the box hid every other option.
+const typed = ref(false)
 
 const text = computed({
-  get: () => (props.addMode ? local.value : props.modelValue),
+  get: () => (props.addMode ? local.value : (draft.value ?? props.modelValue)),
   set: (v: string) => {
     if (props.addMode) local.value = v
+    else if (props.lazy) draft.value = v
     else emit('update:modelValue', v)
+    typed.value = true
     open.value = true
   },
 })
 const matches = computed(() => {
-  const q = text.value.trim().toLowerCase()
-  return props.suggestions.filter((s) => !q || s.toLowerCase().includes(q)).slice(0, 30)
+  const q = typed.value ? text.value.trim().toLowerCase() : ''
+  const pool = q ? [...props.suggestions, ...props.moreSuggestions] : props.suggestions
+  const seen = new Set<string>()
+  return pool
+    .filter((s) => (!q || s.toLowerCase().includes(q)) && !seen.has(s) && seen.add(s))
+    .slice(0, 40)
 })
 function commit(v: string) {
   const val = v.trim()
-  if (!val) return
+  // an empty commit CLEARS a lazy value on purpose ("no group"); the eager
+  // callers keep their old guard, where an empty keystroke means nothing yet
+  if (!val && !props.lazy) return
   if (props.addMode) { emit('add', val); local.value = '' }
-  else emit('update:modelValue', val)
+  else { emit('update:modelValue', val); draft.value = null }
+  typed.value = false
+  open.value = false
+}
+// Leaving the field closes its list. A PICK fired its mousedown first and has
+// already committed, so this only ever ends an abandoned edit — but tabbing away
+// used to leave the menu hanging over the next field.
+function onBlur() {
+  if (props.lazy && draft.value !== null) commit(text.value)
   open.value = false
 }
 function onDocDown(e: MouseEvent) { if (root.value && !root.value.contains(e.target as Node)) open.value = false }
@@ -42,7 +70,9 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown))
   <div ref="root" class="combo" :style="wide ? 'display:block;width:100%' : ''">
     <input :value="text" class="comboin" :class="{ wide }" :placeholder="placeholder"
            @input="text = ($event.target as HTMLInputElement).value"
-           @focus="open = true" @keydown.enter.prevent="commit(text)" />
+           @focus="typed = false; open = true" @keydown.enter.prevent="commit(text)"
+           @keydown.esc="draft = null; open = false"
+           @blur="onBlur" />
     <div v-if="open && matches.length" class="menu combomenu scroll">
       <div v-for="s in matches" :key="s" class="item" @mousedown.prevent="commit(s)">{{ s }}</div>
     </div>

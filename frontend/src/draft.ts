@@ -8,7 +8,7 @@
 import { reactive } from 'vue'
 import { api } from './api'
 import {
-  blankMeta, chapterRowsOf, metaOf,
+  blankMeta, chapterRowsOf, metaForWire, metaOf,
   type ChapterRow, type FieldProvenance, type Flags, type Provenance, type Title, type TitleMeta,
 } from './data'
 import { isRecord, readLocal } from './local'
@@ -202,6 +202,34 @@ export function applyCapture(
   d.provenance[field] = { origin: 'auto', ...prov }
 }
 
+// ADD this page's values to a list field instead of replacing it. A title that
+// lives as separate pages — a chapter per page, each carrying its own tags —
+// cannot be captured any other way: every page would overwrite the last.
+//
+// The result is a value no single page holds, so the field becomes MANUAL: a
+// later automatic capture must not quietly flatten it back to one page's worth.
+// Returns how many values were new.
+export function mergeCapture(
+  field: EditableField, raw: string | string[], clean: CleanFlags, prov: Omit<FieldProvenance, 'origin'>,
+): number {
+  const d = draftState.cur
+  if (!d || !isListField(field)) return 0
+  const have = fieldValue(d.meta, field)
+  const kept = Array.isArray(have) ? have : []
+  const seen = new Set(kept.map((v) => v.toLowerCase()))
+  const added: string[] = []
+  for (const v of captureValue(field, raw, clean, true) as string[]) {
+    const key = v.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    added.push(v)
+  }
+  if (!added.length) return 0
+  setFieldValue(d.meta, field, [...kept, ...added])
+  d.provenance[field] = { origin: 'manual', ...prov }
+  return added.length
+}
+
 export function applyCoverCapture(cover: { data: string; contentType: string; sourceUrl: string }, prov: Omit<FieldProvenance, 'origin'>) {
   const d = draftState.cur
   if (!d) return
@@ -280,7 +308,9 @@ export async function commitDraft(asNew = false): Promise<string | null> {
   if (!d || !d.meta.title.trim()) return null
   d.saving = true
   try {
-    const body = { meta: d.meta, provenance: d.provenance, chapters: d.chapters }
+    const body = {
+      meta: metaForWire(d.meta, store.fields), provenance: d.provenance, chapters: d.chapters,
+    }
     const target = asNew ? null : d.targetId
     let saved: Title = target ? await api.commitTitle(target, body) : await api.createTitle(body)
     // cover bytes ride along right after the document commit

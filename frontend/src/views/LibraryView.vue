@@ -5,22 +5,31 @@
 // matches come first, zero-count ones sink to the end and dim. The results
 // column scrolls independently and is paginated in the footer bar (page memory
 // survives view switches). Middle-click opens a title's tab in the background.
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import Icon from '../components/Icon.vue'
+import SearchBox from '../components/SearchBox.vue'
+import FilterBlock from '../components/FilterBlock.vue'
+import MenuButton from '../components/MenuButton.vue'
 import Stars from '../components/Stars.vue'
 import Dropdown from '../components/Dropdown.vue'
 import Pager from '../components/Pager.vue'
 import {
   store, openTitle, openTitleBackground, openReader, toggleFav, resetFilters,
-  toggleFacet, facetState, anyFilterActive, askConfirm, deleteTitles, goAuthorsFor, setRating,
-  opening, facetFields, type FacetKey,
+  activeFilterCount, askConfirm, deleteTitles, goAuthorsFor, setRating,
+  opening,
 } from '../store'
 import { startNewTitle } from '../browser'
 import { api } from '../api'
-import { isBoolMap, readLocal, readLocalOne, writeLocal, writeLocalOne } from '../local'
-import { coverAt, orderedChaptersOf, initials, statusColor, hueFor, type Chapter, type FacetValue, type Title } from '../data'
+import { ensurePostersFor } from '../frames'
+import { readLocalOne, writeLocalOne } from '../local'
+import { coverStyle, mediaLabel, orderedChaptersOf, initials, statusColor, type Chapter, type Title } from '../data'
 
 const lib = store.library
+
+// the filter block can hide (a preference shared with the browse view)
+const fsideOpen = ref(readLocalOne('lb.fside', ['0', '1'] as const, '1') === '1')
+watch(fsideOpen, (v) => writeLocalOne('lb.fside', v ? '1' : '0'))
+const activeCount = computed(() => activeFilterCount())
 const results = computed(() => store.titles)
 const shown = computed(() =>
   results.value.slice((curPage.value - 1) * pageSize.value, curPage.value * pageSize.value))
@@ -28,83 +37,6 @@ const total = computed(() => store.total)
 
 interface FOpt { v: string | number; l: string }
 const SORT_OPTS: FOpt[] = [{ v: 'updated', l: 'Recently updated' }, { v: 'title', l: 'Title A–Z' }, { v: 'rating', l: 'My rating' }, { v: 'unread', l: 'Unread count' }]
-// reading progress — the USER-layer axis, independent of the manga's own status
-const progRows = [
-  { v: 'all', label: 'All' }, { v: 'unread', label: 'Unread' },
-  { v: 'reading', label: 'Reading' }, { v: 'completed', label: 'Completed' },
-] as const
-
-const FLAG_LABELS: Record<string, string> = { adult: '18+', ai: 'AI', censored: 'Censored' }
-// The sidebar's reading ORDER is a view preference, not a field list: the set of
-// sections comes from the served registry, and anything it gains — a custom
-// field — simply appends after the ones spelled out here.
-const FACET_ORDER = ['authors', 'characters', 'studio', 'type', 'status', 'flags',
-  'genres', 'tags', 'language']
-const VALUE_LABELS: Record<string, Record<string, string>> = { flags: FLAG_LABELS }
-// A selection bag only holds the fields actually filtered on, so a section that
-// has never been touched — or a field added since — reads as empty, not as a crash.
-function picked(bag: Record<string, string[]>, key: FacetKey): string[] {
-  return bag[key] ?? []
-}
-const SECTIONS = computed(() => [...facetFields()]
-  .sort((a, b) => ((FACET_ORDER.indexOf(a.id) + 1) || 99) - ((FACET_ORDER.indexOf(b.id) + 1) || 99))
-  .map((f) => ({
-    key: f.id as FacetKey,
-    label: f.label.toUpperCase(),
-    cap: f.control === 'vocab',   // type/status are stored folded, shown capitalized
-    labels: VALUE_LABELS[f.id],
-  })))
-const SEARCH_MIN = 7 // facets longer than this get their type-to-filter box
-const facetQuery = reactive<Record<string, string>>({})
-
-// the whole filter sidebar can hide (shared with the Authors view)
-const fsideOpen = ref(readLocalOne('lb.fside', ['0', '1'] as const, '1') === '1')
-watch(fsideOpen, (v) => writeLocalOne('lb.fside', v ? '1' : '0'))
-
-// sections are COLLAPSED by default; the open set persists across sessions,
-// and a collapsed section with an active selection shows a badge
-const openSec = reactive<Record<string, boolean>>(
-  readLocal('lb.facetOpen', isBoolMap, {}))
-watch(openSec, () => writeLocal('lb.facetOpen', { ...openSec }), { deep: true })
-function toggleSec(k: string) { openSec[k] = !openSec[k] }
-function selCount(key: FacetKey): number {
-  return picked(lib.include, key).length + picked(lib.exclude, key).length
-}
-const PROG_LABEL: Record<string, string> = { unread: 'Unread', reading: 'Reading', completed: 'Completed' }
-
-// The row SET and base order come from the GLOBAL (unfiltered) vocabulary, so
-// nothing ever appears/disappears mid-filter; current counts overlay on top.
-function rowsFor(key: FacetKey): FacetValue[] {
-  const cur = new Map((store.facets[key] ?? []).map((x) => [x.v, x.n]))
-  const rows = (store.globalFacets[key] ?? []).map((g) => ({ v: g.v, n: cur.get(g.v) ?? 0 }))
-  const seen = new Set(rows.map((r) => r.v))
-  for (const v of [...picked(lib.include, key), ...picked(lib.exclude, key)]) {
-    if (!seen.has(v)) rows.push({ v, n: cur.get(v) ?? 0 })
-  }
-  return rows
-}
-// SELECTED values (included AND excluded) pin to the top of the block, then
-// live unselected ones, then dead zeros — a toggled value is always in sight.
-function orderedRows(key: FacetKey): FacetValue[] {
-  const rows = rowsFor(key)
-  const sel = rows.filter((r) => facetState(key, r.v) !== '')
-  const live = rows.filter((r) => facetState(key, r.v) === '' && r.n > 0)
-  const dead = rows.filter((r) => facetState(key, r.v) === '' && r.n === 0)
-  return [...sel, ...live, ...dead]
-}
-function visibleRows(key: FacetKey): FacetValue[] {
-  const rows = orderedRows(key)
-  const q = (facetQuery[key] || '').trim().toLowerCase()
-  return q ? rows.filter((r) => r.v.toLowerCase().includes(q)) : rows
-}
-function sectionActive(key: FacetKey): boolean {
-  return picked(lib.include, key).length > 0 || picked(lib.exclude, key).length > 0
-}
-function clearSection(key: FacetKey) {
-  lib.include[key] = []
-  lib.exclude[key] = []
-}
-
 // ---- PAGINATION (hard page limit — the expanded previews are heavy) ----
 const lmainEl = ref<HTMLElement | null>(null)
 const pageSize = computed(() => (lib.density === 'expanded' ? 12 : lib.density === 'dense' ? 60 : 48))
@@ -123,17 +55,13 @@ const rangeLabel = computed(() => {
 })
 // a changed selection (or density) starts from page 1
 watch(
-  () => JSON.stringify([lib.search, lib.progress, lib.favOnly, lib.minRating, lib.sort, lib.include, lib.exclude, lib.density]),
+  () => JSON.stringify([lib.search, lib.progress, lib.favOnly, lib.minRating, lib.sort,
+                        lib.shelf, lib.include, lib.exclude, lib.density]),
   () => goPage(1),
 )
 
 function unreadLabel(t: Title): string {
   return t.unread > 0 ? `${t.unread} new` : '—'
-}
-function coverStyle(t: Title, w = 420) {
-  return t.cover
-    ? { background: `#181a1f url("${coverAt(t.cover, w)}") center/cover no-repeat` }
-    : { background: hueFor(t.id) }
 }
 // The expanded strip previews the FIRST downloaded chapter: its first pages as
 // fixed-proportion tiles (2:3), horizontally scrollable when they overflow —
@@ -145,6 +73,16 @@ function orderedChapterRows(t: Title): Chapter[] {
 function previewChapter(t: Title): Chapter | undefined {
   // the expanded strip previews PAGES; an episode has no page tiles to show
   return orderedChapterRows(t).find((c) => c.dl && c.kind !== 'video' && c.pages > 0)
+}
+// A downloaded EPISODE has no page to show, but it is not nothing: the strip
+// names it and plays it. (A real poster frame would have to be extracted and
+// stored at ingest — the app has no decoder, so it does not pretend to have one.)
+// Cutting a frame is the window's job (frames.ts) and it happens once, for the
+// episodes actually on screen.
+watch(shown, (list) => ensurePostersFor(list), { immediate: true })
+
+function previewEpisodes(t: Title): Chapter[] {
+  return orderedChapterRows(t).filter((c) => c.dl && c.kind === 'video').slice(0, PREVIEW_PAGES)
 }
 function recent(t: Title): Chapter[] {
   return orderedChapterRows(t).slice(0, 8)
@@ -208,16 +146,25 @@ async function deleteSelected() {
             <button class="btn ghost" @click="toggleSelMode">Cancel</button>
           </template>
           <template v-else>
-            <Dropdown label="SORT" :model-value="lib.sort" :options="SORT_OPTS" @update:model-value="lib.sort = String($event)" />
+            <SearchBox v-model="lib.search" placeholder="Search title, author…" />
+            <Dropdown :model-value="lib.sort" :options="SORT_OPTS" @update:model-value="lib.sort = String($event)" />
             <div class="seg">
               <button class="opt" :class="{ on: lib.density === 'grid' }" title="Covers" @click="lib.density = 'grid'"><Icon name="grid" :size="15" :sw="1.9" /></button>
               <button class="opt" :class="{ on: lib.density === 'dense' }" title="Dense list" @click="lib.density = 'dense'"><Icon name="rows" :size="15" :sw="1.9" /></button>
               <button class="opt" :class="{ on: lib.density === 'expanded' }" title="Detailed rows" @click="lib.density = 'expanded'"><Icon name="detail" :size="15" :sw="1.9" /></button>
             </div>
-            <button v-if="results.length" class="btn" title="Select titles for bulk actions" @click="toggleSelMode"><Icon name="check" :size="13" :sw="2.2" />Select</button>
-            <button class="btn accent" title="Open a fresh draft in the browser's capture panel" @click="startNewTitle()">
-              <Icon name="plus" :size="14" :sw="2.2" />Add title
+            <button class="btn" :class="{ acton: fsideOpen }" title="Filters" @click="fsideOpen = !fsideOpen">
+              <Icon name="filter" :size="13" :sw="1.9" />Filters
+              <span v-if="activeCount" class="numbadge">{{ activeCount }}</span>
             </button>
+            <MenuButton v-slot="{ close }">
+              <button :disabled="!results.length" @click="close(); toggleSelMode()">
+                <Icon name="check" :size="14" :sw="2.2" />Select titles…
+              </button>
+              <button @click="close(); startNewTitle()">
+                <Icon name="plus" :size="14" :sw="2.2" />Add title
+              </button>
+            </MenuButton>
           </template>
         </div>
     </div>
@@ -253,7 +200,7 @@ async function deleteSelected() {
             <span v-if="t.unread && !selMode" class="badge">{{ t.unread }} new</span>
             <span v-if="selMode" class="selbox" :class="{ on: isSel(t.id) }"><Icon v-if="isSel(t.id)" name="check" :size="11" :sw="3" /></span>
             <button v-if="!selMode" class="favbtn" :style="{ color: t.fav ? 'var(--fav)' : '#cfd3dc' }" @click.stop="toggleFav(t)">
-              <Icon name="heart" :size="14" :fill="t.fav ? 'var(--fav)' : 'none'" />
+              <Icon name="star" :size="14" :sw="1.8" :fill="t.fav ? 'var(--fav)' : 'none'" />
             </button>
           </div>
           <div>
@@ -305,7 +252,7 @@ async function deleteSelected() {
           <span style="width:96px;display:flex;justify-content:flex-end"><Stars :value="t.rating" :size="13" interactive @set="setRating(t, $event)" /></span>
           <span class="mono" :style="{ width: '64px', textAlign: 'right', color: t.unread ? 'var(--accent)' : 'var(--tx3)' }">{{ unreadLabel(t) }}</span>
           <button class="iconbtn plain" style="width:32px;height:32px" :style="{ color: t.fav ? 'var(--fav)' : 'var(--tx3)' }" @click.stop="toggleFav(t)">
-            <Icon name="heart" :size="14" :fill="t.fav ? 'var(--fav)' : 'none'" />
+            <Icon name="star" :size="14" :sw="1.8" :fill="t.fav ? 'var(--fav)' : 'none'" />
           </button>
         </div>
       </div>
@@ -337,7 +284,7 @@ async function deleteSelected() {
             </div>
             <div class="efoot">
               <button class="iconbtn plain" :style="{ color: t.fav ? 'var(--fav)' : 'var(--tx3)' }" @click.stop="toggleFav(t)">
-                <Icon name="heart" :size="16" :fill="t.fav ? 'var(--fav)' : 'none'" />
+                <Icon name="star" :size="16" :sw="1.8" :fill="t.fav ? 'var(--fav)' : 'none'" />
               </button>
               <Stars :value="t.rating" :size="15" interactive @set="setRating(t, $event)" />
               <span class="mono ecounts">{{ t.chapters.length }} ch<template v-if="pagesOf(t)"> · {{ pagesOf(t) }} pg</template></span>
@@ -353,6 +300,18 @@ async function deleteSelected() {
                    @click.stop="selMode ? toggleSel(t.id) : openReader(t.id, previewChapter(t)!.id, i - 1)">
                 <img :src="pageThumb(t, previewChapter(t)!, i - 1)" loading="lazy" alt="" />
                 <div class="pgnum mono">{{ i }}</div>
+              </div>
+            </template>
+            <template v-else-if="previewEpisodes(t).length">
+              <div v-for="c in previewEpisodes(t)" :key="c.id" class="pagetile open ep"
+                   :class="{ shot: c.poster }"
+                   :title="`Play ep. ${c.num}${c.lang ? ' · ' + c.lang : ''}`"
+                   @click.stop="selMode ? toggleSel(t.id) : openReader(t.id, c.id, 0)">
+                <img v-if="c.poster" :src="api.chapterFramesSrc(t.id, c.id, 'poster', c.stills, 240)" loading="lazy" alt="" />
+                <Icon v-else name="film" :size="20" :sw="1.6" />
+                <div class="eplbl mono">{{ c.num || '—' }}</div>
+                <div class="eplen mono">{{ mediaLabel(c) }}</div>
+                <span v-if="c.read === 'unread'" class="pgnew"></span>
               </div>
             </template>
             <template v-else>
@@ -374,163 +333,21 @@ async function deleteSelected() {
     </div>
     </div>
 
-    <!-- faceted sidebar (right), hideable -->
-    <aside v-if="fsideOpen" class="fside">
-      <div class="ftop">
-        <div class="fsearch">
-          <Icon name="search" :size="13" />
-          <input v-model="lib.search" class="fsearchin" placeholder="Search title, author…" />
-        </div>
-        <button class="iconbtn plain fhide" title="Hide the filter panel" @click="fsideOpen = false">
-          <Icon name="panel" :size="14" :sw="1.9" />
-        </button>
-      </div>
-      <div class="fbody scroll">
-
-      <div class="fsec">
-        <div class="fhead click" @click="toggleSec('reading')">
-          <Icon name="chevron" :size="10" :sw="2.4" class="fchev" :style="{ transform: openSec.reading ? '' : 'rotate(-90deg)' }" />
-          <span class="flbl">READING</span>
-          <span v-if="!openSec.reading && lib.progress !== 'all'" class="fbadge mono">{{ PROG_LABEL[lib.progress] }}</span>
-        </div>
-        <template v-if="openSec.reading">
-          <div v-for="p in progRows" :key="p.v" class="frow" :class="{ in: lib.progress === p.v }" @click="lib.progress = p.v">
-            <span class="fbox"><Icon v-if="lib.progress === p.v" name="check" :size="9" :sw="3.2" /></span>
-            <span class="fname">{{ p.label }}</span>
-          </div>
-        </template>
-      </div>
-
-      <div class="fsec">
-        <div class="fhead click" @click="toggleSec('favorites')">
-          <Icon name="chevron" :size="10" :sw="2.4" class="fchev" :style="{ transform: openSec.favorites ? '' : 'rotate(-90deg)' }" />
-          <span class="flbl">FAVORITES</span>
-          <Icon v-if="!openSec.favorites && lib.favOnly" name="heart" :size="11" fill="var(--fav)" style="color:var(--fav)" />
-        </div>
-        <template v-if="openSec.favorites">
-          <div class="frow" :class="{ in: lib.favOnly }" @click="lib.favOnly = !lib.favOnly">
-            <span class="fbox"><Icon v-if="lib.favOnly" name="check" :size="9" :sw="3.2" /></span>
-            <span class="fname">Favorites only</span>
-            <Icon name="heart" :size="12" :fill="lib.favOnly ? 'var(--fav)' : 'none'" :style="{ color: lib.favOnly ? 'var(--fav)' : 'var(--tx3)' }" />
-          </div>
-        </template>
-      </div>
-
-      <div v-for="s in SECTIONS" :key="s.key" class="fsec">
-        <div class="fhead click" @click="toggleSec(s.key)">
-          <Icon name="chevron" :size="10" :sw="2.4" class="fchev" :style="{ transform: openSec[s.key] ? '' : 'rotate(-90deg)' }" />
-          <span class="flbl">{{ s.label }}</span>
-          <span v-if="!openSec[s.key] && selCount(s.key)" class="fbadge mono">{{ selCount(s.key) }}</span>
-          <button v-if="sectionActive(s.key)" class="fclear" title="Clear this facet" @click.stop="clearSection(s.key)"><Icon name="x" :size="10" :sw="2.4" /></button>
-        </div>
-        <template v-if="openSec[s.key]">
-          <div v-if="!rowsFor(s.key).length" class="fempty">nothing yet</div>
-          <template v-else>
-            <div v-if="rowsFor(s.key).length > SEARCH_MIN" class="fsub">
-              <Icon name="search" :size="11" />
-              <input v-model="facetQuery[s.key]" class="fsubin" :placeholder="`Filter ${s.label.toLowerCase()}…`" />
-            </div>
-            <!-- FIXED-height block, scroll inside — the sidebar layout never moves -->
-            <div class="flist scroll">
-              <div v-for="r in visibleRows(s.key)" :key="r.v" class="frow"
-                   :class="[facetState(s.key, r.v), { dead: r.n === 0 && facetState(s.key, r.v) === '' }]"
-                   :title="facetState(s.key, r.v) === '' ? 'Click: include · again: exclude' : facetState(s.key, r.v) === 'in' ? 'Included — click to exclude' : 'Excluded — click to clear'"
-                   @click="toggleFacet(s.key, r.v)">
-                <span class="fbox">
-                  <Icon v-if="facetState(s.key, r.v) === 'in'" name="check" :size="9" :sw="3.2" />
-                  <Icon v-else-if="facetState(s.key, r.v) === 'out'" name="minus" :size="9" :sw="3.2" />
-                </span>
-                <span class="fname" :class="{ cap: s.cap }">{{ s.labels?.[r.v] ?? r.v }}</span>
-                <span class="fcount mono">{{ r.n }}</span>
-              </div>
-            </div>
-          </template>
-        </template>
-      </div>
-
-      <div class="fsec">
-        <div class="fhead click" @click="toggleSec('rating')">
-          <Icon name="chevron" :size="10" :sw="2.4" class="fchev" :style="{ transform: openSec.rating ? '' : 'rotate(-90deg)' }" />
-          <span class="flbl">MY RATING</span>
-          <span v-if="!openSec.rating && lib.minRating" class="fbadge mono">{{ lib.minRating }}+</span>
-        </div>
-        <template v-if="openSec.rating">
-          <div class="fstars">
-            <span v-for="i in 5" :key="i" class="fstar" @click="lib.minRating = lib.minRating === i ? 0 : i">
-              <Icon name="star" :size="15" :sw="1.5" :fill="i <= lib.minRating ? 'var(--warn)' : 'none'"
-                    :style="{ color: i <= lib.minRating ? 'var(--warn)' : 'var(--tx3)' }" />
-            </span>
-            <span class="frlbl mono">{{ lib.minRating ? `${lib.minRating}+` : 'any' }}</span>
-          </div>
-        </template>
-      </div>
-
-      </div>
-      <div class="ffoot">
-        <button class="btn ghost fclearall" :disabled="!anyFilterActive()" @click="resetFilters">Clear all filters</button>
-      </div>
-    </aside>
-    <button v-else class="fopen" title="Show the filter panel" @click="fsideOpen = true">
-      <Icon name="panel" :size="15" :sw="1.9" />
-      <span v-if="anyFilterActive()" class="fopendot" title="Filters are active"></span>
-    </button>
+    <FilterBlock v-if="fsideOpen" @close="fsideOpen = false" />
   </div>
 </template>
 
 <style scoped>
-.lib { display: flex; height: 100%; overflow: hidden; }
-.lmaincol { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.lib { display: flex; height: 100%; overflow: hidden; position: relative; }
 
-/* faceted sidebar (RIGHT): its own column, never scrolled by the results */
-.fside { width: 264px; flex: none; border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
-.ftop { height: 44px; flex: none; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; padding: 0 16px; }
-.fbody { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; }
-.ffoot { height: 44px; flex: none; border-top: 1px solid var(--line); display: flex; align-items: center; padding: 0 16px; }
-.fhide { width: 30px; height: 30px; }
-/* collapsed: a slim edge strip that reopens the panel (dot = filters active) */
-.fopen { position: relative; flex: none; width: 30px; height: 100%; border: none; border-left: 1px solid var(--line); background: var(--bg2); color: var(--tx3); cursor: pointer; display: flex; flex-direction: column; align-items: center; padding-top: 18px; }
-.fopen:hover { color: var(--accent); }
-.fopendot { margin-top: 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
-/* the search field must READ as the entry point — stronger border, accent focus */
-.fsearch { flex: 1; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; background: var(--panel); border: 1px solid color-mix(in srgb, var(--tx3) 38%, var(--line)); border-radius: 8px; color: var(--tx2); }
-.fsearch:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accentSoft); }
-.fsearchin { border: none; background: transparent; outline: none; color: var(--tx); font: 400 12px/1 system-ui; width: 100%; }
-.fsec { display: flex; flex-direction: column; gap: 2px; flex: none; }
-.fhead { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
-.fhead.click { cursor: pointer; padding: 3px 4px; margin: -3px -4px 1px; border-radius: 6px; }
-.fhead.click:hover { background: var(--hover); }
-.fchev { color: var(--tx2); transition: transform .12s; flex: none; }
-.fbadge { font-size: 9px; color: var(--accent); background: var(--accentSoft); padding: 2px 6px; border-radius: 4px; flex: none; }
-/* section headers must be visibly headers, not ghost text */
-.flbl { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx2); }
-.fclear { margin-left: auto; width: 16px; height: 16px; border: none; border-radius: 4px; background: transparent; color: var(--tx3); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
-.fclear:hover { background: var(--hover); color: var(--tx); }
-.fempty { font: 400 11px/1 system-ui; color: var(--tx3); padding: 2px 0 4px; }
-.fsub { display: flex; align-items: center; gap: 6px; padding: 5px 8px; margin: 2px 0 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; color: var(--tx3); flex: none; }
-.fsubin { border: none; background: transparent; outline: none; color: var(--tx); font: 400 11px/1 system-ui; width: 100%; }
-.flist { max-height: 170px; overflow-y: auto; }
-.frow { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px; cursor: pointer; color: var(--tx2); }
-.frow:hover { background: var(--hover); color: var(--tx); }
-.frow.in { color: var(--tx); }
-.frow.out { color: var(--tx3); }
-.frow.out .fname { text-decoration: line-through; }
-.frow.dead { opacity: .45; }
-.fbox { width: 14px; height: 14px; flex: none; border: 1.5px solid var(--line); border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; }
-.frow.in .fbox { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-.frow.out .fbox { background: var(--adult); border-color: var(--adult); color: #fff; }
-.fname { flex: 1; min-width: 0; font: 500 12px/1.3 system-ui; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fname.cap { text-transform: capitalize; }
-.fcount { font-size: 10px; color: var(--tx3); flex: none; }
-.fstars { display: flex; align-items: center; gap: 2px; padding: 2px 4px; }
-.fstar { cursor: pointer; display: flex; padding: 2px; }
-.fstar:hover { transform: scale(1.15); }
-.frlbl { margin-left: 7px; font-size: 10px; color: var(--tx3); }
-.fclearall { justify-content: center; flex: 1; }
+/* the search that belongs to the BAND (the block's own search is for fields) */
+
+.lmaincol { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
 /* results column */
 .lmain { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; }
-.head { height: 44px; flex: none; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px; padding: 0 24px; }
-.controls { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.head { height: 44px; flex: none; border-bottom: 1px solid var(--line); display: flex; flex-wrap: nowrap; min-width: 0; align-items: center; gap: 12px; padding: 0 24px; }
+.controls { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; min-width: 0; }
 .sdot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
 .type { text-transform: uppercase; letter-spacing: .05em; font-size: 10px; color: var(--tx3); font-weight: 600; }
 .cap { text-transform: capitalize; }
@@ -621,6 +438,14 @@ async function deleteSelected() {
 .pagetile { flex: none; width: 130px; aspect-ratio: 2/3; position: relative; border-radius: 5px; overflow: hidden; background: var(--panel2); border: 1px solid var(--line); box-shadow: 0 2px 6px rgba(0,0,0,.3); }
 .pagetile.open:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
 .pagetile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
+.pagetile.ep { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: var(--tx3); background: var(--panel2); position: relative; }
+.pagetile.ep img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+/* over a frame the label needs its own ground */
+.pagetile.ep.shot .eplbl, .pagetile.ep.shot .eplen { position: relative; background: rgba(10,11,13,.72); border-radius: 4px; padding: 2px 6px; }
+.pagetile.ep.shot .eplbl { color: #fff; }
+.pagetile.ep:hover { color: var(--accent); border-color: var(--accent); }
+.eplbl { font: 600 12px/1 ui-monospace, monospace; color: var(--tx); }
+.eplen { font-size: 10px; color: var(--tx3); }
 .pgempty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 600 15px/1 ui-monospace, monospace; color: var(--tx3); opacity: .6; }
 .pgnew { position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px rgba(10,11,14,.6); }
 .pgnum { position: absolute; bottom: 4px; right: 5px; font: 700 9px/1 ui-monospace, monospace; color: #fff; background: rgba(0,0,0,.55); padding: 2px 5px; border-radius: 4px; }
