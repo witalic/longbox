@@ -5,7 +5,8 @@
 // then loads the UI the sidecar serves at /app/. Locks down navigation,
 // window-open, and permissions.
 
-const { app, BrowserWindow, Menu, dialog, ipcMain, net: electronNet, session } = require('electron')
+const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, net: electronNet, session } =
+  require('electron')
 const { spawn } = require('node:child_process')
 const crypto = require('node:crypto')
 const fs = require('node:fs')
@@ -142,8 +143,18 @@ async function waitForHealth(port, token, timeoutMs = 60000) {
 }
 
 function hardenSession(sess, origin) {
-  sess.setPermissionRequestHandler((_wc, _perm, cb) => cb(false))
-  sess.setPermissionCheckHandler(() => false)
+  // Deny everything — EXCEPT our own pages going fullscreen. Both handlers gate
+  // it: `fullscreen` is asked for through the request handler and re-checked
+  // through the sync one, so denying either leaves the player's fullscreen
+  // button dead with nothing in the console to say why. The origin test is what
+  // keeps it ours: a site in the capture <webview> shares this session, and a
+  // scraped page must never be able to take over the screen.
+  const mayFullscreen = (permission, url) =>
+    permission === 'fullscreen' && String(url || '').startsWith(origin)
+  sess.setPermissionRequestHandler((wc, permission, cb, details) =>
+    cb(mayFullscreen(permission, (details && details.requestingUrl) || wc.getURL())))
+  sess.setPermissionCheckHandler((wc, permission, requestingOrigin) =>
+    mayFullscreen(permission, requestingOrigin || (wc && wc.getURL())))
   const appCsp =
     "default-src 'self'; " +
     "script-src 'self'; " +
@@ -168,29 +179,57 @@ function hardenSession(sess, origin) {
 // progress streams to the sidecar while the file downloads; on completion the
 // temp file is handed over for ingest. Unarmed downloads are rejected at start
 // and cancelled. No file ever lands outside the vault.
+// The Electron DownloadItem for each claimed download, so a human can stop one.
+// Only while it streams: `done` takes it out however it ended.
+const liveDownloads = new Map()
+
+// URLs a human asked to save from a page's context menu. A guest download is
+// otherwise claimed by the ARMED-CHAPTER lifecycle and ingested into the vault;
+// "Save image as…" is not that — it is a plain Save As, and this is how the two
+// are told apart at `will-download`, which sees only a URL.
+const manualSaves = new Set()
+// Transfers being stopped ON PURPOSE, to be picked up later: their partial file
+// is KEPT and their end is reported as interrupted, not as a failure.
+const interrupting = new Set()
+let dlApi = null // the sidecar's downloads API, once the origin and token exist
+
 function wireDownloads(sess, origin, token) {
   const api = (p, body) => fetch(`${origin}/api/downloads${p}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify(body),
   })
+  dlApi = api
 
   sess.on('will-download', (_event, item, webContents) => {
-    if (!webContents || webContents.getType() !== 'webview') {
-      item.cancel() // the app window itself never downloads files
+    // asked for by hand from the page's own menu: no save path is set, so
+    // Electron asks where to put it, and no arm is consumed
+    if (manualSaves.delete(item.getURL())) return
+    // A transfer being PICKED UP: it arrives with its partial file and byte
+    // offset already set, and belongs to no webview — the app itself asked the
+    // session to re-open it.
+    const resumed = item.getState() === 'interrupted' && item.canResume()
+    if (!resumed && (!webContents || webContents.getType() !== 'webview')) {
+      // The app window saves exactly one thing: a copy of what the vault
+      // already holds — the player's own download control, the "Save a copy"
+      // link on a container we cannot open. Its URL is ours or it is dropped,
+      // and no save path is set here, so Electron asks where to put it.
+      if (!webContents || !item.getURL().startsWith(origin)) item.cancel()
       return
     }
-    const tempFile = path.join(
-      app.getPath('temp'),
-      `longbox-dl-${Date.now()}-${item.getFilename() || 'chapter.zip'}`,
-    )
-    item.setSavePath(tempFile)
+    if (!resumed) {
+      item.setSavePath(path.join(
+        app.getPath('temp'),
+        `longbox-dl-${Date.now()}-${item.getFilename() || 'chapter.zip'}`,
+      ))
+    }
+    const tempFile = item.getSavePath()
 
     // claim the binding NOW — the arm is consumed at download START
     const claim = api('/start', {
       filename: item.getFilename() || '',
       fileUrl: item.getURL(),
-      pageUrl: webContents.getURL(),
+      pageUrl: webContents ? webContents.getURL() : '',
     }).then(async (res) => {
       if (!res.ok) {
         // 409 = nothing armed — this download was not asked for; drop it
@@ -203,6 +242,10 @@ function wireDownloads(sess, origin, token) {
       try { item.cancel() } catch { /* already done */ }
       return null
     })
+
+    void claim.then((id) => { if (id) liveDownloads.set(id, item) })
+
+    if (resumed) item.resume()
 
     let lastTick = 0
     item.on('updated', async () => {
@@ -219,6 +262,10 @@ function wireDownloads(sess, origin, token) {
 
     item.once('done', async (_e, state) => {
       const id = await claim
+      if (id) liveDownloads.delete(id)
+      // stopped on purpose: the partial file STAYS, and the record was already
+      // written by whoever stopped it
+      if (id && interrupting.delete(id)) return
       if (!id) {
         fs.promises.unlink(tempFile).catch(() => {})
         return
@@ -292,6 +339,79 @@ async function main() {
     if (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')) {
       win.webContents.toggleDevTools()
     }
+  })
+
+  // Everything still streaming, stopped WITH its place kept: the partial file
+  // stays on disk and the sidecar records what it takes to carry on — the URL
+  // chain, the byte offset and the validators the server will be asked to match.
+  async function interruptAll(reason) {
+    const jobs = [...liveDownloads.entries()]
+    liveDownloads.clear()
+    for (const [id, item] of jobs) {
+      interrupting.add(id)
+      const resume = {
+        path: item.getSavePath() || '',
+        urlChain: item.getURLChain() || [],
+        offset: item.getReceivedBytes() || 0,
+        total: item.getTotalBytes() || 0,
+        eTag: item.getETag() || '',
+        lastModified: item.getLastModifiedTime() || '',
+      }
+      try { item.cancel() } catch { /* already finished */ }
+      try { await dlApi?.(`/${id}/interrupted`, { reason, resume }) } catch { /* the sidecar may be gone */ }
+    }
+    return jobs.length
+  }
+
+  // The window asks before it takes unfinished transfers down with it. The app
+  // decides what to show; the shell only refuses to close until it is told to.
+  let closeApproved = false
+  win.on('close', (e) => {
+    if (closeApproved || !liveDownloads.size) return
+    e.preventDefault()
+    win.webContents.send('lb-close-blocked', liveDownloads.size)
+  })
+  ipcMain.handle('lb-close-now', async (e) => {
+    if (e.sender !== win.webContents) return false
+    await interruptAll('the app was closed')
+    closeApproved = true
+    win.close()
+    return true
+  })
+
+  // Pick a stopped transfer up where it left off. Electron re-opens the same
+  // file at the same offset; the server decides whether it still honours it —
+  // an expired cookie or a rotated CDN link answers from scratch, and then the
+  // app offers to start over instead.
+  ipcMain.handle('lb-resume-download', (e, rec) => {
+    if (e.sender !== win.webContents) return false
+    const r = (rec && rec.resume) || {}
+    if (!r.path || !Array.isArray(r.urlChain) || !r.urlChain.length) return false
+    try {
+      session.defaultSession.createInterruptedDownload({
+        path: r.path,
+        urlChain: r.urlChain,
+        offset: Math.max(0, Number(r.offset) || 0),
+        length: Math.max(0, Number(r.total) || 0),
+        eTag: r.eTag || undefined,
+        lastModified: r.lastModified || undefined,
+      })
+      return true
+    } catch (err) {
+      console.error('resume failed:', err)
+      return false
+    }
+  })
+
+  // Stop a download in flight. The item's `done` handler then reports it to the
+  // sidecar as interrupted and drops the half-written temp file, exactly as it
+  // does for a download that dies on its own.
+  ipcMain.handle('lb-cancel-download', (e, id) => {
+    if (e.sender !== win.webContents) return false
+    const item = liveDownloads.get(String(id || ''))
+    if (!item) return false
+    try { item.cancel() } catch { /* already finished */ }
+    return true
   })
 
   // Native folder picker (Settings → Storage). Only the app window may ask.
@@ -464,7 +584,10 @@ async function main() {
   win.webContents.on('page-title-updated', (e) => e.preventDefault())
 
   win.once('ready-to-show', () => win.show())
-  win.loadURL(`${origin}/app/`)
+  // A launch-unique query so a rebuilt UI always reaches the window: the entry
+  // document carries no content hash, and a cached copy of it pins the window to
+  // the bundle it referenced (the assets under it ARE hashed, so they cache hard).
+  win.loadURL(`${origin}/app/?b=${Date.now()}`)
 }
 
 app.whenReady().then(main).catch((err) => {
@@ -475,6 +598,14 @@ app.whenReady().then(main).catch((err) => {
 // The Browse view embeds source sites in a <webview>. Force our pick-mode
 // preload from the main process (don't trust a renderer-set attribute), and keep
 // the guest sandboxed.
+// What a guest page would otherwise swallow — the keys the app binds over a
+// page. Everything else belongs to the site.
+const GUEST_KEYS = new Set([
+  'F5', 'Escape', 'KeyF', 'KeyR', 'KeyL', 'KeyT', 'KeyW', 'ArrowLeft', 'ArrowRight',
+  'Minus', 'Equal', 'Digit0', 'Digit1', 'Digit2', 'Digit3', 'Digit4',
+  'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9',
+])
+
 app.on('web-contents-created', (_e, contents) => {
   contents.on('will-attach-webview', (_evt, webPreferences) => {
     webPreferences.preload = path.join(__dirname, 'pick-preload.js')
@@ -486,6 +617,71 @@ app.on('web-contents-created', (_e, contents) => {
   // in-app browser tab instead. The disposition rides along: middle-click/ctrl+click
   // is a 'background-tab' — the app keeps the current page fronted, like a browser.
   if (contents.getType() === 'webview') {
+    // A key pressed while the PAGE has focus is delivered to the guest and stops
+    // there — the app's document never sees it. So the shortcuts a browser is
+    // expected to have would work everywhere except over the page itself, which
+    // is where they are wanted. Caught here, named, and handed to the window
+    // that owns the toolbar. Matched on the PHYSICAL key: on a Ukrainian layout
+    // `key` is 'ф' while the key under the finger is still the browser's F.
+    contents.on('before-input-event', (evt, input) => {
+      if (input.type !== 'keyDown' || !GUEST_KEYS.has(input.code)) return
+      const mod = input.control || input.meta || input.alt
+      // F5 and Escape stand alone; everything else is a chord
+      if (!mod && input.code !== 'F5' && input.code !== 'Escape') return
+      // Escape is SHARED, not taken: the app calls off a pick with it and the
+      // page may be closing its own dialog. The rest are the browser's, and are
+      // swallowed so a site cannot bind over them.
+      if (input.code !== 'Escape') evt.preventDefault()
+      // The shell forwards the physical key; what it MEANS is decided in one
+      // place in the app, so the two paths into it can never drift apart.
+      const chord = { code: input.code, ctrl: !!(input.control || input.meta),
+                      shift: !!input.shift, alt: !!input.alt }
+      for (const w of BrowserWindow.getAllWindows()) w.webContents.send('lb-page-key', chord)
+    })
+    // A page with no context menu is a page you cannot copy a link out of. The
+    // items are the ones a browser has and this app actually needs: links and
+    // images (a cover is one right-click away instead of a taught selector),
+    // the selection, and the page itself.
+    contents.on('context-menu', (_evt, params) => {
+      const items = []
+      const openTab = (url, background) =>
+        contents.send('open-url-as-tab', { url, background })
+      if (params.linkURL) {
+        items.push(
+          { label: 'Open link in new tab', click: () => openTab(params.linkURL, false) },
+          { label: 'Open link in background tab', click: () => openTab(params.linkURL, true) },
+          { label: 'Copy link address', click: () => clipboard.writeText(params.linkURL) },
+        )
+      }
+      if (params.mediaType === 'image' && params.srcURL) {
+        if (items.length) items.push({ type: 'separator' })
+        items.push(
+          { label: 'Copy image address', click: () => clipboard.writeText(params.srcURL) },
+          {
+            label: 'Save image as…',
+            click: () => { manualSaves.add(params.srcURL); contents.downloadURL(params.srcURL) },
+          },
+        )
+      }
+      if (params.selectionText) {
+        if (items.length) items.push({ type: 'separator' })
+        items.push({ label: 'Copy', click: () => clipboard.writeText(params.selectionText) })
+      }
+      if (params.isEditable) {
+        if (items.length) items.push({ type: 'separator' })
+        items.push({ label: 'Paste', click: () => contents.paste() })
+      }
+      if (items.length) items.push({ type: 'separator' })
+      items.push(
+        { label: 'Back', enabled: contents.canGoBack(), click: () => contents.goBack() },
+        { label: 'Forward', enabled: contents.canGoForward(), click: () => contents.goForward() },
+        { label: 'Reload', click: () => contents.reload() },
+        { type: 'separator' },
+        { label: 'Copy page address', click: () => clipboard.writeText(contents.getURL()) },
+      )
+      Menu.buildFromTemplate(items).popup()
+    })
+
     contents.setWindowOpenHandler(({ url, disposition }) => {
       if (/^https?:\/\//.test(url)) {
         contents.send('open-url-as-tab', { url, background: disposition === 'background-tab' })

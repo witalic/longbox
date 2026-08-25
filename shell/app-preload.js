@@ -13,6 +13,24 @@ contextBridge.exposeInMainWorld('longbox', {
   setTitleBar: (opts) => ipcRenderer.send('lb-titlebar', {
     color: String(opts?.color || ''), symbolColor: String(opts?.symbolColor || ''),
   }),
+  // a shortcut pressed INSIDE a guest page: the physical key, for the app to read
+  onPageKey: (fn) => {
+    const h = (_e, chord) => fn(chord)
+    ipcRenderer.on('lb-page-key', h)
+    return () => ipcRenderer.removeListener('lb-page-key', h)
+  },
+  // the window wants to close while transfers are running; returns unsubscribe
+  onCloseBlocked: (fn) => {
+    const h = (_e, n) => fn(Number(n) || 0)
+    ipcRenderer.on('lb-close-blocked', h)
+    return () => ipcRenderer.removeListener('lb-close-blocked', h)
+  },
+  // stop everything still streaming (keeping its place) and quit
+  closeNow: () => ipcRenderer.invoke('lb-close-now'),
+  // pick an interrupted transfer up from its stored offset
+  resumeDownload: (rec) => ipcRenderer.invoke('lb-resume-download', rec),
+  // stop a download that is streaming (the id the sidecar gave it)
+  cancelDownload: (id) => ipcRenderer.invoke('lb-cancel-download', String(id || '')),
   // page capture: pull one image with the browser session's cookies + referer
   // (the main process is not bound by the site's CORS)
   fetchImage: (url, referer) => ipcRenderer.invoke('lb-fetch-image', {

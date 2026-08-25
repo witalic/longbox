@@ -622,6 +622,28 @@ ipcRenderer.on('fetch-pages', async (_e, req) => {
 // (background = middle-click/ctrl+click stays on the current page), not an OS window.
 ipcRenderer.on('open-url-as-tab', (_e, req) => ipcRenderer.sendToHost('open-tab', req))
 
+// Ctrl+click and middle-click on a link open a BACKGROUND tab. The native path
+// (window.open / target=_blank) is already routed, but a plain link is a plain
+// navigation to Chromium — and a site that handles its own clicks never lets it
+// become one at all. Taken here so the gesture means the same thing everywhere.
+function linkHref(node) {
+  const a = node && node.closest ? node.closest('a[href]') : null
+  const href = a && a.href
+  return href && /^https?:/i.test(href) ? href : ''
+}
+function onLinkOpen(e) {
+  if (picking) return // a pick is aimed at the element, not at where it leads
+  const wants = e.type === 'auxclick' ? e.button === 1 : (e.ctrlKey || e.metaKey)
+  if (!wants) return
+  const href = linkHref(e.target)
+  if (!href) return
+  e.preventDefault()
+  e.stopPropagation()
+  ipcRenderer.sendToHost('open-tab', { url: href, background: true })
+}
+document.addEventListener('click', onLinkOpen, true)
+document.addEventListener('auxclick', onLinkOpen, true)
+
 document.addEventListener('mousemove', onMove, true)
 document.addEventListener('click', onClick, true)
 window.addEventListener('keydown', (e) => {
