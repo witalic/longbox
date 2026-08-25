@@ -5,6 +5,7 @@ fixture library is built through the public API (there is no seed module).
 from __future__ import annotations
 
 import base64
+import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -210,6 +211,22 @@ def test_facets_carry_counts(client):
     assert _facet(f, "authors")["Bai Ye"] == 2
 
 
+def test_artists_are_counted_and_filtered_on_their_own(client):
+    """Artists share the people VOCABULARY with authors, not their count. Without
+    a count of their own an artist could be typed onto a title and then never
+    browsed to or filtered by — the joint `authors` facet was the only one that
+    ever had one, so an ARTISTS axis was offered nowhere."""
+    f = client.get("/api/library/facets").json()
+    assert _facet(f, "artists") == {"Kentaro Miura": 1}
+    assert _facet(f, "authors")["Kentaro Miura"] == 1  # still in the joint one
+
+    only = client.get("/api/library", params={"f": "artists:Kentaro Miura"}).json()
+    assert [t["title"] for t in only] == ["Berserk"]
+
+    groups = client.get("/api/browse/artists").json()
+    assert [g["value"] for g in groups] == ["Kentaro Miura"]
+
+
 def test_facets_are_linked_to_the_selection(client):
     # with tag=Cultivation applied, the other facets count only its two titles —
     # while the single-valued type facet keeps showing the alternatives
@@ -278,7 +295,7 @@ def test_cover_rejects_bad_payloads(client):
 # ---- derived collections ----
 
 def test_authors_derived_with_roles_and_tags(client):
-    authors = {a["name"]: a for a in client.get("/api/authors").json()}
+    authors = {a["value"]: a for a in client.get("/api/browse/authors").json()}
     assert authors["Kentaro Miura"]["role"] == "both"      # in authors[] and artists[]
     assert authors["Bai Ye"]["role"] == "author"
     assert authors["Bai Ye"]["titles"] == 2
@@ -299,7 +316,7 @@ def test_author_favorite_is_persisted_in_the_vault(client, tmp_path):
     assert (tmp_path / "authors.json").is_file()  # user layer, vault-level
     lib2 = Library(tmp_path)  # survives a full reopen + index rebuild
     try:
-        assert next(a for a in lib2.authors() if a.id == "bai-ye").fav is True
+        assert next(g for g in lib2.browse("authors") if g.id == "bai-ye").fav is True
     finally:
         lib2.close()
     assert client.post("/api/authors/nobody/favorite").status_code == 404
@@ -307,7 +324,7 @@ def test_author_favorite_is_persisted_in_the_vault(client, tmp_path):
 
 def test_authors_and_sources_empty_when_library_empty(tmp_path):
     with TestClient(create_app(Library(tmp_path / "empty"))) as c:
-        assert c.get("/api/authors").json() == []
+        assert c.get("/api/browse/authors").json() == []
         assert c.get("/api/sources").json() == []
 
 
@@ -391,3 +408,56 @@ def test_guard_rejects_non_loopback_host(monkeypatch, tmp_path):
         c.cookies.set("lb_auth", "s3cret")
         assert c.get("/api/library").status_code == 403
     lib.close()
+
+
+# ---- the user's own layer over a source ----------------------------------
+#
+# Group and bookmarks are NOT recipe material: a recipe is what longbox learned
+# about a site, these are how the user relates to it. They live in the app
+# config, so these tests get a config dir of their own.
+
+@pytest.fixture
+def own_client(tmp_path, monkeypatch):
+    monkeypatch.setenv("LONGBOX_CONFIG_DIR", str(tmp_path / "cfg"))
+    get_settings.cache_clear()
+    lib = Library(tmp_path / "lib")
+    with TestClient(create_app(lib)) as c:
+        seed(c)
+        yield c
+    lib.close()
+    get_settings.cache_clear()
+
+
+def test_a_source_carries_its_group_and_saved_links(own_client):
+    after = own_client.put("/api/sources/mangadex.org", json={
+        "group": "Manga",
+        "bookmarks": [{"name": "Follows", "url": "https://mangadex.org/titles/feed"}],
+    }).json()
+    mine = next(s for s in after if s["domain"] == "mangadex.org")
+    assert mine["group"] == "Manga"
+    assert mine["bookmarks"] == [{"name": "Follows", "url": "https://mangadex.org/titles/feed"}]
+
+    # partial: sending only the group leaves the links alone
+    own_client.put("/api/sources/mangadex.org", json={"group": "Comics"})
+    again = {s["domain"]: s for s in own_client.get("/api/sources").json()}
+    assert again["mangadex.org"]["group"] == "Comics"
+    assert len(again["mangadex.org"]["bookmarks"]) == 1
+    # and a source nobody touched says so plainly
+    assert again["toonily.example"]["group"] == ""
+    assert again["toonily.example"]["bookmarks"] == []
+
+
+def test_clearing_both_forgets_the_entry_instead_of_keeping_a_husk(own_client):
+    own_client.put("/api/sources/mangadex.org", json={"group": "Manga"})
+    own_client.put("/api/sources/mangadex.org", json={"group": "", "bookmarks": []})
+    from app.config_store import config_path
+    cfg = json.loads(config_path().read_text(encoding="utf-8"))
+    assert "mangadex.org" not in (cfg.get("sources") or {})
+
+
+def test_group_names_are_ordered_deduped_and_trimmed(own_client):
+    saved = own_client.put("/api/source-groups", json={
+        "groups": ["  Manga ", "Doujin", "Manga", "", "Art"],
+    }).json()
+    assert saved == ["Manga", "Doujin", "Art"]
+    assert own_client.get("/api/source-groups").json() == ["Manga", "Doujin", "Art"]

@@ -279,6 +279,15 @@ class UnsupportedArchiveError(ValueError):
 # delete it. Over a network vault that window is wide enough to lose writes —
 # a page rewrite lands on an archive the reader may be serving from. The reader
 # always finishes, so wait it out instead of failing a write.
+class MediaInUseError(PermissionError):
+    """A file could not be written or deleted: something still holds it open.
+
+    A PermissionError by inheritance, because that is exactly what Windows
+    raises and what every caller already guards against — with a name, so the
+    API can answer "close the player" instead of a 500. The holder is nearly
+    always our own player, streaming the very episode being replaced."""
+
+
 _REPLACE_ATTEMPTS = 8
 
 
@@ -289,8 +298,10 @@ def replace_atomically(tmp: Path, final: Path) -> None:
             return
         except PermissionError:
             if attempt == _REPLACE_ATTEMPTS - 1:
-                raise
-            time.sleep(0.02 * (attempt + 1))
+                raise MediaInUseError(final.name)
+            # growing backoff: a stream that has just ended lets go within a
+            # beat, and this is the path a RE-download of an open episode takes
+            time.sleep(0.05 * (attempt + 1))
 
 
 def tmp_path(path: Path) -> Path:

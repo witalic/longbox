@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.library import media
-from app.library.models import DraftIn, TitleMeta
+from app.library.models import ChapterRow, DraftIn, TitleMeta
 from app.library.service import Library
 from app.main import create_app
 from app.settings import get_settings
@@ -23,6 +23,9 @@ def _clean_settings():
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+JPEG = b"\xff\xd8\xff"  # the bytes that make a still a still
 
 
 def _mp4(path: Path, payload: bytes = b"\x00" * 4096) -> Path:
@@ -377,3 +380,109 @@ def test_learning_what_a_stored_episode_is_does_not_invalidate_it(tmp_path):
     assert chapter.v == before                    # the bytes never moved
     assert lib.refresh_episodes() == 0            # and nothing is left to do
     lib.close()
+
+
+def test_cutting_a_still_never_re_versions_the_episode(tmp_path):
+    """A poster describes the same bytes it was cut from. If storing one bumped
+    the MEDIA revision, the video URL would change under a player that is very
+    likely running right then — the tile would refresh by restarting the
+    episode. Stills carry a version of their own."""
+    lib = Library(tmp_path / "v")
+    out = lib.create(DraftIn(meta=TitleMeta(title="Ep"), chapters=[ChapterRow(id="c1", num="1")]))
+    lib.attach_chapter_media(out.id, num="1", lang="", group="",
+                             src=_mp4(tmp_path / "ep.mp4"),
+                             sidecar={"filename": "ep.mp4", "duration": 60.0})
+    before = next(c for c in lib.get(out.id).chapters if c.id == "c1")
+
+    assert lib.save_chapter_frames(out.id, "c1", "poster", JPEG + b"frame")
+    after = next(c for c in lib.get(out.id).chapters if c.id == "c1")
+    assert after.v == before.v            # the media did not move
+    assert after.stills != before.stills  # the stills did
+    assert (after.poster, after.sheet) == (True, "")
+
+    assert lib.save_chapter_frames(out.id, "c1", "sheet", JPEG + b"grid", grid="3x3")
+    third = next(c for c in lib.get(out.id).chapters if c.id == "c1")
+    assert third.v == before.v
+    assert third.stills != after.stills
+    lib.close()
+
+
+def test_a_locked_episode_leaves_its_chapter_whole(tmp_path, monkeypatch):
+    """Windows will not unlink a file the player still streams. The delete then
+    has to leave the chapter EXACTLY as it was — the first attempt deleted in
+    glob order, took the sidecar out first and left entries that had lost every
+    fact about themselves while their video sat there untouched."""
+    from app.library import vault as vault_mod
+
+    lib = Library(tmp_path / "v")
+    out = lib.create(DraftIn(meta=TitleMeta(title="Ep"), chapters=[ChapterRow(id="c1", num="1")]))
+    lib.attach_chapter_media(out.id, num="1", lang="", group="",
+                             src=_mp4(tmp_path / "ep.mp4"),
+                             sidecar={"filename": "ep.mp4", "duration": 60.0})
+    side = lib.vault.chapter_sidecars(out.id)["c1"]
+
+    real_unlink = Path.unlink
+
+    def held(self, **kw):
+        if self.suffix == ".mp4":
+            raise PermissionError(32, "in use")
+        return real_unlink(self, **kw)
+
+    monkeypatch.setattr(Path, "unlink", held)
+    monkeypatch.setattr(vault_mod.time, "sleep", lambda _s: None)
+
+    with TestClient(create_app(lib)) as c:
+        r = c.delete(f"/api/titles/{out.id}/chapters/c1")
+        assert r.status_code == 409
+        assert "open right now" in r.json()["detail"]
+
+    monkeypatch.undo()
+    assert lib.vault.chapter_media_path(out.id, "c1").suffix == ".mp4"
+    assert lib.vault.chapter_sidecars(out.id)["c1"] == side  # nothing was taken
+    assert [ch.num for ch in lib.get(out.id).chapters] == ["1"]
+    lib.close()
+
+
+def test_episode_stills_are_stored_in_the_vault_and_served_back(tmp_path):
+    """The app has no decoder, so the WINDOW cuts the frames — but it does it
+    once: both stills land in the vault beside the episode, survive a reopen,
+    and are never confused for the media itself."""
+    lib = Library(tmp_path / "v")
+    out = lib.create(DraftIn(meta=TitleMeta(title="Ep"), chapters=[ChapterRow(id="c1", num="1")]))
+    lib.attach_chapter_media(out.id, num="1", lang="", group="",
+                             src=_mp4(tmp_path / "ep.mp4"),
+                             sidecar={"filename": "ep.mp4", "duration": 60.0})
+
+    jpeg = JPEG + b"frame" * 32
+    sheet = JPEG + b"grid" * 64
+    with TestClient(create_app(lib)) as c:
+        base = f"/api/titles/{out.id}/chapters/c1/frames"
+        assert c.get(f"{base}/poster").status_code == 404      # nothing cut yet
+        assert c.put(f"{base}/poster", content=b"not a jpeg").status_code == 400
+        assert c.put(f"{base}/nonsense", content=jpeg).status_code == 400
+
+        saved = c.put(f"{base}/poster", content=jpeg).json()
+        row = next(ch for ch in saved["chapters"] if ch["id"] == "c1")
+        assert (row["poster"], row["sheet"]) == (True, "")
+        # a sheet is only readable by a build that slices it the way it was cut,
+        # so it carries its grid and a build expecting another one re-cuts it
+        saved = c.put(f"{base}/sheet?grid=3x3", content=sheet).json()
+        assert next(ch for ch in saved["chapters"] if ch["id"] == "c1")["sheet"] == "3x3"
+
+        assert c.get(f"{base}/poster").content == jpeg
+        assert c.get(f"{base}/sheet").content == sheet
+        # the tile asks for a downscaled one, and THAT is what was 404-ing: the
+        # cache key becomes a file name, so it may not carry a colon
+        assert c.get(f"{base}/poster", params={"w": 240}).status_code == 200
+    lib.close()
+
+    # they are files in the vault, and NEITHER is the chapter's media
+    assert lib.vault.chapter_frames_path(out.id, "c1", "poster").is_file()
+    assert lib.vault.chapter_frames_path(out.id, "c1", "sheet").is_file()
+    again = Library(tmp_path / "v")
+    try:
+        assert again.vault.chapter_media_path(out.id, "c1").suffix == ".mp4"
+        assert again.chapter_frames(out.id, "c1", "poster")[0] == jpeg
+        assert again.chapter_frames(out.id, "c1", "sheet")[0] == sheet
+    finally:
+        again.close()

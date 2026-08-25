@@ -13,7 +13,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .migrations import CURRENT_SCHEMA
-from .versions import chapter_version
+from .versions import chapter_version, stills_version
 
 # type/status are OPEN vocabularies: the UI suggests the common values, capture
 # normalizes known synonyms onto them, but a user-entered value is stored as-is.
@@ -34,6 +34,17 @@ class SourceRef(BaseModel):
     """Where this title is captured from (one binding; multi-source merge is out of scope)."""
     domain: str = ""
     url: str = ""
+
+
+class CustomFieldDef(BaseModel):
+    """A field the user defined. Stored in the VAULT (it describes this library's
+    data, not this machine), and turned into a registry Field at load."""
+    id: str
+    label: str
+    type: str = "text"        # text | number | list | date | boolean
+    facet: bool = True        # offer it as a library filter
+    multiline: bool = False   # text only: a description-sized box
+    placeholder: str = ""
 
 
 class TitleMeta(BaseModel):
@@ -64,6 +75,10 @@ class TitleMeta(BaseModel):
     # chapter display order: "auto" = smart by number; "manual" = the doc's
     # array order, exactly as the user arranged it
     chapterOrder: str = "auto"
+    # User-defined fields, keyed by field id (library/fields.py). A value the
+    # registry no longer describes is KEPT, not dropped: deleting a field must
+    # not shred data the user typed, and re-adding it brings the values back.
+    custom: dict[str, str | list[str]] = {}
 
 
 class FieldProvenance(BaseModel):
@@ -146,7 +161,10 @@ class ChapterOut(ChapterRow):
     playable: bool = True  # a browser can open this container as it stands
     container: str = ""    # mp4 / mkv / avi … — named in the list when it cannot play
     codec: str = ""        # h264 / hevc / av1 … — what the file actually holds
-    faststart: bool = True # the index sits before the media, so playback starts at once
+    faststart: bool = True  # the index sits before the media, so playback starts at once
+    poster: bool = False    # the one frame a tile wears is cut and stored
+    sheet: str = ""         # the contact grid's geometry ("3x3"), "" when none
+    stills: str = "0"       # the version those two are cached under
 
 
 class TitleOut(BaseModel):
@@ -167,6 +185,9 @@ class TitleOut(BaseModel):
     source: SourceRef
     coverSource: str
     chapterOrder: str
+    # user-defined field values, keyed by field id — served flat so the editor
+    # reads them the same way it reads a built-in
+    custom: dict[str, str | list[str]] = {}
     cover: str  # local cover endpoint URL when bytes exist, else ""
     fav: bool
     rating: int
@@ -193,6 +214,9 @@ class TitleOut(BaseModel):
                 container=(side or {}).get("container", ""),
                 codec=(side or {}).get("codec", ""),
                 faststart=bool((side or {}).get("faststart", True)),
+                poster=bool((side or {}).get("poster", False)),
+                sheet=str((side or {}).get("sheet") or ""),
+                stills=stills_version(side),
                 dlSource=(side or {}).get("pageUrl") or (side or {}).get("fileUrl") or "",
                 dlAt=(side or {}).get("downloadedAt", ""),
             ))
@@ -202,7 +226,8 @@ class TitleOut(BaseModel):
             year=m.year, type=m.type, status=m.status, genres=m.genres, tags=m.tags,
             characters=m.characters,
             flags=m.flags, desc=m.desc, source=m.source, coverSource=m.coverSource,
-            chapterOrder=m.chapterOrder, cover=cover_url, fav=u.fav, rating=u.rating,
+            chapterOrder=m.chapterOrder, custom=dict(m.custom),
+            cover=cover_url, fav=u.fav, rating=u.rating,
             unread=sum(1 for c in chapters if c.read != "read"),
             provenance=doc.provenance, chapters=chapters,
         )
@@ -214,19 +239,31 @@ class AuthorWork(BaseModel):
     cover: str = ""
 
 
-class Author(BaseModel):
+class BrowseGroup(BaseModel):
+    """Titles grouped by ONE value of ONE list field: a person, a studio, a
+    character, or a value of a field the user defined. People carry two extras
+    (a role and a favourite mark); nothing else needs them, so they are optional."""
     id: str
-    name: str
-    role: Role
+    field: str
+    value: str
     works: list[AuthorWork]
-    fav: bool = False  # user layer — persisted in the vault's authors.json
     titles: int = 0
     chapters: int = 0
-    topTags: list[str] = []  # most common tags across this person's titles
+    topTags: list[str] = []  # most common tags across this group's titles
+    role: Role | None = None
+    fav: bool = False        # user layer — persisted in the vault's authors.json
+
+
+class Bookmark(BaseModel):
+    """A link the user saved under a source. Not a scraping fact — it is where
+    they like to start on that site."""
+    name: str
+    url: str
 
 
 class Source(BaseModel):
-    """A site aggregated from the titles that reference it, joined with its recipe."""
+    """A site aggregated from the titles that reference it, joined with its recipe
+    (what longbox learned) and with the user's own take on it (group, bookmarks)."""
     id: str
     domain: str
     homepage: str
@@ -234,6 +271,8 @@ class Source(BaseModel):
     hasRecipe: bool = False
     recipeVer: int = 0
     fields: list[str] = []  # recipe field names mapped for this domain
+    group: str = ""         # the user's grouping; "" = ungrouped
+    bookmarks: list[Bookmark] = []
 
 
 class FacetValue(BaseModel):

@@ -31,6 +31,24 @@ _BUNDLE = getattr(sys, "_MEIPASS", None)
 _FRONTEND_DIST = Path(_BUNDLE) / "frontend_dist" if _BUNDLE else _REPO_ROOT / "frontend" / "dist"
 
 
+class _AppFiles(StaticFiles):
+    """The built UI, with the ONE cache rule it needs.
+
+    Asset names carry a content hash, so they are safe to keep forever. The
+    entry document does not — and served without a Cache-Control it falls to
+    Chromium's heuristic cache, which happily pins an open window to the bundle
+    it saw last. A rebuilt frontend then changes nothing on screen, which is a
+    very expensive way to learn about HTTP defaults."""
+
+    def file_response(self, *args, **kwargs):  # type: ignore[override]
+        resp = super().file_response(*args, **kwargs)
+        path = str(getattr(resp, "path", ""))
+        immutable = "/assets/" in path.replace("\\", "/")
+        resp.headers["Cache-Control"] = (
+            "public, max-age=31536000, immutable" if immutable else "no-cache")
+        return resp
+
+
 def _quiet_client_resets(loop: asyncio.AbstractEventLoop) -> None:
     """Windows proactor noise: when the shell window closes/reloads, Chromium
     drops its keep-alive sockets mid-flight and the transport's own close
@@ -93,7 +111,7 @@ def create_app(library: Library | None = None) -> FastAPI:
         }
 
     if _FRONTEND_DIST.is_dir():
-        app.mount("/app", StaticFiles(directory=_FRONTEND_DIST, html=True), name="app")
+        app.mount("/app", _AppFiles(directory=_FRONTEND_DIST, html=True), name="app")
 
     return app
 

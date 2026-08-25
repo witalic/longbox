@@ -17,6 +17,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
+from ..config_store import config_transaction, load_config
 from ..library import media
 from ..library.models import TitleOut
 from ..library.service import Library
@@ -39,6 +40,21 @@ class ArmIn(BaseModel):
     group: str = ""
 
 
+class Resume(BaseModel):
+    """What it takes to pick a transfer up where it stopped.
+
+    The shell hands these over when a download is interrupted; Electron needs
+    every one of them to re-open the same byte range on the same file. Without
+    the validators the server would happily answer from byte 0 into a file that
+    already holds half the episode."""
+    path: str = ""            # the partial file, still on disk
+    urlChain: list[str] = []  # the redirects it went through, in order
+    offset: int = 0           # bytes already on disk
+    total: int = 0
+    eTag: str = ""
+    lastModified: str = ""
+
+
 class DownloadItem(BaseModel):
     id: str
     titleId: str
@@ -50,8 +66,10 @@ class DownloadItem(BaseModel):
     pageUrl: str = ""
     received: int = 0
     total: int = 0
-    state: str = "downloading"  # downloading | done | failed
+    # downloading | done | failed | interrupted (stopped, and resumable)
+    state: str = "downloading"
     error: str = ""
+    resume: Resume | None = None
 
 
 class DownloadsOut(BaseModel):
@@ -63,10 +81,34 @@ def _lib(request: Request) -> Library:
     return request.app.state.library
 
 
+# Unfinished transfers OUTLIVE the app: a download interrupted by a quit is
+# remembered on disk, with everything needed to resume it, so the next launch
+# can offer to carry on instead of silently having lost the bytes.
+_INTERRUPTED = "interrupted_downloads"
+
+
+def _load_interrupted() -> list[DownloadItem]:
+    rows = load_config().get(_INTERRUPTED) or []
+    out: list[DownloadItem] = []
+    for row in rows if isinstance(rows, list) else []:
+        try:
+            out.append(DownloadItem.model_validate(row))
+        except ValueError:
+            continue  # a record from an older shape is not worth a crash
+    return out
+
+
+def _save_interrupted(items: list[DownloadItem]) -> None:
+    with config_transaction() as cfg:
+        cfg[_INTERRUPTED] = [i.model_dump() for i in items[:KEEP_ITEMS]]
+
+
 def _items(request: Request) -> dict[str, DownloadItem]:
     with _DL_LOCK:
         if not hasattr(request.app.state, "downloads"):
-            request.app.state.downloads = {}
+            # what a previous run left unfinished is part of the list from the
+            # first request, not something the UI has to ask for separately
+            request.app.state.downloads = {i.id: i for i in _load_interrupted()}
         return request.app.state.downloads
 
 
@@ -118,6 +160,51 @@ def state_out(request: Request) -> DownloadsOut:
 def disarm(request: Request) -> Response:
     with _DL_LOCK:
         request.app.state.armed_download = None
+    return Response(status_code=204)
+
+
+class InterruptIn(BaseModel):
+    reason: str = ""
+    resume: Resume | None = None
+
+
+@router.post("/{download_id}/interrupted", response_model=DownloadItem)
+def interrupted(request: Request, download_id: str, body: InterruptIn) -> DownloadItem:
+    """A transfer stopped with bytes on disk — quitting mid-download, a dropped
+    connection. Remembered ACROSS RUNS: the record carries the chapter it was
+    bound to and the offset it reached, so resuming is a continuation and not a
+    fresh guess."""
+    item = _item_or_404(request, download_id)
+    item.state = "interrupted"
+    item.error = body.reason or "stopped"
+    item.resume = body.resume
+    _save_interrupted([i for i in _items(request).values() if i.state == "interrupted"])
+    return item
+
+
+@router.post("/{download_id}/rearm", response_model=DownloadsOut)
+def rearm(request: Request, download_id: str) -> DownloadsOut:
+    """Arm the chapter an interrupted download was bound to, so the transfer the
+    shell is about to restart claims the same entry it was claiming before."""
+    item = _item_or_404(request, download_id)
+    if _lib(request).get(item.titleId) is None:
+        raise HTTPException(status_code=404, detail="that title is gone")
+    with _DL_LOCK:
+        request.app.state.armed_download = {
+            "arm": ArmIn(titleId=item.titleId, num=item.num, lang=item.lang, group=item.group),
+            "at": time.monotonic(),
+        }
+    return state_out(request)
+
+
+@router.delete("/{download_id}", status_code=204)
+def forget(request: Request, download_id: str) -> Response:
+    """Drop a download from the list. Stopping one is the shell's job (it owns
+    the transfer); this removes the record afterwards — and clears a failed one
+    the human has read. Declared AFTER /arm: a wildcard swallows it otherwise."""
+    dropped = _items(request).pop(download_id, None)
+    if dropped is not None and dropped.state == "interrupted":
+        _save_interrupted([i for i in _items(request).values() if i.state == "interrupted"])
     return Response(status_code=204)
 
 
@@ -206,6 +293,12 @@ def complete(request: Request, download_id: str, body: CompleteIn) -> TitleOut:
         item.state = "failed"
         item.error = str(exc)
         raise HTTPException(status_code=422, detail=item.error)
+    except media.MediaInUseError as exc:
+        # re-downloading the episode that is playing: the old file is still held
+        item.state = "failed"
+        item.error = (f"“{exc}” is open right now — close the player on this "
+                      f"entry and download it again")
+        raise HTTPException(status_code=409, detail=item.error)
     if result is None:
         item.state = "failed"
         item.error = "title no longer exists"

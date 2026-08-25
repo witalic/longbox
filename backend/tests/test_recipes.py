@@ -141,3 +141,26 @@ def test_model_defaults_are_lean():
     assert rule.mode == "single" and rule.index == 0
     assert rule.candidates[0].kind == "css" and rule.candidates[0].attr is None
     assert r.chapters is None
+
+
+def test_a_source_can_say_which_fields_it_does_not_offer(client):
+    """Which rows the 344px dock shows for a site is a fact about the SITE, so it
+    rides with its recipe — and a recipe that ONLY says that is still a recipe."""
+    saved = client.put("/api/recipes/nhentai.net", json={
+        "domain": "nhentai.net", "fields": {}, "hidden": ["studio", "status"],
+    }).json()
+    assert saved["hidden"] == ["studio", "status"]
+
+    # nothing was learned yet, but the list must survive the "unlearned" guard
+    back = client.get("/api/recipes/nhentai.net")
+    assert back.status_code == 200
+    assert back.json()["hidden"] == ["studio", "status"]
+
+    # and it survives learning a field afterwards
+    client.put("/api/recipes/nhentai.net", json={
+        "domain": "nhentai.net", "hidden": ["studio"],
+        "fields": {"title": {"mode": "single", "candidates": [
+            {"kind": "css", "selector": "h1", "note": "picked"}]}},
+    })
+    now = client.get("/api/recipes/nhentai.net").json()
+    assert now["hidden"] == ["studio"] and "title" in now["fields"]

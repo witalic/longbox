@@ -21,19 +21,18 @@ from collections.abc import Callable
 from dataclasses import dataclass, field as dataclass_field
 from typing import Literal
 
-from .models import TitleDoc
+from .models import CustomFieldDef, TitleDoc
 
 # How a value is stored and filtered. The five the app can render.
-FieldType = Literal["text", "number", "list", "date", "boolean"]
+FieldType = Literal["text", "number", "list", "date"]
 # Which widget the editor draws. Derived from `type` for custom fields; built-ins
 # say it outright, because `desc` is a textarea and `type` is a vocabulary combo
 # while both are stored as plain text.
-Control = Literal["line", "multiline", "vocab", "chips", "number", "date", "toggle",
+Control = Literal["line", "multiline", "vocab", "chips", "number", "date",
                   "cover", "flags"]
 
 _CONTROL_FOR: dict[str, Control] = {
-    "text": "line", "number": "number", "list": "chips",
-    "date": "date", "boolean": "toggle",
+    "text": "line", "number": "number", "list": "chips", "date": "date",
 }
 
 
@@ -46,6 +45,9 @@ class Field:
     type: FieldType
     control: Control
     builtin: bool = True
+    # Which block of the editor draws it. A user-defined field lands in "yours"
+    # by default, which is exactly where the user expects to find it.
+    group: str = "yours"
     required: bool = False
     editable: bool = True       # appears in the metadata editor and carries provenance
     facet: bool = False         # the library can filter by it
@@ -83,40 +85,39 @@ def _attr_values(attr: str) -> Callable[[TitleDoc], set[str]]:
 # component knows how to draw it.
 BUILTIN: tuple[Field, ...] = (
     Field("title", "Title", "text", "line", required=True, attr="title",
-          placeholder="Title (required)"),
-    Field("alt", "Alt titles", "text", "line", attr="alt", placeholder="Alternate titles"),
-    Field("cover", "Cover", "text", "cover"),
+          placeholder="Title (required)", group="identity"),
+    Field("alt", "Alt titles", "text", "line", attr="alt", placeholder="Alternate titles", group="identity"),
+    Field("cover", "Cover", "text", "cover", group="identity"),
     Field("type", "Type", "text", "vocab", facet=True, column="type", attr="type",
-          placeholder="manga / manhwa / your own…", values=_attr_values("type")),
+          placeholder="manga / manhwa / your own…", values=_attr_values("type"), group="about"),
     Field("status", "Status", "text", "vocab", facet=True, column="status", attr="status",
-          placeholder="ongoing / completed / your own…", values=_attr_values("status")),
-    Field("year", "Year", "text", "line", attr="year", placeholder="Year"),
-    Field("flags", "Flags", "list", "flags", facet=True, attr="flags", values=_flag_values),
+          placeholder="ongoing / completed / your own…", values=_attr_values("status"), group="about"),
+    Field("year", "Year", "text", "line", attr="year", placeholder="Year", group="about"),
+    Field("flags", "Flags", "list", "flags", facet=True, attr="flags", values=_flag_values, group="about"),
     Field("authors", "Authors", "list", "chips", facet=True, attr="authors",
           placeholder="add author…",
-          values=lambda d: {n for n in (*d.meta.authors, *d.meta.artists) if n}),
-    # artists share the people vocabulary: one person is both, often on one title
-    Field("artists", "Artists", "list", "chips", attr="artists",
-          placeholder="add artist…", vocab="authors"),
+          values=lambda d: {n for n in (*d.meta.authors, *d.meta.artists) if n}, group="people"),
+    # Artists share the people VOCABULARY with authors — one person is often
+    # both — but they are counted on their own: without that they can be typed
+    # onto a title and then never browsed to or filtered by, because the joint
+    # `authors` facet is the only one that ever had a count.
+    Field("artists", "Artists", "list", "chips", facet=True, attr="artists",
+          placeholder="add artist…", vocab="authors", values=_attr_values("artists"),
+          group="people"),
     Field("characters", "Characters", "list", "chips", facet=True, attr="characters",
-          placeholder="add character…", values=_attr_values("characters")),
+          placeholder="add character…", values=_attr_values("characters"), group="topics"),
     Field("studio", "Studio", "list", "chips", facet=True, attr="studio",
-          placeholder="add studio…", values=_attr_values("studio")),
+          placeholder="add studio…", values=_attr_values("studio"), group="people"),
     Field("genres", "Genres", "list", "chips", facet=True, attr="genres",
-          placeholder="add genre…", values=_attr_values("genres")),
+          placeholder="add genre…", values=_attr_values("genres"), group="topics"),
     Field("tags", "Tags", "list", "chips", facet=True, attr="tags",
-          placeholder="add tag…", values=_attr_values("tags")),
-    Field("desc", "Description", "text", "multiline", attr="desc", placeholder="Description"),
+          placeholder="add tag…", values=_attr_values("tags"), group="topics"),
+    Field("desc", "Description", "text", "multiline", attr="desc", placeholder="Description", group="topics"),
     # Facet-only: a language is a property of the chapters that arrived, not
     # something a human types into a title.
     Field("language", "Language", "list", "chips", editable=False, facet=True,
-          values=lambda d: {c.lang for c in d.chapters if c.lang}),
+          values=lambda d: {c.lang for c in d.chapters if c.lang}, group="about"),
 )
-
-BY_ID: dict[str, Field] = {f.id: f for f in BUILTIN}
-FACETS: tuple[Field, ...] = tuple(f for f in BUILTIN if f.facet)
-EDITABLE_IDS: frozenset[str] = frozenset(f.id for f in BUILTIN if f.editable)
-
 
 def control_for(type_: str) -> Control:
     return _CONTROL_FOR.get(type_, "line")
@@ -125,3 +126,55 @@ def control_for(type_: str) -> Control:
 def facet_values(f: Field, doc: TitleDoc) -> set[str]:
     """The values of `f` on this document, for filtering and counting."""
     return f.values(doc) if f.values is not None else set()
+
+
+# ---- user-defined fields -------------------------------------------------
+#
+# Their definitions live in the vault, so the registry is per-LIBRARY and can
+# change while the app runs: switching the library path swaps this set. That is
+# why the built-ins are a constant but the registry is a function — a caller
+# that cached the tuple would keep filtering by a field this vault never had.
+_custom: tuple[Field, ...] = ()
+
+
+def _custom_values(fid: str) -> Callable[[TitleDoc], set[str]]:
+    def read(doc: TitleDoc) -> set[str]:
+        v = doc.meta.custom.get(fid)
+        if isinstance(v, list):
+            return {str(x) for x in v if x}
+        return {str(v)} if v else set()
+    return read
+
+
+def as_field(d: CustomFieldDef) -> Field:
+    """A stored definition as the registry entry every consumer reads."""
+    control = "multiline" if d.type == "text" and d.multiline else control_for(d.type)
+    # A chips control draws a borderless input: with no placeholder it is a row
+    # with nothing in it, and the field reads as broken. Say what it takes.
+    placeholder = d.placeholder or (
+        f"add {d.label.lower()}…" if d.type == "list" else d.label)
+    return Field(
+        id=d.id, label=d.label, type=d.type, control=control,  # type: ignore[arg-type]
+        builtin=False, facet=d.facet, placeholder=placeholder,
+        values=_custom_values(d.id),
+    )  # group stays the default: a field you defined belongs with the others you did
+
+
+def set_custom(defs: list[CustomFieldDef]) -> None:
+    """Point the registry at THIS library's user-defined fields."""
+    global _custom
+    taken = {f.id for f in BUILTIN}
+    _custom = tuple(as_field(d) for d in defs if d.id not in taken)
+
+
+def registry() -> tuple[Field, ...]:
+    """Every field this library has, in editor order: built-ins, then yours."""
+    return BUILTIN + _custom
+
+
+def by_id() -> dict[str, Field]:
+    return {f.id: f for f in registry()}
+
+
+def facets() -> tuple[Field, ...]:
+    return tuple(f for f in registry() if f.facet)

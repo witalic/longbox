@@ -20,6 +20,16 @@ class UnversionedCacheKey(ValueError):
     it is being cached."""
 
 
+def stills_version(sidecar: dict | None) -> str:
+    """What a chapter's STILLS are cached under.
+
+    Their own counter, never the media revision: a poster describes the same
+    bytes it was cut from, and bumping the media version to refresh a tile
+    re-versions the video URL too — which re-points the <video> element of an
+    episode that may be playing at that very moment, and restarts it."""
+    return str(int((sidecar or {}).get("stills") or 0))
+
+
 def chapter_version(sidecar: dict | None) -> str:
     """What a chapter's stored archive is cached under: the revision counter
     every page operation bumps, plus the size and page count. The counter alone

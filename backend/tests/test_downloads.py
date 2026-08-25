@@ -60,6 +60,51 @@ def test_arm_requires_existing_title_and_num(client):
     assert client.post("/api/downloads/arm", json={"titleId": "berserk", "num": " "}).status_code == 422
 
 
+def test_an_interrupted_download_survives_a_restart(tmp_path, monkeypatch):
+    """Quitting mid-transfer must not lose the transfer. The record — the chapter
+    it was claiming, the bytes already on disk and what it takes to ask for the
+    rest — is written where a NEW process finds it, or "remember the progress"
+    would only mean "until you close the app"."""
+    from app import config_store
+
+    monkeypatch.setattr(config_store, "config_dir", lambda: tmp_path / "cfg")
+    lib = Library(tmp_path / "v")
+
+    with TestClient(create_app(lib)) as c:
+        tid = c.post("/api/titles", json={
+            "meta": {"title": "Ep"},
+            "chapters": [{"id": "c1", "num": "1", "lang": "", "group": ""}],
+        }).json()["id"]
+        c.post("/api/downloads/arm", json={"titleId": tid, "num": "1"})
+        started = c.post("/api/downloads/start", json={
+            "filename": "ep.mp4", "fileUrl": "https://cdn/ep.mp4", "pageUrl": "https://site/1",
+        }).json()
+        c.post(f"/api/downloads/{started['id']}/progress", json={"received": 500, "total": 2000})
+        held = c.post(f"/api/downloads/{started['id']}/interrupted", json={
+            "reason": "the app was closed",
+            "resume": {"path": "C:/tmp/ep.part", "urlChain": ["https://cdn/ep.mp4"],
+                       "offset": 500, "total": 2000, "eTag": "W/\"abc\"", "lastModified": "now"},
+        }).json()
+        assert held["state"] == "interrupted"
+
+    # a NEW process over the same config: the record is there, and it still
+    # knows which entry it was claiming
+    with TestClient(create_app(lib)) as c2:
+        items = c2.get("/api/downloads").json()["items"]
+        row = next(i for i in items if i["id"] == started["id"])
+        assert row["state"] == "interrupted"
+        assert row["resume"]["offset"] == 500
+        assert (row["titleId"], row["num"]) == (tid, "1")
+
+        # picking it up re-arms the same chapter, so the transfer claims it back
+        armed = c2.post(f"/api/downloads/{started['id']}/rearm").json()["armed"]
+        assert (armed["titleId"], armed["num"]) == (tid, "1")
+
+        c2.delete(f"/api/downloads/{started['id']}")
+        assert not c2.get("/api/downloads").json()["items"]
+    lib.close()
+
+
 def test_arm_state_disarm(client):
     assert client.get("/api/downloads").json()["armed"] is None
     client.post("/api/downloads/arm", json={"titleId": "berserk", "num": "5"})

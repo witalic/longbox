@@ -50,6 +50,9 @@ def save_config(cfg: dict) -> None:
     # (it holds every registered library path)
     with _CONFIG_LOCK:
         path = config_path()
+        # the directory can be missing on a first run — or after someone cleared
+        # it while the app was up; a write must not depend on who made it
+        path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(path.name + ".tmp")
         tmp.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
         os.replace(tmp, path)

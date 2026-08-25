@@ -231,7 +231,7 @@ class LibraryIndex:
             like = f"%{search}%"
             params += [like, like]
         # single-valued fields have an indexed column — let SQLite do those
-        for f in fields.FACETS:
+        for f in fields.facets():
             if not f.column:
                 continue
             for values, op in ((include.get(f.id, ()), "IN"), (exclude.get(f.id, ()), "NOT IN")):
@@ -261,7 +261,7 @@ class LibraryIndex:
 
         # multi-valued fields live in the JSON doc — filter in Python (local scale)
         def keep(doc: TitleDoc) -> bool:
-            for f in fields.FACETS:
+            for f in fields.facets():
                 if f.column:
                     continue
                 inc, exc = include.get(f.id, ()), exclude.get(f.id, ())
@@ -300,4 +300,4 @@ class LibraryIndex:
             return seen[key]
 
         return {f.id: _counted(Counter(v for d in docs(f) for v in fields.facet_values(f, d) if v))
-                for f in fields.FACETS}
+                for f in fields.facets()}

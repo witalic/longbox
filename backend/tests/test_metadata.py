@@ -84,3 +84,171 @@ def test_an_edit_to_studio_is_untouchable_by_capture(tmp_path):
         provenance={"studio": {"origin": "manual"}}))
     assert lib.get(out.id).provenance["studio"].origin == "manual"
     lib.close()
+
+
+# ---- user-defined fields -------------------------------------------------
+#
+# The registry is per LIBRARY: the definitions live in the vault beside the data
+# they describe, so they travel with it and a second library never inherits them.
+
+
+def test_a_defined_field_is_served_stored_and_filtered(tmp_path):
+    lib = Library(tmp_path)
+    with TestClient(create_app(lib)) as c:
+        served = c.put("/api/fields/shelf",
+                       json={"label": "Shelf", "type": "list"}).json()
+        assert [f["id"] for f in served if not f["builtin"]] == ["shelf"]
+        shelf = next(f for f in served if f["id"] == "shelf")
+        assert (shelf["control"], shelf["facet"]) == ("chips", True)
+
+        for title, values in (("A", ["finished"]), ("B", ["finished", "boxed"]), ("C", [])):
+            lib.create(DraftIn(meta=TitleMeta(title=title, custom={"shelf": values})))
+
+        only = c.get("/api/library", params={"f": "shelf:boxed"}).json()
+        assert [t["title"] for t in only] == ["B"]
+
+        counts = {f["v"]: f["n"] for f in c.get("/api/library/facets").json()["shelf"]}
+        assert counts == {"finished": 2, "boxed": 1}
+    lib.close()
+
+
+def test_deleting_a_field_keeps_the_values_it_held(tmp_path):
+    """Removing a definition stops OFFERING the field; shredding what the user
+    typed would make the delete button a data-loss trap."""
+    lib = Library(tmp_path)
+    with TestClient(create_app(lib)) as c:
+        c.put("/api/fields/shelf", json={"label": "Shelf", "type": "list"})
+        out = lib.create(DraftIn(meta=TitleMeta(title="Berserk", custom={"shelf": ["boxed"]})))
+
+        left = c.delete("/api/fields/shelf").json()
+        assert [f["id"] for f in left if not f["builtin"]] == []
+        assert lib.vault.load(out.id).meta.custom == {"shelf": ["boxed"]}
+
+        # and re-defining it brings them back, filters included
+        c.put("/api/fields/shelf", json={"label": "Shelf", "type": "list"})
+        again = c.get("/api/library", params={"f": "shelf:boxed"}).json()
+        assert [t["title"] for t in again] == ["Berserk"]
+    lib.close()
+
+
+def test_a_field_id_cannot_shadow_a_builtin_or_be_junk(tmp_path):
+    lib = Library(tmp_path)
+    with TestClient(create_app(lib)) as c:
+        assert c.put("/api/fields/genres", json={"label": "Genres"}).status_code == 409
+        assert c.put("/api/fields/Shelf 1", json={"label": "x"}).status_code == 400
+        assert c.put("/api/fields/rank", json={"label": "Rank", "type": "colour"}).status_code == 400
+        # boolean is a type the editor cannot draw and the filter cannot ask
+        # about yet, so it is not offered (design/metadata-model.md §8)
+        assert c.put("/api/fields/done", json={"label": "Done", "type": "boolean"}).status_code == 400
+        assert c.put("/api/fields/rank", json={"label": "  "}).status_code == 400
+        assert c.delete("/api/fields/nope").status_code == 404
+    lib.close()
+
+
+def test_definitions_live_with_the_library_they_describe(tmp_path):
+    one, two = tmp_path / "one", tmp_path / "two"
+    lib = Library(one)
+    with TestClient(create_app(lib)) as c:
+        c.put("/api/fields/malscore", json={"label": "MAL score", "type": "number"})
+    lib.close()
+
+    other = Library(two)
+    with TestClient(create_app(other)) as c:
+        assert [f["id"] for f in c.get("/api/fields").json() if not f["builtin"]] == []
+    other.close()
+
+    back = Library(one)
+    with TestClient(create_app(back)) as c:
+        mine = [f for f in c.get("/api/fields").json() if not f["builtin"]]
+        assert [(f["id"], f["control"]) for f in mine] == [("malscore", "number")]
+    back.close()
+
+
+def test_a_number_field_is_drawn_as_one_and_stored_as_text(tmp_path):
+    """`year` already proves the shape: a number is edited and stored as text so
+    that "not set" stays different from 0."""
+    lib = Library(tmp_path)
+    with TestClient(create_app(lib)) as c:
+        served = c.put("/api/fields/malscore",
+                       json={"label": "MAL score", "type": "number", "facet": False}).json()
+        f = next(x for x in served if x["id"] == "malscore")
+        assert (f["control"], f["facet"], f["editable"]) == ("number", False, True)
+
+        out = lib.create(DraftIn(meta=TitleMeta(title="Pluto", custom={"malscore": "8.86"})))
+        assert lib.vault.load(out.id).meta.custom == {"malscore": "8.86"}
+        # not a facet: it is not offered as one either
+        assert "malscore" not in c.get("/api/library/facets").json()
+    lib.close()
+
+
+def test_browse_groups_titles_by_any_list_field(tmp_path):
+    """The axis is whatever the registry says is a list — people are not a
+    special kind of grouping, only a grouping with two extras."""
+    lib = Library(tmp_path)
+    with TestClient(create_app(lib)) as c:
+        c.put("/api/fields/shelf", json={"label": "Shelf", "type": "list"})
+        lib.create(DraftIn(meta=TitleMeta(title="A", studio=["Kyoani"], tags=["slice"],
+                                          custom={"shelf": ["boxed"]})))
+        lib.create(DraftIn(meta=TitleMeta(title="B", studio=["Kyoani"], authors=["Naoko"],
+                                          artists=["Naoko"])))
+
+        studios = c.get("/api/browse/studio").json()
+        assert [(g["value"], g["titles"]) for g in studios] == [("Kyoani", 2)]
+        assert sorted(w["title"] for w in studios[0]["works"]) == ["A", "B"]
+        assert studios[0]["role"] is None and studios[0]["fav"] is False
+
+        # a user-defined list field is an axis like any other
+        assert [g["value"] for g in c.get("/api/browse/shelf").json()] == ["boxed"]
+
+        # people keep what only people have
+        people = c.get("/api/browse/authors").json()
+        assert [(g["value"], g["role"]) for g in people] == [("Naoko", "both")]
+        # the favourite endpoint answers with the same groups, not a twin shape
+        starred = c.post(f"/api/authors/{people[0]['id']}/favorite?value=true").json()
+        assert [(g["value"], g["fav"]) for g in starred] == [("Naoko", True)]
+
+        # what can be an axis comes off the registry the UI already has:
+        # list-shaped fields. Asking for anything else answers with nothing.
+        types = {f["id"]: f["type"] for f in c.get("/api/fields").json()}
+        assert {types[k] for k in ("authors", "studio", "genres", "shelf")} == {"list"}
+        assert types["year"] == "text"
+        assert c.get("/api/browse/year").json() == []
+        assert c.get("/api/browse/nope").status_code == 404
+    lib.close()
+
+
+def test_a_filtered_browse_narrows_the_groups_and_their_contents(tmp_path):
+    """Filtering here means: which groups survive, and what is left inside them."""
+    lib = Library(tmp_path)
+    with TestClient(create_app(lib)) as c:
+        lib.create(DraftIn(meta=TitleMeta(title="A", studio=["Kyoani"], genres=["slice"])))
+        lib.create(DraftIn(meta=TitleMeta(title="B", studio=["Kyoani"], genres=["action"])))
+        lib.create(DraftIn(meta=TitleMeta(title="C", studio=["Bones"], genres=["action"])))
+
+        both = {g["value"]: g["titles"] for g in c.get("/api/browse/studio").json()}
+        assert both == {"Bones": 1, "Kyoani": 2}
+
+        slice_only = c.get("/api/browse/studio", params={"f": "genres:slice"}).json()
+        # Bones made nothing in that genre, so it is not a row with zero — it is gone
+        assert [(g["value"], g["titles"]) for g in slice_only] == [("Kyoani", 1)]
+        assert [w["title"] for w in slice_only[0]["works"]] == ["A"]
+    lib.close()
+
+
+def test_a_custom_field_always_says_what_it_takes(tmp_path):
+    """A chips control has no border of its own: with an empty placeholder the
+    row renders as a label over nothing, and the field reads as broken."""
+    lib = Library(tmp_path)
+    with TestClient(create_app(lib)) as c:
+        served = c.put("/api/fields/shelf", json={"label": "Shelf", "type": "list"}).json()
+        shelf = next(f for f in served if f["id"] == "shelf")
+        assert shelf["placeholder"] == "add shelf…"
+
+        served = c.put("/api/fields/isbn", json={"label": "ISBN", "type": "text"}).json()
+        assert next(f for f in served if f["id"] == "isbn")["placeholder"] == "ISBN"
+
+        # an explicit one still wins
+        served = c.put("/api/fields/isbn",
+                       json={"label": "ISBN", "type": "text", "placeholder": "978-…"}).json()
+        assert next(f for f in served if f["id"] == "isbn")["placeholder"] == "978-…"
+    lib.close()

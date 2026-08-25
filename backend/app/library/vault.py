@@ -19,15 +19,38 @@ import os
 import re
 import shutil
 import threading
+import time
 import zipfile
 from collections import defaultdict
 from pathlib import Path
 
 from . import media
 from .migrations import migrate
-from .models import DraftIn, TitleDoc, UserPatch
+from .models import CustomFieldDef, DraftIn, TitleDoc, UserPatch
 
 _SAFE_ID = re.compile(r"[^a-z0-9._-]+")
+
+
+def _unlink_stubborn(path: Path, tries: int = 5) -> None:
+    """Delete a file Windows may still be holding.
+
+    A stream that just ended releases its handle a moment later, so a short
+    retry turns the common case — deleting the episode you were watching — from
+    a failure into a pause. What does NOT go away is reported as itself, not as
+    a traceback out of the API."""
+    for attempt in range(tries):
+        try:
+            path.unlink(missing_ok=True)
+            return
+        except PermissionError:
+            if attempt == tries - 1:
+                raise media.MediaInUseError(path.name)
+            time.sleep(0.12)
+
+# The stills an episode can carry, cut by the window (frames.ts) and kept in the
+# vault beside the media. They live in the chapters directory next to the file
+# they came from, so nothing here may ever be mistaken for the media itself.
+FRAME_KINDS = ("poster", "sheet")
 
 # Ukrainian/Russian Cyrillic → Latin, so a Cyrillic title gets a readable slug.
 _CYR = {
@@ -87,12 +110,45 @@ class Vault:
         self._locks: dict[str, threading.RLock] = defaultdict(threading.RLock)
         self._locks_guard = threading.Lock()
         self._authors_lock = threading.Lock()
+        self._fields_lock = threading.Lock()
         # title-id → type-dir name (the shelf the title currently sits on)
         self._loc: dict[str, str] = {}
         self._migrate_flat_layout()
         # NOTE: normalize_chapter_archives() is NOT called here — it is a ONE-TIME
         # migration per vault (the Library runs it in the background when the
         # marker below says this vault hasn't had it yet), never a startup chore.
+
+    # ---- the library's own fields ----
+    #
+    # Field definitions describe THIS library's data, so they live with the data
+    # and travel with it — not in the app config, which stays behind when the
+    # library path changes or the vault moves to another machine.
+
+    def _fields_path(self) -> Path:
+        return self.root / "fields.json"
+
+    def custom_fields(self) -> list[CustomFieldDef]:
+        """User-defined fields, or none if this vault never had any."""
+        p = self._fields_path()
+        if not p.is_file():
+            return []
+        try:
+            raw = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return []
+        out: list[CustomFieldDef] = []
+        for item in raw.get("fields") or []:
+            try:
+                out.append(CustomFieldDef.model_validate(item))
+            except ValueError:
+                continue  # one broken definition must not cost the others
+        return out
+
+    def save_custom_fields(self, defs: list[CustomFieldDef]) -> None:
+        with self._fields_lock:
+            payload = {"schema": 1, "fields": [d.model_dump() for d in defs]}
+            _atomic_write(self._fields_path(),
+                          json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"))
 
     # ---- the per-type layout ----
 
@@ -394,9 +450,27 @@ class Vault:
             if video.is_file():
                 return video
         for p in sorted(d.glob(f"{stem}.*")):
-            if p.is_file() and p.suffix != ".json" and not p.name.endswith(".tmp"):
+            if (p.is_file() and p.suffix != ".json" and not p.name.endswith(".tmp")
+                    and not any(p.name.endswith(f".{k}.jpg") for k in FRAME_KINDS)):
                 return p
         return None
+
+    def chapter_frames_path(self, title_id: str, chapter_id: str, kind: str) -> Path:
+        """Where an episode's stored stills live: beside their media, in the vault.
+
+        Two kinds, cut in the same pass — `poster` is the single frame a tile
+        wears, `sheet` the contact grid a title page shows until playback is
+        asked for. Beside the media, not in a cache directory: the vault is the
+        source of truth, and a frame the app decoded once should survive a
+        rebuilt index, a moved library and a machine change, instead of being
+        re-pulled from the video."""
+        return self._chapters_dir(title_id) / f"{safe_id(chapter_id)}.{kind}.jpg"
+
+    def write_chapter_frames(self, title_id: str, chapter_id: str, kind: str,
+                             data: bytes) -> None:
+        with self._lock(title_id):
+            self._chapters_dir(title_id).mkdir(parents=True, exist_ok=True)
+            _atomic_write(self.chapter_frames_path(title_id, chapter_id, kind), data)
 
     def chapter_sidecars(self, title_id: str) -> dict[str, dict]:
         """All chapter sidecars, keyed by the chapter file stem (safe id)."""
@@ -451,9 +525,19 @@ class Vault:
             # reverse order leaves the chapter with no media at all if anything
             # fails in between.
             media.replace_atomically(tmp, final)
+            # The new media is already in place, so the leftovers of a former
+            # extension (.webm replaced by .mp4) MUST go: `chapter_media_path`
+            # globs, and a stale sibling would be served instead of what was
+            # just downloaded. One that is still held open is renamed out of the
+            # glob's way — Windows refuses to unlink an open file but renames it
+            # happily, and `.tmp` is what the stray sweep collects.
             for old in d.glob(f"{stem}.*"):
-                if old != final and old.suffix != ".json":
-                    old.unlink(missing_ok=True)
+                if old == final or old.suffix == ".json":
+                    continue
+                try:
+                    _unlink_stubborn(old, tries=2)
+                except media.MediaInUseError:
+                    old.rename(media.tmp_path(old))
             # a re-ingest over an existing chapter continues its revision, so a
             # browser holding the previous pages cannot match the new URLs
             prev = self.chapter_sidecars(title_id).get(stem, {})
@@ -643,15 +727,29 @@ class Vault:
         return changed
 
     def delete_chapter_media(self, title_id: str, chapter_id: str) -> bool:
+        """Delete a chapter's files. Raises MediaInUseError when Windows will not
+        let go of one — a video the player still holds open, most often the very
+        episode the human is watching while pressing delete."""
         with self._lock(title_id):
             stem = safe_id(chapter_id)
             d = self._chapters_dir(title_id)
-            existed = False
-            if d.is_dir():
-                for p in d.glob(f"{stem}.*"):
-                    p.unlink(missing_ok=True)
-                    existed = True
-            return existed
+            if not d.is_dir():
+                return False
+            files = sorted(d.glob(f"{stem}.*"))
+            if not files:
+                return False
+            # ORDER MATTERS. The media is the file something may still hold, so
+            # it goes first and takes the whole delete down with it if it will
+            # not go — leaving the chapter exactly as it was. Deleting the
+            # sidecar first (glob order) left entries that had lost every fact
+            # about themselves while their video was still sitting there.
+            media_path = self.chapter_media_path(title_id, chapter_id)
+            if media_path is not None:
+                _unlink_stubborn(media_path)
+            for p in files:
+                if p != media_path:
+                    _unlink_stubborn(p)
+            return True
 
     # ---- the authors user layer (favorites) ----
     # Authors are DERIVED from titles and have no directory of their own; the

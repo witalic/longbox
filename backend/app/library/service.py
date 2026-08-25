@@ -12,16 +12,19 @@ import re
 import threading
 import time
 import uuid
+import zipfile
 from collections import Counter
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import media
+from . import fields, media
 from .index import LibraryIndex
-from .models import Author, AuthorWork, ChapterRow, DraftIn, Source, TitleDoc, TitleOut, UserPatch
-from .vault import Vault, safe_id
+from .models import (
+    AuthorWork, BrowseGroup, ChapterRow, DraftIn, Source, TitleDoc, TitleOut, UserPatch,
+)
+from .vault import FRAME_KINDS, Vault, safe_id
 from .versions import cache_key, chapter_version, cover_version
 
 
@@ -40,6 +43,8 @@ def _chapter_num_key(num: str) -> tuple:
 class Library:
     def __init__(self, root: Path, *, defer_sync: bool = False) -> None:
         self.vault = Vault(root)
+        # the registry is per-library: point it at THIS vault's definitions
+        fields.set_custom(self.vault.custom_fields())
         self.index = LibraryIndex(root / "index.db")
         # two concurrent creates may derive the same fresh id — serialize the
         # pick-unique-id → first-commit step
@@ -303,39 +308,54 @@ class Library:
     def count(self) -> int:
         return self.index.count()
 
-    def authors(self) -> list[Author]:
-        """People aggregated from the titles' authors[] and artists[], with the
-        role derived from where they appear, plus cover art and common tags."""
+    def browse(self, field_id: str, selection: dict | None = None) -> list[BrowseGroup]:
+        """Titles grouped by one LIST field. The registry decides what can be an
+        axis: a number or a date has nothing to group by, so only lists qualify.
+
+        `authors` is not a separate code path — it is this, plus the two things
+        only people have: the role they played and the favourite mark."""
+        f = fields.by_id().get(field_id)
+        if f is None or f.type != "list":
+            return []
+        people = field_id == "authors"
+        # Filtering a browse means "which groups survive, and what is left inside
+        # them" — so it is the same selection the library is under, applied to the
+        # documents BEFORE they are grouped. A group with nothing left disappears.
+        docs = (self.index.query(**selection) if selection else
+                [(tid, doc, {}, cover) for tid, doc, cover in self.index.all_docs()])
         agg: dict[str, dict] = {}
-        for tid, doc, cover in self.index.all_docs():
+        for tid, doc, _media, cover in docs:
             m = doc.meta
-            for role_key, names in (("author", m.authors), ("artist", m.artists)):
-                for raw in names:
-                    name = raw.strip()
-                    if not name:
-                        continue
-                    a = agg.setdefault(name, {"works": {}, "author": False, "artist": False,
-                                              "chapters": 0, "tags": Counter()})
-                    a[role_key] = True
-                    if tid not in a["works"]:
-                        a["works"][tid] = AuthorWork(id=tid, title=m.title, cover=cover)
-                        a["chapters"] += len(doc.chapters)
-                        a["tags"].update(m.tags)
-        favs = self.vault.author_favorites()
-        out: list[Author] = []
-        for name, a in sorted(agg.items()):
-            role = "both" if a["author"] and a["artist"] else ("artist" if a["artist"] else "author")
-            aid = safe_id(name)
-            out.append(Author(id=aid, name=name, role=role, fav=aid in favs,
-                              works=list(a["works"].values()),
-                              titles=len(a["works"]), chapters=a["chapters"],
-                              topTags=[tag for tag, _ in a["tags"].most_common(5)]))
+            for value in fields.facet_values(f, doc):
+                name = value.strip()
+                if not name:
+                    continue
+                g = agg.setdefault(name, {"works": {}, "chapters": 0, "tags": Counter(),
+                                          "author": False, "artist": False})
+                if people:
+                    g["author"] = g["author"] or name in m.authors
+                    g["artist"] = g["artist"] or name in m.artists
+                if tid not in g["works"]:
+                    g["works"][tid] = AuthorWork(id=tid, title=m.title, cover=cover)
+                    g["chapters"] += len(doc.chapters)
+                    g["tags"].update(m.tags)
+        favs = self.vault.author_favorites() if people else set()
+        out: list[BrowseGroup] = []
+        for name, g in sorted(agg.items()):
+            gid = safe_id(name)
+            role = None
+            if people:
+                role = "both" if g["author"] and g["artist"] else ("artist" if g["artist"] else "author")
+            out.append(BrowseGroup(
+                id=gid, field=field_id, value=name, role=role, fav=people and gid in favs,
+                works=list(g["works"].values()), titles=len(g["works"]),
+                chapters=g["chapters"], topTags=[t for t, _ in g["tags"].most_common(5)]))
         return out
 
     def set_author_favorite(self, author_id: str, value: bool) -> bool:
         """Write-through favorite mark; True when the author currently exists."""
         self.vault.set_author_favorite(author_id, value)
-        return any(a.id == author_id for a in self.authors())
+        return any(g.id == author_id for g in self.browse("authors"))
 
     def sources(self) -> list[Source]:
         """Sites aggregated from the titles' source bindings. Recipe detail is
@@ -747,6 +767,59 @@ class Library:
             self._index(title_id, doc)
         return self._out_now(title_id, doc)
 
+    # ---- episode stills --------------------------------------------------
+    #
+    # The app has no video decoder. The WINDOW does: it plays these files, so it
+    # can also seek them, draw the frames and hand the bytes back. That happens
+    # once per episode — one pass yields both the tile's poster and the contact
+    # sheet the title page shows — and from then on they are files in the vault
+    # that no tile and no preview ever re-reads from the video stream.
+
+    def save_chapter_frames(self, title_id: str, chapter_id: str, kind: str,
+                            data: bytes, grid: str = "") -> bool:
+        if kind not in FRAME_KINDS or media.sniff_ext(data) != "jpg":  # a JPEG, or nothing
+            return False
+        # ONE critical section. Read → change → write of a sidecar outside the
+        # title's lock is how a download completing at the same moment gets its
+        # `pages`, `size` and `rev` overwritten by a copy that was read before it
+        # landed — the chapter would then read as having no media at all.
+        with self.vault.title_lock(title_id):
+            sidecars = self.vault.chapter_sidecars(title_id)
+            stem = safe_id(chapter_id)
+            if stem not in sidecars:
+                return False
+            self.vault.write_chapter_frames(title_id, chapter_id, kind, data)
+            side = dict(sidecars[stem])
+            # A sheet records the GRID it was cut in. The window slices that one
+            # file into tiles, so a sheet cut in another geometry is not a sheet
+            # it can read — it says so by not matching, and the episode is re-cut.
+            side[kind] = grid if kind == "sheet" else True
+            # the STILLS version, not the media revision: see stills_version()
+            side["stills"] = int(side.get("stills") or 0) + 1
+            self.vault.write_chapter_sidecar(title_id, chapter_id, side)
+            self._sidecar_cache.pop(title_id, None)
+            doc = self.vault.load(title_id)
+            if doc is not None:
+                self._index(title_id, doc)
+        return True
+
+    def chapter_frames(self, title_id: str, chapter_id: str, kind: str,
+                       width: int | None = None) -> tuple[bytes, str] | None:
+        if kind not in FRAME_KINDS:
+            return None
+        path = self.vault.chapter_frames_path(title_id, chapter_id, kind)
+        if not path.is_file():
+            return None
+        try:
+            if not width:
+                return path.read_bytes(), "image/jpeg"
+            key = cache_key(kind, str(path.stat().st_mtime_ns),
+                            safe_id(title_id), safe_id(chapter_id), width)
+            return self._cached_thumb(key, lambda: (path.read_bytes(), "image/jpeg"), width, None)
+        except OSError as e:
+            log.warning("%s %s/%s is unreadable: %s", kind, title_id, chapter_id, e)
+            return None
+
     def chapter_pages(self, title_id: str, chapter_id: str) -> list[str] | None:
         path = self.vault.chapter_media_path(title_id, chapter_id)
         if path is None:
@@ -755,20 +828,34 @@ class Library:
 
     def chapter_page(self, title_id: str, chapter_id: str, index: int,
                      width: int | None = None, cap: float | None = None) -> tuple[bytes, str] | None:
+        """One page, or None when it cannot be served.
+
+        A page that will not decompress (a truncated download, a bad CRC) is a
+        MISSING page, not a broken server: one damaged entry must not answer a
+        thumbnail request with a traceback, and a grid that asks for eight of
+        them must not fill the log eight times over."""
         path = self.vault.chapter_media_path(title_id, chapter_id)
         if path is None:
             return None
-        entries = media.image_entries(path)
-        if not (0 <= index < len(entries)):
+        try:
+            entries = media.image_entries(path)
+            if not (0 <= index < len(entries)):
+                return None
+            if not width:
+                return media.read_entry(path, entries[index])
+        except (zipfile.BadZipFile, OSError, KeyError) as e:
+            log.warning("page %s/%s#%s is unreadable: %s", title_id, chapter_id, index, e)
             return None
-        if not width:
-            return media.read_entry(path, entries[index])
         # keyed by the chapter's own version — every page op bumps it, so an
         # edited chapter misses this cache by construction
         key = cache_key("page", chapter_version(self._sidecars(title_id).get(safe_id(chapter_id))),
                         safe_id(title_id), safe_id(chapter_id), width,
                         f"c{cap:g}" if cap else "", index)
-        return self._cached_thumb(key, lambda: media.read_entry(path, entries[index]), width, cap)
+        try:
+            return self._cached_thumb(key, lambda: media.read_entry(path, entries[index]), width, cap)
+        except (zipfile.BadZipFile, OSError, KeyError) as e:
+            log.warning("page %s/%s#%s is unreadable: %s", title_id, chapter_id, index, e)
+            return None
 
     # ---- the sidecar: ONE writer for every page operation ----
     # pages/size describe the file that is actually stored, and `pageKeys` runs

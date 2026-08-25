@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import re
 import tempfile
 from collections.abc import Iterator
 from datetime import datetime, timezone
@@ -18,7 +19,10 @@ from pydantic import BaseModel, Field
 
 from ..config_store import config_transaction, load_config
 from ..library import fields, media
-from ..library.models import Author, DraftIn, FacetCounts, Source, TitleOut, UserPatch
+from ..library.models import (
+    Bookmark, BrowseGroup, CustomFieldDef, DraftIn, FacetCounts, Source, TitleOut, UserPatch,
+)
+from ..library.media import MediaInUseError
 from ..library.service import Library
 from ..scraper.covers import fetch_cover
 
@@ -51,7 +55,7 @@ def _by_field(pairs: list[str]) -> dict[str, tuple[str, ...]]:
     out: dict[str, list[str]] = {}
     for pair in pairs:
         fid, sep, value = pair.partition(":")
-        if sep and value and fid in fields.BY_ID:
+        if sep and value and fid in fields.by_id():
             out.setdefault(fid, []).append(value)
     return {k: tuple(v) for k, v in out.items()}
 
@@ -77,14 +81,68 @@ class FieldOut(BaseModel):
     facet: bool
     placeholder: str
     vocab: str
+    group: str  # which block of the editor draws it
 
 
 @router.get("/fields", response_model=list[FieldOut])
 def list_fields() -> list[FieldOut]:
     return [FieldOut(id=f.id, label=f.label, type=f.type, control=f.control,
                      builtin=f.builtin, required=f.required, editable=f.editable,
-                     facet=f.facet, placeholder=f.placeholder, vocab=f.vocab or f.id)
-            for f in fields.BUILTIN]
+                     facet=f.facet, placeholder=f.placeholder, vocab=f.vocab or f.id,
+                     group=f.group)
+            for f in fields.registry()]
+
+
+class FieldIn(BaseModel):
+    """A field definition as the user writes it. `id` comes from the path."""
+    label: str
+    type: str = "text"
+    facet: bool = True
+    multiline: bool = False
+    placeholder: str = ""
+
+
+_FIELD_ID = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+# boolean is deferred with its tri-state filter (design/metadata-model.md §8)
+_FIELD_TYPES = ("text", "number", "list", "date")
+
+
+def _save_fields(lib: Library, defs: list[CustomFieldDef]) -> None:
+    lib.vault.save_custom_fields(defs)
+    fields.set_custom(defs)
+
+
+@router.put("/fields/{field_id}", response_model=list[FieldOut])
+def put_field(field_id: str, body: FieldIn, request: Request) -> list[FieldOut]:
+    """Define a field, or change one. Renaming the LABEL is free; the id is the
+    key every stored value hangs on, so it is fixed at creation."""
+    if not _FIELD_ID.match(field_id):
+        raise HTTPException(400, "a field id is lowercase letters, digits and _")
+    if field_id in {f.id for f in fields.BUILTIN}:
+        raise HTTPException(409, f"{field_id} is a built-in field")
+    if body.type not in _FIELD_TYPES:
+        raise HTTPException(400, f"type must be one of {', '.join(_FIELD_TYPES)}")
+    if not body.label.strip():
+        raise HTTPException(400, "a field needs a label")
+    lib = _lib(request)
+    defs = [d for d in lib.vault.custom_fields() if d.id != field_id]
+    defs.append(CustomFieldDef(id=field_id, label=body.label.strip(), type=body.type,
+                               facet=body.facet, multiline=body.multiline,
+                               placeholder=body.placeholder))
+    _save_fields(lib, defs)
+    return list_fields()
+
+
+@router.delete("/fields/{field_id}", response_model=list[FieldOut])
+def delete_field(field_id: str, request: Request) -> list[FieldOut]:
+    """Stop offering a field. The VALUES stay in the vault — deleting a field is
+    not a licence to shred what the user typed, and re-adding it brings them back."""
+    lib = _lib(request)
+    defs = lib.vault.custom_fields()
+    if not any(d.id == field_id for d in defs):
+        raise HTTPException(404, "no such custom field")
+    _save_fields(lib, [d for d in defs if d.id != field_id])
+    return list_fields()
 
 
 @router.get("/library", response_model=list[TitleOut])
@@ -502,6 +560,39 @@ def chapter_video_meta(request: Request, title_id: str, chapter_id: str,
     return title
 
 
+@router.get("/titles/{title_id}/chapters/{chapter_id}/frames/{kind}")
+def chapter_frames(request: Request, title_id: str, chapter_id: str, kind: str,
+                   w: int = 0) -> Response:
+    """A stored still for an episode — `poster` or `sheet`.
+
+    404 until the window has cut one: an episode with no stills yet is a normal
+    state, not an error."""
+    got = _lib(request).chapter_frames(title_id, chapter_id, kind,
+                                       min(max(w, 0), 1600) or None)
+    if got is None:
+        raise HTTPException(status_code=404, detail="no frames")
+    data, content_type = got
+    return Response(content=data, media_type=content_type,
+                    headers={"Cache-Control": "max-age=86400"})
+
+
+@router.put("/titles/{title_id}/chapters/{chapter_id}/frames/{kind}", response_model=TitleOut)
+async def put_chapter_frames(request: Request, title_id: str, chapter_id: str,
+                             kind: str, grid: str = "") -> TitleOut:
+    """Stills the WINDOW decoded, stored in the vault so they are decoded once."""
+    data = await request.body()
+    if len(data) > 8 * 1024 * 1024:
+        raise HTTPException(413, "frames too large")
+    lib = _lib(request)
+    if not await run_in_threadpool(lib.save_chapter_frames, title_id, chapter_id, kind,
+                                   data, grid[:8]):
+        raise HTTPException(400, "not a JPEG, no such chapter, or unknown kind")
+    out = lib.get(title_id)
+    if out is None:
+        raise HTTPException(404, "no such title")
+    return out
+
+
 @router.get("/titles/{title_id}/chapters/{chapter_id}/pages/{index}")
 def chapter_page(request: Request, title_id: str, chapter_id: str, index: int,
                  w: int = 0, cap: float = 0) -> Response:
@@ -526,10 +617,21 @@ def delete_chapter_pages(request: Request, title_id: str, chapter_id: str, body:
     return result
 
 
+def _held(name: str) -> HTTPException:
+    """Windows refuses to unlink an open file, and the holder is almost always
+    the player on the very entry being deleted — so the answer says which file
+    and what to do about it, instead of a 500 out of `os.unlink`."""
+    return HTTPException(409, f"“{name}” is open right now — close the player or the "
+                              f"reader on this entry, then delete it")
+
+
 @router.delete("/titles/{title_id}/chapters/{chapter_id}/media", response_model=TitleOut)
 def delete_chapter_media(request: Request, title_id: str, chapter_id: str) -> TitleOut:
     """Remove the downloaded archive; the chapter row stays."""
-    result = _lib(request).delete_chapter_media(title_id, chapter_id)
+    try:
+        result = _lib(request).delete_chapter_media(title_id, chapter_id)
+    except MediaInUseError as e:
+        raise _held(str(e))
     if result is None:
         raise HTTPException(status_code=404, detail="title not found")
     return result
@@ -538,7 +640,10 @@ def delete_chapter_media(request: Request, title_id: str, chapter_id: str) -> Ti
 @router.delete("/titles/{title_id}/chapters/{chapter_id}", response_model=TitleOut)
 def delete_chapter_row(request: Request, title_id: str, chapter_id: str) -> TitleOut:
     """Remove the chapter row AND its downloaded media."""
-    result = _lib(request).delete_chapter_row(title_id, chapter_id)
+    try:
+        result = _lib(request).delete_chapter_row(title_id, chapter_id)
+    except MediaInUseError as e:
+        raise _held(str(e))
     if result is None:
         raise HTTPException(status_code=404, detail="chapter not found")
     return result
@@ -546,17 +651,12 @@ def delete_chapter_row(request: Request, title_id: str, chapter_id: str) -> Titl
 
 # ---- derived collections ----
 
-@router.get("/authors", response_model=list[Author])
-def list_authors(request: Request) -> list[Author]:
-    return _lib(request).authors()
-
-
-@router.post("/authors/{author_id}/favorite", response_model=list[Author])
+@router.post("/authors/{author_id}/favorite", response_model=list[BrowseGroup])
 def set_author_favorite(request: Request, author_id: str, value: bool = True) -> list[Author]:
     """Write-through: mark an author as favorite (persisted in the vault)."""
     if not _lib(request).set_author_favorite(author_id, value):
         raise HTTPException(status_code=404, detail="author not found")
-    return _lib(request).authors()
+    return _lib(request).browse("authors")
 
 
 @router.delete("/sources/{domain}")
@@ -572,10 +672,39 @@ def delete_source(request: Request, domain: str) -> dict:
     return {"hidden": True, "recipeDeleted": recipe_deleted}
 
 
+def _source_prefs(cfg: dict) -> dict:
+    """The user's own layer over the sources: group and saved links, per domain.
+
+    It lives in the app config, not in a recipe: a recipe is what longbox LEARNED
+    about a site, while a bookmark is where the user likes to start on it."""
+    prefs = cfg.get("sources")
+    return prefs if isinstance(prefs, dict) else {}
+
+
+@router.get("/browse/{field_id}", response_model=list[BrowseGroup])
+def browse_by(
+    field_id: str,
+    request: Request,
+    search: str | None = None,
+    progress: str | None = None,
+    fav: bool = False,
+    min_rating: int | None = None,
+    f: list[str] = Query(default=[]),
+    nf: list[str] = Query(default=[]),
+) -> list[BrowseGroup]:
+    if field_id not in fields.by_id():
+        raise HTTPException(404, "no such field")
+    sel = _selection(search, progress, fav, min_rating, f, nf)
+    narrowed = any((search, progress, fav, min_rating, f, nf))
+    return _lib(request).browse(field_id, sel if narrowed else None)
+
+
 @router.get("/sources", response_model=list[Source])
 def list_sources(request: Request) -> list[Source]:
     recipes = request.app.state.recipes
-    hidden = set(load_config().get("hidden_sources", []))
+    cfg = load_config()
+    hidden = set(cfg.get("hidden_sources", []))
+    prefs = _source_prefs(cfg)
     sources = [s for s in _lib(request).sources() if s.domain not in hidden]
     for s in sources:  # join the saved per-domain recipe onto each source
         recipe = recipes.get(s.domain)
@@ -583,4 +712,58 @@ def list_sources(request: Request) -> list[Source]:
             s.hasRecipe = True
             s.recipeVer = recipe.version
             s.fields = list(recipe.fields.keys())
+        mine = prefs.get(s.domain) or {}
+        s.group = str(mine.get("group") or "")
+        s.bookmarks = [Bookmark.model_validate(b) for b in (mine.get("bookmarks") or [])
+                       if isinstance(b, dict) and b.get("url")]
     return sources
+
+
+class SourcePrefsIn(BaseModel):
+    """Partial: send what changes. Bookmarks arrive as the WHOLE list — an index
+    into a list somebody else may have reordered is not a stable address."""
+    group: str | None = None
+    bookmarks: list[Bookmark] | None = None
+
+
+@router.put("/sources/{domain}", response_model=list[Source])
+def put_source_prefs(domain: str, body: SourcePrefsIn, request: Request) -> list[Source]:
+    with config_transaction() as cfg:
+        prefs = dict(_source_prefs(cfg))
+        mine = dict(prefs.get(domain) or {})
+        if body.group is not None:
+            mine["group"] = body.group.strip()
+        if body.bookmarks is not None:
+            mine["bookmarks"] = [b.model_dump() for b in body.bookmarks if b.url.strip()]
+        # an entry that says nothing is not worth keeping in the config
+        if mine.get("group") or mine.get("bookmarks"):
+            prefs[domain] = mine
+        else:
+            prefs.pop(domain, None)
+        cfg["sources"] = prefs
+    return list_sources(request)
+
+
+@router.get("/source-groups", response_model=list[str])
+def list_source_groups() -> list[str]:
+    groups = load_config().get("source_groups")
+    return [g for g in groups if isinstance(g, str) and g.strip()] if isinstance(groups, list) else []
+
+
+class SourceGroupsIn(BaseModel):
+    groups: list[str]
+
+
+@router.put("/source-groups", response_model=list[str])
+def put_source_groups(body: SourceGroupsIn) -> list[str]:
+    """The ordered group list. Renaming one here does NOT re-tag its sources —
+    the caller sends the moves it wants, so a rename can never orphan a domain
+    behind the app's back."""
+    seen: list[str] = []
+    for g in body.groups:
+        name = g.strip()
+        if name and name not in seen:
+            seen.append(name)
+    with config_transaction() as cfg:
+        cfg["source_groups"] = seen
+    return seen

@@ -34,7 +34,8 @@ class RecipeStore:
         recipe = Recipe.model_validate_json(p.read_text(encoding="utf-8"))
         # A pre-candidate (prototype-era) file parses but can extract nothing —
         # treat it as unlearned rather than showing a recipe that silently no-ops.
-        usable = recipe.chapters is not None or any(f.candidates for f in recipe.fields.values())
+        usable = (recipe.chapters is not None or bool(recipe.hidden)
+                  or any(f.candidates for f in recipe.fields.values()))
         return recipe if usable else None
 
     def list_domains(self) -> list[str]:

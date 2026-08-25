@@ -33,6 +33,9 @@ class FieldRule(BaseModel):
     # per-field cleanup flags (explicit, so each field decides its own normalization)
     lower: bool = False        # lowercase the value(s)
     stripCounts: bool = False  # strip a trailing match-count, e.g. "Romance (255)"
+    # what goes BETWEEN several matches when the field keeps one value — a list
+    # picked into a text field (four alternative titles, one ALT TITLES box)
+    join: str = ""             # "" = the field's own default
     candidates: list[Candidate] = []
 
 
@@ -56,3 +59,7 @@ class Recipe(BaseModel):
     # e.g. title/alt/desc → single; authors/genres/tags → list; cover → attr src
     fields: dict[str, FieldRule] = {}
     chapters: ChapterRule | None = None
+    # Registry field ids this source does not offer. A site that never shows a
+    # studio should not show a STUDIO row in the 344px dock — and that is a fact
+    # about the SITE, so it belongs to the recipe, not to the user's settings.
+    hidden: list[str] = []

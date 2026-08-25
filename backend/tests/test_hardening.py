@@ -847,3 +847,48 @@ def test_two_writes_never_share_a_scratch_name(tmp_path):
     target = tmp_path / "title.json"
     assert media.tmp_path(target) != media.tmp_path(target)
     assert media.tmp_path(target).name.endswith(".tmp")
+
+
+def test_the_built_ui_document_is_never_cached_but_its_assets_are(tmp_path, monkeypatch):
+    """A rebuilt frontend has to reach an open window. The entry document carries
+    no content hash, so served without a Cache-Control it falls to the browser's
+    heuristic cache and pins the window to the bundle it saw last."""
+    import app.main as main
+
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<html></html>", encoding="utf-8")
+    (dist / "assets" / "index-abc123.js").write_text("//", encoding="utf-8")
+    monkeypatch.setattr(main, "_FRONTEND_DIST", dist)
+
+    lib = Library(tmp_path / "lib")
+    with TestClient(main.create_app(lib)) as c:
+        assert c.get("/app/index.html").headers["cache-control"] == "no-cache"
+        asset = c.get("/app/assets/index-abc123.js")
+        assert asset.headers["cache-control"] == "public, max-age=31536000, immutable"
+    lib.close()
+
+
+def test_a_damaged_page_is_a_missing_page_not_a_500(tmp_path):
+    """A truncated download leaves an entry that will not decompress. The grid
+    asks for eight thumbnails at once — answering each with a traceback turns one
+    bad file into a wall of noise and an error toast."""
+    lib = Library(tmp_path)
+    out = lib.create(DraftIn(meta=TitleMeta(title="Broken"),
+                             chapters=[ChapterRow(id="c1", num="1")]))
+    # a real zip whose stored bytes do not match the recorded CRC
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("001.jpg", b"\xff\xd8\xff" + b"x" * 64)
+    raw = bytearray(buf.getvalue())
+    raw[raw.index(b"\xff\xd8\xff") + 4] ^= 0xFF  # corrupt the payload, keep the CRC
+    src = tmp_path / "broken.cbz"
+    src.write_bytes(bytes(raw))
+    lib.attach_chapter_media(out.id, num="1", lang="", group="", src=src, sidecar={})
+
+    with TestClient(create_app(lib)) as c:
+        for url in (f"/api/titles/{out.id}/chapters/c1/pages/0",
+                    f"/api/titles/{out.id}/chapters/c1/pages/0?w=240&cap=1.5"):
+            r = c.get(url)
+            assert r.status_code == 404, f"{url} answered {r.status_code}"
+    lib.close()
