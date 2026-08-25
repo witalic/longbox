@@ -188,6 +188,11 @@ const liveDownloads = new Map()
 // "Save image as…" is not that — it is a plain Save As, and this is how the two
 // are told apart at `will-download`, which sees only a URL.
 const manualSaves = new Set()
+
+// The app window, for the things a GUEST page's handlers need one: a context
+// menu has to be popped up over a window, and a <webview>'s webContents is not
+// one — `Menu.popup()` with nothing to anchor to takes the whole app down.
+let appWindow = null
 // Transfers being stopped ON PURPOSE, to be picked up later: their partial file
 // is KEPT and their end is reported as interrupted, not as a failure.
 const interrupting = new Set()
@@ -329,6 +334,8 @@ async function main() {
       preload: path.join(__dirname, 'app-preload.js'),
     },
   })
+
+  appWindow = win // guest-page handlers pop their menus over this one
 
   // DevTools, on the app window only. The one class of problem that cannot be
   // diagnosed from outside — playback stalls, a decode fallback, request timing
@@ -642,44 +649,60 @@ app.on('web-contents-created', (_e, contents) => {
     // items are the ones a browser has and this app actually needs: links and
     // images (a cover is one right-click away instead of a taught selector),
     // the selection, and the page itself.
+    // A page with no context menu is a page you cannot copy a link out of. The
+    // items are the ones a browser has and this app actually needs: links and
+    // images (a cover is one right-click away instead of a taught selector),
+    // the selection, and the page itself.
+    //
+    // Wrapped, and anchored to the app window: this runs for every right-click
+    // on a page nobody controls, and `Menu.popup()` with nothing to anchor to —
+    // a <webview>'s webContents is not a window — is a FATAL check in Electron,
+    // i.e. the whole app goes down.
     contents.on('context-menu', (_evt, params) => {
-      const items = []
-      const openTab = (url, background) =>
-        contents.send('open-url-as-tab', { url, background })
-      if (params.linkURL) {
+      try {
+        if (!appWindow || appWindow.isDestroyed()) return
+        const items = []
+        const openTab = (url, background) =>
+          contents.send('open-url-as-tab', { url, background })
+        if (params.linkURL) {
+          items.push(
+            { label: 'Open link in new tab', click: () => openTab(params.linkURL, false) },
+            { label: 'Open link in background tab', click: () => openTab(params.linkURL, true) },
+            { label: 'Copy link address', click: () => clipboard.writeText(params.linkURL) },
+          )
+        }
+        if (params.mediaType === 'image' && params.srcURL) {
+          if (items.length) items.push({ type: 'separator' })
+          items.push(
+            { label: 'Copy image address', click: () => clipboard.writeText(params.srcURL) },
+            {
+              label: 'Save image as…',
+              click: () => { manualSaves.add(params.srcURL); contents.downloadURL(params.srcURL) },
+            },
+          )
+        }
+        if (params.selectionText) {
+          if (items.length) items.push({ type: 'separator' })
+          items.push({ label: 'Copy', click: () => clipboard.writeText(params.selectionText) })
+        }
+        if (params.isEditable) {
+          if (items.length) items.push({ type: 'separator' })
+          items.push({ label: 'Paste', click: () => contents.paste() })
+        }
+        if (items.length) items.push({ type: 'separator' })
+        // `navigationHistory` is the current API; the flat calls are deprecated
+        const nav = contents.navigationHistory
         items.push(
-          { label: 'Open link in new tab', click: () => openTab(params.linkURL, false) },
-          { label: 'Open link in background tab', click: () => openTab(params.linkURL, true) },
-          { label: 'Copy link address', click: () => clipboard.writeText(params.linkURL) },
+          { label: 'Back', enabled: nav.canGoBack(), click: () => nav.goBack() },
+          { label: 'Forward', enabled: nav.canGoForward(), click: () => nav.goForward() },
+          { label: 'Reload', click: () => contents.reload() },
+          { type: 'separator' },
+          { label: 'Copy page address', click: () => clipboard.writeText(contents.getURL()) },
         )
+        Menu.buildFromTemplate(items).popup({ window: appWindow })
+      } catch (err) {
+        console.error('context menu failed:', err)
       }
-      if (params.mediaType === 'image' && params.srcURL) {
-        if (items.length) items.push({ type: 'separator' })
-        items.push(
-          { label: 'Copy image address', click: () => clipboard.writeText(params.srcURL) },
-          {
-            label: 'Save image as…',
-            click: () => { manualSaves.add(params.srcURL); contents.downloadURL(params.srcURL) },
-          },
-        )
-      }
-      if (params.selectionText) {
-        if (items.length) items.push({ type: 'separator' })
-        items.push({ label: 'Copy', click: () => clipboard.writeText(params.selectionText) })
-      }
-      if (params.isEditable) {
-        if (items.length) items.push({ type: 'separator' })
-        items.push({ label: 'Paste', click: () => contents.paste() })
-      }
-      if (items.length) items.push({ type: 'separator' })
-      items.push(
-        { label: 'Back', enabled: contents.canGoBack(), click: () => contents.goBack() },
-        { label: 'Forward', enabled: contents.canGoForward(), click: () => contents.goForward() },
-        { label: 'Reload', click: () => contents.reload() },
-        { type: 'separator' },
-        { label: 'Copy page address', click: () => clipboard.writeText(contents.getURL()) },
-      )
-      Menu.buildFromTemplate(items).popup()
     })
 
     contents.setWindowOpenHandler(({ url, disposition }) => {
