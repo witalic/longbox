@@ -11,6 +11,7 @@ the process shape, transport/auth, the vault layout as implemented, and what eac
 │  • main UI  (Vue, served by the backend at /app/)             │
 │  • embedded browser <webview> — source sites + pick/snapshot  │
 │  • will-download interception → armed-download ingest         │
+│  • browser keys, page context menu, fullscreen for OUR pages  │
 │  • transport: local (loopback) | remote (TLS + token)         │
 └──────────────┬────────────────────────────────────────────────┘
                │ HTTP (localhost, or remote host)
@@ -64,8 +65,13 @@ library/
                                user        — fav/rating/read; instant write-through
       cover.<ext>            captured cover bytes
       chapters/
-        <chapter-id>.zip     the chapter's media — ALWAYS a plain zip (see below)
-        <chapter-id>.json    download provenance sidecar (source, pages, size, date)
+        <chapter-id>.zip     page media — ALWAYS a plain zip (see below)
+        <chapter-id>.mp4     episode media — stored as the file it arrived as
+        <chapter-id>.json    download provenance sidecar (source, pages, size, date,
+                             and for an episode: duration, codec, faststart, resume points)
+        <chapter-id>.poster.jpg  the one frame a tile wears
+        <chapter-id>.sheet.jpg   the 3x3 contact sheet a preview shows
+  fields.json                the library's own metadata fields (registry additions)
 ```
 
 - **Type shelves.** A title lives on the shelf its `type` dictates; changing the type physically
@@ -77,6 +83,12 @@ library/
   this, the whole-vault sweep is a **migration, not a startup chore**: it runs once per vault
   (marked by `zipNormalized` in `vault.json`), on a background thread, and Settings can re-run it
   for content dropped into the folder by hand.
+- **Episode stills.** The app ships no video decoder, so a frame cannot be cut on the backend —
+  but the WINDOW decodes these files to play them. It seeks nine spots once per episode, composes
+  them into one sheet (a 3x3 grid has exactly the aspect ratio of one frame, so the preview and
+  the player share a box), keeps the liveliest single frame as the poster, and hands both to the
+  vault. They carry a version of their OWN (`stills`), never the media revision: bumping that
+  re-points the `<video>` of an episode that may be playing right then.
 - **No-orphan commits.** A meta commit reconciles chapters: a re-captured row adopts the old row's
   id (by URL, else by num+lang+group), and media-backed rows missing from a stale draft are
   restored — downloaded chapters are removed only by the explicit delete endpoints.
@@ -120,6 +132,17 @@ Endpoints run sync on FastAPI's threadpool, so races are real and handled struct
     nothing; unreadable media is distrusted and re-captured. `pageKeys` runs parallel to the
     pages, so deleting, moving or reordering pages carries their keys with them. Stored format is
     decided by the BYTES (a CDN's content-type is routinely wrong).
+- **Episodes stream, they do not copy.** The chapter's own file is served with Range support; an
+  open-ended `bytes=N-` is answered with an 8MB WINDOW rather than the whole tail, because the
+  player abandons the rest and reconnects per fragment (measured: 0.29x playback with 83 buffer
+  fragments against 0.97x with 8). Deleting or replacing a file something still streams is a
+  Windows `PermissionError`, so the media goes first and a refusal leaves the chapter untouched,
+  answered as 409 with what to close.
+- **Interrupted transfers outlive the run.** Stopping everything for a quit keeps each transfer's
+  partial file and records — in the app config, not in memory — the chapter it was claiming, the
+  byte offset, the URL chain and the `ETag`/`Last-Modified` it would have to match. A later launch
+  lists them, re-arms the chapter and asks the session to re-open the file at that offset; whether
+  the range is honoured is the source's call, and the app offers to start over when it is not.
 - **The app never handles passwords.** The user signs in on the site inside the embedded browser;
   only the resulting session cookies persist (Electron session), per domain, revocable from the UI.
 - Remote/S3/WebDAV storage stays a roadmap item; the seam would be a storage adapter behind `Vault`.
@@ -132,15 +155,21 @@ backend/app/
   library/  models.py (layers + flat DTO) · vault.py (dirs, locks, media ingest)
             media.py (zip ops, conversion, thumbnails) · index.py · service.py
   scraper/  models.py (recipe v2) · recipes.py (per-domain store) · covers.py (fallback fetch)
+  library/  fields.py (the metadata registry: builtin + per-library custom)
   routers/  library.py · downloads.py · recipes.py · settings.py
 frontend/src/
-  store.ts (app state, facets, user layer) · draft.ts (THE draft) · browser.ts (tabs)
+  store.ts (app state, facets, user layer, downloads) · draft.ts (THE draft) · browser.ts (tabs)
   sessions.ts (tab-session restore) · keys.ts (physical-key bindings) · normalize.ts · data.ts
-  views/      LibraryView · AuthorsView · TitleView · ReaderView · BrowserView ·
-              SourcesView · SettingsView
+  frames.ts (episode stills, cut in the window, once per episode)
+  views/      LibraryView · AuthorsView (browse by any axis) · TitleView · ReaderView ·
+              BrowserView · SourcesView · SettingsView
   components/ MetadataEditor (the one editor) · CapturePanel (draft + downloads dock) ·
-              PickInspector · EntryFields · Pager · Combo · …
+              VideoSurface (preview + player, one per app) · DownloadsPanel · PickInspector ·
+              EntryFields · FilterBlock · FieldVisibility · MenuButton · RailSection ·
+              SearchBox · Pager · Combo · …
 shell/
-  main.js (sidecar spawn, auth cookie, frameless chrome, will-download, session hardening)
-  app-preload.js (folder picker, titlebar, browsing-data bridge) · pick-preload.js (pick/snapshot)
+  main.js (sidecar spawn, auth cookie, frameless chrome, will-download + resume, browser keys,
+           page context menu, close guard, session hardening)
+  app-preload.js (folder picker, titlebar, browsing data, download control, page keys)
+  pick-preload.js (pick/snapshot, page-context fetches, background-tab links)
 ```
