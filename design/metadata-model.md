@@ -1,6 +1,6 @@
 # longbox — metadata: standard fields, custom fields, and what each surface shows
 
-Status: **§2–§4 and the registry are built; custom fields (§3) are not yet.** Companion to `design/state-model.md` (§4 the draft,
+Status: **§2–§4, the registry and custom fields are built; §6's surfaces are landing.** Companion to `design/state-model.md` (§4 the draft,
 §5 provenance, §8 vault shape). Everything here is the metadata layer; the user layer
 (fav/rating/read/position) is untouched by all of it.
 
@@ -63,7 +63,7 @@ title is suddenly full of values nothing can name.
 | `number` | `float` | numeric input | — (range later) |
 | `list` | `list[str]` | chip list with vocabulary | facet, like tags |
 | `date` | `str`, ISO `YYYY-MM-DD` | date input | — (range later) |
-| `boolean` | `bool` | toggle | tri-state: any / yes / no |
+| `boolean` | `bool` | toggle | tri-state: any / yes / no — **deferred, see §8** |
 
 `date` is stored as a plain ISO string, not a timestamp: these are calendar days
 (released, bought, finished), and a timestamp would invent a timezone nobody asked
@@ -74,16 +74,22 @@ for. `boolean` filters the way `fav` already does — tri-state, because "not se
 
 ```jsonc
 // title.json, inside the meta layer
-"custom": { "f_9d20": 8.4, "f_3e88": ["shelf-2", "reread"] }
+"custom": { "malscore": "8.4", "shelf": ["boxed", "reread"] }
 ```
 
 One map, keyed by field id, inside `meta` — so it is carried by the existing draft →
 commit path, merged by the existing layer rules, and copied by `metaOf()` without a
 new code path.
 
-**Provenance keeps working unchanged.** It is already a map keyed by field name; a
-custom field's key is `custom.<id>`. The rule that automatic capture may write only
-into `auto`/empty fields applies to custom fields for free, with no second mechanism.
+**The id is readable and chosen by the user** (`shelf`, `malscore`), not generated: it
+is what a filter URL carries (`?f=shelf:boxed`) and what a stored value hangs on, so it
+is fixed at creation while the LABEL stays free to change.
+
+**Provenance keeps working unchanged.** It is a map keyed by field id, and a custom
+field is keyed the same way as a built-in — the draft carries every field flat and
+`metaForWire()` nests the user-defined ones once, on the way to the wire. The rule that
+automatic capture may write only into `auto`/empty fields therefore applies to custom
+fields for free, with no second mechanism.
 
 ### 3.4 Deleting a definition
 
@@ -193,16 +199,27 @@ Both are UI work, so they go through a `design/*.html` mockup before implementat
    **Done.**
 3. ~~Schema-driven `MetadataEditor`.~~ **Done** — same rows, same look, drawn from the
    served registry instead of written out by hand.
-4. Field definitions in `vault.json` + `meta.custom` + provenance keys. No UI yet.
-5. Visibility: recipe-bound for the dock, local-bound for filters.
-6. Settings surface for managing definitions.
-
-Steps 4 is behaviour with tests and no redesign. Steps 5–6 are the mockup-first part.
+4. ~~Field definitions + `meta.custom` + provenance keys.~~ **Done** — the definitions
+   live in `<vault>/fields.json` (they describe THIS library's data, so they travel
+   with it), `PUT`/`DELETE /api/fields/{id}` maintain them, and deleting one keeps
+   every value it held.
+5. ~~Visibility, in its two scopes.~~ **Done** — ONE `FieldVisibility` widget over two
+   different owners: the title page and the filters read a per-surface USER setting
+   (`store.ts`, persisted locally), while the capture dock reads the SOURCE's own list,
+   which rides in that domain's recipe. Hiding a facet clears its picks, so nothing
+   filters from off-screen.
+6. ~~Settings surface for creating and retyping definitions.~~ **Done** — a `Fields`
+   card in Settings: the list is the manager, the id is derived from the first label
+   and then frozen, and removing a field keeps every value it held.
 
 ## 8. Deliberately not in this pass
 
-- Range filters on `number` and `date` (the value is stored, shown and sorted on;
-  it just is not a facet).
+- Range filters on `number` and `date` (the value is stored and shown; it just is not a
+  facet). Both are edited and stored as TEXT for the same reason `year` is: an unset
+  number has to stay different from `0`.
+- The `boolean` type. Its editor is a toggle and its filter is tri-state, and neither is
+  built — so the API refuses the type rather than letting a field exist that no surface
+  can draw or ask about.
 - Per-media-type field sets (an anime showing `studio`, a manga not). It is a third
   visibility axis on top of the two above, and it should not be designed before the
   two exist.

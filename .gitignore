@@ -45,3 +45,7 @@ design/*.png
 Thumbs.db
 .idea/
 .vscode/
+
+# the seeded design-canvas payload is a 2.6MB generated editor — the ARTBOARDS
+# beside it are the source, and they are what belongs in the repo
+design/canvas/longbox-gui-refactor.html

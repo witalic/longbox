@@ -1,0 +1,229 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    .app, .app *, .app *::before, .app *::after { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }
+    .app {
+      --bg: #0a0b0d; --bg2: #0f1115; --panel: #15171b; --panel2: #1b1e24;
+      --line: #262a31; --hover: #2a2e36;
+      --tx: #e8eaef; --tx2: #9aa1ad; --tx3: #697080;
+      --accent: #7089e6; --accent-ink: #0d0e11; --accentSoft: rgba(112,137,230,.14);
+      --good: #5fb88a; --warn: #d6a44f; --adult: #e0687a;
+      width: 1280px; height: 760px; position: relative;
+      overflow: hidden; background: var(--bg); color: var(--tx);
+    }
+    .head { position: absolute; left: 40px; top: 28px; right: 40px; display: flex; align-items: center; gap: 12px; }
+    .h1 { margin: 0; font: 600 22px/1 system-ui; letter-spacing: -.4px; }
+    .sub { font: 400 12px/1 system-ui; color: var(--tx3); }
+    .seg { display: flex; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 2px; height: 30px; margin-left: auto; }
+    .seg .opt { display: inline-flex; align-items: center; justify-content: center; padding: 0 12px; border-radius: 4px; cursor: pointer; border: none; background: transparent; font: 500 12px/1 system-ui; color: var(--tx2); }
+    .seg .opt.on { background: var(--accentSoft); color: var(--accent); }
+
+    .stage { position: absolute; left: 0; top: 78px; width: 760px; height: 660px; }
+    svg.wires { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+    .box { position: absolute; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 12px 14px; }
+    .box.hero { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--panel)); }
+    .box.ghosted { opacity: .42; }
+    .bt { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
+    .bn { margin-top: 7px; font: 600 14px/1.1 system-ui; color: var(--tx); }
+    .bl { margin-top: 9px; display: flex; flex-direction: column; gap: 5px; }
+    .bi { display: flex; align-items: center; gap: 7px; font: 400 11.5px/1.35 system-ui; color: var(--tx2); }
+    .bi .d { width: 4px; height: 4px; border-radius: 50%; background: var(--tx3); flex: none; }
+    .bi.own .d { background: var(--accent); }
+    .bi.off { color: var(--tx3); text-decoration: line-through; }
+
+    .lbl { position: absolute; font: 500 11px/1.3 system-ui; color: var(--tx2); background: var(--bg); padding: 2px 6px; }
+    .lbl.warn { color: var(--warn); }
+    .lbl.acc { color: var(--accent); }
+
+    /* the rules, stated once, next to the picture they describe */
+    .rules { position: absolute; left: 780px; top: 78px; width: 460px; display: flex; flex-direction: column; gap: 10px; }
+    .rule { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 12px 14px; display: flex; gap: 12px; }
+    .rn { flex: none; width: 20px; height: 20px; border-radius: 6px; background: var(--accentSoft); color: var(--accent); font: 700 10px/20px ui-monospace, monospace; text-align: center; }
+    .rt { font: 600 12.5px/1.35 system-ui; color: var(--tx); }
+    .rd { margin-top: 5px; font: 400 11.5px/1.55 system-ui; color: var(--tx3); }
+    .scopes { border: 1px solid var(--line); border-radius: 10px; background: var(--panel2); padding: 12px 14px; }
+    .stitle { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
+    .srow { display: flex; align-items: center; gap: 10px; margin-top: 9px; font: 400 11.5px/1 system-ui; color: var(--tx2); }
+    .sk { flex: none; width: 128px; font: 500 11.5px/1 system-ui; color: var(--tx); }
+    .stag { font: 700 8px/1 ui-monospace, monospace; letter-spacing: .1em; padding: 4px 6px; border-radius: 4px; }
+    .stag.user { color: var(--accent); background: var(--accentSoft); }
+    .stag.src { color: var(--good); border: 1px solid color-mix(in srgb, var(--good) 45%, var(--line)); }
+  </style>
+</helmet>
+
+<div class="app">
+  <div class="head">
+    <h1 class="h1">Where each thing is edited</h1>
+    <span class="sub">one record · four verbs</span>
+    <div class="seg">
+      <button class="opt {{todayCls}}" onClick="{{showToday}}">Today</button>
+      <button class="opt {{propCls}}" onClick="{{showProp}}">Proposed</button>
+    </div>
+  </div>
+
+  <div class="stage">
+    <svg class="wires" viewBox="0 0 760 660" preserveAspectRatio="none">
+      <defs>
+        <marker id="ah" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto">
+          <path d="M0 0l6 3-6 3z" fill="#697080"></path>
+        </marker>
+        <marker id="ahA" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto">
+          <path d="M0 0l6 3-6 3z" fill="#7089e6"></path>
+        </marker>
+        <marker id="ahW" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto">
+          <path d="M0 0l6 3-6 3z" fill="#d6a44f"></path>
+        </marker>
+      </defs>
+
+      <!-- library → title page (open an existing one) -->
+      <path d="M170 107 L170 166" stroke="#697080" stroke-width="1.4" fill="none" marker-end="url(#ah)"></path>
+      <!-- the create path: today it lands in the browser, proposed on the page -->
+      <path d="{{createPath}}" stroke="{{createColor}}" stroke-width="1.6" fill="none" marker-end="{{createHead}}" stroke-dasharray="{{createDash}}"></path>
+
+      <!-- title page ↔ capture -->
+      <path d="M120 302 L120 376" stroke="#7089e6" stroke-width="1.4" fill="none" marker-end="url(#ahA)"></path>
+      <path d="M210 382 L210 302" stroke="#7089e6" stroke-width="1.4" fill="none" marker-end="url(#ahA)"></path>
+      <!-- title page → contents → reader -->
+      <path d="M430 302 L430 376" stroke="#697080" stroke-width="1.4" fill="none" marker-end="url(#ah)"></path>
+      <path d="M430 486 L430 560" stroke="#697080" stroke-width="1.4" fill="none" marker-end="url(#ah)"></path>
+      <!-- capture ↔ sources -->
+      <path d="M120 486 L120 560" stroke="#697080" stroke-width="1.4" fill="none" marker-end="url(#ah)"></path>
+      <path d="M210 566 L210 486" stroke="#697080" stroke-width="1.4" fill="none" marker-end="url(#ah)"></path>
+    </svg>
+
+    <div class="box" style="left: 60px; top: 20px; width: 220px">
+      <div class="bt">LIBRARY</div>
+      <div class="bl">
+        <div class="bi"><span class="d"></span>click a card &#8594; the page</div>
+        <div class="bi"><span class="d"></span>&#8943; &#8594; Add title</div>
+      </div>
+    </div>
+
+    <div class="box hero" style="left: 60px; top: 172px; width: 440px">
+      <div class="bt">TITLE PAGE &#183; THE RECORD LIVES HERE</div>
+      <div class="bn">Vinland Saga</div>
+      <div class="bl">
+        <div class="bi {{metaCls}}"><span class="d"></span>{{metaLine}}</div>
+        <div class="bi own"><span class="d"></span>contents: its own edit switch, entries and files</div>
+        <div class="bi own"><span class="d"></span>your layer: favourite, rating, read state</div>
+      </div>
+    </div>
+
+    <div class="box {{dockCls}}" style="left: 60px; top: 382px; width: 220px">
+      <div class="bt">BROWSER &#183; CAPTURE DOCK</div>
+      <div class="bl">
+        <div class="bi"><span class="d"></span>pull fields off a page</div>
+        <div class="bi"><span class="d"></span>arm and watch downloads</div>
+        <div class="bi"><span class="d"></span>fields it offers: per source</div>
+      </div>
+    </div>
+
+    <div class="box" style="left: 320px; top: 382px; width: 220px">
+      <div class="bt">CONTENTS</div>
+      <div class="bl">
+        <div class="bi"><span class="d"></span>add, edit, reorder entries</div>
+        <div class="bi"><span class="d"></span>attach files and images</div>
+        <div class="bi"><span class="d"></span>move pages between entries</div>
+      </div>
+    </div>
+
+    <div class="box" style="left: 320px; top: 566px; width: 220px">
+      <div class="bt">READER</div>
+      <div class="bl"><div class="bi"><span class="d"></span>pages or video, read state</div></div>
+    </div>
+
+    <div class="box" style="left: 60px; top: 566px; width: 220px">
+      <div class="bt">SOURCES</div>
+      <div class="bl"><div class="bi"><span class="d"></span>groups, recipes, bookmarks</div></div>
+    </div>
+
+    <span class="lbl" style="left: 182px; top: 122px">open</span>
+    <span class="lbl {{createLblCls}}" style="left: {{createLblX}}; top: {{createLblY}}">Add title</span>
+    <span class="lbl acc" style="left: 24px; top: 332px">Capture from web</span>
+    <span class="lbl acc" style="left: 218px; top: 332px">Save</span>
+    <span class="lbl" style="left: 440px; top: 332px">Edit contents</span>
+    <span class="lbl" style="left: 440px; top: 516px">open an entry</span>
+    <span class="lbl" style="left: 4px; top: 516px">&#9733; bookmark</span>
+    <span class="lbl" style="left: 218px; top: 516px">open a link</span>
+  </div>
+
+  <div class="rules">
+    <sc-for list="{{rules}}" as="r" hint-placeholder-count="4">
+      <div class="rule">
+        <span class="rn">{{r.n}}</span>
+        <div>
+          <div class="rt">{{r.t}}</div>
+          <div class="rd">{{r.d}}</div>
+        </div>
+      </div>
+    </sc-for>
+
+    <div class="scopes">
+      <div class="stitle">ONE REGISTRY, THREE SCOPES</div>
+      <div class="srow"><span class="sk">Library filters</span><span class="stag user">YOUR SETTING</span></div>
+      <div class="srow"><span class="sk">Title pages</span><span class="stag user">YOUR SETTING</span></div>
+      <div class="srow"><span class="sk">Capture dock</span><span class="stag src">PER SOURCE</span></div>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { mode: 'proposed' };
+  }
+
+  renderVals() {
+    const self = this;
+    const today = this.state.mode === 'today';
+
+    const RULES_TODAY = [
+      { n: '1', t: 'Creating a title opens the browser', d: 'startNewTitle() opens a fresh draft in the capture dock — “there is no separate in-app edit screen”. You get a web page you did not ask for before you get the record.' },
+      { n: '2', t: 'Metadata is editable only in 344px', d: 'The title page shows metadata; to change one word you leave for the browser, edit in the dock, and come back.' },
+      { n: '3', t: 'Two editors for one record', d: 'Contents are edited on the page, metadata in the dock. The same title, two places, two mental models.' },
+      { n: '4', t: 'Fields are hard-coded per screen', d: 'Every screen decides its own field list, so one new field costs an edit in each of them.' },
+    ];
+    const RULES_PROP = [
+      { n: '1', t: 'The title page is the record’s home', d: 'Add title creates the record and opens its page in edit mode with the cursor in Title. The browser is never opened for you.' },
+      { n: '2', t: 'The dock captures, it no longer edits', d: 'Its job is pulling values off a page and arming downloads. Capture from web sends you there with this title as the target; Save brings you back.' },
+      { n: '3', t: 'Metadata and contents never edit at once', d: 'Two switches on one page. Entering one leaves the other — so it is always clear what Save applies to.' },
+      { n: '4', t: 'One registry decides the fields', d: 'The same field list renders the filters, the title page and the dock. Adding a field is one entry, not one edit per screen.' },
+    ];
+
+    return {
+      todayCls: today ? 'on' : '',
+      propCls: today ? '' : 'on',
+      showToday: () => self.setState({ mode: 'today' }),
+      showProp: () => self.setState({ mode: 'proposed' }),
+
+      // Add title: today it jumps past the page into the dock
+      createPath: today ? 'M56 60 L20 60 L20 432 L54 432' : 'M120 107 L120 166',
+      createColor: today ? '#d6a44f' : '#7089e6',
+      createHead: today ? 'url(#ahW)' : 'url(#ahA)',
+      createDash: today ? '5 4' : '0',
+      createLblCls: today ? 'warn' : 'acc',
+      createLblX: today ? '0px' : '52px',
+      createLblY: today ? '406px' : '122px',
+
+      metaCls: today ? 'off' : 'own',
+      metaLine: today ? 'metadata: read-only, edit it in the browser' : 'metadata: edited right here, registry-driven',
+      dockCls: today ? 'hero' : '',
+
+      rules: today ? RULES_TODAY : RULES_PROP,
+    };
+  }
+}
+</script>
+</body>
+</html>

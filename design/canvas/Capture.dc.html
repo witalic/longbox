@@ -1,0 +1,568 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    /* Tokens, primitives, box-sizing AND the themed scrollbars, lifted from
+       frontend/src/styles.css — the same values, not an approximation. */
+    .app, .app *, .app *::before, .app *::after { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }
+    a { color: #7089e6; } a:hover { color: #8ba0ee; }
+    .app {
+      --bg: #0a0b0d; --bg2: #0f1115; --panel: #15171b; --panel2: #1b1e24;
+      --line: #262a31; --hover: #2a2e36;
+      --tx: #e8eaef; --tx2: #9aa1ad; --tx3: #697080;
+      --accent: #7089e6; --accent-ink: #0d0e11; --accentSoft: rgba(112,137,230,.14);
+      --good: #5fb88a; --warn: #d6a44f; --adult: #e0687a; --fav: #e0687a;
+      width: 1280px; height: 760px; display: flex; flex-direction: column;
+      overflow: hidden; background: var(--bg); color: var(--tx);
+    }
+    .app *::-webkit-scrollbar { width: 11px; height: 11px; }
+    .app *::-webkit-scrollbar-thumb { background: var(--hover); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+    .app *::-webkit-scrollbar-thumb:hover { background: var(--tx3); background-clip: padding-box; }
+    .app *::-webkit-scrollbar-track { background: transparent; }
+    .app *::-webkit-scrollbar-corner { background: transparent; }
+
+    .tabbar { height: 40px; flex: none; background: var(--bg2); border-bottom: 1px solid var(--line); display: flex; align-items: center; padding-left: 14px; }
+    .brand { display: flex; align-items: center; gap: 9px; padding-right: 18px; flex: none; }
+    .brand .name { font: 700 13.5px/1 system-ui; letter-spacing: -.2px; }
+    .tabscroll { flex: 1; min-width: 0; display: flex; align-items: flex-end; gap: 4px; height: 100%; padding-top: 5px; overflow: hidden; }
+    .tab { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 35px; padding: 0 8px 0 10px; max-width: 190px; border: 1px solid color-mix(in srgb, var(--line) 55%, transparent); border-bottom: none; border-radius: 8px 8px 0 0; background: color-mix(in srgb, var(--panel) 55%, transparent); color: var(--tx3); font: 500 12px/1 system-ui; cursor: pointer; }
+    .tab.on { background: var(--bg); color: var(--tx); border-color: var(--line); box-shadow: inset 0 2.5px 0 var(--accent); }
+    .tab .lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fav { width: 16px; height: 16px; border-radius: 4px; background: var(--panel2); display: inline-flex; align-items: center; justify-content: center; font: 700 8px/1 system-ui; color: var(--tx3); flex: none; }
+    .tact { width: 16px; height: 16px; flex: none; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; color: var(--tx3); }
+    .tact:hover { background: var(--hover); color: var(--tx); }
+    .stripbtn { width: 30px; height: 30px; flex: none; margin: 0 3px; border: none; background: transparent; border-radius: 6px; color: var(--tx3); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+    .stripbtn:hover { background: var(--hover); color: var(--tx); }
+    .wctl { display: flex; align-items: center; margin-left: 6px; }
+    .wbtn { width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; color: var(--tx3); }
+
+    .approw { flex: 1; min-height: 0; display: flex; }
+    .side { width: 220px; flex: none; background: var(--bg2); border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+    .nav { padding: 12px 10px 6px; display: flex; flex-direction: column; gap: 2px; }
+    .navitem { height: 36px; display: flex; align-items: center; gap: 11px; padding: 0 12px; border-radius: 8px; border: none; background: transparent; color: var(--tx2); font: 500 13px/1 system-ui; cursor: pointer; text-align: left; width: 100%; }
+    .navitem:hover { background: var(--hover); color: var(--tx); }
+    .navitem.on { background: var(--accentSoft); color: var(--accent); }
+    .draftdot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-left: auto; flex: none; }
+    .navlbl { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); padding: 14px 12px 6px; display: flex; align-items: center; gap: 6px; }
+    .navsec { padding: 0 10px; display: flex; flex-direction: column; gap: 1px; }
+    .typerow { height: 30px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-radius: 7px; border: none; background: transparent; color: var(--tx2); font: 500 12.5px/1 system-ui; cursor: pointer; width: 100%; text-align: left; }
+    .typerow:hover { background: var(--hover); color: var(--tx); }
+    .typerow.on { background: var(--accentSoft); color: var(--accent); }
+    .typerow .n { margin-left: auto; font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); }
+    .siderail { flex: 1; min-height: 0; overflow-y: auto; }
+    .sfoot { margin-top: auto; height: 44px; flex: none; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 9px; padding: 0 16px; font: 500 11.5px/1 system-ui; color: var(--tx3); }
+    .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+
+    .bwrap { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+    .bbar { height: 44px; flex: none; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 6px; padding: 0 12px; background: var(--bg2); }
+    .iconbtn { width: 30px; height: 30px; flex: none; border: none; background: transparent; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; color: var(--tx2); }
+    .iconbtn:hover { background: var(--hover); color: var(--tx); }
+    .iconbtn.off { color: var(--tx3); opacity: .45; cursor: default; }
+    .iconbtn.on { background: var(--accentSoft); color: var(--accent); }
+    .bsep { width: 1px; height: 20px; background: var(--line); flex: none; margin: 0 4px; }
+    .urlbar { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 11px; margin: 0 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; color: var(--tx2); font: 400 12px/1 system-ui; }
+    .urlbar .host { color: var(--tx); font-weight: 500; }
+
+    /* ---- the page, and what the selector is doing to it ---- */
+    .brow { flex: 1; min-height: 0; display: flex; }
+    .page { flex: 1; min-width: 0; background: #16181d; position: relative; overflow: hidden; padding: 26px 30px; }
+    .page.dim::after { content: ''; position: absolute; inset: 0; background: rgba(8,9,12,.55); z-index: 5; }
+    .site { display: flex; flex-direction: column; gap: 16px; }
+    .sttl { font: 700 21px/1.2 Georgia, serif; color: #cfd4de; }
+    .srow { display: flex; gap: 20px; }
+    .scov { width: 128px; height: 182px; border-radius: 6px; background: linear-gradient(150deg, #2c3550, #1a1d26); flex: none; }
+    .sinfo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 9px; }
+    .irow { display: flex; align-items: center; gap: 10px; font: 400 13px/1.4 system-ui; color: #9aa1ad; }
+    .ilbl { width: 78px; flex: none; color: #6b7280; font-size: 12px; }
+    .ival { color: #b9c0cc; }
+    .ival.link { color: #7d94ea; }
+    .schips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .schip { font: 400 12px/1 system-ui; color: #7d94ea; background: #1e2128; border: 1px solid #262a31; border-radius: 999px; padding: 6px 11px; }
+    .sline { height: 10px; border-radius: 4px; background: #23262d; }
+    /* the two states an element on the page can be in for the current selector */
+    .hm { outline: 1px dashed color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 3px; border-radius: 3px; }
+    .hl { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; background: var(--accentSoft); }
+    .matchpill { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 6; display: inline-flex; align-items: center; gap: 9px; height: 30px; padding: 0 14px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 12px 30px rgba(0,0,0,.5); font: 500 11.5px/1 system-ui; color: var(--tx2); }
+    .pickhint { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 8; display: inline-flex; align-items: center; gap: 9px; height: 34px; padding: 0 15px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); box-shadow: 0 12px 30px rgba(0,0,0,.55); font: 600 12px/1 system-ui; }
+    .pickhint .esc { font: 600 10px/1 ui-monospace, monospace; background: rgba(13,14,17,.22); border-radius: 4px; padding: 4px 6px; }
+
+    /* ---- the inspector: 344, the dock's second face ---- */
+    .dock { width: 344px; flex: none; display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--line); background: var(--bg2); }
+    .ihead { height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--line); }
+    .ifield { font: 600 13px/1 system-ui; color: var(--tx); }
+    .ifor { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .1em; color: var(--accent); background: var(--accentSoft); padding: 4px 6px; border-radius: 4px; }
+    .ix { width: 26px; height: 26px; border-radius: 6px; color: var(--tx3); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex: none; }
+    .ix:hover { background: var(--hover); color: var(--tx); }
+    .ibody { flex: 1; min-height: 0; overflow-y: auto; }
+    .isec { padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+    .ilbl2 { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
+    .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; }
+    .crumb { font: 500 11px/1 ui-monospace, monospace; color: var(--tx2); background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 5px 7px; cursor: pointer; }
+    .crumb:hover { border-color: var(--accent); color: var(--tx); }
+    .crumb.cur { background: var(--accentSoft); border-color: var(--accent); color: var(--accent); }
+    .sep { color: var(--tx3); font-size: 10px; }
+    .mrow { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+    .mk { width: 52px; flex: none; font: 500 10px/1 ui-monospace, monospace; color: var(--tx3); }
+    .tok { display: inline-flex; align-items: center; gap: 6px; font: 500 11px/1 ui-monospace, monospace; color: var(--tx2); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; cursor: pointer; }
+    .tok:hover { border-color: var(--accent); color: var(--tx); }
+    .tok.on { border-color: var(--accent); color: var(--tx); background: var(--accentSoft); }
+    .box { width: 12px; height: 12px; flex: none; border: 1.5px solid var(--line); border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; color: var(--accent-ink); }
+    .tok.on .box { background: var(--accent); border-color: var(--accent); }
+    .why { color: var(--warn); font-size: 9.5px; }
+    .seg { display: flex; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 2px; height: 26px; }
+    .seg button { display: inline-flex; align-items: center; justify-content: center; padding: 0 8px; border-radius: 4px; cursor: pointer; border: none; background: transparent; font: 500 10.5px/1 system-ui; color: var(--tx2); }
+    .seg button.on { background: var(--accentSoft); color: var(--accent); }
+    .aval { font: 400 10px/1 ui-monospace, monospace; color: var(--tx3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .anote { font: 400 10.5px/1.5 system-ui; color: var(--tx3); }
+    .scope { display: flex; gap: 8px; }
+    .iradio { flex: 1; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); cursor: pointer; }
+    .iradio:hover { border-color: var(--accent); }
+    .iradio.on { border-color: var(--accent); background: var(--accentSoft); }
+    .rdot { width: 13px; height: 13px; border-radius: 50%; border: 1.5px solid var(--line); flex: none; display: inline-flex; align-items: center; justify-content: center; }
+    .iradio.on .rdot { border-color: var(--accent); }
+    .rdot i { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); display: block; }
+    .rl { font: 600 11.5px/1.1 system-ui; color: var(--tx); }
+    .rh { font: 400 10px/1.1 system-ui; color: var(--tx3); margin-top: 3px; }
+    .posrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .pbtn { width: 26px; height: 26px; flex: none; border: 1px solid var(--line); background: var(--panel); border-radius: 6px; color: var(--tx2); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+    .pbtn:hover { border-color: var(--accent); color: var(--accent); }
+    .pbtn.off { opacity: .35; cursor: default; }
+    .pnum { font: 500 11px/1 ui-monospace, monospace; color: var(--tx); min-width: 54px; text-align: center; }
+    .pickedmark { font: 500 10px/1 system-ui; color: var(--good); }
+    .pval { flex: 1 0 100%; font: 400 11px/1.4 system-ui; color: var(--tx2); }
+    .pstore { color: var(--accent); }
+    .selbox { font: 400 11px/1.5 ui-monospace, monospace; color: var(--tx); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; word-break: break-all; }
+    .matchline { font: 500 11px/1.4 system-ui; color: var(--good); }
+    .matchline.warn { color: var(--adult); }
+    .pvv { display: flex; flex-wrap: wrap; gap: 5px; }
+    .pvchip { font: 500 10.5px/1 system-ui; color: var(--tx2); background: var(--panel2); border: 1px solid var(--line); border-radius: 5px; padding: 5px 7px; }
+    .pvchip.more { color: var(--tx3); }
+    .ianswer { flex: none; border-top: 1px solid var(--line); background: var(--panel); padding: 11px 14px; display: flex; flex-direction: column; gap: 8px; }
+    .ifoot { flex: none; height: 52px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 8px; padding: 0 12px; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--tx); border-radius: 6px; height: 30px; padding: 0 13px; cursor: pointer; font: 600 12px/1 system-ui; white-space: nowrap; flex: none; }
+    .btn:hover { border-color: var(--accent); }
+    .btn.accent { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+    .btn.ghost { background: transparent; color: var(--tx2); }
+    .btn.wide { flex: 1; }
+  </style>
+</helmet>
+
+<div class="app">
+  <div class="tabbar">
+    <div class="brand">
+      <svg width="24" height="24" viewBox="0 0 72 72" aria-hidden="true"><defs><linearGradient id="lbgC" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8194f4"></stop><stop offset="1" stop-color="#3e4eb2"></stop></linearGradient></defs><rect width="72" height="72" rx="17" fill="url(#lbgC)"></rect><path d="M27 19h9v25h13v9H27z" fill="#fff"></path></svg>
+      <span class="name">longbox</span>
+    </div>
+    <div class="tabscroll">
+      <div class="tab on">
+        <span class="fav">M</span><span class="lbl">MangaDex — Vinland Saga</span>
+        <span class="tact"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 4h6l-1 6 4 3v2H6v-2l4-3z"></path><path d="M12 15v5"></path></svg></span>
+        <span class="tact"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></span>
+      </div>
+      <div class="tab">
+        <span class="fav">N</span><span class="lbl">nhentai</span>
+        <span class="tact"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></span>
+      </div>
+    </div>
+    <button class="stripbtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg></button>
+    <button class="stripbtn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"></path></svg></button>
+    <div class="wctl">
+      <span class="wbtn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 12h14"></path></svg></span>
+      <span class="wbtn"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5" y="5" width="14" height="14" rx="2"></rect></svg></span>
+      <span class="wbtn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 6l12 12M18 6L6 18"></path></svg></span>
+    </div>
+  </div>
+
+  <div class="approw">
+    <aside class="side">
+      <div class="siderail">
+      <nav class="nav">
+        <button class="navitem"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 5h16M4 12h16M4 19h16"></path></svg>Library</button>
+        <button class="navitem on"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"></circle><path d="M3.5 12h17M12 3.5c4 5 4 12 0 17-4-5-4-12 0-17z"></path></svg>Browse<span class="draftdot"></span></button>
+        <button class="navitem"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16v12H4z"></path><path d="M4 10h16"></path></svg>Sources</button>
+        <button class="navitem"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3.2"></circle><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8"></path></svg>Settings</button>
+      </nav>
+      <div class="navlbl">
+        <span>SOURCES</span>
+        <div style="flex: 1"></div>
+        <span style="font: 400 10px/1 system-ui; letter-spacing: 0; text-transform: none">dot = recipe taught</span>
+      </div>
+      <div class="navsec">
+        <button class="typerow on"><span class="dot" style="background: var(--good)"></span><span>mangadex.org</span><span class="n">128</span></button>
+        <button class="typerow"><span class="dot" style="background: var(--good)"></span><span>nhentai.net</span><span class="n">312</span></button>
+        <button class="typerow"><span class="dot" style="background: var(--good)"></span><span>mangasee123.com</span><span class="n">41</span></button>
+        <button class="typerow"><span class="dot" style="background: transparent"></span><span>anilist.co</span><span class="n">0</span></button>
+      </div>
+      </div>
+
+      <div class="sfoot"><span class="dot" style="background: var(--good)"></span><span>Local library</span></div>
+    </aside>
+
+    <div class="bwrap">
+      <div class="bbar">
+        <button class="iconbtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"></path></svg></button>
+        <button class="iconbtn off"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg></button>
+        <button class="iconbtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 10-2.3 6.3"></path><path d="M20 5v6h-6"></path></svg></button>
+        <button class="iconbtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11l8-6.5 8 6.5"></path><path d="M6.5 10v9h11v-9"></path></svg></button>
+        <div class="urlbar">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--good)" stroke-width="2" stroke-linecap="round"><rect x="5" y="10.5" width="14" height="9" rx="2"></rect><path d="M8.5 10.5V8a3.5 3.5 0 017 0v2.5"></path></svg>
+          <span class="host">mangadex.org</span><span>/title/vinland-saga</span>
+        </div>
+        <div class="bsep"></div>
+        <button class="iconbtn on"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="14" rx="2.5"></rect><path d="M14.5 5v14"></path></svg></button>
+        <button class="iconbtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="19" cy="12" r="1.7"></circle></svg></button>
+      </div>
+
+      <div class="brow">
+        <!-- the page answers the selector: dashed = also matched, solid = taken -->
+        <div class="page {{dimCls}}">
+          <div class="site">
+            <div class="sttl">Vinland Saga</div>
+            <div class="srow">
+              <span class="scov"></span>
+              <div class="sinfo">
+                <div class="irow"><span class="ilbl">Author</span><span class="ival link {{hAuthor}}">Makoto Yukimura</span></div>
+                <div class="irow"><span class="ilbl">Publisher</span><span class="ival link {{hPub}}">Kodansha</span></div>
+                <div class="irow"><span class="ilbl">Year</span><span class="ival {{hYear}}">2005</span></div>
+                <div class="irow"><span class="ilbl">Status</span><span class="ival {{hStatus}}">completed</span></div>
+                <div class="schips" style="margin-top: 6px">
+                  <sc-for list="{{genres}}" as="g" hint-placeholder-count="5">
+                    <span class="schip {{g.cls}}">{{g.v}}</span>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+            <div class="sline" style="width: 30%; height: 13px; margin-top: 6px"></div>
+            <div class="sline"></div>
+            <div class="sline" style="width: 88%"></div>
+            <div class="sline" style="width: 74%"></div>
+            <div class="sline" style="width: 81%"></div>
+          </div>
+
+          <sc-if value="{{picking}}" hint-placeholder-val="{{false}}">
+            <div class="pickhint">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4l14 7-6 2-2 6z"></path></svg>
+              <span>Click the Author on the page</span><span class="esc">Esc</span>
+            </div>
+          </sc-if>
+          <sc-if value="{{showPill}}" hint-placeholder-val="{{true}}">
+            <div class="matchpill" onClick="{{startPick}}">
+              <span class="dot" style="background: {{pillColor}}"></span><span>{{pillText}}</span>
+            </div>
+          </sc-if>
+        </div>
+
+        <aside class="dock">
+          <div class="ihead">
+            <span class="ifield">Refine pick</span><span class="ifor">AUTHORS</span>
+            <div style="flex: 1"></div>
+            <span class="ix" title="Cancel"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></span>
+          </div>
+
+          <div class="ibody">
+            <div class="isec">
+              <span class="ilbl2">DOM PATH &#183; CLICK A LEVEL TO TARGET IT</span>
+              <div class="crumbs">
+                <sc-for list="{{crumbs}}" as="c" hint-placeholder-count="6">
+                  <span class="crumb {{c.cls}}" onClick="{{c.pick}}">{{c.label}}</span>
+                </sc-for>
+              </div>
+            </div>
+
+            <div class="isec">
+              <span class="ilbl2">MATCH ON</span>
+              <div class="mrow">
+                <span class="mk">tag</span>
+                <button class="tok {{tagCls}}" onClick="{{toggleTag}}"><span class="box">{{tagTick}}</span>a</button>
+              </div>
+              <div class="mrow">
+                <span class="mk">classes</span>
+                <sc-for list="{{classes}}" as="c" hint-placeholder-count="2">
+                  <button class="tok {{c.cls}}" onClick="{{c.toggle}}"><span class="box">{{c.tick}}</span>{{c.n}}<sc-if value="{{c.dyn}}" hint-placeholder-val="{{false}}"><span class="why">&#183; dynamic</span></sc-if></button>
+                </sc-for>
+              </div>
+              <div class="mrow">
+                <span class="mk">href</span>
+                <div class="seg">
+                  <button class="{{hrefOff}}" onClick="{{setHrefOff}}">off</button>
+                  <button class="{{hrefPre}}" onClick="{{setHrefPrefix}}">starts with</button>
+                  <button class="{{hrefEx}}" onClick="{{setHrefExact}}">exact</button>
+                </div>
+                <span class="aval">{{hrefVal}}</span>
+              </div>
+              <div class="mrow">
+                <span class="mk">inside</span>
+                <sc-for list="{{ctx}}" as="x" hint-placeholder-count="2">
+                  <button class="tok {{x.cls}}" title="Scope the match under this ancestor" onClick="{{x.toggle}}"><span class="box">{{x.tick}}</span>{{x.label}}</button>
+                </sc-for>
+              </div>
+            </div>
+
+            <div class="isec">
+              <span class="ilbl2">ROW LABEL</span>
+              <button class="tok {{anchorCls}}" onClick="{{toggleAnchor}}"><span class="box">{{anchorTick}}</span>value next to &#8220;Author&#8221;</button>
+              <span class="anote">Matches by the label, not by class or position — survives reordered info rows on other pages. Tried first; the selector below stays as a fallback.</span>
+            </div>
+
+            <div class="isec">
+              <span class="ilbl2">SCOPE</span>
+              <div class="scope">
+                <div class="iradio {{oneCls}}" onClick="{{setOne}}">
+                  <span class="rdot"><sc-if value="{{isOne}}" hint-placeholder-val="{{true}}"><i></i></sc-if></span>
+                  <div><div class="rl">This one</div><div class="rh">single value</div></div>
+                </div>
+                <div class="iradio {{allCls}}" onClick="{{setAll}}">
+                  <span class="rdot"><sc-if value="{{isAll}}" hint-placeholder-val="{{false}}"><i></i></sc-if></span>
+                  <div><div class="rl">All matching</div><div class="rh">list</div></div>
+                </div>
+              </div>
+            </div>
+
+            <sc-if value="{{many}}" hint-placeholder-val="{{true}}">
+              <div class="isec">
+                <span class="ilbl2">POSITION &#183; WHICH OF THE {{count}} TO TAKE</span>
+                <div class="posrow">
+                  <button class="pbtn {{prevCls}}" onClick="{{prev}}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M15 6l-6 6 6 6"></path></svg></button>
+                  <span class="pnum">{{posLabel}}</span>
+                  <button class="pbtn {{nextCls}}" onClick="{{next}}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"></path></svg></button>
+                  <sc-if value="{{atPicked}}" hint-placeholder-val="{{true}}"><span class="pickedmark">&#10003; your click</span></sc-if>
+                  <sc-if value="{{isOne}}" hint-placeholder-val="{{true}}">
+                    <span class="pval">{{curRaw}}<sc-if value="{{cleaned}}" hint-placeholder-val="{{false}}"><span class="pstore"> &#8594; {{curClean}}</span></sc-if></span>
+                  </sc-if>
+                </div>
+                <sc-if value="{{loose}}" hint-placeholder-val="{{false}}">
+                  <span class="anote">Loose match — turn on an “inside” ancestor or a class above instead of relying on position.</span>
+                </sc-if>
+              </div>
+            </sc-if>
+
+            <div class="isec">
+              <span class="ilbl2">CLEANUP</span>
+              <div class="mrow">
+                <button class="tok {{stripCls}}" onClick="{{toggleStrip}}"><span class="box">{{stripTick}}</span>strip counts</button>
+                <button class="tok {{lowerCls}}" onClick="{{toggleLower}}"><span class="box">{{lowerTick}}</span>lowercase</button>
+              </div>
+            </div>
+
+          </div>
+
+            <div class="ianswer">
+              <span class="ilbl2">SELECTOR</span>
+              <div class="selbox">{{selector}}</div>
+              <div class="matchline {{matchCls}}">{{matchText}}</div>
+              <div class="pvv">
+                <sc-for list="{{preview}}" as="p" hint-placeholder-count="4">
+                  <span class="pvchip {{p.cls}}">{{p.v}}</span>
+                </sc-for>
+              </div>
+            </div>
+          <div class="ifoot">
+            <button class="btn ghost" title="Click a different element on the page" onClick="{{startPick}}">Pick again</button>
+            <div style="flex: 1"></div>
+            <button class="btn accent">Use</button>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      target: 5,
+      useTag: true,
+      classOn: { tag: true, 'css-1x9f': false },
+      href: 'off',            // off | prefix | exact
+      ctxOn: { 3: false, 4: false },
+      useAnchor: false,
+      scope: 'one',
+      index: 5,
+      stripCounts: true,
+      lower: false,
+      picking: false,
+    };
+  }
+
+  // What the page really holds, ordered as the document orders it.
+  pools() {
+    return {
+      loose: ['Action (1 240)', 'Adventure (980)', 'Drama (2 100)', 'Historical (760)', 'Seinen (1 100)',
+              'Makoto Yukimura', 'Kodansha', '2005', 'completed'],
+      info: ['Makoto Yukimura', 'Kodansha', '2005', 'completed'],
+      row: ['Makoto Yukimura', 'Kodansha'],
+      one: ['Makoto Yukimura'],
+    };
+  }
+
+  // A selector answers with a set; the tighter the constraint, the smaller it is.
+  resolve() {
+    const st = this.state;
+    const P = this.pools();
+    if (st.useAnchor || st.href === 'exact' || st.href === 'prefix') return { pool: P.one, count: 1 };
+    if (st.ctxOn[4]) return { pool: P.row, count: 2 };
+    if (st.ctxOn[3]) return { pool: P.info, count: 4 };
+    if (st.classOn['tag']) return { pool: P.loose, count: 24 };
+    if (st.useTag) return { pool: P.loose, count: 86 };
+    return { pool: P.loose, count: 240 };
+  }
+
+  clean(v) {
+    let out = v;
+    if (this.state.stripCounts) out = out.replace(/\s*\(\s*[\d\s]+\)\s*$/, '');
+    if (this.state.lower) out = out.toLowerCase();
+    return out;
+  }
+
+  renderVals() {
+    const self = this;
+    const st = this.state;
+    const CHAIN = ['html', 'body', 'div.container', 'section.title-info', 'div.info-row', 'a.tag'];
+    const r = this.resolve();
+    const picked = r.pool.indexOf('Makoto Yukimura');
+    const idx = Math.min(st.index, r.pool.length - 1);
+
+    // the selector, composed exactly the way the picker composes it
+    const ctxParts = [];
+    if (st.ctxOn[3]) ctxParts.push('section.title-info');
+    if (st.ctxOn[4]) ctxParts.push('div.info-row');
+    let core = st.useTag ? 'a' : '';
+    Object.keys(st.classOn).forEach((c) => { if (st.classOn[c]) core += '.' + c; });
+    if (st.href === 'prefix') core += '[href^="/author/"]';
+    if (st.href === 'exact') core += '[href="/author/1234"]';
+    const selector = ctxParts.concat([core || '*']).join(' ');
+
+    const shown = (st.scope === 'all' ? r.pool : [r.pool[idx]]).filter(Boolean);
+    const preview = shown.slice(0, 12).map((v) => ({ v: self.clean(v), cls: '' }));
+    if (st.scope === 'all' && r.count > r.pool.length) {
+      preview.push({ v: '+' + (r.count - r.pool.length), cls: 'more' });
+    }
+
+    // the page mirrors the answer: dashed for every match, solid for the taken one
+    const inSet = (v) => r.pool.slice(0, Math.min(r.count, r.pool.length)).indexOf(v) >= 0;
+    const mark = (v) => {
+      if (!inSet(v)) return '';
+      if (st.scope === 'all') return 'hm';
+      return r.pool[idx] === v ? 'hl' : 'hm';
+    };
+
+    return {
+      // ---- page ----
+      picking: st.picking,
+      dimCls: st.picking ? 'dim' : '',
+      showPill: !st.picking,
+      pillColor: r.count === 1 ? 'var(--good)' : 'var(--accent)',
+      pillText: r.count === 1 ? '1 match on this page' : r.count + ' matches on this page',
+      startPick: () => self.setState({ picking: !self.state.picking }),
+      hAuthor: mark('Makoto Yukimura'),
+      hPub: mark('Kodansha'),
+      hYear: mark('2005'),
+      hStatus: mark('completed'),
+      genres: ['Action (1 240)', 'Adventure (980)', 'Drama (2 100)', 'Historical (760)', 'Seinen (1 100)']
+        .map((g) => ({ v: g.replace(/\s*\([\d\s]+\)$/, ''), cls: mark(g) })),
+
+      // ---- DOM path ----
+      crumbs: CHAIN.map((label, i) => ({ label: label, idx: i }))
+        .reverse()
+        .map((c) => ({
+          label: c.label,
+          cls: c.idx === st.target ? 'cur' : '',
+          pick: () => self.setState({ target: c.idx }),
+        })),
+
+      // ---- match on ----
+      tagCls: st.useTag ? 'on' : '',
+      tagTick: st.useTag ? '✓' : '',
+      toggleTag: () => self.setState({ useTag: !self.state.useTag }),
+      classes: [
+        { n: 'tag', dyn: false },
+        { n: 'css-1x9f', dyn: true },
+      ].map((c) => ({
+        n: c.n, dyn: c.dyn,
+        cls: st.classOn[c.n] ? 'on' : '',
+        tick: st.classOn[c.n] ? '✓' : '',
+        toggle: () => {
+          const m = Object.assign({}, self.state.classOn);
+          m[c.n] = !m[c.n];
+          self.setState({ classOn: m });
+        },
+      })),
+      hrefOff: st.href === 'off' ? 'on' : '',
+      hrefPre: st.href === 'prefix' ? 'on' : '',
+      hrefEx: st.href === 'exact' ? 'on' : '',
+      hrefVal: st.href === 'exact' ? '/author/1234' : '/author/',
+      setHrefOff: () => self.setState({ href: 'off' }),
+      setHrefPrefix: () => self.setState({ href: 'prefix' }),
+      setHrefExact: () => self.setState({ href: 'exact' }),
+      ctx: [
+        { i: 3, label: 'section.title-info' },
+        { i: 4, label: 'div.info-row' },
+      ].map((x) => ({
+        label: x.label,
+        cls: st.ctxOn[x.i] ? 'on' : '',
+        tick: st.ctxOn[x.i] ? '✓' : '',
+        toggle: () => {
+          const m = Object.assign({}, self.state.ctxOn);
+          m[x.i] = !m[x.i];
+          self.setState({ ctxOn: m });
+        },
+      })),
+
+      // ---- row label ----
+      anchorCls: st.useAnchor ? 'on' : '',
+      anchorTick: st.useAnchor ? '✓' : '',
+      toggleAnchor: () => self.setState({ useAnchor: !self.state.useAnchor }),
+
+      // ---- scope ----
+      isOne: st.scope === 'one',
+      isAll: st.scope === 'all',
+      oneCls: st.scope === 'one' ? 'on' : '',
+      allCls: st.scope === 'all' ? 'on' : '',
+      setOne: () => self.setState({ scope: 'one' }),
+      setAll: () => self.setState({ scope: 'all' }),
+
+      // ---- position ----
+      many: r.count > 1,
+      count: String(r.count),
+      loose: st.scope === 'one' && r.count > 12,
+      posLabel: st.scope === 'all' ? 'all' : (idx + 1) + ' / ' + r.count,
+      atPicked: st.scope === 'one' && idx === picked,
+      prevCls: st.scope === 'all' || idx <= 0 ? 'off' : '',
+      nextCls: st.scope === 'all' || idx >= r.pool.length - 1 ? 'off' : '',
+      prev: () => self.setState({ scope: 'one', index: Math.max(0, idx - 1) }),
+      next: () => self.setState({ scope: 'one', index: Math.min(r.pool.length - 1, idx + 1) }),
+      curRaw: r.pool[idx] || '—',
+      curClean: self.clean(r.pool[idx] || ''),
+      cleaned: self.clean(r.pool[idx] || '') !== (r.pool[idx] || ''),
+
+      // ---- cleanup ----
+      stripCls: st.stripCounts ? 'on' : '',
+      stripTick: st.stripCounts ? '✓' : '',
+      toggleStrip: () => self.setState({ stripCounts: !self.state.stripCounts }),
+      lowerCls: st.lower ? 'on' : '',
+      lowerTick: st.lower ? '✓' : '',
+      toggleLower: () => self.setState({ lower: !self.state.lower }),
+
+      // ---- selector ----
+      selector: selector,
+      matchCls: '',
+      matchText: st.useAnchor
+        ? '✓ label “Author” → 1 value'
+        : '✓ matches ' + r.count,
+      preview: preview,
+    };
+  }
+}
+</script>
+</body>
+</html>

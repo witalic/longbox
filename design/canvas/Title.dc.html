@@ -1,0 +1,673 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    /* Tokens, primitives, box-sizing AND the themed scrollbars, lifted from
+       frontend/src/styles.css — the same values, not an approximation. */
+    .app, .app *, .app *::before, .app *::after { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }
+    a { color: #7089e6; } a:hover { color: #8ba0ee; }
+    .app {
+      --bg: #0a0b0d; --bg2: #0f1115; --panel: #15171b; --panel2: #1b1e24;
+      --line: #262a31; --hover: #2a2e36;
+      --tx: #e8eaef; --tx2: #9aa1ad; --tx3: #697080;
+      --accent: #7089e6; --accent-ink: #0d0e11; --accentSoft: rgba(112,137,230,.14);
+      --good: #5fb88a; --warn: #d6a44f; --adult: #e0687a; --fav: #e0687a;
+      width: 1280px; height: 760px; display: flex; flex-direction: column;
+      overflow: hidden; background: var(--bg); color: var(--tx);
+    }
+    .app *::-webkit-scrollbar { width: 11px; height: 11px; }
+    .app *::-webkit-scrollbar-thumb { background: var(--hover); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+    .app *::-webkit-scrollbar-thumb:hover { background: var(--tx3); background-clip: padding-box; }
+    .app *::-webkit-scrollbar-track { background: transparent; }
+    .app *::-webkit-scrollbar-corner { background: transparent; }
+
+    .tabbar { height: 40px; flex: none; background: var(--bg2); border-bottom: 1px solid var(--line); display: flex; align-items: center; padding-left: 14px; }
+    .brand { display: flex; align-items: center; gap: 9px; padding-right: 18px; flex: none; }
+    .brand .name { font: 700 13.5px/1 system-ui; letter-spacing: -.2px; }
+    .tabscroll { flex: 1; min-width: 0; display: flex; align-items: flex-end; gap: 4px; height: 100%; padding-top: 5px; overflow: hidden; }
+    .tab { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 35px; padding: 0 8px 0 10px; max-width: 190px; border: 1px solid color-mix(in srgb, var(--line) 55%, transparent); border-bottom: none; border-radius: 8px 8px 0 0; background: color-mix(in srgb, var(--panel) 55%, transparent); color: var(--tx3); font: 500 12px/1 system-ui; cursor: pointer; }
+    .tab.on { background: var(--bg); color: var(--tx); border-color: var(--line); box-shadow: inset 0 2.5px 0 var(--accent); }
+    .tab .lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .swatch { width: 14px; height: 19px; border-radius: 3px; flex: none; border: 1px solid var(--line); }
+    .fav { width: 16px; height: 16px; border-radius: 4px; background: var(--panel2); display: inline-flex; align-items: center; justify-content: center; font: 700 8px/1 system-ui; color: var(--tx3); flex: none; }
+    .tact { width: 16px; height: 16px; flex: none; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; color: var(--tx3); }
+    .stripbtn { width: 30px; height: 30px; flex: none; margin: 0 3px; border: none; background: transparent; border-radius: 6px; color: var(--tx3); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+    .wctl { display: flex; align-items: center; margin-left: 6px; }
+    .wbtn { width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; color: var(--tx3); }
+
+    .approw { flex: 1; min-height: 0; display: flex; }
+    .side { width: 220px; flex: none; background: var(--bg2); border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+    .siderail { flex: 1; min-height: 0; overflow-y: auto; }
+    .nav { padding: 12px 10px 6px; display: flex; flex-direction: column; gap: 2px; }
+    .navitem { height: 36px; display: flex; align-items: center; gap: 11px; padding: 0 12px; border-radius: 8px; border: none; background: transparent; color: var(--tx2); font: 500 13px/1 system-ui; cursor: pointer; text-align: left; width: 100%; }
+    .navitem:hover { background: var(--hover); color: var(--tx); }
+    .navitem.on { background: var(--accentSoft); color: var(--accent); }
+    .navlbl { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); padding: 14px 12px 6px; }
+    .navsec { padding: 0 10px; display: flex; flex-direction: column; gap: 1px; }
+    .typerow { height: 30px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-radius: 7px; border: none; background: transparent; color: var(--tx2); font: 500 12.5px/1 system-ui; cursor: pointer; width: 100%; text-align: left; }
+    .typerow:hover { background: var(--hover); color: var(--tx); }
+    .typerow .n { margin-left: auto; font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); }
+    .sfoot { margin-top: auto; height: 44px; flex: none; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 9px; padding: 0 16px; font: 500 11.5px/1 system-ui; color: var(--tx3); }
+    .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+
+    /* ---- the band: where you are, and what you can do to this record ---- */
+    .main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); position: relative; }
+    .head { height: 44px; flex: none; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; padding: 0 16px 0 24px; }
+    .crumb { font: 500 13px/1 system-ui; color: var(--tx3); cursor: pointer; flex: none; }
+    .crumb:hover { color: var(--accent); }
+    .csep { color: var(--tx3); flex: none; }
+    .cnow { font: 600 13px/1 system-ui; color: var(--tx); flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .editing { display: inline-flex; align-items: center; gap: 8px; font: 600 13px/1 system-ui; color: var(--warn); flex: none; }
+    .dirty { font: 500 10.5px/1 ui-monospace, monospace; color: var(--warn); }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--tx); border-radius: 6px; height: 30px; padding: 0 13px; cursor: pointer; font: 600 12px/1 system-ui; white-space: nowrap; flex: none; }
+    .btn:hover { border-color: var(--accent); }
+    .btn.accent { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+    .btn.ghost { background: transparent; color: var(--tx2); }
+    .btn.sm { height: 26px; padding: 0 10px; font-size: 11.5px; }
+    .btn.danger { color: var(--adult); border-color: color-mix(in srgb, var(--adult) 40%, var(--line)); }
+    .iconbtn { width: 30px; height: 30px; flex: none; border: 1px solid var(--line); background: var(--panel); border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; color: var(--tx2); }
+    .iconbtn:hover { border-color: var(--accent); color: var(--accent); }
+    .iconbtn.on { background: var(--accentSoft); border-color: var(--accent); color: var(--accent); }
+    .menu { position: absolute; right: 16px; top: 46px; width: 250px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 22px 50px rgba(0,0,0,.6); padding: 6px; z-index: 30; }
+    .mitem { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 9px; border-radius: 6px; color: var(--tx2); font: 500 12.5px/1 system-ui; cursor: pointer; }
+    .mitem:hover { background: var(--hover); color: var(--tx); }
+    .mitem.danger { color: var(--adult); }
+    .mdiv { height: 1px; background: var(--line); margin: 5px 4px; }
+
+    .body { flex: 1; min-height: 0; overflow-y: auto; }
+
+    /* ---- hero: the shipped values, untouched ---- */
+    .band { display: flex; gap: 28px; padding: 26px 30px 24px; align-items: flex-start; }
+    .coverwrap { flex: none; width: 196px; }
+    .cover { position: relative; width: 196px; height: 284px; border-radius: 8px; overflow: hidden; box-shadow: 0 10px 28px rgba(0,0,0,.45); border: 1px solid var(--line); background: linear-gradient(150deg, #2c3550, #1a1d26); display: flex; flex-direction: column; justify-content: flex-end; padding: 16px; }
+    .favbtn { position: absolute; top: 10px; right: 10px; width: 28px; height: 28px; border: none; border-radius: 8px; background: rgba(10,11,13,.55); color: var(--fav); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+    .covacts { position: absolute; left: 10px; bottom: 10px; display: flex; gap: 5px; }
+    .covbtn { width: 26px; height: 26px; border: none; border-radius: 7px; background: rgba(10,11,13,.55); color: #cfd3dc; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+    .covbtn:hover { background: rgba(10,11,13,.8); color: #fff; }
+    .info { flex: 1; min-width: 0; }
+    .badges { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+    .typebadge { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); background: var(--accentSoft); padding: 5px 8px; border-radius: 5px; }
+    .statusbadge { display: inline-flex; align-items: center; gap: 6px; font: 500 11px/1 system-ui; color: var(--tx2); border: 1px solid var(--line); padding: 4px 9px; border-radius: 999px; }
+    .yearbadge { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); }
+    .title { margin: 0; font: 600 30px/1.08 system-ui; letter-spacing: -.6px; color: var(--tx); }
+    .alt { margin-top: 6px; font: 400 13px/1.4 system-ui; color: var(--tx3); }
+    .people { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .authorlink { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; border-radius: 6px; padding: 2px 6px 2px 2px; }
+    .authorlink:hover { background: var(--panel2); }
+    .authorlink .pname { font: 500 13px/1.3 system-ui; color: var(--tx); }
+    .authorlink:hover .pname { color: var(--accent); }
+    .rating { margin-top: 16px; display: flex; align-items: center; gap: 10px; }
+    .eyebrow { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
+    .metarow { margin-top: 12px; display: flex; align-items: flex-start; gap: 10px; }
+    .wrap { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+    .genre { display: inline-flex; align-items: center; gap: 6px; font: 500 12px/1 system-ui; color: var(--tx); background: var(--panel2); border: 1px solid var(--line); padding: 5px 10px; border-radius: 6px; cursor: pointer; }
+    .genre:hover { border-color: var(--accent); color: var(--accent); }
+    .tag { display: inline-flex; align-items: center; gap: 5px; font: 400 11px/1 system-ui; color: var(--tx2); padding: 4px 8px; border-radius: 5px; border: 1px dashed var(--line); cursor: pointer; }
+    .tag:hover { border-color: var(--accent); color: var(--accent); }
+    .desc { margin: 18px 0 0; max-width: 760px; font: 400 13.5px/1.65 system-ui; color: var(--tx2); }
+    .stars { display: flex; align-items: center; gap: 2px; }
+    .starbtn { width: 22px; height: 22px; border: none; background: transparent; padding: 0; cursor: pointer; color: var(--tx3); display: inline-flex; align-items: center; justify-content: center; }
+    .starbtn:hover, .starbtn.on { color: var(--fav); }
+    .srcchip { display: inline-flex; align-items: center; gap: 8px; font: 500 11.5px/1 system-ui; color: var(--tx); background: var(--panel); border: 1px solid var(--line); padding: 5px 9px 5px 5px; border-radius: 6px; cursor: pointer; }
+    .srcchip:hover { border-color: var(--accent); }
+    .srcx { width: 24px; height: 24px; border: none; background: transparent; border-radius: 6px; color: var(--tx3); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+    .srcx:hover { background: var(--hover); color: var(--adult); }
+
+    /* ---- the SAME editor the capture dock uses, in the room it deserves ---- */
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px 20px; }
+    .full { grid-column: 1 / -1; }
+    .mfield { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .mlblrow { display: flex; align-items: center; gap: 7px; min-height: 22px; }
+    .mlbl { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
+    .pbadge { font: 700 7.5px/1 ui-monospace, monospace; letter-spacing: .1em; padding: 3px 5px; border-radius: 4px; color: var(--accent); background: var(--accentSoft); }
+    .pbadge.man { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
+    .custtag { font: 700 7.5px/1 ui-monospace, monospace; letter-spacing: .1em; color: var(--accent); background: var(--accentSoft); padding: 3px 5px; border-radius: 4px; }
+    .mact { width: 22px; height: 22px; flex: none; border: none; background: transparent; border-radius: 5px; color: var(--tx3); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+    .mact:hover { background: var(--hover); color: var(--tx); }
+    .min { min-height: 30px; display: flex; align-items: center; font: 500 12.5px/1.3 system-ui; color: var(--tx); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
+    .min:hover { border-color: var(--accent); }
+    .min.ph { color: var(--tx3); font-weight: 400; }
+    .min.area { min-height: 72px; align-items: flex-start; font: 400 12px/1.6 system-ui; color: var(--tx2); }
+    .minchips { display: flex; flex-wrap: wrap; gap: 6px; min-height: 30px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; align-items: center; }
+    .echip { display: inline-flex; align-items: center; gap: 6px; font: 500 11.5px/1 system-ui; color: var(--tx); background: var(--panel2); border: 1px solid var(--line); padding: 5px 8px; border-radius: 5px; }
+    .echip .cx { color: var(--tx3); cursor: pointer; display: inline-flex; }
+    .echip .cx:hover { color: var(--adult); }
+    .chipadd { font: 400 11.5px/1 system-ui; color: var(--tx3); padding: 5px 6px; }
+    .flagrow { display: flex; gap: 8px; flex-wrap: wrap; }
+    .fbox { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--tx2); font: 500 11.5px/1 system-ui; cursor: pointer; }
+    .fbox:hover { border-color: var(--accent); }
+    .fbox.on { border-color: var(--accent); color: var(--accent); background: var(--accentSoft); }
+    .tick { width: 13px; height: 13px; border: 1.5px solid var(--line); border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; color: var(--accent-ink); }
+    .fbox.on .tick { background: var(--accent); border-color: var(--accent); }
+
+    /* the field list — user scope here, the same rows as the library's filters */
+    .fpop { position: absolute; right: 16px; top: 46px; width: 300px; max-height: 420px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 22px 50px rgba(0,0,0,.6); z-index: 31; display: flex; flex-direction: column; overflow: hidden; }
+    .fphead { height: 38px; flex: none; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; padding: 0 12px; }
+    .fptitle { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx2); }
+    .fphint { margin-left: auto; font: 400 10px/1 system-ui; color: var(--tx3); }
+    .fpnote { padding: 9px 12px; border-bottom: 1px solid var(--line); font: 400 10.5px/1.5 system-ui; color: var(--tx3); }
+    .fieldlist { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 10px 10px; display: flex; flex-direction: column; gap: 1px; }
+    .fieldrow { flex: none; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 6px; cursor: pointer; font: 500 12.5px/1 system-ui; color: var(--tx2); }
+    .fieldrow:hover { background: var(--hover); color: var(--tx); }
+    .flabel { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .eye { width: 22px; height: 22px; flex: none; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; color: var(--tx3); opacity: .55; }
+    .eye:hover { background: var(--panel); color: var(--tx); opacity: 1; }
+    .hidrow { flex: none; display: flex; align-items: center; gap: 8px; height: 27px; padding: 0 8px; border-radius: 6px; cursor: pointer; font: 500 12px/1 system-ui; color: var(--tx3); }
+    .hidrow:hover { background: var(--hover); color: var(--tx2); }
+    .hidlbl { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; }
+
+    /* ---- contents: the shipped block. Only the switch that enters it is new. ---- */
+    .lower { border-top: 1px solid var(--line); padding: 22px 26px 30px; display: flex; gap: 20px; align-items: flex-start; }
+    .chapters { flex: 0 1 470px; min-width: 340px; }
+    .chhead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .chhead h2 { margin: 0; font: 600 16px/1 system-ui; color: var(--tx); }
+    .chcount { font: 500 12px/1 ui-monospace, monospace; color: var(--tx3); }
+    .drop { display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--tx2); font: 500 11px/1 system-ui; cursor: pointer; }
+    .drop:hover { border-color: var(--accent); }
+    .drop .dk { font: 700 8.5px/1 ui-monospace, monospace; letter-spacing: .08em; color: var(--tx3); }
+    .chsmall { height: 28px; padding: 0 10px; font-size: 11.5px; }
+    .chedit { width: 28px; height: 28px; }
+    .chlist { margin-top: 14px; display: flex; flex-direction: column; gap: 3px; }
+    .chrow { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; border: 1px solid transparent; }
+    .chrow:hover { background: var(--panel2); }
+    .chrow.node { color: var(--tx2); cursor: pointer; }
+    .chslot { flex: none; width: 14px; display: inline-flex; align-items: center; justify-content: center; color: var(--tx3); }
+    .grip { font: 400 14px/1 ui-monospace, monospace; letter-spacing: -3px; color: var(--tx3); cursor: grab; user-select: none; }
+    .grip:hover { color: var(--tx); }
+    .chnum { font: 600 13px/1 ui-monospace, monospace; color: var(--tx); }
+    .chdot { flex: none; width: 10px; height: 10px; border-radius: 50%; cursor: pointer; }
+    .chdot.s { width: 8px; height: 8px; }
+    .chdot:hover { outline: 2px solid var(--accentSoft); outline-offset: 2px; }
+    .chtitle { flex: 1; min-width: 0; font: 500 13.5px/1.3 system-ui; color: var(--tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chright { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; flex: none; }
+    .trbadge { display: inline-flex; align-items: center; gap: 5px; font: 500 10.5px/1 system-ui; color: var(--tx2); background: var(--panel2); border: 1px solid var(--line); padding: 3px 7px; border-radius: 5px; flex: none; }
+    .trlang { font: 500 9px/1 ui-monospace, monospace; color: var(--accent); }
+    .trcount { font: 500 10px/1 ui-monospace, monospace; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line)); padding: 3px 7px; border-radius: 5px; flex: none; }
+    .grp { margin-left: 19px; padding-left: 12px; border-left: 2px solid var(--line); display: flex; flex-direction: column; gap: 2px; }
+    .grp .chrow { background: color-mix(in srgb, var(--panel) 45%, transparent); }
+    .grp .chrow:hover { background: var(--panel2); }
+    .pgcol { flex: none; width: 56px; text-align: right; font: 400 10.5px/1 ui-monospace, monospace; color: var(--good); }
+    .pgcol.unsup { color: var(--warn); }
+    .chacts { display: inline-flex; gap: 5px; flex: none; }
+    .chact { width: 24px; height: 24px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--tx2); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+    .chact:hover { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+    .chact.danger:hover { color: var(--adult); border-color: color-mix(in srgb, var(--adult) 45%, var(--line)); }
+    .pgpane { flex: 1; min-width: 0; border: 1px dashed var(--line); border-radius: 10px; padding: 22px; font: 400 12px/1.6 system-ui; color: var(--tx3); }
+  </style>
+</helmet>
+
+<div class="app">
+  <div class="tabbar">
+    <div class="brand">
+      <svg width="24" height="24" viewBox="0 0 72 72" aria-hidden="true"><defs><linearGradient id="lbgT" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8194f4"></stop><stop offset="1" stop-color="#3e4eb2"></stop></linearGradient></defs><rect width="72" height="72" rx="17" fill="url(#lbgT)"></rect><path d="M27 19h9v25h13v9H27z" fill="#fff"></path></svg>
+      <span class="name">longbox</span>
+    </div>
+    <div class="tabscroll">
+      <div class="tab on"><span class="swatch" style="background: linear-gradient(150deg, #2c3550, #1a1d26)"></span><span class="lbl">Vinland Saga</span><span class="tact"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></span></div>
+      <div class="tab"><span class="swatch" style="background: linear-gradient(150deg, #4a2f2f, #1a1d26)"></span><span class="lbl">Berserk</span><span class="tact"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></span></div>
+    </div>
+    <button class="stripbtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg></button>
+    <button class="stripbtn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"></path></svg></button>
+    <div class="wctl">
+      <span class="wbtn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 12h14"></path></svg></span>
+      <span class="wbtn"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5" y="5" width="14" height="14" rx="2"></rect></svg></span>
+      <span class="wbtn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 6l12 12M18 6L6 18"></path></svg></span>
+    </div>
+  </div>
+
+  <div class="approw">
+    <aside class="side">
+      <div class="siderail">
+        <nav class="nav">
+          <button class="navitem on"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 5h16M4 12h16M4 19h16"></path></svg>Library</button>
+          <button class="navitem"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"></circle><path d="M3.5 12h17M12 3.5c4 5 4 12 0 17-4-5-4-12 0-17z"></path></svg>Browse</button>
+          <button class="navitem"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16v12H4z"></path><path d="M4 10h16"></path></svg>Sources</button>
+          <button class="navitem"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3.2"></circle><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8"></path></svg>Settings</button>
+        </nav>
+        <div class="navlbl">SHELVES</div>
+        <div class="navsec">
+          <button class="typerow"><span class="dot" style="background: #7089e6"></span><span>Manga</span><span class="n">214</span></button>
+          <button class="typerow"><span class="dot" style="background: #5fb88a"></span><span>Manhwa</span><span class="n">61</span></button>
+          <button class="typerow"><span class="dot" style="background: #d6a44f"></span><span>Video</span><span class="n">28</span></button>
+        </div>
+      </div>
+      <div class="sfoot"><span class="dot" style="background: var(--good)"></span><span>Local library</span></div>
+    </aside>
+
+    <main class="main">
+      <div class="head">
+        <sc-if value="{{isView}}" hint-placeholder-val="{{true}}">
+          <span class="crumb">Library</span>
+          <span class="csep">›</span>
+          <span class="cnow">Vinland Saga</span>
+          <div style="flex: 1"></div>
+          <button class="btn" onClick="{{startEdit}}">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10-10-4-4L4 16z"></path><path d="M13.5 6.5l4 4"></path></svg>
+            Edit metadata
+          </button>
+          <button class="btn" title="Open the source page with this title as the capture target">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"></circle><path d="M3.5 12h17M12 3.5c4 5 4 12 0 17-4-5-4-12 0-17z"></path></svg>
+            Capture from web
+          </button>
+          <button class="iconbtn {{menuCls}}" title="More" onClick="{{toggleMenu}}">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="19" cy="12" r="1.7"></circle></svg>
+          </button>
+        </sc-if>
+        <sc-if value="{{isEdit}}" hint-placeholder-val="{{false}}">
+          <span class="editing">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10-10-4-4L4 16z"></path><path d="M13.5 6.5l4 4"></path></svg>
+            Editing metadata
+          </span>
+          <span class="dirty">· unsaved</span>
+          <div style="flex: 1"></div>
+          <button class="iconbtn {{fpopCls}}" title="Which fields this page shows" onClick="{{toggleFpop}}">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 14a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V20a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H4a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3H10a1.7 1.7 0 001-1.5V4a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9V10a1.7 1.7 0 001.5 1H20a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"></path></svg>
+          </button>
+          <button class="btn ghost" onClick="{{cancelEdit}}">Cancel</button>
+          <button class="btn accent" onClick="{{cancelEdit}}">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"></path></svg>Save
+          </button>
+        </sc-if>
+      </div>
+
+      <sc-if value="{{menuOpen}}" hint-placeholder-val="{{false}}">
+        <div class="menu">
+          <div class="mitem">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 5h5v5"></path><path d="M19 5l-7 7"></path><path d="M18 14v5H5V6h5"></path></svg>
+            <span>Open source page</span>
+          </div>
+          <div class="mitem">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+            <span>Unlink the source</span>
+          </div>
+          <div class="mdiv"></div>
+          <div class="mitem danger">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14"></path><path d="M9 7V5h6v2"></path><path d="M7 7l1 12h8l1-12"></path></svg>
+            <span>Delete this title</span>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{fpopOpen}}" hint-placeholder-val="{{false}}">
+        <div class="fpop">
+          <div class="fphead">
+            <span class="fptitle">FIELDS ON TITLE PAGES</span>
+            <span class="fphint">the eye hides one</span>
+          </div>
+          <div class="fpnote">Your setting — it applies to every title. What a SOURCE offers is set in the capture panel instead.</div>
+          <div class="fieldlist">
+            <sc-for list="{{fields}}" as="f" hint-placeholder-count="9">
+              <div class="fieldrow">
+                <span class="flabel">{{f.label}}</span>
+                <sc-if value="{{f.custom}}" hint-placeholder-val="{{false}}"><span class="custtag">CUSTOM</span></sc-if>
+                <span class="eye" onClick="{{f.hide}}" title="Hide this field">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M3 3l18 18"></path><path d="M10.6 6.3A9.6 9.6 0 0112 6.2c5 0 8.5 5.8 8.5 5.8a17 17 0 01-2.9 3.6M6.4 8.2A17 17 0 003.5 12s3.5 5.8 8.5 5.8c1 0 2-.2 2.8-.5"></path></svg>
+                </span>
+              </div>
+            </sc-for>
+            <sc-if value="{{anyHidden}}" hint-placeholder-val="{{true}}">
+              <div class="hidrow" onClick="{{toggleHidden}}">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="flex: none; transform: rotate({{hiddenRot}})"><path d="M6 9l6 6 6-6"></path></svg>
+                <span class="hidlbl">HIDDEN · {{hiddenCount}}</span>
+              </div>
+            </sc-if>
+            <sc-if value="{{showHidden}}" hint-placeholder-val="{{true}}">
+              <sc-for list="{{hidden}}" as="h" hint-placeholder-count="2">
+                <div class="hidrow" style="padding-left: 22px" onClick="{{h.show}}">
+                  <span class="flabel">{{h.label}}</span>
+                  <span style="font: 500 10px/1 ui-monospace, monospace; flex: none">show</span>
+                </div>
+              </sc-for>
+            </sc-if>
+          </div>
+        </div>
+      </sc-if>
+
+      <div class="body">
+        <div class="band">
+          <div class="coverwrap">
+            <div class="cover">
+              <button class="favbtn" title="Favourite">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 4l2.5 5.2 5.5.8-4 3.9 1 5.6-5-2.7-5 2.7 1-5.6-4-3.9 5.5-.8z"></path></svg>
+              </button>
+              <div class="covacts">
+                <button class="covbtn" title="Replace the cover with an image file"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="14" rx="2.5"></rect><path d="M4 16l5-5 4 4 3-3 4 4"></path></svg></button>
+                <button class="covbtn" title="Remove cover"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+              </div>
+            </div>
+          </div>
+
+          <!-- VIEW: only what is known — empty fields simply do not render -->
+          <sc-if value="{{isView}}" hint-placeholder-val="{{true}}">
+            <div class="info">
+              <div class="badges">
+                <span class="typebadge">manga</span>
+                <span class="statusbadge"><span class="dot" style="background: var(--good)"></span>completed</span>
+                <span class="yearbadge">2005</span>
+              </div>
+              <h1 class="title">Vinland Saga</h1>
+              <div class="alt">ヴィンランド・サガ</div>
+              <div class="people">
+                <span class="authorlink"><span class="fav">MY</span><span class="pname">Makoto Yukimura</span></span>
+              </div>
+              <div class="rating">
+                <span class="eyebrow">MY RATING</span>
+                <span class="stars">
+                  <sc-for list="{{stars}}" as="st" hint-placeholder-count="5">
+                    <button class="starbtn {{st.cls}}" onClick="{{st.pick}}">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="{{st.fill}}" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M12 4l2.5 5.2 5.5.8-4 3.9 1 5.6-5-2.7-5 2.7 1-5.6-4-3.9 5.5-.8z"></path></svg>
+                    </button>
+                  </sc-for>
+                </span>
+              </div>
+              <div class="metarow">
+                <span class="eyebrow" style="width: 56px; flex: none; padding-top: 5px">GENRES</span>
+                <div class="wrap"><span class="genre">Historical</span><span class="genre">Seinen</span><span class="genre">Action</span><span class="genre">Drama</span></div>
+              </div>
+              <div class="metarow">
+                <span class="eyebrow" style="width: 56px; flex: none; padding-top: 5px">TAGS</span>
+                <div class="wrap"><span class="tag">Vikings</span><span class="tag">Revenge</span><span class="tag">Survival</span></div>
+              </div>
+              <div class="metarow">
+                <span class="eyebrow" style="width: 56px; flex: none; padding-top: 5px">SHELF</span>
+                <div class="wrap"><span class="genre">Finished</span><span class="genre">MAL 8.86</span></div>
+              </div>
+              <p class="desc">Thorfinn, son of one of the Vikings’ greatest warriors, is chasing the man who killed his father across an England torn apart by war.</p>
+              <div class="metarow" style="align-items: center">
+                <span class="eyebrow" style="width: 56px; flex: none">SOURCE</span>
+                <span class="srcchip"><span class="fav">M</span>mangadex.org</span>
+                <button class="srcx" title="Remove the source link (the title stays)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+              </div>
+            </div>
+          </sc-if>
+
+          <!-- EDIT: the registry decides the rows, exactly like the dock -->
+          <sc-if value="{{isEdit}}" hint-placeholder-val="{{false}}">
+            <div class="info">
+              <div class="grid">
+                <sc-for list="{{shown}}" as="f" hint-placeholder-count="10">
+                  <div class="mfield {{f.span}}">
+                    <div class="mlblrow">
+                      <span class="mlbl">{{f.label}}</span>
+                      <sc-if value="{{f.hasProv}}" hint-placeholder-val="{{true}}">
+                        <span class="pbadge {{f.provCls}}">{{f.prov}}</span>
+                      </sc-if>
+                      <sc-if value="{{f.custom}}" hint-placeholder-val="{{false}}">
+                        <span class="custtag">CUSTOM</span>
+                      </sc-if>
+                      <div style="flex: 1"></div>
+                      <button class="mact" title="Clear">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                      </button>
+                    </div>
+                    <sc-if value="{{f.isText}}" hint-placeholder-val="{{true}}">
+                      <div class="min {{f.phCls}}">{{f.value}}</div>
+                    </sc-if>
+                    <sc-if value="{{f.isArea}}" hint-placeholder-val="{{false}}">
+                      <div class="min area">{{f.value}}</div>
+                    </sc-if>
+                    <sc-if value="{{f.isChips}}" hint-placeholder-val="{{false}}">
+                      <div class="minchips">
+                        <sc-for list="{{f.chips}}" as="c" hint-placeholder-count="3">
+                          <span class="echip">{{c.v}}<span class="cx"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></span></span>
+                        </sc-for>
+                        <span class="chipadd">+ add</span>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{f.isFlags}}" hint-placeholder-val="{{false}}">
+                      <div class="flagrow">
+                        <span class="fbox on"><span class="tick"><svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"></path></svg></span>completed</span>
+                        <span class="fbox"><span class="tick"></span>adult</span>
+                        <span class="fbox"><span class="tick"></span>colour</span>
+                      </div>
+                    </sc-if>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+
+        <!-- CONTENTS: the block as it ships. Only the switch that enters it
+             is new, so metadata and contents are never editable at once. -->
+        <div class="lower">
+          <div class="chapters">
+            <div class="chhead">
+              <h2>Contents</h2>
+              <span class="chcount">24</span>
+              <span class="drop"><span class="dk">LANG</span>All</span>
+              <span class="drop"><span class="dk">GROUP</span>All</span>
+              <div style="flex: 1"></div>
+              <sc-if value="{{cEdit}}" hint-placeholder-val="{{false}}">
+                <button class="btn ghost chsmall">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>Add entry
+                </button>
+                <button class="btn ghost chsmall" title="Back to smart number order">Sort №</button>
+                <button class="btn accent chsmall" onClick="{{toggleCEdit}}">Done</button>
+              </sc-if>
+              <sc-if value="{{cView}}" hint-placeholder-val="{{true}}">
+                <button class="iconbtn chedit" title="Edit contents: add/edit entries, attach files, drag to reorder" onClick="{{toggleCEdit}}">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10-10-4-4L4 16z"></path><path d="M13.5 6.5l4 4"></path></svg>
+                </button>
+              </sc-if>
+            </div>
+
+            <div class="chlist">
+              <sc-for list="{{rows}}" as="r" hint-placeholder-count="5">
+                <div>
+                  <sc-if value="{{r.isGroup}}" hint-placeholder-val="{{false}}">
+                    <div class="chrow node">
+                      <span class="chslot">
+                        <sc-if value="{{cEdit}}" hint-placeholder-val="{{false}}"><span class="grip" title="Drag to reorder">&#8942;&#8942;</span></sc-if>
+                        <sc-if value="{{cView}}" hint-placeholder-val="{{true}}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"></path></svg></sc-if>
+                      </span>
+                      <span class="chtitle"><b class="chnum">{{r.label}}</b> {{r.title}}</span>
+                      <span class="trcount">{{r.versions}} translations</span>
+                    </div>
+                    <div class="grp">
+                      <sc-for list="{{r.rows}}" as="v" hint-placeholder-count="2">
+                        <div class="chrow tr">
+                          <span class="chslot">
+                            <sc-if value="{{cEdit}}" hint-placeholder-val="{{false}}"><span class="grip" title="Drag onto another label to move this translation">&#8942;&#8942;</span></sc-if>
+                            <sc-if value="{{cView}}" hint-placeholder-val="{{true}}"><span class="chdot s" style="background: {{v.readColor}}" title="{{v.readTitle}}"></span></sc-if>
+                          </span>
+                          <span class="trbadge"><span class="trlang">{{v.lang}}</span>{{v.group}}</span>
+                          <span class="chtitle"></span>
+                          <span class="chright">
+                            <span class="pgcol">{{v.media}}</span>
+                            <sc-if value="{{cEdit}}" hint-placeholder-val="{{false}}">
+                              <span class="chacts">
+                                <button class="chact" title="Edit entry: label · language · group · source link"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10-10-4-4L4 16z"></path><path d="M13.5 6.5l4 4"></path></svg></button>
+                                <button class="chact" title="Add images to this entry"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="14" rx="2.5"></rect><path d="M4 16l5-5 4 4 3-3 4 4"></path></svg></button>
+                                <button class="chact" title="Replace the file on this entry"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"></path><path d="M8 11l4 4 4-4"></path><path d="M5 19h14"></path></svg></button>
+                                <button class="chact" title="Remove the file (keep the entry)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 12h12"></path></svg></button>
+                                <button class="chact danger" title="Remove the entry AND its file"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+                              </span>
+                            </sc-if>
+                          </span>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </sc-if>
+
+                  <sc-if value="{{r.isRow}}" hint-placeholder-val="{{true}}">
+                    <div class="chrow">
+                      <span class="chslot">
+                        <sc-if value="{{cEdit}}" hint-placeholder-val="{{false}}"><span class="grip" title="Drag to reorder">&#8942;&#8942;</span></sc-if>
+                        <sc-if value="{{cView}}" hint-placeholder-val="{{true}}"><span class="chdot" style="background: {{r.readColor}}" title="{{r.readTitle}}"></span></sc-if>
+                      </span>
+                      <span class="chtitle"><b class="chnum">{{r.label}}</b> {{r.title}}</span>
+                      <span class="chright">
+                        <sc-if value="{{r.hasBadge}}" hint-placeholder-val="{{true}}">
+                          <span class="trbadge"><span class="trlang">{{r.lang}}</span>{{r.group}}</span>
+                        </sc-if>
+                        <span class="pgcol {{r.mediaCls}}" title="{{r.mediaTitle}}">{{r.media}}</span>
+                        <sc-if value="{{cEdit}}" hint-placeholder-val="{{false}}">
+                          <span class="chacts">
+                            <button class="chact" title="Edit entry: label · language · group · source link"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10-10-4-4L4 16z"></path><path d="M13.5 6.5l4 4"></path></svg></button>
+                            <button class="chact" title="Add images to this entry"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="14" rx="2.5"></rect><path d="M4 16l5-5 4 4 3-3 4 4"></path></svg></button>
+                            <button class="chact" title="Attach a file — an archive of pages or a video"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"></path><path d="M8 11l4 4 4-4"></path><path d="M5 19h14"></path></svg></button>
+                            <button class="chact" title="Remove the file (keep the entry)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 12h12"></path></svg></button>
+                            <button class="chact danger" title="Remove the entry AND its file"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+                          </span>
+                        </sc-if>
+                      </span>
+                    </div>
+                  </sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div class="pgpane">Click an entry to open its pages here — thumbnails, Move to…, S/M/L and the video player are unchanged.</div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      mode: 'view',        // view | edit — metadata only
+      cEdit: false,        // contents has its own switch; never both at once
+      menuOpen: false, fpopOpen: false, hiddenOpen: false,
+      hidden: { characters: true, studio: true },
+      rating: 4,
+    };
+  }
+
+  renderVals() {
+    const self = this;
+
+    // The same registry the capture dock renders from; here it gets two columns.
+    const FIELDS = [
+      { id: 'title', label: 'Title', control: 'text', span: 'full', value: 'Vinland Saga', prov: 'AUTO' },
+      { id: 'alt', label: 'Alternative title', control: 'text', span: 'full', value: 'ヴィンランド・サガ', prov: 'AUTO' },
+      { id: 'type', label: 'Type', control: 'text', value: 'manga', prov: 'AUTO' },
+      { id: 'status', label: 'Status', control: 'text', value: 'completed', prov: 'AUTO' },
+      { id: 'year', label: 'Year', control: 'text', value: '2005', prov: 'MANUAL' },
+      { id: 'language', label: 'Language', control: 'text', value: 'JA', prov: 'AUTO' },
+      { id: 'flags', label: 'Flags', control: 'flags', span: 'full' },
+      { id: 'authors', label: 'Authors', control: 'chips', chips: ['Makoto Yukimura'], prov: 'AUTO' },
+      { id: 'artists', label: 'Artists', control: 'chips', chips: ['Makoto Yukimura'], prov: 'AUTO' },
+      { id: 'characters', label: 'Characters', control: 'chips', chips: ['Thorfinn'] },
+      { id: 'studio', label: 'Studio', control: 'chips', chips: [] },
+      { id: 'genres', label: 'Genres', control: 'chips', chips: ['Historical', 'Seinen', 'Action'], prov: 'AUTO' },
+      { id: 'tags', label: 'Tags', control: 'chips', chips: ['Vikings', 'Revenge'], prov: 'AUTO' },
+      { id: 'shelf', label: 'Shelf', control: 'text', value: 'Finished', custom: true, prov: 'MANUAL' },
+      { id: 'malscore', label: 'MAL score', control: 'text', value: '8.86', custom: true, prov: 'AUTO' },
+      { id: 'desc', label: 'Description', control: 'area', span: 'full', prov: 'AUTO',
+        value: 'Thorfinn, son of one of the Vikings’ greatest warriors, is chasing the man who killed his father across an England torn apart by war.' },
+    ];
+    const visible = FIELDS.filter((f) => !self.state.hidden[f.id]);
+    const hidden = FIELDS.filter((f) => self.state.hidden[f.id]);
+
+    const ROWS = [
+      { kind: 'row', label: '11', title: 'The Battle of London Bridge', lang: 'EN', group: 'Dread', media: '38 pg', read: 'read' },
+      { kind: 'group', label: '12', title: 'Ketil’s Farm', versions: '2', rows: [
+        { lang: 'EN', group: 'Dread', media: '41 pg', read: 'reading' },
+        { lang: 'UA', group: 'Nakama', media: '41 pg', read: 'unread' },
+      ] },
+      { kind: 'row', label: '13', title: 'Normanni', lang: 'EN', group: 'Dread', media: '36 pg', read: 'unread' },
+      { kind: 'row', label: '14', title: 'A True Warrior', lang: 'EN', group: 'Dread', media: 'no file', read: 'unread', bad: true },
+      { kind: 'row', label: '2024 Artworks', title: '', media: '18 pg', read: 'unread' },
+    ];
+    const READ = { read: '#5fb88a', reading: '#7089e6', unread: 'transparent' };
+
+    return {
+      isView: this.state.mode === 'view',
+      isEdit: this.state.mode === 'edit',
+      startEdit: () => self.setState({ mode: 'edit', menuOpen: false, cEdit: false }),
+      cancelEdit: () => self.setState({ mode: 'view', fpopOpen: false }),
+      menuOpen: this.state.menuOpen,
+      menuCls: this.state.menuOpen ? 'on' : '',
+      toggleMenu: () => self.setState({ menuOpen: !self.state.menuOpen }),
+
+      stars: [1, 2, 3, 4, 5].map((n) => ({
+        cls: n <= self.state.rating ? 'on' : '',
+        fill: n <= self.state.rating ? 'currentColor' : 'none',
+        pick: () => self.setState({ rating: n === self.state.rating ? 0 : n }),
+      })),
+
+      shown: visible.map((f) => ({
+        label: f.label.toUpperCase(),
+        span: f.span === 'full' ? 'full' : '',
+        hasProv: !!f.prov,
+        prov: f.prov || '',
+        provCls: f.prov === 'MANUAL' ? 'man' : '',
+        custom: !!f.custom,
+        isText: f.control === 'text',
+        isArea: f.control === 'area',
+        isChips: f.control === 'chips',
+        isFlags: f.control === 'flags',
+        value: f.value || 'not set',
+        phCls: f.value ? '' : 'ph',
+        chips: (f.chips || []).map((c) => ({ v: c })),
+      })),
+
+      fpopOpen: this.state.fpopOpen,
+      fpopCls: this.state.fpopOpen ? 'on' : '',
+      toggleFpop: () => self.setState({ fpopOpen: !self.state.fpopOpen }),
+      fields: visible.map((f) => ({
+        label: f.label,
+        custom: !!f.custom,
+        hide: () => {
+          const h = Object.assign({}, self.state.hidden);
+          h[f.id] = true;
+          self.setState({ hidden: h });
+        },
+      })),
+      anyHidden: hidden.length > 0,
+      hiddenCount: String(hidden.length),
+      hiddenRot: this.state.hiddenOpen ? '0deg' : '-90deg',
+      showHidden: hidden.length > 0 && this.state.hiddenOpen,
+      toggleHidden: () => self.setState({ hiddenOpen: !self.state.hiddenOpen }),
+      hidden: hidden.map((f) => ({
+        label: f.label,
+        show: () => {
+          const h = Object.assign({}, self.state.hidden);
+          delete h[f.id];
+          self.setState({ hidden: h });
+        },
+      })),
+
+      cEdit: this.state.cEdit,
+      cView: !this.state.cEdit,
+      toggleCEdit: () => self.setState({ cEdit: !self.state.cEdit, mode: 'view' }),
+      rows: ROWS.map((r) => ({
+        isGroup: r.kind === 'group',
+        isRow: r.kind === 'row',
+        label: r.label,
+        title: r.title || '',
+        versions: r.versions || '',
+        hasBadge: !!r.lang,
+        lang: r.lang || '',
+        group: r.group || '',
+        media: r.media || '',
+        mediaCls: r.bad ? 'unsup' : '',
+        mediaTitle: r.bad ? 'no file attached yet' : '',
+        readColor: READ[r.read] || 'transparent',
+        readTitle: r.read + ' — click to change',
+        rows: (r.rows || []).map((v) => ({
+          lang: v.lang, group: v.group, media: v.media,
+          readColor: READ[v.read] || 'transparent',
+          readTitle: v.read + ' — click to change',
+        })),
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>

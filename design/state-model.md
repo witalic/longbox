@@ -78,6 +78,15 @@ backend only validates.
 **Commit** is an explicit user action; an atomic write (`tmp → rename`). Until commit the
 vault does not change; a draft closed without commit simply disappears without a trace.
 
+**Where the editor lives.** One draft, one editor component, two hosts. The **title page** is
+the record's home: *Edit metadata* seeds the draft from the title and renders `MetadataEditor`
+in two columns; creating a title is that same editor with nothing to seed from and no record
+yet, so **Add title never opens the browser** — *Capture from web* does, on purpose. The
+**capture dock** is the second host: the same draft, the same component in one column, plus the
+per-field pick buttons that only mean anything over a live page. On the title page, metadata
+editing and contents editing are mutually exclusive — entering one leaves the other, so what a
+commit applies to is never ambiguous.
+
 ## 5. Provenance — where each field came from
 
 Every field carries an origin mark: `auto` (filled by capture) or `manual` (typed or

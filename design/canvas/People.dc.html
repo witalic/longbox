@@ -1,0 +1,935 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    /* The same shell as the library artboard — tokens, box-sizing, scrollbars
+       and every band height lifted from frontend/src/styles.css. */
+    .app, .app *, .app *::before, .app *::after { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }
+    a { color: #7089e6; } a:hover { color: #8ba0ee; }
+    .app {
+      --bg: #0a0b0d; --bg2: #0f1115; --panel: #15171b; --panel2: #1b1e24;
+      --line: #262a31; --hover: #2a2e36;
+      --tx: #e8eaef; --tx2: #9aa1ad; --tx3: #697080;
+      --accent: #7089e6; --accent-ink: #0d0e11; --accentSoft: rgba(112,137,230,.14);
+      --fav: #e0687a; --adult: #e0687a;
+      width: 1280px; height: 760px; display: flex; flex-direction: column;
+      overflow: hidden; background: var(--bg); color: var(--tx);
+    }
+    .app *::-webkit-scrollbar { width: 11px; height: 11px; }
+    .app *::-webkit-scrollbar-thumb { background: var(--hover); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+    .app *::-webkit-scrollbar-thumb:hover { background: var(--tx3); background-clip: padding-box; }
+    .app *::-webkit-scrollbar-track { background: transparent; }
+    .app *::-webkit-scrollbar-corner { background: transparent; }
+
+    .tabbar { height: 40px; flex: none; background: var(--bg2); border-bottom: 1px solid var(--line); display: flex; align-items: center; padding-left: 14px; }
+    .brand { display: flex; align-items: center; gap: 9px; padding-right: 18px; flex: none; }
+    .brand .name { font: 700 13.5px/1 system-ui; letter-spacing: -.2px; }
+    .tab { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 35px; padding: 0 10px; max-width: 190px; border: 1px solid color-mix(in srgb, var(--line) 55%, transparent); border-bottom: none; border-radius: 8px 8px 0 0; background: color-mix(in srgb, var(--panel) 55%, transparent); color: var(--tx3); font: 500 12px/1 system-ui; }
+    .tab.on { background: var(--bg); color: var(--tx); border-color: var(--line); box-shadow: inset 0 2.5px 0 var(--accent); }
+    .swatch { width: 14px; height: 19px; border-radius: 3px; flex: none; border: 1px solid var(--line); }
+    .approw { flex: 1; min-height: 0; display: flex; }
+    .side { width: 220px; flex: none; background: var(--bg2); border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+    .nav { padding: 12px 10px 6px; display: flex; flex-direction: column; gap: 2px; }
+    .navitem { height: 36px; display: flex; align-items: center; gap: 11px; padding: 0 12px; border-radius: 8px; border: none; background: transparent; color: var(--tx2); font: 500 13px/1 system-ui; cursor: pointer; text-align: left; width: 100%; }
+    .navitem:hover { background: var(--hover); color: var(--tx); }
+    .navitem.on { background: var(--accentSoft); color: var(--accent); }
+    .navlbl { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); padding: 14px 12px 6px; }
+    .navsec { padding: 0 10px; display: flex; flex-direction: column; gap: 1px; }
+    .typerow { height: 30px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-radius: 7px; border: none; background: transparent; color: var(--tx2); font: 500 12.5px/1 system-ui; cursor: pointer; width: 100%; text-align: left; }
+    .typerow:hover { background: var(--hover); color: var(--tx); }
+    .typerow.on { background: var(--accentSoft); color: var(--accent); }
+    .typerow .n { margin-left: auto; font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); }
+    .typerow.on .n { color: var(--accent); }
+    .main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); position: relative; }
+
+    .head { height: 44px; flex: none; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; padding: 0 16px 0 24px; }
+    .h1 { margin: 0; font: 600 22px/1 system-ui; letter-spacing: -.4px; flex: none; }
+    .count { font: 500 11.5px/1 ui-monospace, monospace; color: var(--tx3); flex: none; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--tx); border-radius: 6px; height: 30px; padding: 0 13px; cursor: pointer; font: 600 12px/1 system-ui; white-space: nowrap; flex: none; }
+    .btn:hover { border-color: var(--accent); }
+    .btn.on { border-color: var(--accent); color: var(--accent); background: var(--accentSoft); }
+    .sortbtn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 9px; flex: none; border: 1px solid var(--line); background: var(--panel); border-radius: 6px; color: var(--tx2); font: 500 12px/1 system-ui; cursor: pointer; white-space: nowrap; }
+    .sortbtn:hover { border-color: var(--accent); color: var(--tx); }
+    .fsearch { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; width: 260px; flex: none; background: var(--panel); border: 1px solid color-mix(in srgb, var(--tx3) 38%, var(--line)); border-radius: 8px; color: var(--tx3); font: 400 12px/1 system-ui; }
+    .iconbtn { width: 30px; height: 30px; flex: none; border: 1px solid transparent; background: transparent; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--tx3); }
+    .iconbtn:hover { background: var(--hover); color: var(--tx); }
+    .iconbtn.on { border-color: var(--accent) !important; color: var(--accent); background: var(--accentSoft) !important; }
+    .seg { display: flex; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 2px; height: 30px; flex: none; }
+    .seg .opt { display: inline-flex; align-items: center; justify-content: center; width: 32px; border-radius: 4px; cursor: pointer; border: none; background: transparent; color: var(--tx2); }
+    .seg .opt:hover { color: var(--tx); }
+    .seg .opt.on { background: var(--accentSoft); color: var(--accent); }
+    .pickdot { min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font: 700 9px/16px ui-monospace, monospace; text-align: center; flex: none; }
+
+    /* THE BODY reads differently from the library on purpose: a shelf shows
+       WORKS, this shows the people and groups behind them — so a card leads
+       with who it is and what they made, not with one cover. */
+    .amain { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 24px; }
+    .agrid { display: grid; gap: 14px; }
+    .acard { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+    .arow { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .avatar { width: 38px; height: 38px; border-radius: 9px; flex: none; display: flex; align-items: center; justify-content: center; font: 600 15px/1 Georgia, serif; color: rgba(242,237,230,.55); border: 1px solid var(--line); }
+    /* The title IS the way through: clicking it opens the library already
+       filtered by this value. Same gesture in both layouts, no extra button. */
+    .aname { font: 600 13px/1.25 system-ui; color: var(--tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+    .aname:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+    .ameta { font: 500 9.5px/1 ui-monospace, monospace; letter-spacing: .1em; color: var(--tx3); text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .star { width: 26px; height: 26px; flex: none; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--tx3); cursor: pointer; }
+    .star:hover { background: var(--hover); }
+    .star.on { color: var(--fav); }
+    .works { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .work { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+    .workcover { aspect-ratio: 2/3; border-radius: 6px; border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .worklet { font: 600 22px/1 Georgia, serif; color: rgba(242,237,230,.22); }
+    .workname { font: 500 10.5px/1.25 system-ui; color: var(--tx2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .achips { display: flex; gap: 4px; overflow: hidden; height: 21px; }
+    .achip { font: 500 10px/1 system-ui; color: var(--tx2); background: var(--panel2); border: 1px solid var(--line); border-radius: 999px; padding: 4px 8px; white-space: nowrap; }
+
+    /* THE WIDE ROW — the layout the app already ships (views/AuthorsView.vue),
+       kept value for value. What is gone is the "All N" expander: seeing
+       everything is what the library is for, so the row hands you off there
+       with the filter already applied. */
+    .rowlist { display: flex; flex-direction: column; gap: 12px; }
+    .rcard { display: flex; gap: 20px; padding: 16px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); align-items: stretch; }
+    .identity { flex: 0 1 300px; min-width: 190px; display: flex; flex-direction: column; }
+    .ravatar { width: 56px; height: 56px; flex: none; border-radius: 50%; background: linear-gradient(135deg, #4a4f5e, #24262e); display: flex; align-items: center; justify-content: center; font: 600 17px/1 system-ui; color: #cfd3dc; }
+    .rname { font: 600 16px/1.15 system-ui; color: var(--tx); cursor: pointer; }
+    .rname:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+    .rrole { margin-top: 5px; font: 500 8.5px/1 ui-monospace, monospace; letter-spacing: .1em; color: var(--tx3); border: 1px solid var(--line); padding: 3px 6px; border-radius: 4px; display: inline-block; }
+    .atags { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .tlabel { font: 700 8.5px/1 ui-monospace, monospace; letter-spacing: .1em; color: var(--tx3); margin-right: 2px; }
+    .atag { font: 500 10.5px/1 system-ui; color: var(--tx2); background: var(--panel2); border: 1px solid var(--line); padding: 4px 8px; border-radius: 5px; cursor: pointer; }
+    .atag:hover { border-color: var(--accent); color: var(--accent); }
+    .afoot { margin-top: auto; display: flex; align-items: center; gap: 12px; padding-top: 12px; }
+    .acount { font: 500 11px/1 ui-monospace, monospace; letter-spacing: .05em; color: var(--tx3); }
+    .rworks { flex: 1; min-width: 0; }
+    .wrow { display: flex; gap: 12px; overflow: hidden; padding: 4px; margin: -4px; }
+    .wrow .rwork { flex: none; width: 106px; }
+    .rwork { position: relative; aspect-ratio: 2/3; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 5px 14px rgba(0,0,0,.4); cursor: pointer; }
+    .wmono { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 600 30px/1 Georgia, serif; color: rgba(242,237,230,.15); }
+    .wtitle { position: absolute; left: 0; right: 0; bottom: 0; padding: 20px 8px 8px; background: linear-gradient(transparent, rgba(9,10,13,.88)); font: 600 11px/1.2 system-ui; color: #f2ede6; }
+    .lfoot { flex: none; height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-top: 1px solid var(--line); background: var(--bg2); }
+    .lfinfo { font-size: 11px; color: var(--tx3); }
+    .mono { font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; }
+    .pgbtn { width: 26px; height: 26px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--tx2); cursor: pointer; font: 600 14px/1 system-ui; display: inline-flex; align-items: center; justify-content: center; }
+    .pgbtn:hover { border-color: var(--accent); color: var(--accent); }
+    .pgin { width: 44px; height: 26px; text-align: center; font: 500 12px/24px ui-monospace, monospace; color: var(--tx); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+    .pgof { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); }
+
+    /* THE AXES BLOCK — the same block grammar the filters use, so choosing
+       what you browse by is learned once and works in both places. */
+    .pop { position: absolute; right: 16px; top: 50px; width: 380px; max-height: 620px; z-index: 20;
+           background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
+           box-shadow: 0 22px 50px rgba(0,0,0,.6); display: flex; flex-direction: column; overflow: hidden; }
+    .ptop { height: 44px; flex: none; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; padding: 0 10px 0 16px; }
+    .plbl { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx2); }
+    .phint { font: 400 11px/1 system-ui; color: var(--tx3); white-space: nowrap; }
+    .chev { flex: none; color: var(--tx3); }
+    .grab { flex: none; height: 7px; cursor: row-resize; display: flex; align-items: center; justify-content: center; }
+    .grab i { display: block; width: 46px; height: 3px; border-radius: 999px; background: var(--line); }
+    .grab:hover i { background: var(--tx3); }
+    .psearch { flex: none; padding: 12px 16px 10px; }
+    .psearchin { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 11px; background: var(--panel); border: 1px solid color-mix(in srgb, var(--tx3) 38%, var(--line)); border-radius: 8px; color: var(--tx3); font: 400 12px/1 system-ui; }
+    .active { flex: none; max-height: 72px; overflow-y: auto; padding: 6px 16px 10px; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px; }
+    .chip { display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 6px 0 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); font: 500 11.5px/1 system-ui; color: var(--tx); white-space: nowrap; max-width: 100%; }
+    .chip .ck { font: 700 8px/1 ui-monospace, monospace; letter-spacing: .1em; color: var(--tx3); flex: none; }
+    .chip .cv { overflow: hidden; text-overflow: ellipsis; }
+    .chip .x { width: 15px; height: 15px; flex: none; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: var(--tx3); cursor: pointer; }
+    .chip .x:hover { background: var(--hover); color: var(--tx); }
+    .btn.ghost { background: transparent; color: var(--tx2); }
+    .btn.sm { height: 26px; padding: 0 10px; font: 600 11.5px/1 system-ui; }
+    .valhead { flex: none; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 16px; background: var(--panel); }
+    .valname { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx2); }
+    .vallist { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 10px 10px; display: flex; flex-direction: column; gap: 1px; background: var(--panel); }
+    .frow { flex: none; display: flex; align-items: center; gap: 9px; padding: 6px; border-radius: 6px; cursor: pointer; color: var(--tx2); }
+    .frow:hover { background: var(--hover); color: var(--tx); }
+    .frow.in { color: var(--tx); }
+    .fbox { width: 14px; height: 14px; flex: none; border: 1.5px solid var(--line); border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; }
+    .frow.in .fbox { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+    .fname { flex: 1; min-width: 0; font: 500 12px/1.3 system-ui; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fcount { font-size: 10px; color: var(--tx3); flex: none; }
+    .seclbl { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px 0 12px; margin: 0 6px; border-radius: 6px; font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); flex: none; }
+    .yourslist { flex: none; padding: 2px 10px 8px; display: flex; flex-direction: column; gap: 1px; }
+    .urow { display: flex; align-items: center; gap: 9px; padding: 5px 6px; border-radius: 6px; color: var(--tx2); }
+    .urow:hover { background: var(--hover); }
+    .uname { flex: 1; min-width: 0; font: 500 12px/1.3 system-ui; }
+    .seg.text .opt { width: auto; padding: 0 8px; font: 500 11px/1 system-ui; }
+    .seg.sm { height: 24px; padding: 2px; }
+    .starrow { display: flex; align-items: center; gap: 2px; }
+    .starbtn { width: 20px; height: 20px; border: none; background: transparent; padding: 0; cursor: pointer; color: var(--tx3); display: inline-flex; align-items: center; justify-content: center; }
+    .starbtn:hover, .starbtn.on { color: var(--fav); }
+    .fbox.in { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+    .frow.out { color: var(--tx3); }
+    .frow.out .fname { text-decoration: line-through; }
+    .frow.out .fbox { background: var(--adult); border-color: var(--adult); color: #fff; }
+    .chip.out { border-color: color-mix(in srgb, var(--adult) 55%, var(--line)); color: var(--tx2); }
+    .chip.out .cv { text-decoration: line-through; }
+    .custtag { font: 700 7.5px/1 ui-monospace, monospace; letter-spacing: .1em; color: var(--accent); background: var(--accentSoft); padding: 3px 5px; border-radius: 4px; flex: none; }
+    .rangebar { height: 4px; border-radius: 999px; background: var(--panel2); position: relative; margin: 18px 12px 8px; }
+    .rangefill { position: absolute; height: 100%; border-radius: 999px; background: var(--accent); left: 20%; right: 21%; }
+    .rangeknob { position: absolute; top: -5px; width: 14px; height: 14px; border-radius: 50%; background: var(--panel); border: 1.5px solid var(--accent); }
+    .rangenums { display: flex; justify-content: space-between; font: 500 10px/1 ui-monospace, monospace; color: var(--tx3); padding: 0 12px; }
+    .fieldlist { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 10px 10px; display: flex; flex-direction: column; gap: 1px; }
+    .fieldrow { flex: none; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 6px; cursor: pointer; font: 500 12.5px/1 system-ui; color: var(--tx2); }
+    .fieldrow:hover { background: var(--hover); color: var(--tx); }
+    .fieldrow.on { background: var(--accentSoft); color: var(--accent); }
+    .flabel { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .eye { width: 22px; height: 22px; flex: none; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; color: var(--tx3); opacity: .55; }
+    .eye:hover { background: var(--panel); color: var(--tx); opacity: 1; }
+    .hidrow { flex: none; display: flex; align-items: center; gap: 8px; height: 27px; padding: 0 8px; border-radius: 6px; cursor: pointer; font: 500 12px/1 system-ui; color: var(--tx3); }
+    .hidrow:hover { background: var(--hover); color: var(--tx2); }
+    .hidlbl { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; }
+    .custtag { font: 700 7.5px/1 ui-monospace, monospace; letter-spacing: .1em; color: var(--accent); background: var(--accentSoft); padding: 3px 5px; border-radius: 4px; flex: none; }
+    .deadtag { font: 700 7.5px/1 ui-monospace, monospace; letter-spacing: .1em; color: var(--tx3); background: var(--panel); padding: 3px 5px; border-radius: 4px; flex: none; }
+  </style>
+</helmet>
+
+<div class="app">
+  <div class="tabbar">
+    <div class="brand">
+      <svg width="24" height="24" viewBox="0 0 72 72" aria-hidden="true"><defs><linearGradient id="lbgB" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8194f4"></stop><stop offset="1" stop-color="#3e4eb2"></stop></linearGradient></defs><rect width="72" height="72" rx="17" fill="url(#lbgB)"></rect><path d="M27 19h9v25h13v9H27z" fill="#fff"></path></svg>
+      <span class="name">longbox</span>
+    </div>
+    <div style="display: flex; align-items: flex-end; gap: 4px; height: 100%; padding-top: 5px">
+      <div class="tab on"><span class="swatch" style="background: #2f3a5e"></span><span>Vinland Saga</span></div>
+    </div>
+  </div>
+
+  <div class="approw">
+    <aside class="side">
+      <nav class="nav">
+        <button class="navitem"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 5h16M4 12h16M4 19h16"></path></svg>Library</button>
+        <button class="navitem"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"></circle><path d="M3.5 12h17M12 3.5c4 5 4 12 0 17-4-5-4-12 0-17z"></path></svg>Browse</button>
+        <button class="navitem"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16v12H4z"></path><path d="M4 10h16"></path></svg>Sources</button>
+        <button class="navitem"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3.2"></circle><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8"></path></svg>Settings</button>
+      </nav>
+
+      <div class="navlbl">SHELVES</div>
+      <div class="navsec">
+        <button class="typerow"><span style="width: 5px; height: 5px; border-radius: 50%; background: transparent; flex: none"></span><span>All titles</span><span class="n">649</span></button>
+        <button class="typerow"><span style="width: 5px; height: 5px; border-radius: 50%; background: transparent; flex: none"></span><span>Manga</span><span class="n">181</span></button>
+        <button class="typerow"><span style="width: 5px; height: 5px; border-radius: 50%; background: transparent; flex: none"></span><span>Anime</span><span class="n">34</span></button>
+      </div>
+
+      <!-- The axes are not a fixed trio: every LIST field in the registry can
+           be one, and which of them appear here is the user's choice. -->
+      <div class="navlbl">BROWSE BY</div>
+      <div class="navsec">
+        <sc-for list="{{axes}}" as="a" hint-placeholder-count="4">
+          <button class="typerow {{a.cls}}" onClick="{{a.pick}}">
+            <span style="width: 5px; height: 5px; border-radius: 50%; flex: none; background: {{a.dot}}"></span>
+            <span>{{a.label}}</span><span class="n">{{a.n}}</span>
+          </button>
+        </sc-for>
+      </div>
+    </aside>
+
+    <div class="main">
+      <div class="head">
+        <h1 class="h1">{{axisName}}</h1>
+        <span class="count">{{axisCount}}</span>
+        <div style="flex: 1"></div>
+        <div class="fsearch">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"></circle><path d="M16 16l4.5 4.5"></path></svg>
+          <span>Search {{axisLower}}…</span>
+        </div>
+        <button class="sortbtn" title="Sort">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 5v14M7 19l-3-3M17 19V5M17 5l3 3"></path></svg>
+          {{sortLabel}}
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 9l6 6 6-6"></path></svg>
+        </button>
+        <div class="seg">
+          <sc-for list="{{modes}}" as="m" hint-placeholder-count="2">
+            <button class="opt {{m.cls}}" onClick="{{m.pick}}" title="{{m.title}}">
+              <sc-if value="{{m.isCards}}" hint-placeholder-val="{{true}}">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><rect x="4" y="4" width="7" height="7" rx="1.5"></rect><rect x="13" y="4" width="7" height="7" rx="1.5"></rect><rect x="4" y="13" width="7" height="7" rx="1.5"></rect><rect x="13" y="13" width="7" height="7" rx="1.5"></rect></svg>
+              </sc-if>
+              <sc-if value="{{m.isRows}}" hint-placeholder-val="{{false}}">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><rect x="4" y="6" width="16" height="5" rx="1.5"></rect><rect x="4" y="14" width="16" height="5" rx="1.5"></rect></svg>
+              </sc-if>
+            </button>
+          </sc-for>
+        </div>
+        <button class="btn {{axCls}}" onClick="{{toggleAx}}">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h5v5H4zM15 6h5v5h-5zM4 15h5v5H4zM15 15h5v5h-5z"></path></svg>
+          Axes
+          <span class="pickdot">{{axisCountShown}}</span>
+        </button>
+        <button class="btn {{filtCls}}" onClick="{{toggleFilt}}">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16l-6 7v5l-4 2v-7z"></path></svg>
+          Filters
+          <sc-if value="{{hasFilters}}" hint-placeholder-val="{{true}}">
+            <span class="pickdot">{{filterCount}}</span>
+          </sc-if>
+        </button>
+      </div>
+
+      <div class="amain">
+        <sc-if value="{{cardsMode}}" hint-placeholder-val="{{true}}">
+        <div class="agrid" style="grid-template-columns: repeat(3, minmax(0, 1fr))">
+          <sc-for list="{{cards}}" as="c" hint-placeholder-count="6">
+            <div class="acard">
+              <div class="arow">
+                <span class="avatar" style="background: {{c.bg}}">{{c.letter}}</span>
+                <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px">
+                  <span class="aname" title="Open the library filtered by this">{{c.name}}</span>
+                  <span class="ameta">{{c.meta}}</span>
+                </span>
+                <span class="star {{c.favCls}}" onClick="{{c.fav}}">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="{{c.fill}}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 4l2.5 5.2 5.5.8-4 3.9 1 5.6-5-2.7-5 2.7 1-5.6-4-3.9 5.5-.8z"></path></svg>
+                </span>
+              </div>
+              <!-- Three works at a size you can read, each named. A strip of
+                   five thumbnails is decoration; this is the actual reason to
+                   pick one studio over another. -->
+              <div class="works">
+                <sc-for list="{{c.works}}" as="w" hint-placeholder-count="3">
+                  <span class="work">
+                    <span class="workcover" style="background: {{w.bg}}"><span class="worklet">{{w.letter}}</span></span>
+                    <span class="workname">{{w.title}}</span>
+                  </span>
+                </sc-for>
+              </div>
+              <div class="achips">
+                <sc-for list="{{c.tags}}" as="t" hint-placeholder-count="3">
+                  <span class="achip">{{t.v}}</span>
+                </sc-for>
+                <sc-if value="{{c.more}}" hint-placeholder-val="{{true}}">
+                  <span class="achip" style="color: var(--tx3)">+{{c.moreCount}} more</span>
+                </sc-if>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+        </sc-if>
+
+        <sc-if value="{{rowsMode}}" hint-placeholder-val="{{false}}">
+          <div class="rowlist">
+            <sc-for list="{{cards}}" as="c" hint-placeholder-count="3">
+              <div class="rcard">
+                <div class="identity">
+                  <div style="display: flex; align-items: center; gap: 13px">
+                    <span class="ravatar">{{c.letter}}</span>
+                    <div style="min-width: 0">
+                      <div class="rname" title="Open the library filtered by this">{{c.name}}</div>
+                      <div class="rrole">{{c.role}}</div>
+                    </div>
+                  </div>
+                  <div class="atags">
+                    <span class="tlabel">TOP TAGS</span>
+                    <sc-for list="{{c.tags}}" as="t" hint-placeholder-count="3">
+                      <span class="atag">{{t.v}}</span>
+                    </sc-for>
+                  </div>
+                  <div class="afoot">
+                    <span class="star {{c.favCls}}" onClick="{{c.fav}}">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="{{c.fill}}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 4l2.5 5.2 5.5.8-4 3.9 1 5.6-5-2.7-5 2.7 1-5.6-4-3.9 5.5-.8z"></path></svg>
+                    </span>
+                    <span class="acount">{{c.countLine}}</span>
+                  </div>
+                </div>
+                <div class="rworks">
+                  <div class="wrow">
+                    <sc-for list="{{c.strip}}" as="w" hint-placeholder-count="5">
+                      <div class="rwork" style="background: {{w.bg}}">
+                        <span class="wmono">{{w.letter}}</span>
+                        <div class="wtitle">{{w.title}}</div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+
+      <div class="lfoot">
+        <span class="lfinfo mono">{{rangeLabel}}</span>
+        <div style="flex: 1"></div>
+        <button class="pgbtn">&lsaquo;</button>
+        <span class="pgin">1</span>
+        <span class="pgof">/ {{pages}}</span>
+        <button class="pgbtn">&rsaquo;</button>
+      </div>
+
+      <sc-if value="{{filtOpen}}" hint-placeholder-val="{{true}}">
+        <div class="pop">
+          <div class="ptop">
+            <span class="plbl">FILTERS</span>
+            <div style="flex: 1"></div>
+            <span class="phint">{{summary}}</span>
+            <button class="iconbtn" onClick="{{toggleFilt}}">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+            </button>
+          </div>
+
+          <!-- ONE search. It narrows the field list and the value list at once,
+               so there is never a second box wondering which one you meant. -->
+          <div class="psearch">
+            <div class="psearchin">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"></circle><path d="M16 16l4.5 4.5"></path></svg>
+              <span>Find a field or a value…</span>
+            </div>
+          </div>
+
+          <div class="seclbl" onClick="{{toggleActive}}">
+            <svg class="chev" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="transform: rotate({{activeRot}})"><path d="M6 9l6 6 6-6"></path></svg>
+            <span>ACTIVE · {{filterCount}}</span>
+            <div style="flex: 1"></div>
+            <button class="btn ghost sm" onClick="{{clearAll}}">Clear</button>
+          </div>
+          <sc-if value="{{activeOpen}}" hint-placeholder-val="{{true}}">
+            <div class="active" style="height: {{hActive}}">
+              <sc-for list="{{chips}}" as="c" hint-placeholder-count="4">
+                <span class="chip {{c.cls}}">
+                  <span class="ck">{{c.field}}</span>
+                  <span class="cv">{{c.value}}</span>
+                  <span class="x" onClick="{{c.drop}}">
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                  </span>
+                </span>
+              </sc-for>
+            </div>
+          </sc-if>
+          <sc-if value="{{activeOpen}}" hint-placeholder-val="{{true}}">
+            <div class="grab" onPointerDown="{{dragActive}}" title="Drag to resize"><i></i></div>
+          </sc-if>
+
+          <div class="seclbl" onClick="{{toggleYours}}">
+            <svg class="chev" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="transform: rotate({{yoursRot}})"><path d="M6 9l6 6 6-6"></path></svg>
+            <span>YOURS</span>
+            <div style="flex: 1"></div>
+            <span class="phint">{{yoursHint}}</span>
+          </div>
+          <sc-if value="{{yoursOpen}}" hint-placeholder-val="{{true}}">
+            <div class="yourslist">
+              <div class="urow" onClick="{{toggleFav}}" style="cursor: pointer">
+                <span class="fbox {{favBoxCls}}">
+                  <sc-if value="{{favOn}}" hint-placeholder-val="{{false}}">
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"></path></svg>
+                  </sc-if>
+                </span>
+                <span class="uname">Only favourites</span>
+              </div>
+              <div class="urow">
+                <span class="uname">Reading</span>
+                <div class="seg text sm">
+                  <sc-for list="{{progress}}" as="g" hint-placeholder-count="4">
+                    <button class="opt {{g.cls}}" onClick="{{g.pick}}">{{g.label}}</button>
+                  </sc-for>
+                </div>
+              </div>
+              <div class="urow">
+                <span class="uname">Rating</span>
+                <span class="starrow">
+                  <sc-for list="{{stars}}" as="st" hint-placeholder-count="5">
+                    <button class="starbtn {{st.cls}}" onClick="{{st.pick}}" title="{{st.title}}">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="{{st.fill}}" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M12 4l2.5 5.2 5.5.8-4 3.9 1 5.6-5-2.7-5 2.7 1-5.6-4-3.9 5.5-.8z"></path></svg>
+                    </button>
+                  </sc-for>
+                </span>
+                <span class="fcount">{{ratingLabel}}</span>
+              </div>
+            </div>
+          </sc-if>
+
+          <div class="seclbl" onClick="{{toggleFields}}">
+            <svg class="chev" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="transform: rotate({{fieldsRot}})"><path d="M6 9l6 6 6-6"></path></svg>
+            <span>FIELDS</span>
+            <div style="flex: 1"></div>
+            <span style="font: 400 10px/1 system-ui; letter-spacing: 0; text-transform: none">the eye hides one</span>
+          </div>
+          <sc-if value="{{fieldsOpen}}" hint-placeholder-val="{{true}}">
+            <div class="fieldlist" style="height: {{hFields}}">
+              <sc-for list="{{fields}}" as="f" hint-placeholder-count="7">
+                <div class="fieldrow {{f.cls}}" onClick="{{f.pick}}">
+                  <span class="flabel">{{f.label}}</span>
+                  <sc-if value="{{f.custom}}" hint-placeholder-val="{{true}}">
+                    <span class="custtag">CUSTOM</span>
+                  </sc-if>
+                  <sc-if value="{{f.hasPicked}}" hint-placeholder-val="{{false}}">
+                    <span class="pickdot">{{f.picked}}</span>
+                  </sc-if>
+                  <span class="eye" onClick="{{f.hide}}" title="Hide this filter">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M3 3l18 18"></path><path d="M10.6 6.3A9.6 9.6 0 0112 6.2c5 0 8.5 5.8 8.5 5.8a17 17 0 01-2.9 3.6M6.4 8.2A17 17 0 003.5 12s3.5 5.8 8.5 5.8c1 0 2-.2 2.8-.5"></path></svg>
+                  </span>
+                </div>
+              </sc-for>
+              <sc-if value="{{anyHidden}}" hint-placeholder-val="{{true}}">
+                <div class="hidrow" onClick="{{toggleHidden}}">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="flex: none; transform: rotate({{hiddenRot}})"><path d="M6 9l6 6 6-6"></path></svg>
+                  <span class="hidlbl">HIDDEN · {{hiddenCount}}</span>
+                </div>
+              </sc-if>
+              <sc-if value="{{showHidden}}" hint-placeholder-val="{{true}}">
+                <sc-for list="{{hidden}}" as="h" hint-placeholder-count="3">
+                  <div class="hidrow" style="padding-left: 22px" onClick="{{h.show}}">
+                    <span class="flabel">{{h.label}}</span>
+                    <span style="font: 500 10px/1 ui-monospace, monospace; flex: none">show</span>
+                  </div>
+                </sc-for>
+              </sc-if>
+            </div>
+          </sc-if>
+          <sc-if value="{{fieldsOpen}}" hint-placeholder-val="{{true}}">
+            <div class="grab" onPointerDown="{{dragFields}}" title="Drag to resize"><i></i></div>
+          </sc-if>
+
+          <div class="seclbl" onClick="{{toggleValues}}" style="border-top: 1px solid var(--line); margin: 0; border-radius: 0; padding-left: 16px; height: 32px">
+            <svg class="chev" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="transform: rotate({{valuesRot}})"><path d="M6 9l6 6 6-6"></path></svg>
+            <span class="valname">{{activeLabel}}</span>
+            <div style="flex: 1"></div>
+            <span class="phint">{{activeHint}}</span>
+          </div>
+          <sc-if value="{{valuesOpen}}" hint-placeholder-val="{{true}}">
+            <div class="vallist">
+              <sc-if value="{{activeRange}}" hint-placeholder-val="{{false}}">
+                <div>
+                  <div class="rangebar"><span class="rangefill"></span><span class="rangeknob" style="left: 18%"></span><span class="rangeknob" style="left: 76%"></span></div>
+                  <div class="rangenums"><span>6.2</span><span>9.4</span></div>
+                </div>
+              </sc-if>
+              <sc-for list="{{values}}" as="r" hint-placeholder-count="8">
+                <div class="frow {{r.state}}" onClick="{{r.click}}">
+                  <span class="fbox">
+                    <sc-if value="{{r.inc}}" hint-placeholder-val="{{true}}">
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"></path></svg>
+                    </sc-if>
+                    <sc-if value="{{r.exc}}" hint-placeholder-val="{{false}}">
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+                    </sc-if>
+                  </span>
+                  <span class="fname">{{r.v}}</span>
+                  <span class="fcount">{{r.n}}</span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{axOpen}}" hint-placeholder-val="{{true}}">
+        <div class="pop">
+          <div class="ptop">
+            <span class="plbl">BROWSE BY</span>
+            <div style="flex: 1"></div>
+            <span class="phint">{{axSummary}}</span>
+            <button class="iconbtn" onClick="{{toggleAx}}">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+            </button>
+          </div>
+
+          <div class="seclbl">
+            <span>FIELDS</span>
+            <div style="flex: 1"></div>
+            <span style="font: 400 10px/1 system-ui; letter-spacing: 0; text-transform: none">the eye hides one</span>
+          </div>
+
+          <div class="fieldlist">
+            <sc-for list="{{allAxes}}" as="f" hint-placeholder-count="6">
+              <div class="fieldrow {{f.cls}}" onClick="{{f.pick}}">
+                <span class="flabel">{{f.label}}</span>
+                <sc-if value="{{f.custom}}" hint-placeholder-val="{{true}}">
+                  <span class="custtag">CUSTOM</span>
+                </sc-if>
+                <span style="font: 500 10px/1 ui-monospace, monospace; color: var(--tx3); flex: none">{{f.n}}</span>
+                <span class="eye" onClick="{{f.hide}}" title="Hide this axis">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M3 3l18 18"></path><path d="M10.6 6.3A9.6 9.6 0 0112 6.2c5 0 8.5 5.8 8.5 5.8a17 17 0 01-2.9 3.6M6.4 8.2A17 17 0 003.5 12s3.5 5.8 8.5 5.8c1 0 2-.2 2.8-.5"></path></svg>
+                </span>
+              </div>
+            </sc-for>
+
+            <sc-if value="{{axAnyHidden}}" hint-placeholder-val="{{true}}">
+              <div class="hidrow" onClick="{{axToggleHidden}}">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="flex: none; transform: rotate({{axHiddenRot}})"><path d="M6 9l6 6 6-6"></path></svg>
+                <span class="hidlbl">HIDDEN · {{axHiddenCount}}</span>
+              </div>
+            </sc-if>
+            <sc-if value="{{axShowHidden}}" hint-placeholder-val="{{true}}">
+              <sc-for list="{{axHidden}}" as="h" hint-placeholder-count="3">
+                <div class="hidrow" style="padding-left: 22px" onClick="{{h.show}}">
+                  <span class="flabel">{{h.label}}</span>
+                  <sc-if value="{{h.dead}}" hint-placeholder-val="{{false}}">
+                    <span class="deadtag">EMPTY</span>
+                  </sc-if>
+                  <span style="font: 500 10px/1 ui-monospace, monospace; flex: none">show</span>
+                </div>
+              </sc-for>
+            </sc-if>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      axis: 'studio',
+      mode: 'cards',
+      axOpen: false,
+      filtOpen: true,
+      sel: { 'Action': 'in' },
+      field: 'genres',
+      open: { active: true, yours: false, fields: true, values: true },
+      h: { active: 72, fields: 120 },
+      progress: 'all', favOnly: false, minRating: 0,
+      fhidden: {},
+      hiddenOpen: false,
+      hidden: { language: true, flags: true },
+      favs: { 'Kyoto Animation': true },
+    };
+  }
+
+  // Each group keeps its own height; the rule between them is the handle.
+  startDrag(key, e) {
+    const startY = e.clientY;
+    const startH = this.state.h[key];
+    const self = this;
+    const move = (ev) => {
+      const next = Math.max(36, Math.min(320, startH + (ev.clientY - startY)));
+      const h = Object.assign({}, self.state.h);
+      h[key] = next;
+      self.setState({ h: h });
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+
+  toggleGroup(key) {
+    const open = Object.assign({}, this.state.open);
+    open[key] = !open[key];
+    this.setState({ open: open });
+  }
+
+  // A value has three states, not two: include, exclude, off.
+  cycle(v) {
+    const cur = this.state.sel[v];
+    const next = cur === 'in' ? 'out' : cur === 'out' ? undefined : 'in';
+    const sel = Object.assign({}, this.state.sel);
+    if (next) sel[v] = next; else delete sel[v];
+    this.setState({ sel: sel });
+  }
+
+  renderVals() {
+    const self = this;
+    // Every LIST field in the registry is a candidate axis — including the
+    // ones the user defined. A number or a date is not offered at all.
+    const AXES = [
+      { id: 'people', label: 'People', n: 312, noun: 'people',
+        rows: [
+          ['Kentaro Miura', 'AUTHOR · ARTIST', 3, ['Dark fantasy', 'Seinen']],
+          ['Makoto Yukimura', 'AUTHOR', 2, ['Historical', 'Seinen']],
+          ['Q Hayashida', 'AUTHOR · ARTIST', 2, ['Comedy', 'Horror']],
+          ['Naoki Urasawa', 'AUTHOR', 4, ['Thriller', 'Drama']],
+          ['Takehiko Inoue', 'ARTIST', 2, ['Historical']],
+          ['Inio Asano', 'AUTHOR', 3, ['Slice of life']],
+          ['Tatsuki Fujimoto', 'AUTHOR', 2, ['Action']],
+          ['Bai Ye', 'AUTHOR', 5, ['Cultivation']],
+        ] },
+      { id: 'studio', label: 'Studios', n: 18, noun: 'studios',
+        rows: [
+          ['Kyoto Animation', 'STUDIO', 12, ['Slice of life', 'Drama']],
+          ['MAPPA', 'STUDIO', 9, ['Action', 'Seinen']],
+          ['Bones', 'STUDIO', 7, ['Action']],
+          ['Madhouse', 'STUDIO', 6, ['Thriller', 'Drama']],
+          ['Wit Studio', 'STUDIO', 5, ['Historical']],
+          ['Ufotable', 'STUDIO', 4, ['Action']],
+          ['Production I.G', 'STUDIO', 4, ['Sci-fi']],
+          ['Trigger', 'STUDIO', 3, ['Comedy']],
+        ] },
+      { id: 'characters', label: 'Characters', n: 96, noun: 'characters',
+        rows: [
+          ['Guts', 'CHARACTER', 4, ['Berserk']],
+          ['Griffith', 'CHARACTER', 2, ['Berserk']],
+          ['Thorfinn', 'CHARACTER', 2, ['Vinland Saga']],
+          ['Frieren', 'CHARACTER', 1, ['Frieren']],
+        ] },
+      { id: 'shelfx', label: 'Shelf', n: 4, noun: 'shelves', custom: true,
+        rows: [
+          ['reread', 'SHELF', 31, ['custom field']],
+          ['to finish', 'SHELF', 12, ['custom field']],
+          ['physical', 'SHELF', 8, ['custom field']],
+          ['lent out', 'SHELF', 2, ['custom field']],
+        ] },
+      { id: 'genres', label: 'Genres', n: 41, noun: 'genres',
+        rows: [
+          ['Action', 'GENRE', 128, ['Seinen', 'Shonen']],
+          ['Drama', 'GENRE', 74, ['Seinen']],
+          ['Slice of life', 'GENRE', 39, ['Comedy']],
+        ] },
+      { id: 'language', label: 'Language', n: 4, noun: 'languages',
+        rows: [['EN', 'LANGUAGE', 601, []], ['UA', 'LANGUAGE', 22, []]] },
+      { id: 'flags', label: 'Flags', n: 3, noun: 'flags', dead: true,
+        rows: [['18+', 'FLAG', 286, []]] },
+    ];
+
+    const visible = AXES.filter((a) => !self.state.hidden[a.id]);
+    const hidden = AXES.filter((a) => self.state.hidden[a.id]);
+    const axis = visible.find((a) => a.id === self.state.axis) || visible[0] || AXES[0];
+    const rows = axis.rows || [];
+    // What each value is actually known for — the three the card shows.
+    const WORKS = {
+      'Kyoto Animation': ['Violet Evergarden', 'A Silent Voice', 'Hyouka'],
+      'MAPPA': ['Vinland Saga', 'Chainsaw Man', 'Dorohedoro'],
+      'Bones': ['Mob Psycho 100', 'Fullmetal Alchemist', 'Carole & Tuesday'],
+      'Madhouse': ['Monster', 'Hunter x Hunter', 'Death Note'],
+      'Wit Studio': ['Vinland Saga', 'Ranking of Kings', 'Great Pretender'],
+      'Ufotable': ['Demon Slayer', 'Fate/Zero', 'Katsugeki'],
+      'Production I.G': ['Ghost in the Shell', 'Psycho-Pass', 'Haikyuu'],
+      'Trigger': ['Kill la Kill', 'Promare', 'Cyberpunk'],
+      'Kentaro Miura': ['Berserk', 'Duranki', 'Gigantomakhia'],
+      'Makoto Yukimura': ['Vinland Saga', 'Planetes'],
+      'Q Hayashida': ['Dorohedoro', 'Dai Dark'],
+      'Naoki Urasawa': ['Monster', '20th Century Boys', 'Pluto'],
+      'Takehiko Inoue': ['Vagabond', 'Slam Dunk'],
+      'Inio Asano': ['Oyasumi Punpun', 'Solanin', 'Dead Dead Demons'],
+      'Tatsuki Fujimoto': ['Chainsaw Man', 'Fire Punch'],
+      'Bai Ye': ['Solo Ascension', 'Immortal Ledger', 'Nine Heavens'],
+      'Guts': ['Berserk', 'Berserk: Prototype'],
+      'Griffith': ['Berserk'],
+      'Thorfinn': ['Vinland Saga'],
+      'Frieren': ['Frieren'],
+      'reread': ['Berserk', 'Monster', 'Vagabond'],
+      'to finish': ['Blame!', 'Pluto', 'Kaiju No. 8'],
+      'physical': ['Vinland Saga', 'Vagabond'],
+      'lent out': ['Frieren', 'Pluto'],
+      'Action': ['Chainsaw Man', 'Kaiju No. 8', 'Dorohedoro'],
+      'Drama': ['Monster', 'Oyasumi Punpun', 'Pluto'],
+      'Slice of life': ['Hyouka', 'Frieren', 'Solanin'],
+      'EN': ['Vinland Saga', 'Berserk', 'Monster'],
+      'UA': ['Berserk', 'Frieren'],
+      '18+': ['—'],
+    };
+    // What a filter here can narrow BY. Same fields as the library; the
+    // difference is what it narrows: blocks and their contents, not works.
+    const FIELDS = [
+      { id: 'genres', label: 'Genres',
+        values: [['Action', 128], ['Drama', 74], ['Slice of life', 39], ['Historical', 22], ['Romance', 61], ['Seinen', 44]] },
+      { id: 'tags', label: 'Tags',
+        values: [['Netorare', 64], ['Big breasts', 51], ['Vanilla', 44]] },
+      { id: 'type', label: 'Type', values: [['manga', 181], ['anime', 34], ['manhwa', 96]] },
+      { id: 'status', label: 'Status', values: [['ongoing', 244], ['completed', 380]] },
+      { id: 'language', label: 'Language', values: [['EN', 601], ['UA', 22]] },
+    ];
+    const FIELD_OF = {};
+    FIELDS.forEach((f) => (f.values || []).forEach((r) => { FIELD_OF[r[0]] = f.id; }));
+    const picked = Object.keys(this.state.sel);
+    const fvisible = FIELDS.filter((f) => !self.state.fhidden[f.id]);
+    const fhidden = FIELDS.filter((f) => self.state.fhidden[f.id]);
+    const active = fvisible.find((f) => f.id === self.state.field) || fvisible[0] || FIELDS[0];
+    const countIn = (f) => (f.values || []).filter((r) => self.state.sel[r[0]]).length;
+
+    const BGS = ['#2f3a5e', '#4a3350', '#274a44', '#5a3a2c', '#33405c', '#4d2f3f', '#3a4a2f', '#503246'];
+
+    return {
+      axisName: axis.label,
+      axisLower: axis.noun,
+      axisCount: picked.length
+        ? rows.length + ' of ' + axis.n + ' \u00b7 filtered'
+        : rows.length + ' of ' + axis.n,
+      axisCountShown: String(visible.length),
+      rangeLabel: '1–' + rows.length + ' of ' + axis.n,
+      pages: String(Math.max(1, Math.ceil(axis.n / 24))),
+      sortLabel: 'Most titles',
+
+      axes: visible.map((a) => ({
+        label: a.label, n: String(a.n),
+        cls: a.id === axis.id ? 'on' : '',
+        dot: a.id === axis.id ? 'currentColor' : 'transparent',
+        pick: () => self.setState({ axis: a.id }),
+      })),
+
+      modes: [
+        { id: 'cards', title: 'Cards' },
+        { id: 'rows', title: 'Wide rows' },
+      ].map((m) => ({
+        cls: m.id === self.state.mode ? 'on' : '',
+        isCards: m.id === 'cards', isRows: m.id === 'rows',
+        title: m.title,
+        pick: () => self.setState({ mode: m.id }),
+      })),
+      cardsMode: this.state.mode === 'cards',
+      rowsMode: this.state.mode === 'rows',
+
+      filtOpen: this.state.filtOpen,
+      filtCls: this.state.filtOpen ? 'on' : '',
+      toggleFilt: () => self.setState({ filtOpen: !self.state.filtOpen, axOpen: false }),
+      yoursOpen: this.state.open.yours,
+      yoursRot: this.state.open.yours ? '0deg' : '-90deg',
+      toggleYours: () => self.toggleGroup('yours'),
+      yoursHint: (function () {
+        const bits = [];
+        if (self.state.progress !== 'all') bits.push(self.state.progress);
+        if (self.state.favOnly) bits.push('favourites');
+        if (self.state.minRating) bits.push(self.state.minRating + '+');
+        return bits.length ? bits.join(' \u00b7 ') : 'anything';
+      })(),
+      progress: [
+        { id: 'all', label: 'All' }, { id: 'unread', label: 'Unread' },
+        { id: 'reading', label: 'Reading' }, { id: 'done', label: 'Done' },
+      ].map((g) => ({
+        label: g.label,
+        cls: g.id === self.state.progress ? 'on' : '',
+        pick: () => self.setState({ progress: g.id }),
+      })),
+      favOn: this.state.favOnly,
+      favBoxCls: this.state.favOnly ? 'in' : '',
+      toggleFav: () => self.setState({ favOnly: !self.state.favOnly }),
+      stars: [1, 2, 3, 4, 5].map((n) => ({
+        cls: n <= self.state.minRating ? 'on' : '',
+        fill: n <= self.state.minRating ? 'currentColor' : 'none',
+        title: n + ' and up',
+        pick: () => self.setState({ minRating: self.state.minRating === n ? 0 : n }),
+      })),
+      ratingLabel: this.state.minRating ? this.state.minRating + ' and up' : 'any',
+
+      activeOpen: this.state.open.active,
+      fieldsOpen: this.state.open.fields,
+      valuesOpen: this.state.open.values,
+      activeRot: this.state.open.active ? '0deg' : '-90deg',
+      fieldsRot: this.state.open.fields ? '0deg' : '-90deg',
+      valuesRot: this.state.open.values ? '0deg' : '-90deg',
+      toggleActive: () => self.toggleGroup('active'),
+      toggleFields: () => self.toggleGroup('fields'),
+      toggleValues: () => self.toggleGroup('values'),
+      hActive: this.state.h.active + 'px',
+      hFields: this.state.h.fields + 'px',
+      dragActive: (e) => self.startDrag('active', e),
+      dragFields: (e) => self.startDrag('fields', e),
+      filtOpen: this.state.filtOpen,
+      filtCls: this.state.filtOpen ? 'on' : '',
+      toggleFilt: () => self.setState({ filtOpen: !self.state.filtOpen, axOpen: false }),
+      summary: visible.length + ' of ' + FIELDS.length + ' fields',
+
+      hasFilters: picked.length > 0,
+      filterCount: String(picked.length),
+      clearAll: () => self.setState({ sel: {} }),
+      chips: picked.map((v) => ({
+        value: v,
+        field: (FIELD_OF[v] || '').toUpperCase(),
+        cls: self.state.sel[v] === 'out' ? 'out' : '',
+        drop: () => {
+          const sel = Object.assign({}, self.state.sel);
+          delete sel[v];
+          self.setState({ sel: sel });
+        },
+      })),
+
+      fields: visible.map((f) => {
+        const n = countIn(f);
+        return {
+          label: f.label, custom: !!f.custom,
+          cls: f.id === active.id ? 'on' : '',
+          hasPicked: n > 0,
+          picked: String(n),
+          pick: () => self.setState({ field: f.id }),
+          hide: () => {
+            const h = Object.assign({}, self.state.hidden);
+            h[f.id] = true;
+            self.setState({ hidden: h });
+          },
+        };
+      }),
+
+      anyHidden: hidden.length > 0,
+      hiddenCount: String(hidden.length),
+      hiddenRot: this.state.hiddenOpen ? '0deg' : '-90deg',
+      showHidden: hidden.length > 0 && this.state.hiddenOpen,
+      toggleHidden: () => self.setState({ hiddenOpen: !self.state.hiddenOpen }),
+      hidden: hidden.map((f) => ({
+        label: f.label,
+        show: () => {
+          const h = Object.assign({}, self.state.hidden);
+          delete h[f.id];
+          self.setState({ hidden: h });
+        },
+      })),
+
+      activeLabel: active.label.toUpperCase(),
+      activeRange: !!active.isRange,
+      activeHint: active.isRange ? 'drag the ends' : (active.values || []).length + ' values',
+      values: (active.values || []).map((r) => ({
+        v: r[0], n: r[1],
+        state: self.state.sel[r[0]] || '',
+        inc: self.state.sel[r[0]] === 'in',
+        exc: self.state.sel[r[0]] === 'out',
+        click: () => self.cycle(r[0]),
+      })),
+
+      axOpen: this.state.axOpen,
+      axCls: this.state.axOpen ? 'on' : '',
+      toggleAx: () => self.setState({ axOpen: !self.state.axOpen, filtOpen: false }),
+      axSummary: visible.length + ' of ' + AXES.length + ' shown',
+
+      allAxes: visible.map((a) => ({
+        label: a.label, custom: !!a.custom, n: String(a.n),
+        cls: a.id === axis.id ? 'on' : '',
+        pick: () => self.setState({ axis: a.id }),
+        hide: () => {
+          const h = Object.assign({}, self.state.hidden);
+          h[a.id] = true;
+          self.setState({ hidden: h });
+        },
+      })),
+      axAnyHidden: hidden.length > 0,
+      axHiddenCount: String(hidden.length),
+      axHiddenRot: this.state.hiddenOpen ? '0deg' : '-90deg',
+      axShowHidden: hidden.length > 0 && this.state.hiddenOpen,
+      axToggleHidden: () => self.setState({ hiddenOpen: !self.state.hiddenOpen }),
+      axHidden: hidden.map((a) => ({
+        label: a.label, dead: !!a.dead,
+        show: () => {
+          const h = Object.assign({}, self.state.hidden);
+          delete h[a.id];
+          self.setState({ hidden: h });
+        },
+      })),
+
+      cards: rows.map((r, i) => ({
+        name: r[0],
+        meta: r[1] + ' · ' + r[2] + ' titles',
+        letter: r[0][0],
+        bg: BGS[i % BGS.length],
+        favCls: self.state.favs[r[0]] ? 'on' : '',
+        fill: self.state.favs[r[0]] ? 'currentColor' : 'none',
+        fav: () => {
+          const favs = Object.assign({}, self.state.favs);
+          if (favs[r[0]]) delete favs[r[0]]; else favs[r[0]] = true;
+          self.setState({ favs: favs });
+        },
+        works: (WORKS[r[0]] || ['—', '—', '—']).slice(0, 3).map((t, k) => ({
+          title: t, letter: t[0], bg: BGS[(i + k + 1) % BGS.length],
+        })),
+        role: r[1].split(' \u00b7 ')[0],
+        countLine: picked.length
+          ? r[2] + ' titles \u00b7 ' + Math.max(1, Math.round(r[2] / 2)) + ' match'
+          : r[2] + ' titles \u00b7 ' + (r[2] * 4) + ' ch.',
+        strip: (WORKS[r[0]] || ['\u2014']).concat(WORKS[r[0]] || []).slice(0, 6).map((t, k) => ({
+          title: t, letter: t[0], bg: BGS[(i + k + 1) % BGS.length],
+        })),
+        more: r[2] > 3,
+        moreCount: String(Math.max(0, r[2] - 3)),
+        tags: (r[3] || []).slice(0, 2).map((t) => ({ v: t })),
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>
