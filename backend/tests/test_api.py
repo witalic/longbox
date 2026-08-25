@@ -202,6 +202,22 @@ def _facet(f: dict, key: str) -> dict[str, int]:
     return {x["v"]: x["n"] for x in f[key]}
 
 
+def test_the_app_reports_its_own_version(client, monkeypatch, tmp_path):
+    """Settings shows what the app IS. A frozen sidecar keeps that file inside
+    its bundle, where the source layout's path lands in an empty temp directory
+    — which is how every packaged build came to report itself as 0.0.0."""
+    from app.routers import settings as mod
+
+    assert client.get("/api/settings").json()["app"]["version"] != "0.0.0"
+
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "app-meta.json").write_text('{"name": "longbox", "version": "9.9.9"}',
+                                          encoding="utf-8")
+    monkeypatch.setattr(mod.sys, "_MEIPASS", str(bundle), raising=False)
+    assert mod.app_meta()["version"] == "9.9.9"  # the bundle wins when frozen
+
+
 def test_facets_carry_counts(client):
     f = client.get("/api/library/facets").json()
     assert _facet(f, "type") == {"manga": 1, "manhwa": 1, "manhua": 1}

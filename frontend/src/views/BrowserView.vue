@@ -19,6 +19,7 @@ import {
   applyCapture, applyCoverCapture, applyCoverUrlAuto, draftState, isEditableField,
   mergeCapture, mergeSnapshot, noteCaptureSource, type EditableField, type Snapshot,
 } from '../draft'
+import { isBoolMap, readLocal, writeLocal } from '../local'
 import { pageCapture, pageFilter, pageKeyFor, stopCaptureFor, type PickField } from '../pagecapture'
 import { hostOf, matchTitles, type Candidate, type FieldRule, type Recipe } from '../data'
 import type { CleanFlags } from '../normalize'
@@ -265,6 +266,17 @@ const railSections = computed(() => {
   const restLabel = named.length ? 'UNGROUPED' : 'SOURCES'
   return rest.length ? [...named, { label: restLabel, rows: rest }] : named
 })
+
+// Which source groups are folded away. Remembered, because a rail is furniture:
+// it should look tomorrow the way you left it today. Absent means OPEN, so a new
+// group appears rather than hiding itself.
+const groupFolded = reactive<Record<string, boolean>>(
+  readLocal('lb.railGroups', isBoolMap, {} as Record<string, boolean>))
+watch(groupFolded, () => writeLocal('lb.railGroups', { ...groupFolded }), { deep: true })
+function setGroupOpen(label: string, open: boolean) {
+  if (open) delete groupFolded[label]
+  else groupFolded[label] = true
+}
 
 async function toggleBookmark() {
   const host = domain.value
@@ -884,7 +896,10 @@ function onReady(tabId: string) {
     </div>
 
     <Teleport v-if="store.view === 'browser'" to="#siderail">
-      <RailSection v-for="sec in railSections" :key="sec.label" :label="sec.label">
+      <RailSection v-for="sec in railSections" :key="sec.label" :label="sec.label" collapsible
+                   :hint="String(sec.rows.length)"
+                   :open="!groupFolded[sec.label]"
+                   @update:open="setGroupOpen(sec.label, $event)">
           <template v-for="src in sec.rows" :key="src.id">
             <button :class="{ on: src.domain === domain }"
                     :title="`${src.homepage}${src.hasRecipe ? ` · recipe v${src.recipeVer}` : ' · no recipe yet'}`"

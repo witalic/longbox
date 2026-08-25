@@ -50,7 +50,9 @@ a = Analysis(
     [str(ROOT / "backend" / "sidecar.py")],
     pathex=[str(ROOT / "backend")],
     binaries=[],
-    datas=[(str(DIST), "frontend_dist")],
+    # the built UI, and the app's identity — Settings reads the same file the
+    # shell and this spec do, so a packaged build knows its own version
+    datas=[(str(DIST), "frontend_dist"), (str(ROOT / "app-meta.json"), ".")],
     hiddenimports=hidden,
     hookspath=[],
     runtime_hooks=[],

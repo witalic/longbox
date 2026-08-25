@@ -2,6 +2,8 @@
 browser homepage, and index maintenance."""
 from __future__ import annotations
 
+import json
+import sys
 import threading
 from pathlib import Path
 
@@ -19,16 +21,28 @@ DEFAULT_HOMEPAGE = "https://www.google.com"
 
 
 
-# ONE source of app identity: <repo>/app-meta.json (name, version, updated).
-_META_PATH = Path(__file__).resolve().parents[3] / "app-meta.json"
+# ONE source of app identity: app-meta.json (name, version, updated).
+#
+# Two homes, because the sidecar has two shapes: a source checkout keeps it at
+# the repo root, and a FROZEN build carries it inside the bundle — where
+# `parents[3]` lands in a temp directory that holds nothing. Without the second
+# path every packaged build reported itself as 0.0.0.
+def _meta_paths() -> tuple[Path, ...]:
+    here = Path(__file__).resolve()
+    bundle = getattr(sys, "_MEIPASS", "")
+    return tuple(p / "app-meta.json" for p in (
+        *( (Path(bundle),) if bundle else () ),
+        here.parents[3],
+    ))
 
 
 def app_meta() -> dict:
-    try:
-        import json
-        return json.loads(_META_PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {"name": "longbox", "version": "0.0.0", "updated": "", "description": ""}
+    for path in _meta_paths():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+    return {"name": "longbox", "version": "0.0.0", "updated": "", "description": ""}
 
 
 class SettingsOut(BaseModel):

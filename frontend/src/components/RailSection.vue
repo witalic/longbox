@@ -3,22 +3,40 @@
 // what goes in it — it has the data and the state — while this widget owns the
 // grammar, so three views cannot drift into three different-looking rails.
 // Rows are plain <button>s in the slot; the styling below claims them.
-withDefaults(defineProps<{ label: string; hint?: string }>(), { hint: '' })
+//
+// A section can FOLD when the caller says so: a rail listing a dozen source
+// groups is a wall, and which of them you are working in changes by the hour.
+// The open state belongs to the caller (it is the thing worth remembering), so
+// it arrives as a model rather than living here.
+import Icon from './Icon.vue'
+
+const props = withDefaults(
+  defineProps<{ label: string; hint?: string; collapsible?: boolean }>(),
+  { hint: '', collapsible: false })
+const open = defineModel<boolean>('open', { default: true })
 </script>
 
 <template>
   <div class="railsec">
-    <div class="navlbl">
+    <component :is="props.collapsible ? 'button' : 'div'" class="navlbl"
+               :class="{ fold: props.collapsible }"
+               :title="props.collapsible ? (open ? `Hide ${label}` : `Show ${label}`) : undefined"
+               @click="props.collapsible && (open = !open)">
+      <Icon v-if="props.collapsible" name="chevron" :size="9" :sw="2.8" class="secchev"
+            :style="open ? '' : 'transform: rotate(-90deg)'" />
       <span>{{ label }}</span>
       <span v-if="hint" class="navhint">{{ hint }}</span>
-    </div>
-    <div class="navsec"><slot /></div>
+    </component>
+    <div v-show="open" class="navsec"><slot /></div>
   </div>
 </template>
 
 <style scoped>
 .railsec { display: block; }
 .navlbl { display: flex; align-items: center; gap: 6px; font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); padding: 14px 12px 6px; }
+.navlbl.fold { width: 100%; border: none; background: transparent; cursor: pointer; text-align: left; }
+.navlbl.fold:hover { color: var(--tx2); }
+.secchev { flex: none; transition: transform .12s ease; }
 .navhint { margin-left: auto; font: 400 10px/1 system-ui; letter-spacing: 0; text-transform: none; }
 .navsec { padding: 0 10px; display: flex; flex-direction: column; gap: 1px; }
 
