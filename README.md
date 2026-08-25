@@ -31,19 +31,16 @@ tags or cover, and longbox learns a reusable per-site recipe.
   in the capture dock.
 - **Downloads** — arm the next download for a specific chapter, then just download the file in the
   embedded browser; longbox intercepts it and files it into the vault. Archives (zip/cbz/7z/rar)
-  are normalized to zip; single images accumulate into the chapter page by page. A panel over the
-  app shows every transfer with its title, chapter and progress — and closing the window with
-  transfers running warns first: each one keeps its place (partial file, byte offset, validators)
-  and can be picked up later or started over.
+  are normalized to zip, single images accumulate into the chapter page by page, and a video is
+  stored as itself. A panel over the app shows every transfer with its title, chapter and
+  progress — and closing the window with transfers running warns first: each one keeps its place
+  (partial file, byte offset, validators) and can be picked up later or started over.
 - **Page capture** — for sources that never serve a file: teach which images on a reader page are
   the pages (once per site), arm a chapter, and read. Every page you open is fetched with the
   browser's own session and filed into that chapter; pages already stored are never fetched again,
   so flipping back costs nothing.
-- **Episodes** — video is a kind of content, not an attachment. An episode carries its duration,
-  container, codec and resume point; the title page previews it as a **contact sheet cut from the
-  file itself** (nine frames, each a link to the second it came from) and plays it in place, with
-  arrow-key scrubbing and a resume point that survives leaving the page. The stills are cut once,
-  by the window, and kept in the vault — nothing re-reads the video to draw a thumbnail.
+- **Episodes** — video is a kind of content, not an attachment: an episode is an entry like any
+  other, with its own language, group, source and reading state. See below for what it does.
 - **Contents editor** — entries with free-form labels, translation groups (language + group per
   row), numbering that follows the translation it belongs to, drag-to-reorder, attach/replace
   archives, add loose images or whole folders, move pages between entries, manual page reordering.
@@ -54,6 +51,46 @@ tags or cover, and longbox learns a reusable per-site recipe.
   favorites; source sites grouped as you like, each with its recipe status and saved links.
 - **Local-first storage** — one directory per title on a per-type shelf; a rebuildable SQLite index
   (deleting it never loses content); atomic writes; multiple switchable library locations.
+
+## Episodes (video)
+
+An episode is a chapter whose media is a video file. Everything a chapter has — the free-form
+label, the language and group of a translation, its source link, read state — applies unchanged;
+what differs is how it is stored, previewed and played.
+
+**Getting one in.** All three lanes accept video:
+
+- *Downloaded from a source* — arm the entry and download the file in the embedded browser, the
+  same armed flow archives use. A video is stored **as the file it arrived as** (an episode gains
+  nothing from a zip and would pay a full rewrite for every edit).
+- *Files you already have* — drop one on the entry form of the contents editor, or pick it with
+  *Choose files…*; whole folders work too. `mp4 · m4v · webm · mkv · mov · avi · ts` are
+  recognised.
+- *Replacing one* — attaching a new file to an entry replaces its media and carries the entry's
+  identity, so read state and translation rows survive.
+
+**What is stored beside it.** At ingest longbox records the duration, container, codec and
+whether the file's index sits before the media; for `mp4`/`m4v` it moves the index to the front
+when it does not (that is what makes playback start at once instead of fetching the tail first).
+The **contact sheet** — nine frames laid out 3×3, plus the single frame a tile wears — is cut
+once, by the window that plays the file (the app ships no decoder), and kept in the vault beside
+the media. Nothing re-reads the video to draw a thumbnail again.
+
+**Watching.** The title page previews the episode as that sheet, with each tile a link to the
+second it came from, and plays it **in place** when asked — nothing is streamed before you press
+Play. Arrow keys scrub it, the player's own controls (including fullscreen) work, and the resume
+point survives leaving the page: reopening the title, or opening the episode in the full-window
+player, carries on where you stopped. Reaching the end clears the point, so the next play starts
+over.
+
+**Files a browser cannot open.** `mkv`, `avi`, `mov` and `ts` are stored, listed and catalogued
+like any other episode — they simply have no player here, and say so, with the file offered for
+saving elsewhere. Nothing is silently dropped or hidden.
+
+**Streaming, not copying.** An episode is served out of the vault with Range support and read in
+windows, so seeking does not drag the whole file across a network drive, and a file that is
+currently playing is never replaced or deleted under the player — the app says which entry to
+close first.
 
 ## Install
 
