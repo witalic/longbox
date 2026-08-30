@@ -47,14 +47,6 @@ export function writeLocal(key: string, value: unknown): void {
   } catch { /* storage unavailable or full — a preference is not worth throwing */ }
 }
 
-export function removeLocal(key: string): void {
-  try { localStorage.removeItem(key) } catch { /* ignore */ }
-}
-
-// The two shapes that cover most preferences.
+// The shape that covers most preferences.
 export const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
-
-export function oneOf<T extends string>(...allowed: T[]) {
-  return (v: unknown): v is T => typeof v === 'string' && (allowed as string[]).includes(v)
-}

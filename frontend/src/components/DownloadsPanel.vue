@@ -7,6 +7,7 @@
 // there or started over, depending on what the server still honours.
 import { computed, onBeforeUnmount, onMounted } from 'vue'
 import Icon from './Icon.vue'
+import ProgressBar from './ProgressBar.vue'
 import { api } from '../api'
 import { downloads, pollDownloads, store, titleById, watchDownloads } from '../store'
 
@@ -71,8 +72,8 @@ async function resume(id: string) {
           to start over is the source's call when you come back.
         </div>
         <div class="wacts">
-          <button class="btn ghost chsmall" @click="emit('close')">Keep downloading</button>
-          <button class="btn accent chsmall" @click="emit('quit')">Close anyway</button>
+          <button class="btn ghost small" @click="emit('close')">Keep downloading</button>
+          <button class="btn accent small" @click="emit('quit')">Close anyway</button>
         </div>
       </div>
 
@@ -85,16 +86,16 @@ async function resume(id: string) {
               ch. {{ i.num }}<template v-if="i.lang"> · {{ i.lang }}</template>
             </span>
           </div>
-          <div class="dlbar"><span :style="{ width: `${pct(i)}%` }"></span></div>
+          <ProgressBar :done="i.received" :total="i.total" wide class="dlbar" />
           <div class="dlfoot">
             <span class="dlamt mono">{{ amount(i) }}</span>
             <span v-if="i.state === 'downloading'" class="dlpct mono">{{ pct(i) }}%</span>
             <span v-else class="dlerr">{{ i.error || i.state }}</span>
             <div style="flex:1"></div>
-            <button v-if="i.state === 'interrupted'" class="btn ghost chsmall" @click="resume(i.id)">
+            <button v-if="i.state === 'interrupted'" class="btn ghost small" @click="resume(i.id)">
               Pick up
             </button>
-            <button class="btn ghost chsmall" @click="stop(i.id)">
+            <button class="btn ghost small" @click="stop(i.id)">
               {{ i.state === 'downloading' ? 'Stop' : 'Forget' }}
             </button>
           </div>
@@ -118,8 +119,7 @@ async function resume(id: string) {
 .dlmain { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .dlname { font: 600 12.5px/1.3 system-ui; color: var(--tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dlch { font-size: 11px; color: var(--tx3); flex: none; }
-.dlbar { margin: 8px 0 6px; height: 4px; border-radius: 999px; background: var(--line); overflow: hidden; }
-.dlbar span { display: block; height: 100%; background: var(--accent); transition: width .3s ease; }
+.dlbar { margin: 8px 0 6px; }
 .dlfoot { display: flex; align-items: center; gap: 8px; }
 .dlamt, .dlpct { font-size: 10.5px; color: var(--tx3); }
 .dlerr { font: 500 11px/1.3 system-ui; color: var(--warn); }
@@ -127,5 +127,4 @@ async function resume(id: string) {
 .wt { font: 600 12.5px/1.3 system-ui; color: var(--tx); }
 .wh { margin-top: 6px; font: 400 11px/1.5 system-ui; color: var(--tx2); }
 .wacts { margin-top: 10px; display: flex; gap: 7px; justify-content: flex-end; }
-.chsmall { padding: 6px 10px; font-size: 11.5px; }
 </style>

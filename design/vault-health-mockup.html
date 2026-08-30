@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Vault health — mockup</title>
+<style>
+/* ---- the app's own tokens (frontend/src/styles.css), verbatim ---- */
+:root {
+  --bg: #0a0b0d; --bg2: #0f1115; --panel: #15171b; --panel2: #1b1e24;
+  --line: #262a31; --hover: #2a2e36;
+  --tx: #e8eaef; --tx2: #9aa1ad; --tx3: #697080;
+  --accent: #7089e6; --accent-ink: #0d0e11; --accentSoft: rgba(112, 137, 230, .14);
+  --fav: #e0687a; --good: #5fb88a; --warn: #d6a44f; --adult: #e0687a;
+}
+html[data-theme="light"] {
+  --bg: #f0eeea; --bg2: #e6e3dd; --panel: #faf9f6; --panel2: #edeae4;
+  --line: #d2cdc2; --hover: #e2ded6;
+  --tx: #2a2c31; --tx2: #575d67; --tx3: #8d95a1;
+  --accent: #5f77d4; --accent-ink: #ffffff; --accentSoft: rgba(95, 119, 212, .15);
+  --fav: #d6516a; --good: #3f9e6f; --warn: #b07d2a; --adult: #d6516a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--tx); font: 400 13px/1.45 system-ui; }
+
+/* ---- the app's control grammar (controls 30, radius 6, text 11/12/13) ---- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--tx);
+  border-radius: 6px; height: 30px; padding: 0 13px; cursor: pointer;
+  font: 600 12px/1 system-ui; white-space: nowrap;
+}
+.btn:hover { border-color: var(--accent); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.ghost { background: transparent; color: var(--tx2); }
+.btn.ghost:hover { border-color: var(--accent); color: var(--accent); }
+.btn.small { height: 26px; padding: 0 10px; font-size: 11px; }
+.btn.danger { color: var(--adult); }
+.btn.danger:hover { border-color: var(--adult); color: var(--adult); }
+.seg { display: flex; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 2px; height: 30px; width: fit-content; }
+.seg .opt { display: inline-flex; align-items: center; padding: 0 11px; border-radius: 4px; cursor: pointer; border: none; background: transparent; font: 500 12px/1 system-ui; color: var(--tx2); }
+.seg .opt.on { background: var(--accentSoft); color: var(--accent); }
+
+/* ---- Settings card grammar (unchanged) ---- */
+.wrap { max-width: 820px; margin: 0 auto; padding: 24px; display: flex; flex-direction: column; gap: 26px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.title { padding: 14px 18px; border-bottom: 1px solid var(--line); border-radius: 10px 10px 0 0; font: 600 13px/1 system-ui; color: var(--tx); display: flex; align-items: center; gap: 10px; }
+.title .sum { margin-left: auto; font: 500 11px/1 ui-monospace, monospace; }
+.row { padding: 16px 18px; display: flex; align-items: center; gap: 16px; }
+.row + .row, .sec + .row { border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+.text { flex: 1; min-width: 0; }
+.label { font: 500 13px/1 system-ui; color: var(--tx); }
+.hint { margin-top: 5px; font: 400 12px/1.4 system-ui; color: var(--tx3); }
+
+/* the action zone: identical in every row, whatever state it is in */
+.act { display: flex; align-items: center; gap: 10px; flex: none; height: 30px; }
+.stat { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); white-space: nowrap; }
+.stat.ok { color: var(--good); }
+.stat.warn { color: var(--warn); }
+.prog { display: flex; align-items: center; gap: 9px; }
+.bar { width: 84px; height: 4px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.bar span { display: block; height: 100%; background: var(--accent); }
+.count { font: 500 11px/1 ui-monospace, monospace; color: var(--tx2); font-variant-numeric: tabular-nums; }
+
+/* ---- one answer per question, and every answer says what to do next ---- */
+.sec { border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+.shead { display: flex; align-items: center; gap: 10px; padding: 11px 18px; background: var(--panel2); }
+.dot { width: 7px; height: 7px; border-radius: 999px; flex: none; background: var(--good); }
+.dot.bad { background: var(--adult); }
+.dot.idle { background: var(--warn); }
+.answer { font: 600 12px/1 system-ui; color: var(--tx); }
+.shead .side { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.shead .amount { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); }
+
+.frow {
+  display: flex; align-items: center; gap: 12px; width: 100%; height: 34px; padding: 0 18px;
+  background: none; border: none; border-top: 1px solid color-mix(in srgb, var(--line) 40%, transparent);
+  cursor: pointer; text-align: left; color: inherit;
+}
+.frow:hover { background: var(--hover); }
+.fname { font: 500 12px/1 system-ui; color: var(--tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fentry { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); flex: none; }
+.fwhat { margin-left: auto; font: 400 11px/1 system-ui; color: var(--tx2); flex: none; }
+.chev { color: var(--tx3); font: 400 12px/1 system-ui; flex: none; }
+
+.srow { display: flex; align-items: center; gap: 12px; padding: 10px 18px; border-top: 1px solid color-mix(in srgb, var(--line) 40%, transparent); }
+.sname { font: 500 12px/1 system-ui; color: var(--tx); }
+.ssize { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); }
+.srow .sacts { margin-left: auto; display: flex; gap: 7px; }
+
+.next { padding: 9px 18px 12px; font: 400 11px/1.4 system-ui; color: var(--tx3); border-top: 1px solid color-mix(in srgb, var(--line) 40%, transparent); }
+
+.files { padding: 8px 18px 12px; display: flex; flex-direction: column; gap: 4px; border-top: 1px solid color-mix(in srgb, var(--line) 40%, transparent); max-height: 160px; overflow-y: auto; }
+.files div { font: 400 11px/1.5 ui-monospace, monospace; color: var(--tx3); display: flex; gap: 12px; }
+.files div span { margin-left: auto; }
+
+/* ---- SCALE ----
+   A list of thousands is not a list, it is a distribution. The row unit is
+   (title × problem), never a chapter: forty broken chapters in one title are
+   ONE problem with that title. The same markup then reads correctly at three
+   findings and at three thousand — no separate "big library" mode. */
+.list { max-height: 306px; overflow-y: auto; }
+.fcount { font: 600 11px/1 ui-monospace, monospace; color: var(--tx2); flex: none; min-width: 42px; text-align: right; font-variant-numeric: tabular-nums; }
+.more { display: flex; align-items: center; gap: 12px; padding: 9px 18px; border-top: 1px solid color-mix(in srgb, var(--line) 40%, transparent); font: 400 11px/1 system-ui; color: var(--tx3); }
+.more .btn { margin-left: auto; }
+
+/* When nearly everything is broken, the COUNT is not the answer — the cause is,
+   and three thousand identical rows would bury it. */
+.alarm { padding: 14px 18px; display: flex; align-items: flex-start; gap: 12px; background: color-mix(in srgb, var(--adult) 9%, transparent); border-top: 1px solid color-mix(in srgb, var(--adult) 35%, var(--line)); }
+.alarm .body { flex: 1; }
+.alarm .head { font: 600 12px/1.3 system-ui; color: var(--tx); }
+.alarm .why { margin-top: 5px; font: 400 11px/1.5 system-ui; color: var(--tx2); }
+.alarm .why b { font: 500 11px/1.5 ui-monospace, monospace; color: var(--tx); }
+
+h2 { font: 600 11px/1 ui-monospace, monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--tx3); margin: 0 0 -12px 2px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h2>A · a big library — thousands of findings</h2>
+<div class="card">
+  <div class="title">Vault health <span class="sum" style="color:var(--adult)">1,284 need attention · 41.2 GB reclaimable</span></div>
+
+  <div class="row">
+    <div class="text">
+      <div class="label">Check the vault</div>
+      <div class="seg" style="margin-top:8px">
+        <button class="opt on">Quick</button><button class="opt">Full</button><button class="opt">Full + record</button>
+      </div>
+      <div class="hint">Compares what is on disk against what was recorded.</div>
+    </div>
+    <div class="act">
+      <span class="stat">2,910 of 3,180 have a checksum</span>
+      <button class="btn">Check</button>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="shead">
+      <span class="dot bad"></span>
+      <span class="answer">1,284 chapters cannot be read</span>
+      <div class="side"><span class="amount">in 17 titles</span></div>
+    </div>
+    <div class="list">
+      <button class="frow"><span class="fname">Winter Sonata</span><span class="fwhat">the file is gone</span><span class="fcount">812</span><span class="chev">›</span></button>
+      <button class="frow"><span class="fname">Paper Lanterns</span><span class="fwhat">the file is gone</span><span class="fcount">402</span><span class="chev">›</span></button>
+      <button class="frow"><span class="fname">The Harbour Lights</span><span class="fwhat">the file will not open</span><span class="fcount">41</span><span class="chev">›</span></button>
+      <button class="frow"><span class="fname">A Quiet Place Between</span><span class="fwhat">the file changed since it was stored</span><span class="fcount">18</span><span class="chev">›</span></button>
+      <button class="frow"><span class="fname">Salt and Iron</span><span class="fentry">ch. 4 · EN</span><span class="fwhat">the file is gone</span><span class="chev">›</span></button>
+      <button class="frow"><span class="fname">Nightjar</span><span class="fentry">ch. 12 · UA · fansub</span><span class="fwhat">the file will not open</span><span class="chev">›</span></button>
+      <button class="frow"><span class="fname">The Long Way Down</span><span class="fwhat">the file is gone</span><span class="fcount">6</span><span class="chev">›</span></button>
+      <button class="frow"><span class="fname">Marrow</span><span class="fentry">ch. 1</span><span class="fwhat">the file changed since it was stored</span><span class="chev">›</span></button>
+      <button class="frow"><span class="fname">Bell &amp; Anchor</span><span class="fentry">ch. 7 · EN</span><span class="fwhat">the file is gone</span><span class="chev">›</span></button>
+    </div>
+    <div class="more">9 more titles<button class="btn ghost small">Show all</button></div>
+    <div class="next">One row per title and problem — forty broken chapters in one title are one problem with that title, not forty. Open a row to see and fix them there.</div>
+  </div>
+
+  <div class="sec">
+    <div class="shead">
+      <span class="dot bad"></span>
+      <span class="answer">41.2 GB is being wasted</span>
+    </div>
+    <div class="srow">
+      <span class="sname">Leftovers</span>
+      <span class="ssize">3,142 files · 38.6 GB · in 61 titles</span>
+      <div class="sacts">
+        <button class="btn ghost small">Show</button>
+        <button class="btn small danger">Delete 3,142 files</button>
+      </div>
+    </div>
+    <div class="srow">
+      <span class="sname">Stored twice</span>
+      <span class="ssize">128 sets · 2.6 GB</span>
+      <div class="sacts"><button class="btn ghost small">Review</button></div>
+    </div>
+    <div class="next">Leftovers belong to no entry at all — nothing else in the app can reach them. Show lists every one, with its title and size, before anything is deleted.</div>
+  </div>
+
+  <div class="sec">
+    <div class="shead">
+      <span class="dot idle"></span>
+      <span class="answer">96 titles have gaps in their numbering</span>
+      <div class="side"><span class="amount">most incomplete first</span></div>
+    </div>
+    <div class="list">
+      <button class="frow"><span class="fname">Winter Sonata</span><span class="fentry">EN · scans</span><span class="fwhat">missing 14 of 1–96</span><span class="chev">›</span></button>
+      <button class="frow"><span class="fname">Nightjar</span><span class="fentry">UA</span><span class="fwhat">missing 9 of 1–40</span><span class="chev">›</span></button>
+      <button class="frow"><span class="fname">Salt and Iron</span><span class="fentry">EN</span><span class="fwhat">missing 5 of 1–22</span><span class="chev">›</span></button>
+      <button class="frow"><span class="fname">Marrow</span><span class="fentry">EN · dex</span><span class="fwhat">missing 8, 19</span><span class="chev">›</span></button>
+      <button class="frow"><span class="fname">The Long Way Down</span><span class="fentry">UA · fansub</span><span class="fwhat">missing 3</span><span class="chev">›</span></button>
+      <button class="frow"><span class="fname">A Quiet Place Between</span><span class="fentry">EN</span><span class="fwhat">missing 27</span><span class="chev">›</span></button>
+      <button class="frow"><span class="fname">Paper Lanterns</span><span class="fentry">EN · dex</span><span class="fwhat">missing 61</span><span class="chev">›</span></button>
+      <button class="frow"><span class="fname">Harbour Lights</span><span class="fentry">UA</span><span class="fwhat">missing 12</span><span class="chev">›</span></button>
+      <button class="frow"><span class="fname">Bell &amp; Anchor</span><span class="fentry">EN</span><span class="fwhat">missing 4, 5</span><span class="chev">›</span></button>
+    </div>
+    <div class="more">88 more titles<button class="btn ghost small">Show all</button></div>
+    <div class="next">Nothing is wrong with these — they are what is left to find.</div>
+  </div>
+</div>
+
+<h2>B · when it is not the files, it is the folder</h2>
+<div class="card">
+  <div class="title">Vault health <span class="sum" style="color:var(--adult)">the library folder is unreachable</span></div>
+  <div class="row">
+    <div class="text">
+      <div class="label">Check the vault</div>
+      <div class="seg" style="margin-top:8px">
+        <button class="opt on">Quick</button><button class="opt">Full</button><button class="opt">Full + record</button>
+      </div>
+      <div class="hint">Compares what is on disk against what was recorded.</div>
+    </div>
+    <div class="act">
+      <span class="stat">3,180 checked</span>
+      <button class="btn">Check</button>
+    </div>
+  </div>
+  <div class="alarm">
+    <span class="dot bad" style="margin-top:4px"></span>
+    <div class="body">
+      <div class="head">Almost nothing can be read — 3,140 of 3,180 chapters.</div>
+      <div class="why">That is not damage to your files. A whole library failing at once almost always
+        means the folder is not where the app is looking: <b>Z:\LongBox</b> — a drive that is not
+        mounted, a share that went offline, a path that moved. Listing three thousand identical rows
+        would only bury that.</div>
+    </div>
+    <button class="btn" style="align-self:center">Storage settings</button>
+  </div>
+</div>
+
+<h2>C · a small library — the same markup, nothing special-cased</h2>
+<div class="card">
+  <div class="title">Vault health <span class="sum" style="color:var(--adult)">3 need attention · 1.9 GB reclaimable</span></div>
+
+  <div class="row">
+    <div class="text">
+      <div class="label">Check the vault</div>
+      <div class="seg" style="margin-top:8px">
+        <button class="opt">Quick</button><button class="opt on">Full</button><button class="opt">Full + record</button>
+      </div>
+      <div class="hint">Re-reads every byte to compare checksums — the only way to catch content that
+        changed under the app. As slow as reading the whole library.</div>
+    </div>
+    <div class="act">
+      <span class="stat">782 of 782 have a checksum</span>
+      <button class="btn">Check</button>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="shead"><span class="dot bad"></span><span class="answer">3 chapters cannot be read</span></div>
+    <button class="frow"><span class="fname">Winter Sonata</span><span class="fentry">ch. 31 · EN · scans</span><span class="fwhat">the file is gone</span><span class="chev">›</span></button>
+    <button class="frow"><span class="fname">Paper Lanterns</span><span class="fentry">ch. 12 · EN · dex</span><span class="fwhat">the file changed since it was stored</span><span class="chev">›</span></button>
+    <button class="frow"><span class="fname">The Harbour Lights</span><span class="fentry">ch. 4 · UA</span><span class="fwhat">the file will not open</span><span class="chev">›</span></button>
+    <div class="next">Open one to replace its file or remove the entry — the same controls the contents editor already has.</div>
+  </div>
+
+  <div class="sec">
+    <div class="shead"><span class="dot bad"></span><span class="answer">1.9 GB is being wasted</span></div>
+    <div class="srow">
+      <span class="sname">Leftovers</span>
+      <span class="ssize">14 files · 340 MB · in 3 titles</span>
+      <div class="sacts">
+        <button class="btn ghost small">Hide</button>
+        <button class="btn small danger">Delete 14 files</button>
+      </div>
+    </div>
+    <div class="files">
+      <div>Winter Sonata / w-14-en.zip.9f3c1a02.tmp<span>84.1 MB</span></div>
+      <div>Winter Sonata / w-14-en.json<span>1 KB</span></div>
+      <div>Paper Lanterns / paper-9-ru.zip<span>62.0 MB</span></div>
+      <div>The Harbour Lights / hl-2-ua.zip.4b81e0.tmp<span>190.4 MB</span></div>
+      <div style="color:var(--tx2)">…and 10 more<span></span></div>
+    </div>
+    <div class="srow">
+      <span class="sname">Stored twice</span>
+      <span class="ssize">4 sets · 1.6 GB</span>
+      <div class="sacts"><button class="btn ghost small">Review</button></div>
+    </div>
+    <div class="next">Copies are yours to choose between: open each and delete the one you do not want.</div>
+  </div>
+
+  <div class="sec">
+    <div class="shead"><span class="dot idle"></span><span class="answer">2 titles have gaps in their numbering</span></div>
+    <button class="frow"><span class="fname">Winter Sonata</span><span class="fentry">EN · scans</span><span class="fwhat">missing 8, 19</span><span class="chev">›</span></button>
+    <button class="frow"><span class="fname">The Harbour Lights</span><span class="fentry">UA</span><span class="fwhat">missing 3</span><span class="chev">›</span></button>
+    <div class="next">Nothing is wrong with these — they are what is left to find.</div>
+  </div>
+</div>
+
+<h2>D · running, and all clear</h2>
+<div class="card">
+  <div class="title">Vault health</div>
+  <div class="row">
+    <div class="text">
+      <div class="label">Check the vault</div>
+      <div class="seg" style="margin-top:8px">
+        <button class="opt">Quick</button><button class="opt on">Full</button><button class="opt">Full + record</button>
+      </div>
+      <div class="hint">Re-reads every byte to compare checksums.</div>
+    </div>
+    <div class="act">
+      <div class="prog"><span class="bar"><span style="width:18%"></span></span><span class="count">142 / 3,180</span></div>
+      <button class="btn ghost">Stop</button>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="title">Vault health <span class="sum" style="color:var(--good)">✓ all clear</span></div>
+  <div class="row">
+    <div class="text">
+      <div class="label">Check the vault</div>
+      <div class="seg" style="margin-top:8px">
+        <button class="opt on">Quick</button><button class="opt">Full</button><button class="opt">Full + record</button>
+      </div>
+      <div class="hint">Compares what is on disk against what was recorded.</div>
+    </div>
+    <div class="act">
+      <span class="stat warn">stopped after 43</span>
+      <button class="btn">Check</button>
+    </div>
+  </div>
+  <div class="sec"><div class="shead"><span class="dot"></span><span class="answer">Every chapter checked can be read</span></div></div>
+  <div class="sec"><div class="shead"><span class="dot"></span><span class="answer">Nothing is being wasted</span></div></div>
+  <div class="sec"><div class="shead"><span class="dot"></span><span class="answer">No title has a gap in its numbering</span></div></div>
+</div>
+
+<h2>E · where the metadata mirror goes now</h2>
+<div class="card">
+  <div class="title">Library index</div>
+  <div class="row">
+    <div class="text">
+      <div class="label">SQLite search index</div>
+      <div class="hint">A cache derived from the title files on disk. Rebuild re-reads every title and
+        recreates it from scratch. Your files are never modified.</div>
+    </div>
+    <div class="act"><button class="btn">Rebuild</button></div>
+  </div>
+  <div class="row">
+    <div class="text">
+      <div class="label">Stored archives</div>
+      <div class="hint">Every chapter is stored as a plain zip. Incoming files are converted
+        automatically; this sweep is for content added to the folder outside the app.</div>
+    </div>
+    <div class="act"><button class="btn">Convert</button></div>
+  </div>
+  <div class="row">
+    <div class="text">
+      <div class="label">Metadata inside the archives</div>
+      <div class="hint">Every chapter carries a ComicInfo.xml describing its work, so the library reads
+        correctly in Komga, Kavita and anything else that speaks the format. New and edited chapters
+        get it as they are written; this rewrites the rest after metadata changes.</div>
+    </div>
+    <div class="act">
+      <span class="stat ok">✓ already up to date</span>
+      <button class="btn">Update</button>
+    </div>
+  </div>
+</div>
+
+</div>
+</body>
+</html>

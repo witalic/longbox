@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Settings — refactor mockup</title>
+<style>
+/* ---- the app's own tokens (frontend/src/styles.css), verbatim ---- */
+:root {
+  --bg: #0a0b0d; --bg2: #0f1115; --panel: #15171b; --panel2: #1b1e24;
+  --line: #262a31; --hover: #2a2e36;
+  --tx: #e8eaef; --tx2: #9aa1ad; --tx3: #697080;
+  --accent: #7089e6; --accent-ink: #0d0e11; --accentSoft: rgba(112, 137, 230, .14);
+  --fav: #e0687a; --good: #5fb88a; --warn: #d6a44f; --adult: #e0687a;
+}
+html[data-theme="light"] {
+  --bg: #f0eeea; --bg2: #e6e3dd; --panel: #faf9f6; --panel2: #edeae4;
+  --line: #d2cdc2; --hover: #e2ded6;
+  --tx: #2a2c31; --tx2: #575d67; --tx3: #8d95a1;
+  --accent: #5f77d4; --accent-ink: #ffffff; --accentSoft: rgba(95, 119, 212, .15);
+  --fav: #d6516a; --good: #3f9e6f; --warn: #b07d2a; --adult: #d6516a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--tx); font: 400 13px/1.45 system-ui; }
+
+/* ---- control grammar: 30px, radius 6, text 11/12/13 (design law) ---- */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--tx); border-radius: 6px; height: 30px; padding: 0 13px; cursor: pointer; font: 600 12px/1 system-ui; white-space: nowrap; }
+.btn:hover { border-color: var(--accent); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.ghost { background: transparent; color: var(--tx2); }
+.btn.small { height: 26px; padding: 0 10px; font-size: 11px; }
+.btn.danger { color: var(--adult); }
+.btn.danger:hover { border-color: var(--adult); }
+.seg { display: flex; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 2px; height: 30px; width: fit-content; }
+.seg .opt { display: inline-flex; align-items: center; padding: 0 11px; border-radius: 4px; cursor: pointer; border: none; background: transparent; font: 500 12px/1 system-ui; color: var(--tx2); }
+.seg .opt.on { background: var(--accentSoft); color: var(--accent); }
+.in { font: 500 12.5px/1.3 system-ui; color: var(--tx); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; outline: none; width: 100%; }
+
+/* ---- the app shell, reproduced so the rail is judged in place ---- */
+.app { display: flex; height: 780px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.side { width: 220px; flex: none; background: var(--bg2); border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+.brand { display: flex; align-items: center; gap: 9px; padding: 14px 12px 10px; }
+.brand .logo { width: 24px; height: 24px; border-radius: 7px; background: linear-gradient(#8194f4, #3e4eb2); flex: none; }
+.brand .name { font: 700 13.5px/1 system-ui; letter-spacing: -.2px; color: var(--tx); }
+.nav { padding: 0 10px; display: flex; flex-direction: column; gap: 1px; }
+.navitem { height: 36px; display: flex; align-items: center; gap: 11px; padding: 0 12px; border-radius: 8px; border: none; background: transparent; color: var(--tx2); font: 500 13px/1 system-ui; cursor: pointer; text-align: left; width: 100%; }
+.navitem.on { background: var(--accentSoft); color: var(--accent); }
+.glyph { width: 15px; text-align: center; opacity: .8; }
+
+/* ---- the rail: the SAME widget Browse and Sources teleport into ---- */
+.siderail { flex: 1; min-height: 0; overflow-y: auto; border-top: 1px solid var(--line); margin-top: 10px; }
+.navlbl { display: flex; align-items: center; gap: 6px; font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); padding: 14px 12px 6px; }
+.navsec { padding: 0 10px; display: flex; flex-direction: column; gap: 1px; }
+.navsec button { height: 30px; width: 100%; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-radius: 7px; border: none; background: transparent; color: var(--tx2); font: 500 12.5px/1 system-ui; cursor: pointer; text-align: left; }
+.navsec button:hover { background: var(--hover); color: var(--tx); }
+.navsec button.on { background: var(--accentSoft); color: var(--accent); }
+/* the rail carries the STATE of each section, so nothing has to be opened to
+   find out whether it needs you */
+.navsec .tag { margin-left: auto; font: 500 10px/1 ui-monospace, monospace; color: var(--tx3); }
+.navsec .tag.bad { color: var(--adult); }
+.navsec button.on .tag { color: var(--accent); }
+.foot { margin-top: auto; height: 44px; padding: 0 16px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 9px; font: 500 11px/1.3 system-ui; color: var(--tx3); flex: none; }
+.foot .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); flex: none; }
+
+/* ---- the content column: 44 work band, then the section ---- */
+.viewcol { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.head { height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 24px; border-bottom: 1px solid var(--line); background: var(--bg2); }
+.h1 { margin: 0; font: 600 22px/1 system-ui; letter-spacing: -.4px; color: var(--tx); }
+.head .count { margin-left: auto; font: 500 13px/1 ui-monospace, monospace; color: var(--tx3); }
+.viewscroll { flex: 1; min-height: 0; overflow-y: auto; }
+.wrap { max-width: 720px; padding: 22px 24px 40px; display: flex; flex-direction: column; gap: 22px; }
+
+/* ---- a section's content: groups of rows, no accordion ---- */
+.group { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.glabel { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); padding: 0 0 8px 2px; }
+.row { padding: 14px 16px; display: flex; align-items: center; gap: 16px; }
+.row + .row, .sec + .row { border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+.text { flex: 1; min-width: 0; }
+.label { font: 500 13px/1 system-ui; color: var(--tx); }
+.hint { margin-top: 5px; font: 400 12px/1.4 system-ui; color: var(--tx3); }
+.act { display: flex; align-items: center; gap: 10px; flex: none; height: 30px; }
+.stat { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); white-space: nowrap; }
+.stat.ok { color: var(--good); }
+.stat.warn { color: var(--warn); }
+.prog { display: flex; align-items: center; gap: 9px; }
+.bar { width: 84px; height: 4px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.bar span { display: block; height: 100%; background: var(--accent); }
+.count2 { font: 500 11px/1 ui-monospace, monospace; color: var(--tx2); font-variant-numeric: tabular-nums; }
+
+/* ---- health answers (carried over from the approved report design) ---- */
+.sec { border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+.shead { display: flex; align-items: center; gap: 10px; padding: 11px 16px; background: var(--panel2); }
+.dot2 { width: 7px; height: 7px; border-radius: 999px; flex: none; background: var(--good); }
+.dot2.bad { background: var(--adult); }
+.dot2.idle { background: var(--warn); }
+.answer { font: 600 12px/1 system-ui; color: var(--tx); }
+.shead .amount { margin-left: auto; font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); }
+.list { max-height: 240px; overflow-y: auto; }
+.frow { display: flex; align-items: center; gap: 12px; width: 100%; height: 34px; padding: 0 16px; background: none; border: none; border-top: 1px solid color-mix(in srgb, var(--line) 40%, transparent); cursor: pointer; text-align: left; color: inherit; }
+.frow:hover { background: var(--hover); }
+.fname { font: 500 12px/1 system-ui; color: var(--tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fentry { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); flex: none; }
+.fwhat { margin-left: auto; font: 400 11px/1 system-ui; color: var(--tx2); flex: none; }
+.fcount { font: 600 11px/1 ui-monospace, monospace; color: var(--tx2); flex: none; min-width: 42px; text-align: right; font-variant-numeric: tabular-nums; }
+.chev { color: var(--tx3); font: 400 12px/1 system-ui; flex: none; }
+.srow { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-top: 1px solid color-mix(in srgb, var(--line) 40%, transparent); }
+.sname { font: 500 12px/1 system-ui; color: var(--tx); }
+.ssize { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); }
+.srow .sacts { margin-left: auto; display: flex; gap: 7px; }
+.more { display: flex; align-items: center; gap: 12px; padding: 9px 16px; border-top: 1px solid color-mix(in srgb, var(--line) 40%, transparent); font: 400 11px/1 system-ui; color: var(--tx3); }
+.more .btn { margin-left: auto; }
+.next { padding: 9px 16px 12px; font: 400 11px/1.4 system-ui; color: var(--tx3); border-top: 1px solid color-mix(in srgb, var(--line) 40%, transparent); }
+.alarm { padding: 14px 16px; display: flex; align-items: flex-start; gap: 12px; background: color-mix(in srgb, var(--adult) 9%, transparent); border-top: 1px solid color-mix(in srgb, var(--adult) 35%, var(--line)); }
+.alarm .head2 { font: 600 12px/1.3 system-ui; color: var(--tx); }
+.alarm .why { margin-top: 5px; font: 400 11px/1.5 system-ui; color: var(--tx2); }
+.alarm .why b { font: 500 11px/1.5 ui-monospace, monospace; color: var(--tx); }
+
+/* ---- storage rows ---- */
+.librow { display: flex; align-items: center; gap: 11px; padding: 11px 16px; border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+.librow:first-child { border-top: none; }
+.ldot { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--tx3); flex: none; }
+.ldot.on { border-color: var(--accent); background: var(--accent); }
+.lpath { font: 500 12px/1 ui-monospace, monospace; color: var(--tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lmeta { margin-left: auto; font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); flex: none; }
+
+h2 { font: 600 11px/1 ui-monospace, monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--tx3); margin: 26px 0 10px 2px; }
+.page { max-width: 1180px; margin: 0 auto; padding: 20px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<h2>1 · Health — the section that has to hold thousands</h2>
+<div class="app">
+  <div class="side">
+    <div class="brand"><span class="logo"></span><span class="name">longbox</span></div>
+    <div class="nav">
+      <button class="navitem"><span class="glyph">▤</span>Library</button>
+      <button class="navitem"><span class="glyph">◈</span>Browse</button>
+      <button class="navitem"><span class="glyph">✎</span>People</button>
+      <button class="navitem on"><span class="glyph">⚙</span>Settings</button>
+    </div>
+    <div class="siderail">
+      <div class="navlbl">LIBRARY</div>
+      <div class="navsec">
+        <button>Storage<span class="tag">2</span></button>
+        <button class="on">Health<span class="tag bad">1,284</span></button>
+        <button>Maintenance</button>
+        <button>Fields<span class="tag">14</span></button>
+      </div>
+      <div class="navlbl">APP</div>
+      <div class="navsec">
+        <button>Browser</button>
+        <button>Appearance<span class="tag">Dark</span></button>
+        <button>Keyboard</button>
+        <button>About<span class="tag">2.0.1</span></button>
+      </div>
+    </div>
+    <div class="foot"><span class="dot"></span>connected · 3,180 titles</div>
+  </div>
+
+  <div class="viewcol">
+    <div class="head"><h1 class="h1">Health</h1><span class="count">3,180 chapters</span></div>
+    <div class="viewscroll">
+      <div class="wrap">
+        <div>
+          <div class="glabel">CHECK</div>
+          <div class="group">
+            <div class="row">
+              <div class="text">
+                <div class="label">Check the vault</div>
+                <div class="seg" style="margin-top:8px">
+                  <button class="opt on">Quick</button><button class="opt">Full</button><button class="opt">Full + record</button>
+                </div>
+                <div class="hint">Is anything broken, is anything wasting space, is anything missing.
+                  A quick check compares what is on disk against what was recorded.</div>
+              </div>
+              <div class="act">
+                <span class="stat">2,910 / 3,180 hashed</span>
+                <button class="btn">Check</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="glabel">WHAT THE LAST CHECK FOUND</div>
+          <div class="group">
+            <div class="shead" style="border-radius:10px 10px 0 0">
+              <span class="dot2 bad"></span><span class="answer">1,284 chapters cannot be read</span>
+              <span class="amount">in 17 titles</span>
+            </div>
+            <div class="list">
+              <button class="frow"><span class="fname">Winter Sonata</span><span class="fwhat">the file is gone</span><span class="fcount">812</span><span class="chev">›</span></button>
+              <button class="frow"><span class="fname">Paper Lanterns</span><span class="fwhat">the file is gone</span><span class="fcount">402</span><span class="chev">›</span></button>
+              <button class="frow"><span class="fname">The Harbour Lights</span><span class="fwhat">the file will not open</span><span class="fcount">41</span><span class="chev">›</span></button>
+              <button class="frow"><span class="fname">A Quiet Place Between</span><span class="fwhat">the file changed since it was stored</span><span class="fcount">18</span><span class="chev">›</span></button>
+              <button class="frow"><span class="fname">Salt and Iron</span><span class="fentry">ch. 4 · EN</span><span class="fwhat">the file is gone</span><span class="chev">›</span></button>
+              <button class="frow"><span class="fname">Nightjar</span><span class="fentry">ch. 12 · UA</span><span class="fwhat">the file will not open</span><span class="chev">›</span></button>
+            </div>
+            <div class="more">11 more titles<button class="btn ghost small">Show all</button></div>
+            <div class="next">One row per title and problem — forty broken chapters in one title are one problem with that title, not forty. Open a row to fix them there.</div>
+
+            <div class="shead"><span class="dot2 bad"></span><span class="answer">41.2 GB is being wasted</span></div>
+            <div class="srow">
+              <span class="sname">Leftovers</span><span class="ssize">3,142 files · 38.6 GB · in 61 titles</span>
+              <div class="sacts"><button class="btn ghost small">Show</button><button class="btn small danger">Delete 3,142 files</button></div>
+            </div>
+            <div class="srow">
+              <span class="sname">Stored twice</span><span class="ssize">128 sets · 2.6 GB</span>
+              <div class="sacts"><button class="btn ghost small">Review</button></div>
+            </div>
+            <div class="next">Leftovers belong to no entry at all — nothing else in the app can reach them. Copies are yours to choose between.</div>
+
+            <div class="shead"><span class="dot2 idle"></span><span class="answer">96 titles have gaps in their numbering</span><span class="amount">most incomplete first</span></div>
+            <div class="list" style="max-height:140px">
+              <button class="frow"><span class="fname">Winter Sonata</span><span class="fentry">EN · scans</span><span class="fwhat">missing 14 of 1–96</span><span class="chev">›</span></button>
+              <button class="frow"><span class="fname">Nightjar</span><span class="fentry">UA</span><span class="fwhat">missing 9 of 1–40</span><span class="chev">›</span></button>
+              <button class="frow"><span class="fname">Marrow</span><span class="fentry">EN · dex</span><span class="fwhat">missing 8, 19</span><span class="chev">›</span></button>
+            </div>
+            <div class="more">93 more titles<button class="btn ghost small">Show all</button></div>
+            <div class="next">Nothing is wrong with these — they are what is left to find.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>2 · Health when the folder, not the files, is the problem</h2>
+<div class="app" style="height:330px">
+  <div class="side">
+    <div class="brand"><span class="logo"></span><span class="name">longbox</span></div>
+    <div class="siderail" style="border-top:none;margin-top:0">
+      <div class="navlbl">LIBRARY</div>
+      <div class="navsec">
+        <button>Storage<span class="tag bad">offline</span></button>
+        <button class="on">Health<span class="tag bad">3,140</span></button>
+        <button>Maintenance</button>
+        <button>Fields<span class="tag">14</span></button>
+      </div>
+    </div>
+  </div>
+  <div class="viewcol">
+    <div class="head"><h1 class="h1">Health</h1></div>
+    <div class="viewscroll"><div class="wrap">
+      <div>
+        <div class="glabel">WHAT THE LAST CHECK FOUND</div>
+        <div class="group">
+          <div class="alarm" style="border-radius:10px 10px 0 0;border-top:none">
+            <span class="dot2 bad" style="margin-top:4px"></span>
+            <div style="flex:1">
+              <div class="head2">Almost nothing can be read — 3,140 of 3,180 chapters.</div>
+              <div class="why">That is not damage to your files. A whole library failing at once almost
+                always means the folder is not where the app is looking: <b>Z:\LongBox</b> — a drive
+                that is not mounted, a share that went offline, a path that moved. Listing three
+                thousand identical rows would only bury that.</div>
+            </div>
+            <button class="btn" style="align-self:center">Open Storage</button>
+          </div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+</div>
+
+<h2>3 · Storage, and Maintenance — the actions that were scattered</h2>
+<div class="app" style="height:560px">
+  <div class="side">
+    <div class="brand"><span class="logo"></span><span class="name">longbox</span></div>
+    <div class="siderail" style="border-top:none;margin-top:0">
+      <div class="navlbl">LIBRARY</div>
+      <div class="navsec">
+        <button>Storage<span class="tag">2</span></button>
+        <button>Health<span class="tag ok" style="color:var(--good)">✓</span></button>
+        <button class="on">Maintenance</button>
+        <button>Fields<span class="tag">14</span></button>
+      </div>
+      <div class="navlbl">APP</div>
+      <div class="navsec">
+        <button>Browser</button>
+        <button>Appearance<span class="tag">Dark</span></button>
+        <button>Keyboard</button>
+        <button>About<span class="tag">2.0.1</span></button>
+      </div>
+    </div>
+  </div>
+  <div class="viewcol">
+    <div class="head"><h1 class="h1">Maintenance</h1></div>
+    <div class="viewscroll"><div class="wrap">
+      <div>
+        <div class="glabel">REBUILD WHAT CAN BE REBUILT</div>
+        <div class="group">
+          <div class="row">
+            <div class="text">
+              <div class="label">Search index</div>
+              <div class="hint">A cache derived from the title files on disk — deleting it never loses
+                content. Rebuild re-reads every title and recreates it. Your files are not modified.</div>
+            </div>
+            <div class="act"><span class="stat">3,180 titles</span><button class="btn">Rebuild</button></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="glabel">REWRITE STORED ARCHIVES</div>
+        <div class="group">
+          <div class="row">
+            <div class="text">
+              <div class="label">Convert to zip</div>
+              <div class="hint">Every chapter is stored as a plain zip so pages can always be read and
+                edited. Incoming files are converted automatically; this is for content added to the
+                folder outside the app, or archives that had no reader before.</div>
+            </div>
+            <div class="act"><span class="stat ok">✓ all zip</span><button class="btn">Convert</button></div>
+          </div>
+          <div class="row">
+            <div class="text">
+              <div class="label">Metadata inside the archives</div>
+              <div class="hint">Every chapter carries a ComicInfo.xml describing its work, so the library
+                reads correctly in Komga, Kavita and anything else that speaks the format. New and
+                edited chapters get it as they are written; this rewrites the rest.</div>
+            </div>
+            <div class="act">
+              <div class="prog"><span class="bar"><span style="width:41%"></span></span><span class="count2">1,310 / 3,180</span></div>
+              <button class="btn ghost">Stop</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+</div>
+
+<h2>4 · Storage</h2>
+<div class="app" style="height:470px">
+  <div class="side">
+    <div class="brand"><span class="logo"></span><span class="name">longbox</span></div>
+    <div class="siderail" style="border-top:none;margin-top:0">
+      <div class="navlbl">LIBRARY</div>
+      <div class="navsec">
+        <button class="on">Storage<span class="tag">2</span></button>
+        <button>Health<span class="tag" style="color:var(--good)">✓</span></button>
+        <button>Maintenance</button>
+        <button>Fields<span class="tag">14</span></button>
+      </div>
+      <div class="navlbl">APP</div>
+      <div class="navsec">
+        <button>Browser</button><button>Appearance<span class="tag">Dark</span></button>
+        <button>Keyboard</button><button>About<span class="tag">2.0.1</span></button>
+      </div>
+    </div>
+  </div>
+  <div class="viewcol">
+    <div class="head"><h1 class="h1">Storage</h1><span class="count">3,180 titles</span></div>
+    <div class="viewscroll"><div class="wrap">
+      <div>
+        <div class="glabel">LIBRARIES</div>
+        <div class="group">
+          <div class="librow">
+            <span class="ldot on"></span>
+            <span class="lpath">Z:\LongBox</span>
+            <span class="lmeta">3,180 titles · active</span>
+          </div>
+          <div class="librow">
+            <span class="ldot"></span>
+            <span class="lpath">D:\archive\longbox-old</span>
+            <span class="lmeta">412 titles</span>
+            <button class="btn ghost small" style="margin-left:10px">Switch</button>
+            <button class="btn ghost small">Forget</button>
+          </div>
+          <div class="row">
+            <div class="text"><div class="hint">One directory per title on a per-type shelf. Switching
+              never touches files — content already at the target is simply indexed.</div></div>
+            <div class="act"><button class="btn">Add a library…</button></div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+</div>
+
+<h2>5 · a small section keeps the same shape — Appearance</h2>
+<div class="app" style="height:300px">
+  <div class="side">
+    <div class="brand"><span class="logo"></span><span class="name">longbox</span></div>
+    <div class="siderail" style="border-top:none;margin-top:0">
+      <div class="navlbl">LIBRARY</div>
+      <div class="navsec">
+        <button>Storage<span class="tag">2</span></button><button>Health<span class="tag" style="color:var(--good)">✓</span></button>
+        <button>Maintenance</button><button>Fields<span class="tag">14</span></button>
+      </div>
+      <div class="navlbl">APP</div>
+      <div class="navsec">
+        <button>Browser</button>
+        <button class="on">Appearance<span class="tag">Dark</span></button>
+        <button>Keyboard</button><button>About<span class="tag">2.0.1</span></button>
+      </div>
+    </div>
+  </div>
+  <div class="viewcol">
+    <div class="head"><h1 class="h1">Appearance</h1></div>
+    <div class="viewscroll"><div class="wrap">
+      <div>
+        <div class="glabel">THEME</div>
+        <div class="group">
+          <div class="row">
+            <div class="text">
+              <div class="label">Colour scheme</div>
+              <div class="hint">Switch the whole app between dark and light, or follow the system.
+                Your choice is remembered.</div>
+            </div>
+            <div class="act">
+              <div class="seg"><button class="opt on">Dark</button><button class="opt">Light</button><button class="opt">System</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+</div>
+
+</div>
+</body>
+</html>

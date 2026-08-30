@@ -71,6 +71,13 @@ video::-webkit-media-controls-fullscreen-button { outline: none; }
 .btn.accent:hover { filter: brightness(1.08); border-color: var(--accent); }
 .btn.ghost { background: transparent; color: var(--tx2); }
 .btn.ghost:hover { border-color: var(--accent); color: var(--accent); }
+/* compact variant — the 26px sibling of `.seg.text`, for buttons that sit
+   inside a panel row rather than in a band */
+.btn.small { height: 26px; padding: 0 10px; font-size: 11px; }
+/* a button that destroys something — never the only signal, always beside a word
+   that says what goes */
+.btn.danger { color: var(--adult); border-color: color-mix(in srgb, var(--adult) 40%, var(--line)); }
+.btn.danger:hover { border-color: var(--adult); }
 /* a band button whose panel is open (Filters) */
 .btn.acton { border-color: var(--accent); color: var(--accent); background: var(--accentSoft); }
 /* the count badge a button or a row carries */

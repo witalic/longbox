@@ -498,8 +498,8 @@ async function save(asNew: boolean) {
           </span>
         </button>
         <div class="gacts">
-          <button class="btn ghost chsmall" @click="emit('fillCancel')">Leave it</button>
-          <button class="btn accent chsmall" @click="emit('fillAnyway')">Fill anyway</button>
+          <button class="btn ghost small" @click="emit('fillCancel')">Leave it</button>
+          <button class="btn accent small" @click="emit('fillAnyway')">Fill anyway</button>
         </div>
       </div>
 
@@ -861,7 +861,6 @@ async function save(asNew: boolean) {
 .afrow { display: flex; align-items: center; gap: 8px; }
 .afrow { display: flex; align-items: center; gap: 8px; }
 .autofill { padding: 12px 14px; border-bottom: 1px solid var(--line); }
-.wide { width: 100%; justify-content: center; }
 .afnote { margin-top: 7px; font: 400 10.5px/1.45 system-ui; color: var(--tx3); }
 
 .body { flex: 1; min-height: 0; overflow: auto; padding: 14px; }
