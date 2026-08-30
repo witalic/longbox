@@ -24,6 +24,8 @@ from ..library.models import (
 )
 from ..library.media import MediaInUseError
 from ..library.service import Library
+from ..library.vault import safe_id
+from ..passes import _pass
 from ..scraper.covers import fetch_cover
 
 router = APIRouter(prefix="/api")
@@ -93,10 +95,21 @@ def list_fields() -> list[FieldOut]:
             for f in fields.registry()]
 
 
+@router.get("/fields/usage")
+def field_usage(request: Request) -> dict[str, int]:
+    """Titles holding a value, per field, across the whole library — never just
+    the page the browser is showing."""
+    return _lib(request).field_usage()
+
+
 class FieldIn(BaseModel):
     """A field definition as the user writes it. `id` comes from the path."""
     label: str
     type: str = "text"
+    # What a list is folded into text with when the TYPE changes, and what a
+    # text is split back on. Only the person changing it knows what the values
+    # look like, so it travels with the change rather than being assumed here.
+    join: str = ", "
     facet: bool = True
     multiline: bool = False
     placeholder: str = ""
@@ -104,7 +117,7 @@ class FieldIn(BaseModel):
 
 _FIELD_ID = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 # boolean is deferred with its tri-state filter (design/metadata-model.md §8)
-_FIELD_TYPES = ("text", "number", "list", "date")
+_FIELD_TYPES = ("text", "description", "number", "list", "date")
 
 
 def _save_fields(lib: Library, defs: list[CustomFieldDef]) -> None:
@@ -126,21 +139,62 @@ def put_field(field_id: str, body: FieldIn, request: Request) -> list[FieldOut]:
         raise HTTPException(400, "a field needs a label")
     lib = _lib(request)
     defs = [d for d in lib.vault.custom_fields() if d.id != field_id]
+    was = next((d for d in lib.vault.custom_fields() if d.id == field_id), None)
+    # Number and date can be LEFT but never ENTERED. A field is a number because
+    # it was created as one; letting arbitrary text be declared one is the same
+    # category error as calling a list of names a number, and no amount of
+    # checking the current values makes the type honest afterwards.
+    if was is not None and was.type != body.type and body.type in ("number", "date"):
+        raise HTTPException(409, f"a {was.type} field cannot become a {body.type} — "
+                                 f"create the field as a {body.type} instead")
+    # Joining is only reversible while no value contains the separator: a list
+    # folded on the wrong one cannot be unfolded afterwards. Checked BEFORE the
+    # definition is written — a refusal that leaves the field saying "text" over
+    # a list is the incoherent state this whole rule exists to prevent.
+    if was is not None and was.type == "list" and body.type != "list":
+        clash = lib.join_conflicts(field_id, body.join)
+        if clash["total"]:
+            shown = "; ".join(f"{e['title']}: {e['value']}" for e in clash["examples"])
+            raise HTTPException(
+                409, f"{clash['total']} title(s) hold a value containing "
+                     f"“{body.join}”, so joining on it could not be undone "
+                     f"— {shown}")
+
     defs.append(CustomFieldDef(id=field_id, label=body.label.strip(), type=body.type,
-                               facet=body.facet, multiline=body.multiline,
+                               # stored as asked: prose suspends the flag, it
+                               # does not erase it, so turning the field back
+                               # into text restores what you had
+                               facet=body.facet,
+                               multiline=body.type == "description",
                                placeholder=body.placeholder))
     _save_fields(lib, defs)
+    # The definition and the data move together, and only where a list is on one
+    # side is there anything to move. Asked of the index first, so a save that
+    # changes nothing does not claim the pass slot or leave a line in its log.
+    if (Library.retype_moves_data(was.type if was else body.type, body.type)
+            and lib.retype_candidates(field_id, body.type, body.join)):
+        with _pass(f"converting {body.label.strip()}", "retype") as (progress, stop):
+            lib.retype_field(field_id, body.type, body.join, progress=progress, stop=stop)
     return list_fields()
 
 
 @router.delete("/fields/{field_id}", response_model=list[FieldOut])
-def delete_field(field_id: str, request: Request) -> list[FieldOut]:
-    """Stop offering a field. The VALUES stay in the vault — deleting a field is
-    not a licence to shred what the user typed, and re-adding it brings them back."""
+def delete_field(field_id: str, request: Request, values: bool = False) -> list[FieldOut]:
+    """Stop offering a field.
+
+    By default the VALUES stay in the vault: deleting a definition is not a
+    licence to shred what the user typed, and re-adding it brings them back.
+    `values=true` is the other thing someone might mean — take the data with
+    it — and it has to be asked for."""
     lib = _lib(request)
     defs = lib.vault.custom_fields()
     if not any(d.id == field_id for d in defs):
         raise HTTPException(404, "no such custom field")
+    if values:
+        # asked for explicitly, and only then: the default remains that removing
+        # a definition is not a licence to shred what the user typed
+        with _pass(f"clearing {field_id}", "clear") as (progress, stop):
+            lib.clear_field(field_id, progress=progress, stop=stop)
     _save_fields(lib, [d for d in defs if d.id != field_id])
     return list_fields()
 
@@ -706,6 +760,14 @@ def list_sources(request: Request) -> list[Source]:
     hidden = set(cfg.get("hidden_sources", []))
     prefs = _source_prefs(cfg)
     sources = [s for s in _lib(request).sources() if s.domain not in hidden]
+    # A site is also a source once you have bookmarked a page on it or taught it
+    # a recipe — the library derives sources from TITLES, so a domain you have
+    # not captured from yet would otherwise have its bookmarks saved and never
+    # shown, which reads as "the star did nothing".
+    known = {s.domain for s in sources}
+    for domain in sorted((set(prefs) | set(recipes.list_domains())) - known - hidden):
+        sources.append(Source(id=safe_id(domain), domain=domain,
+                              homepage=f"https://{domain}/", titles=0))
     for s in sources:  # join the saved per-domain recipe onto each source
         recipe = recipes.get(s.domain)
         if recipe is not None:

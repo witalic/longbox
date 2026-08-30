@@ -137,7 +137,7 @@ export interface FacetValue { v: string; n: number }
 export interface FieldDef {
   id: string
   label: string
-  type: 'text' | 'number' | 'list' | 'date' | 'boolean'
+  type: 'text' | 'description' | 'number' | 'list' | 'date'
   // 'cover' and 'flags' are the two bespoke rows: they have a label, a body and
   // a place in the order like any field, but their body is not a value control
   control: 'line' | 'multiline' | 'vocab' | 'chips' | 'number' | 'date' | 'toggle'
@@ -242,6 +242,24 @@ function valuesOf(bag: Record<string, unknown>, fields: FieldDef[]): Record<stri
     else out[f.id] = typeof v === 'string' ? v : ''
   }
   return out
+}
+
+/** What a title holds in one field, built-in or user-defined.
+ *
+ * A user-defined value lives under `custom` while a built-in is a property of
+ * its own — every screen that shows a field needs the same two-line answer, so
+ * it lives here rather than in whichever screen asked first. */
+export function fieldValue(t: Title, f: FieldDef): string | string[] {
+  const v = f.builtin
+    ? (t as unknown as Record<string, unknown>)[f.id]
+    : (t.custom ?? {})[f.id]
+  if (Array.isArray(v)) return v.filter(Boolean) as string[]
+  return typeof v === 'string' ? v : ''
+}
+
+export function hasValue(t: Title, f: FieldDef): boolean {
+  const v = fieldValue(t, f)
+  return Array.isArray(v) ? v.length > 0 : !!v.trim()
 }
 
 // ---- presentation helpers ----

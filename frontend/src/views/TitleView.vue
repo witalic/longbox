@@ -19,18 +19,19 @@ import {
   commitDraft, confirmDiscard, discardDraft, draftFromTitle, draftState, isDirty,
 } from '../draft'
 import { readLocalOne, writeLocalOne } from '../local'
-import { api } from '../api'
+import { api, type Gap } from '../api'
 import {
   ARCHIVE_RE, FILE_ACCEPT, IMAGE_RE, MEDIA_ACCEPT, VIDEO_RE, compareChapterNums, coverStyle,
   faviconFor, filterOptions, isReadable, isUnsupported, mediaLabel, orderedChaptersOf,
-  chaptersInScope, labelChoices, nextLabel, nextLabels, sameChapter, unsupportedNote,
+  chaptersInScope, fieldValue, hasValue, labelChoices, nextLabel, nextLabels, sameChapter,
+  unsupportedNote, type FieldDef,
 } from '../data'
 
 // domains whose favicon failed to load → fall back to the initial letters
 const noIcon = reactive<Record<string, boolean>>({})
 import {
   addChapterRow, askConfirm, cache, clearTitleSource, commitChapterOrder, deleteTitle,
-  editChapterRow, filterBy, filterByPerson, goView, groupRings, hiddenOf,
+  editChapterRow, filterBy, filterByField, filterByPerson, goView, groupRings, hiddenOf,
   langRings, openReader, openTitle, setFavorite, setFieldHidden, setRating, setRead,
   store, titleById, visibleFields,
 } from '../store'
@@ -53,7 +54,70 @@ const editableFields = computed(() => store.fields.filter((f) => f.editable))
 const shownFields = computed(() => visibleFields('title', editableFields.value))
 const hiddenFieldsHere = computed(() => hiddenOf('title', editableFields.value))
 
+// A handful of fields are drawn by hand above because each earns it — avatars
+// for people, a colour per flag, badges that sit beside the title. EVERY other
+// field the registry offers is drawn here, by its TYPE, whether it is built in
+// or one of yours: `studio` was invisible for the same reason a user-defined
+// field was, and "add a field and every screen offers it" has to be true of
+// this screen too.
+//
+// The order is the REGISTRY's, which is the order the editor draws them in —
+// so a field appears where you would look for it, and one source decides that.
+const DRAWN = new Set(['title', 'alt', 'cover', 'type', 'status', 'year', 'flags',
+                       'authors', 'artists', 'studio', 'characters', 'genres', 'tags', 'desc'])
+
+const extraRows = computed(() => {
+  const title = t.value
+  if (!title) return []
+  return shownFields.value
+    .filter((f) => !DRAWN.has(f.id) && hasValue(title, f))
+    .map((f) => {
+      const v = fieldValue(title, f)
+      // A value can outlive the shape its field had: never let it reach the
+      // page through JavaScript's own idea of joining a list, which is a comma
+      // and no space. The vault repairs these on the field's next save.
+      return { f, list: asList(v), text: Array.isArray(v) ? v.join(', ') : v }
+    })
+})
+
+function asList(v: string | string[]): string[] {
+  return Array.isArray(v) ? v : []
+}
+// A facet can be jumped from, exactly like a genre chip: the library filters by
+// field id, so a field it has never heard of filters like one it has.
+// Story, Art and Studio are three rows, not three runs on one line.
+const makers = computed(() => {
+  const title = t.value
+  if (!title) return []
+  return [
+    { label: 'STORY', names: title.authors, jump: filterByPerson },
+    { label: 'ART', names: title.artists, jump: filterByPerson },
+    { label: 'STUDIO', names: title.studio, jump: (v: string) => filterByField('studio', v) },
+  ].filter((r) => r.names.length)
+})
+
+function jumpTo(f: FieldDef, value: string) {
+  if (f.facet) filterByField(f.id, value)
+}
+
 watch(() => store.activeTitle, () => { metaEdit.value = false })
+
+// Numbering gaps, asked of the backend that owns the rule — the detector is
+// deliberate about when it speaks at all (a hand-made order, an image set and a
+// handful of loose entries are never a sequence), so an empty answer is the
+// normal one and the line simply is not there.
+const gaps = ref<Gap[]>([])
+watch(() => [t.value?.id, t.value?.chapters.length] as const, async ([id]) => {
+  gaps.value = []
+  if (!id) return
+  try { gaps.value = await api.gaps(id) } catch { /* a quiet line stays quiet */ }
+}, { immediate: true })
+
+const gapLine = computed(() => gaps.value.map((g) => {
+  const scope = [g.lang, g.group].filter(Boolean).join(' · ')
+  const nums = g.missing.join(', ')
+  return gaps.value.length > 1 && scope ? `${scope}: ${nums}` : nums
+}).join(' · '))
 
 async function startMetaEdit() {
   if (!t.value || !(await confirmDiscard())) return
@@ -764,52 +828,73 @@ async function removeRow(c: Chapter) {
         <div v-if="t.alt" class="alt">{{ t.alt }}</div>
 
         <!-- empty fields simply don't render — the page shows what IS known -->
-        <div v-if="activeFlags.length" class="flags">
-          <span class="eyebrow" style="margin-right:2px">FLAGS</span>
-          <span v-for="f in activeFlags" :key="f.key" class="flagtag" :style="{ color: f.color, borderColor: f.color }">{{ f.tag }}</span>
+        <div v-if="activeFlags.length" class="metarow">
+          <span class="eyebrow">FLAGS</span>
+          <div class="wrap">
+            <span v-for="f in activeFlags" :key="f.key" class="flagtag"
+                  :style="{ color: f.color, borderColor: f.color }">{{ f.tag }}</span>
+          </div>
         </div>
 
-        <div v-if="t.authors.length || t.artists.length" class="authors">
-          <template v-if="t.authors.length">
-            <span class="role">Story</span>
-            <a v-for="a in t.authors" :key="'au' + a" class="authorlink" :title="`Filter library by ${a}`" @click="filterByPerson(a)">
-              <span class="avatar">{{ initials(a) }}</span><span class="pname">{{ a }}</span>
+        <!-- one row per role, so every label sits in the one column: two roles
+             sharing a line put the second one wherever the first happened to
+             end -->
+        <div v-for="role in makers" :key="role.label" class="metarow">
+          <span class="eyebrow">{{ role.label }}</span>
+          <div class="wrap">
+            <a v-for="name in role.names" :key="name" class="authorlink"
+               :title="`Filter library by ${name}`" @click="role.jump(name)">
+              <span class="avatar">{{ initials(name) }}</span><span class="pname">{{ name }}</span>
             </a>
-          </template>
-          <template v-if="t.artists.length">
-            <span class="role">Art</span>
-            <a v-for="a in t.artists" :key="'ar' + a" class="authorlink" :title="`Filter library by ${a}`" @click="filterByPerson(a)">
-              <span class="avatar">{{ initials(a) }}</span><span class="pname">{{ a }}</span>
-            </a>
-          </template>
+          </div>
         </div>
 
-        <div class="rating">
+        <div class="metarow">
           <span class="eyebrow">MY RATING</span>
-          <div style="display:flex;gap:3px">
-            <span v-for="i in 5" :key="i" class="ratestar" :style="{ color: i <= t.rating ? 'var(--warn)' : 'var(--tx3)' }" @click="setRating(t, i)">
+          <div class="wrap">
+            <span v-for="i in 5" :key="i" class="ratestar"
+                  :style="{ color: i <= t.rating ? 'var(--warn)' : 'var(--tx3)' }"
+                  @click="setRating(t, i)">
               <Icon name="star" :size="20" :sw="1.4" :fill="i <= t.rating ? 'var(--warn)' : 'none'" />
             </span>
+            <span class="rateval">{{ t.rating }}/5</span>
           </div>
-          <span style="font:500 12px/1 system-ui;color:var(--tx3)">{{ t.rating }}/5</span>
         </div>
 
         <div v-if="t.characters.length" class="metarow">
-          <span class="eyebrow" style="width:56px;flex:none">CAST</span>
+          <span class="eyebrow">CAST</span>
           <div class="wrap"><span v-for="ch in t.characters" :key="ch" class="genre link" :title="`Filter by ${ch}`" @click="filterBy('character', ch)">{{ ch }}</span></div>
         </div>
-        <div v-if="t.genres.length" class="metarow" :style="t.characters.length ? 'margin-top:9px' : ''">
-          <span class="eyebrow" style="width:56px;flex:none">GENRES</span>
+        <div v-if="t.genres.length" class="metarow">
+          <span class="eyebrow">GENRES</span>
           <div class="wrap"><span v-for="g in t.genres" :key="g" class="genre link" :title="`Filter by ${g}`" @click="filterBy('genre', g)">{{ g }}</span></div>
         </div>
-        <div v-if="t.tags.length" class="metarow" style="margin-top:9px">
-          <span class="eyebrow" style="width:56px;flex:none">TAGS</span>
+        <div v-if="t.tags.length" class="metarow">
+          <span class="eyebrow">TAGS</span>
           <div class="wrap"><span v-for="tg in t.tags" :key="tg" class="tag link" :title="`Filter by ${tg}`" @click="filterBy('tag', tg)">{{ tg }}</span></div>
+        </div>
+
+        <!-- one row per filled field, drawn by its type -->
+        <div v-for="row in extraRows" :key="row.f.id" class="metarow">
+          <span class="eyebrow">{{ row.f.label.toUpperCase() }}</span>
+          <div v-if="row.f.type === 'list'" class="wrap">
+            <span v-for="v in row.list" :key="v" class="genre" :class="{ link: row.f.facet }"
+                  :title="row.f.facet ? `Filter by ${v}` : undefined" @click="jumpTo(row.f, v)">
+              {{ v }}
+            </span>
+          </div>
+          <p v-else-if="row.f.control === 'multiline'" class="plainval multi">{{ row.text }}</p>
+          <div v-else class="wrap">
+            <span class="plainval" :class="{ num: row.f.type === 'number' || row.f.type === 'date',
+                                             link: row.f.facet }"
+                  :title="row.f.facet ? `Filter by ${row.text}` : undefined"
+                  @click="jumpTo(row.f, row.text)">{{ row.text }}</span>
+          </div>
         </div>
 
         <p v-if="t.desc" class="desc">{{ t.desc }}</p>
 
-        <div v-if="t.source.url" class="srcrow">
+        <div v-if="t.source.url" class="metarow srcrow">
           <span class="eyebrow">SOURCE</span>
           <span class="srcchip" style="cursor:pointer" :title="t.source.url" @click="openInBrowser(t.id, t.source.url)">
             <span class="srcinit">
@@ -830,7 +915,7 @@ async function removeRow(c: Chapter) {
         <MetadataEditor wide surface="title" />
       </div>
 
-      <button v-if="!editing && (headClipped || headOpen)" class="btn ghost chsmall headmore"
+      <button v-if="!editing && (headClipped || headOpen)" class="btn ghost small headmore"
               :title="headOpen ? 'Show less of the record' : 'Show everything this record carries'"
               @click="headOpen = !headOpen">
         <Icon name="chevron" :size="12" :sw="2.2" :style="headOpen ? 'transform:rotate(180deg)' : ''" />
@@ -849,9 +934,9 @@ async function removeRow(c: Chapter) {
           <Dropdown v-if="groupOpts.length > 2" label="GROUP" :model-value="groupFilter" :options="groupOpts" @update:model-value="groupFilter = String($event)" />
           <div style="flex:1"></div>
           <template v-if="editMode">
-            <button class="btn ghost chsmall" @click="importOpen = !importOpen"><Icon name="plus" :size="12" :sw="2.2" />Add entry</button>
-            <button v-if="t.chapterOrder === 'manual'" class="btn ghost chsmall" title="Back to smart number order" @click="sortAuto">Sort №</button>
-            <button class="btn accent chsmall" @click="editMode = false; selPages = []; importOpen = false; editRow = null">Done</button>
+            <button class="btn ghost small" @click="importOpen = !importOpen"><Icon name="plus" :size="12" :sw="2.2" />Add entry</button>
+            <button v-if="t.chapterOrder === 'manual'" class="btn ghost small" title="Back to smart number order" @click="sortAuto">Sort №</button>
+            <button class="btn accent small" @click="editMode = false; selPages = []; importOpen = false; editRow = null">Done</button>
           </template>
           <button v-else class="iconbtn chedit" title="Edit contents: add/edit entries, attach files, drag to reorder" @click="startContentsEdit()">
             <Icon name="edit" :size="13" :sw="1.9" />
@@ -860,6 +945,8 @@ async function removeRow(c: Chapter) {
         <div v-if="editMode" class="chhint mono">
           drag to reorder{{ filtersActive ? ' (clear the filters first)' : '' }} · drag a translation onto another label to move it there · click pages to select
         </div>
+        <!-- only where the labels provably form a run; silent for everything else -->
+        <div v-else-if="gapLine" class="chhint mono">missing {{ gapLine }}</div>
 
         <!-- add entry — the SAME form design as the inline edit below -->
         <div v-if="editMode && importOpen" class="entryform addform" :class="{ drophot: entryDropHot }"
@@ -873,9 +960,9 @@ async function removeRow(c: Chapter) {
           <div class="irow">
             <span class="drophint mono">drop an archive · a video · images · a whole folder</span>
             <div style="flex:1"></div>
-            <button class="btn ghost chsmall" :disabled="importing" @click="importOpen = false; iUrl = ''">Cancel</button>
-            <button class="btn ghost chsmall" :disabled="!iNum.trim() || importing" title="Create the entry row without a file — add images later from the pages pane" @click="addRowOnly">Add row only</button>
-            <button class="btn accent chsmall" :disabled="!iNum.trim() || importing" title="One archive (.zip/.cbz/.rar/.7z) or a set of images (webp converts to a standard format); drop a folder onto the form" @click="filesEl?.click()">
+            <button class="btn ghost small" :disabled="importing" @click="importOpen = false; iUrl = ''">Cancel</button>
+            <button class="btn ghost small" :disabled="!iNum.trim() || importing" title="Create the entry row without a file — add images later from the pages pane" @click="addRowOnly">Add row only</button>
+            <button class="btn accent small" :disabled="!iNum.trim() || importing" title="One archive (.zip/.cbz/.rar/.7z) or a set of images (webp converts to a standard format); drop a folder onto the form" @click="filesEl?.click()">
               {{ importing ? 'Importing…' : 'Choose files…' }}
             </button>
           </div>
@@ -928,8 +1015,8 @@ async function removeRow(c: Chapter) {
                        :lang-more="iLangSuggest.all" :group-more="iGroupSuggest.all"
                        :label-suggest="iLabelSuggest" />
                     <div class="irow" style="justify-content:flex-end">
-                      <button class="btn ghost chsmall" @click="editRow = null">Cancel</button>
-                      <button class="btn accent chsmall" :disabled="!eLabel.trim()" @click="saveEntryEdit">Save</button>
+                      <button class="btn ghost small" @click="editRow = null">Cancel</button>
+                      <button class="btn accent small" :disabled="!eLabel.trim()" @click="saveEntryEdit">Save</button>
                     </div>
                   </div>
                 </template>
@@ -967,8 +1054,8 @@ async function removeRow(c: Chapter) {
                        :lang-more="iLangSuggest.all" :group-more="iGroupSuggest.all"
                        :label-suggest="iLabelSuggest" />
                 <div class="irow" style="justify-content:flex-end">
-                  <button class="btn ghost chsmall" @click="editRow = null">Cancel</button>
-                  <button class="btn accent chsmall" :disabled="!eLabel.trim()" @click="saveEntryEdit">Save</button>
+                  <button class="btn ghost small" @click="editRow = null">Cancel</button>
+                  <button class="btn accent small" :disabled="!eLabel.trim()" @click="saveEntryEdit">Save</button>
                 </div>
               </div>
             </template>
@@ -990,18 +1077,18 @@ async function removeRow(c: Chapter) {
         <div class="pghead">
           <span v-if="openChapter" class="mono pglabel">{{ openChapter.num }}<template v-if="openChapter.lang"> · {{ openChapter.lang }}</template> — {{ openChapter.kind === 'video' ? (mediaLabel(openChapter) || 'video') : `${pageCount} pages` }}<template v-if="selPages.length"> · <span style="color:var(--accent)">{{ selPages.length }} selected</span></template></span>
           <div style="flex:1"></div>
-          <button v-if="openChapter?.kind === 'video' && openChapter.dl" class="btn ghost chsmall"
+          <button v-if="openChapter?.kind === 'video' && openChapter.dl" class="btn ghost small"
                   title="Open this episode in the full window — the episode list travels with it. The player's own button is what fills the screen."
                   @click="t && openReader(t.id, openChapter.id, 0)">
             <Icon name="forward" :size="12" :sw="2" />Open player
           </button>
           <template v-if="editMode && openChapter">
-            <button class="btn ghost chsmall" :disabled="importing" title="Append image files to this entry (its archive is created on first add)" @click="addImgEl?.click()">
+            <button class="btn ghost small" :disabled="importing" title="Append image files to this entry (its archive is created on first add)" @click="addImgEl?.click()">
               <Icon name="plus" :size="12" :sw="2.2" />{{ importing ? 'Adding…' : 'Add images' }}
             </button>
-            <button class="btn ghost chsmall" :disabled="importing" title="Append a whole folder of images" @click="addDirEl?.click()">Folder</button>
+            <button class="btn ghost small" :disabled="importing" title="Append a whole folder of images" @click="addDirEl?.click()">Folder</button>
             <span ref="moveRoot" class="movewrap">
-              <button v-if="selPages.length" class="btn chsmall" title="Move the selected pages into another entry" @click="moveOpen = !moveOpen">Move to…</button>
+              <button v-if="selPages.length" class="btn small" title="Move the selected pages into another entry" @click="moveOpen = !moveOpen">Move to…</button>
               <div v-if="moveOpen" class="movemenu">
                 <template v-for="node in moveTargets" :key="node.num">
                   <div v-if="node.rows.length > 1" class="mvhead mono">{{ node.num }}</div>
@@ -1020,11 +1107,11 @@ async function removeRow(c: Chapter) {
                     <input v-model="nLang" class="iin" style="width:64px" placeholder="EN" />
                     <input v-model="nGroup" class="iin" style="flex:1;min-width:0" placeholder="group" />
                   </div>
-                  <button class="btn accent chsmall" :disabled="!nLabel.trim()" @click="createEntryFromSelection">Create + move {{ selPages.length }}</button>
+                  <button class="btn accent small" :disabled="!nLabel.trim()" @click="createEntryFromSelection">Create + move {{ selPages.length }}</button>
                 </div>
               </div>
             </span>
-            <button v-if="selPages.length" class="btn dangerbtn chsmall" @click="deleteSelectedPages">
+            <button v-if="selPages.length" class="btn dangerbtn small" @click="deleteSelectedPages">
               <Icon name="x" :size="12" :sw="2.2" />Delete {{ selPages.length }}
             </button>
             <input ref="addImgEl" type="file" accept="image/*" multiple style="display:none" @change="onAddImages" />
@@ -1110,19 +1197,31 @@ async function removeRow(c: Chapter) {
 .title { margin: 0; font: 600 30px/1.08 system-ui; letter-spacing: -.6px; color: var(--tx); }
 .alt { margin-top: 6px; font: 400 13px/1.4 system-ui; color: var(--tx3); }
 
-.flags { margin-top: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .flagtag { font: 700 10px/1 ui-monospace, monospace; letter-spacing: .05em; border: 1px solid; padding: 4px 8px; border-radius: 5px; }
-.authors { margin-top: 15px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font: 400 13px/1 system-ui; color: var(--tx2); }
-.authors .role { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; text-transform: uppercase; color: var(--tx3); }
 .authorlink { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; border-radius: 6px; padding: 2px 6px 2px 2px; }
 .authorlink:hover { background: var(--panel2); }
 .authorlink .pname { font-weight: 500; color: var(--tx); }
 .authorlink:hover .pname { color: var(--accent); }
 .avatar { width: 22px; height: 22px; border-radius: 50%; background: linear-gradient(135deg, #4a4f5e, #2a2d38); display: inline-flex; align-items: center; justify-content: center; font: 600 9px/1 system-ui; color: #cfd3dc; }
-.rating { margin-top: 16px; display: flex; align-items: center; gap: 10px; }
 .ratestar { cursor: pointer; display: flex; }
 .ratestar:hover { transform: scale(1.12); }
-.metarow { margin-top: 18px; display: flex; gap: 10px; align-items: flex-start; }
+/* One fact per row, one column of labels.
+   The value's first line is a 24px box (the height of a chip), and the label is
+   centred in that box — an eyebrow is 9px tall, so aligning the two at the top
+   left it sitting seven pixels above what it names. The label width lives here
+   rather than inline on every row, so the column cannot drift apart. */
+.metarow { margin-top: 14px; display: flex; gap: 10px; align-items: flex-start; }
+/* A label names its row and must never wrap to do it — 56px cut "TEST DATE"
+   in half while the row beside it was mostly empty. Wide enough for the labels
+   a registry actually produces, and a longer one pushes only its own value. */
+.metarow > .eyebrow { min-width: 84px; flex: none; line-height: 24px; white-space: nowrap; }
+.metarow .wrap { min-height: 24px; }
+.plainval { font: 500 12.5px/24px system-ui; color: var(--tx); }
+.rateval { font: 500 12px/24px system-ui; color: var(--tx3); margin-left: 4px; }
+.plainval.num { font-family: ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.plainval.link { cursor: pointer; }
+.plainval.link:hover { color: var(--accent); }
+.plainval.multi { margin: 0; max-width: 78ch; color: var(--tx2); font-size: 13px; line-height: 1.65; }
 .metarow .wrap { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .genre { display: inline-flex; align-items: center; gap: 6px; font: 500 12px/1 system-ui; color: var(--tx); background: var(--panel2); border: 1px solid var(--line); padding: 5px 10px; border-radius: 6px; }
 .tag { display: inline-flex; align-items: center; gap: 5px; font: 400 11px/1 system-ui; color: var(--tx2); padding: 4px 8px; border-radius: 5px; border: 1px dashed var(--line); }
@@ -1130,7 +1229,7 @@ async function removeRow(c: Chapter) {
 .genre.link:hover { border-color: var(--accent); color: var(--accent); }
 .tag.link:hover { border-color: var(--accent); color: var(--accent); }
 .desc { margin: 18px 0 0; max-width: 760px; font: 400 13.5px/1.65 system-ui; color: var(--tx2); }
-.srcrow { margin-top: 18px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.srcrow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .srcchip { display: inline-flex; align-items: center; gap: 7px; font: 500 12px/1 system-ui; color: var(--tx); background: var(--panel2); border: 1px solid var(--line); padding: 5px 9px 5px 5px; border-radius: 6px; }
 .srcinit { width: 20px; height: 20px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; font: 600 9px/1 system-ui; color: #fff; background: var(--panel); border: 1px solid var(--line); overflow: hidden; }
 .favimg { width: 14px; height: 14px; object-fit: contain; }
@@ -1195,7 +1294,6 @@ async function removeRow(c: Chapter) {
 
 /* the tree + edit mode + pages */
 .chedit { width: 28px; height: 28px; }
-.chsmall { padding: 6px 10px; font-size: 11.5px; }
 .chhint { margin: 8px 0 2px; font-size: 10px; color: var(--tx3); }
 .dragging { opacity: .45; }
 /* the landing indicator: an accent line ABOVE the row the drag would land before */

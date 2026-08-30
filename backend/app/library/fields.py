@@ -24,7 +24,11 @@ from typing import Literal
 from .models import CustomFieldDef, TitleDoc
 
 # How a value is stored and filtered. The five the app can render.
-FieldType = Literal["text", "number", "list", "date"]
+# `description` stores exactly what `text` stores. It is a separate TYPE
+# because what it is FOR is different: prose, not a value. Prose has no
+# vocabulary to tick, so it is never a filter and never an axis — which is a
+# fact about the field, not a checkbox someone has to remember to clear.
+FieldType = Literal["text", "description", "number", "list", "date"]
 # Which widget the editor draws. Derived from `type` for custom fields; built-ins
 # say it outright, because `desc` is a textarea and `type` is a vocabulary combo
 # while both are stored as plain text.
@@ -32,7 +36,8 @@ Control = Literal["line", "multiline", "vocab", "chips", "number", "date",
                   "cover", "flags"]
 
 _CONTROL_FOR: dict[str, Control] = {
-    "text": "line", "number": "number", "list": "chips", "date": "date",
+    "text": "line", "description": "multiline", "number": "number",
+    "list": "chips", "date": "date",
 }
 
 
@@ -148,14 +153,17 @@ def _custom_values(fid: str) -> Callable[[TitleDoc], set[str]]:
 
 def as_field(d: CustomFieldDef) -> Field:
     """A stored definition as the registry entry every consumer reads."""
-    control = "multiline" if d.type == "text" and d.multiline else control_for(d.type)
+    # a vault written before `description` existed says text + multiline
+    type_ = "description" if d.type == "text" and d.multiline else d.type
+    control = control_for(type_)
     # A chips control draws a borderless input: with no placeholder it is a row
     # with nothing in it, and the field reads as broken. Say what it takes.
     placeholder = d.placeholder or (
-        f"add {d.label.lower()}…" if d.type == "list" else d.label)
+        f"add {d.label.lower()}…" if type_ == "list" else d.label)
     return Field(
-        id=d.id, label=d.label, type=d.type, control=control,  # type: ignore[arg-type]
-        builtin=False, facet=d.facet, placeholder=placeholder,
+        id=d.id, label=d.label, type=type_, control=control,  # type: ignore[arg-type]
+        # prose is never a filter, whatever the stored definition says
+        builtin=False, facet=d.facet and type_ != "description", placeholder=placeholder,
         values=_custom_values(d.id),
     )  # group stays the default: a field you defined belongs with the others you did
 

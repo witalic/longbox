@@ -41,9 +41,11 @@ class CustomFieldDef(BaseModel):
     data, not this machine), and turned into a registry Field at load."""
     id: str
     label: str
-    type: str = "text"        # text | number | list | date | boolean
+    type: str = "text"        # text | description | number | list | date
     facet: bool = True        # offer it as a library filter
-    multiline: bool = False   # text only: a description-sized box
+    # Kept for vaults written before `description` was a type of its own: a
+    # multi-line text field IS a description, and is read back as one.
+    multiline: bool = False
     placeholder: str = ""
 
 
