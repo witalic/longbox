@@ -238,6 +238,13 @@ thing, so any third-party reader opens it), converted at ingest when the site se
 rar/7z and refused when nothing can read it, plus a provenance sidecar
 (`<chapter-id>.json`: fileUrl, pageUrl, filename, size, pages, date). Pages are the
 zip's image entries in natural order; deleting pages rewrites the archive atomically.
+
+The sidecar also carries what the vault can PROVE about the file: `sha256` over every
+byte (integrity), `content` over the ordered page images (the same chapter through a
+repack or a renumbering, which is what duplicate detection compares), and `comicinfo`,
+the mirror the archive last received. All three are stamped wherever the media is
+written and never by a pass that only reads — a settled chapter is therefore skipped
+without being opened at all.
 Read state stays a separate axis in the user layer. An automated politeness queue is
 deliberately NOT built — the armed handshake makes bulk fetching impossible.
 

@@ -59,11 +59,27 @@ title is suddenly full of values nothing can name.
 
 | type | stored as | control | filters as |
 |---|---|---|---|
-| `text` | `str` | single-line input | — |
-| `number` | `float` | numeric input | — (range later) |
+| `text` | `str` | single-line input | facet, when asked |
+| `description` | `str` | multi-line box | never — prose has no vocabulary to tick |
+| `number` | `str` holding a number | numeric input | — (range later) |
 | `list` | `list[str]` | chip list with vocabulary | facet, like tags |
 | `date` | `str`, ISO `YYYY-MM-DD` | date input | — (range later) |
-| `boolean` | `bool` | toggle | tri-state: any / yes / no — **deferred, see §8** |
+
+`boolean` remains deferred (§8).
+
+**A type is a promise about the data, so a change carries the data with it.** Only a
+list is shaped differently from the rest, so only a change into or out of one moves
+anything; the separator it joins on (and splits back over) is the caller's, because
+only they know what the values look like. Two rules keep the promise honest:
+
+- **number and date can be left but never entered.** A field is a number because it
+  was created as one; declaring arbitrary text a number is the same category error as
+  calling a list of names one, and no check of the current values makes it true later.
+- **a join no value survives is refused.** `["Ito, Junji", "Mori"]` folded on `", "`
+  reads back as three names, and nothing afterwards can tell it was two.
+
+Removing a field is two intentions, asked separately: drop the definition and keep
+every value (re-defining the field brings them back), or take the data with it.
 
 `date` is stored as a plain ISO string, not a timestamp: these are calendar days
 (released, bought, finished), and a timestamp would invent a timezone nobody asked
