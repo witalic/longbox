@@ -26,9 +26,11 @@ tags or cover, and longbox learns a reusable per-site recipe.
 - **Per-site recipes** — taught once per domain, stored versioned with ordered fallback candidates
   (picked selector → structural fallback → page metadata), reused for every next title on that
   site. Each source decides which metadata fields it offers, and keeps its own bookmarks.
-- **Fields you define** — the metadata registry is per library: add your own fields (text, list,
-  number, date, boolean), group them, and choose which appear on title pages, in the filters and
-  in the capture dock.
+- **Fields you define** — the metadata registry is per library: add your own fields (text,
+  description, number, list, date) and choose which appear on title pages, in the filters and in
+  the capture dock. A field's type is a promise about its data, so number and date can be left but
+  never entered, and a list only folds into text on a separator no value contains. Every filled
+  field draws itself on the title page by its type — nothing to wire up per screen.
 - **Downloads** — arm the next download for a specific chapter, then just download the file in the
   embedded browser; longbox intercepts it and files it into the vault. Archives (zip/cbz/7z/rar)
   are normalized to zip, single images accumulate into the chapter page by page, and a video is
@@ -48,9 +50,18 @@ tags or cover, and longbox learns a reusable per-site recipe.
   chapter navigation that keeps your current translation, per-title remembered settings, and
   rebindable (layout-independent) hotkeys. Reading progress writes through instantly.
 - **People & sources** — authors and artists aggregated from the library with roles, works and
-  favorites; source sites grouped as you like, each with its recipe status and saved links.
+  favorites; source sites grouped as you like, each with its recipe status and saved links. A site
+  becomes a source the moment you bookmark a page on it, and sits under **no recipe** until you
+  teach it one.
 - **Local-first storage** — one directory per title on a per-type shelf; a rebuildable SQLite index
   (deleting it never loses content); atomic writes; multiple switchable library locations.
+- **Integrity** — every stored file is checksummed as it lands, and a revision pass checks the vault
+  against its own records: damaged archives, files gone missing, records without media, leftovers
+  from an interrupted write. Content stored twice is found by what the pages *are*, not by the file
+  that holds them. Numbering gaps are reported only where entries provably form a run.
+- **Portable metadata** — each archive carries a `ComicInfo.xml` describing its work, so the library
+  reads correctly in Komga, Kavita and anything else that speaks the format, and outlives this app.
+  An archive that already describes itself names its own entry on the way in.
 
 ## Episodes (video)
 
@@ -91,6 +102,62 @@ saving elsewhere. Nothing is silently dropped or hidden.
 windows, so seeking does not drag the whole file across a network drive, and a file that is
 currently playing is never replaced or deleted under the player — the app says which entry to
 close first.
+
+## Settings
+
+One section at a time, chosen from the rail the rest of the app already uses, each carrying its
+own state so you can see what needs you without opening it: **Storage** (library folders),
+**Health** (below), **Maintenance** (rebuild the index, convert archives, write metadata into
+them), **Fields**, **Browser**, **Appearance**, **Keyboard**, **About**.
+
+Everything that walks the library — a check, a conversion, a sweep, a field retype — takes the
+same single slot, shows the same progress and can be stopped from where it was started. The
+sidecar names what is running, so leaving the page does not lose it.
+
+## Keeping the vault honest
+
+The vault is the source of truth, so the app can be asked to check it — nothing here runs by
+itself, and nothing changes your files.
+
+**Checksums.** Every chapter is hashed twice as it is stored: once over the whole file (what
+integrity means) and once over its ordered page images (what "the same chapter" means). The
+second survives a repack, a renumbering and the metadata mirror, which is why duplicate detection
+uses it and corruption detection does not.
+
+**One check, three answers** (Settings → Health): is anything broken, is anything wasting space,
+is anything missing. Duplicates and numbering gaps read the index, so they cost nothing on top of
+the walk and are never a separate thing to ask for. Answers are sentences about files — *the file
+is gone*, *the file changed since it was stored* — and each says what to do about it: a broken row
+opens its title, where the contents editor can replace or remove it. A quick check compares disk
+against the record; a full check re-reads every byte; either can be stopped, and a report cut
+short says so. Content stored before checksums existed can be baselined — reported as exactly
+that, because a checksum first taken today proves stability from today, not that the bytes are
+what arrived.
+
+**Leftovers** — files belonging to no entry at all, and the debris of interrupted writes — are the
+one thing only this screen can reach, so it is the one place they can be deleted, after listing
+every one with its size. Duplicate copies are never deleted for you: which one to keep is a
+judgement, so the report opens each instead.
+
+At scale the report stays a report: one row per *title and problem*, so forty broken chapters in
+one title read as one problem with that title, lists are capped with the totals stated in full,
+and a library that fails all at once is named as what it is — a folder that moved, not three
+thousand damaged files.
+
+**Numbering gaps** are deliberately quiet. A vault holds image sets, one-shots and hand-ordered
+contents, so a run is only claimed when the entries prove it: a translation of its own, at least
+five of them, almost all numbered, densely covering their span, and never a hand-made order.
+Fractions (`10.5`) are entries, not missing ones, and nothing is ever claimed beyond the highest
+number held.
+
+**What has been done** is recorded with the library: every operation over the vault leaves when
+it ran, how long it took and what came of it, and the last report is kept in full — so a check
+that took an hour is still there after a restart, and "has this library ever been checked" has an
+answer.
+
+**ComicInfo.xml** is a mirror, not a second source of truth. It is written where the archive is
+being rewritten anyway — at ingest and on every page edit — so a metadata edit never silently
+rewrites gigabytes; Settings brings the rest in line on demand, rewriting only what differs.
 
 ## Install
 

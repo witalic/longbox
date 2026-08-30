@@ -68,12 +68,22 @@ library/
         <chapter-id>.zip     page media — ALWAYS a plain zip (see below)
         <chapter-id>.mp4     episode media — stored as the file it arrived as
         <chapter-id>.json    download provenance sidecar (source, pages, size, date,
+                             sha256 of the file + content digest of the pages,
                              and for an episode: duration, codec, faststart, resume points)
         <chapter-id>.poster.jpg  the one frame a tile wears
         <chapter-id>.sheet.jpg   the 3x3 contact sheet a preview shows
   fields.json                the library's own metadata fields (registry additions)
 ```
 
+- **Two digests, two jobs.** `sha256` covers every byte of the stored file — that is what
+  integrity means, and the revision pass compares it. `content` covers only the ordered page
+  images, so it survives a repack, a renumbering and the per-entry `ComicInfo.xml`; duplicate
+  detection uses that one. Both are stamped wherever the media is written (ingest, page ops, the
+  zip sweep) and never by a pass that only reads. Writing the metadata mirror restamps `sha256`
+  and `size` — but not `rev`: the pages did not change, so no cached page may miss.
+- **ComicInfo.xml is a mirror.** Written where the archive is being rewritten anyway; a metadata
+  edit does not rewrite archives, and `refresh_comicinfo()` is the explicit half. Read only into
+  entry fields the caller left empty — a typed label is a decision and outranks a file.
 - **Type shelves.** A title lives on the shelf its `type` dictates; changing the type physically
   moves the directory (and sweeps the emptied shelf). Legacy flat layouts migrate on open.
 - **The zip invariant.** Every stored chapter archive is a plain zip: cbz keeps its bytes under
@@ -112,6 +122,39 @@ Endpoints run sync on FastAPI's threadpool, so races are real and handled struct
   fails the request instead of stranding the next launch — and the old one closes on a delay.
 - A corrupt index cannot lose content — it never owned any; rebuild rescans the files, skipping
   documents it cannot parse rather than aborting.
+- **One vault pass at a time** (`app/passes.py`). Checking the vault, converting archives,
+  rewriting metadata, sweeping leftovers and retyping a field all walk the same library, so they
+  share one slot, one progress record and one stop event. The SERVER names the running pass and
+  which row started it, so leaving the settings page — or reloading it — cannot lose the progress
+  of something still running. Every pass reports its size before its first slow step and says
+  whether it was put down early; a report that covered part of the library never claims to have
+  covered it.
+
+## Integrity, and the passes that check it
+
+- **Two digests, two jobs** (both stamped wherever media is written — ingest, page ops, the zip
+  sweep). `sha256` covers every byte of the stored file: that is what integrity means, and the
+  revision pass compares it. `content` covers only the ordered page images, so it survives a
+  repack, a renumbering and the per-entry `ComicInfo.xml`; duplicate detection uses that one.
+  Writing the metadata mirror restamps `sha256` and `size` but never `rev` — the pages did not
+  change, so no cached page may miss.
+- **One check, three answers**: is anything broken, is anything wasting space, is anything
+  missing. Duplicates and numbering gaps read the index, so they cost nothing on top of the walk.
+  The composition from mechanism (`orphan`, `stray`, `noDigest`) to what a person is told lives in
+  one pure function, which is what lets the mechanism keep its own vocabulary and its own tests.
+- **At scale the report stays a report**: the row unit is (title × problem), lists are capped with
+  the totals stated in full, and a library that fails all at once is named as a folder that moved
+  rather than three thousand damaged files.
+- **`health.json`** (its own file, so startup never parses it) records what has been done to this
+  library — when, how long, and the outcome in one sentence — plus the last report in full, so a
+  full check that took an hour survives closing the app.
+- **`ComicInfo.xml` is a mirror**, written where the archive is being rewritten anyway; the
+  sidecar records which one it last got, so a settled chapter is skipped without opening it. A
+  metadata edit does not rewrite archives — `refresh_comicinfo()` is the explicit half, and it
+  narrows to the titles whose stored mirror no longer matches.
+- **`Vault.chapter_files()`** reads a title's chapter directory ONCE. Asking per chapter costs up
+  to ten filesystem round trips each, which is the difference between seconds and minutes on a
+  network vault; anything walking the library uses the listing.
 
 ## Media & downloads
 
@@ -156,6 +199,8 @@ backend/app/
             media.py (zip ops, conversion, thumbnails) · index.py · service.py
   scraper/  models.py (recipe v2) · recipes.py (per-domain store) · covers.py (fallback fetch)
   library/  fields.py (the metadata registry: builtin + per-library custom)
+            comicinfo.py (the ComicInfo.xml mirror: build, parse, write into an archive)
+  passes.py (the one vault pass at a time: progress, stop, who is running)
   routers/  library.py · downloads.py · recipes.py · settings.py
 frontend/src/
   store.ts (app state, facets, user layer, downloads) · draft.ts (THE draft) · browser.ts (tabs)
@@ -164,6 +209,8 @@ frontend/src/
   views/      LibraryView · AuthorsView (browse by any axis) · TitleView · ReaderView ·
               BrowserView · SourcesView · SettingsView
   components/ MetadataEditor (the one editor) · CapturePanel (draft + downloads dock) ·
+              PassButton + ProgressBar (run/progress/stop, one grammar everywhere) ·
+              Settings* (one component per settings section) ·
               VideoSurface (preview + player, one per app) · DownloadsPanel · PickInspector ·
               EntryFields · FilterBlock · FieldVisibility · MenuButton · RailSection ·
               SearchBox · Pager · Combo · …
