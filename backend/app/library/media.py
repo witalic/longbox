@@ -6,6 +6,7 @@ natural order; page edits rewrite the archive atomically.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import time
 import re
@@ -302,6 +303,65 @@ def replace_atomically(tmp: Path, final: Path) -> None:
             # growing backoff: a stream that has just ended lets go within a
             # beat, and this is the path a RE-download of an open episode takes
             time.sleep(0.05 * (attempt + 1))
+
+
+# ---- integrity ----------------------------------------------------------
+#
+# The vault is the source of truth, and until now a sidecar could say only how
+# BIG the stored file was — which catches a truncated download and nothing else.
+# A digest is what lets the archive answer "is this still what was put here":
+# bit rot on a spinning disk, a copy that lost bytes on the way to a backup, a
+# network vault that dropped a write.
+#
+# Deliberately NOT a hash of the pages inside: the zip invariant means a page
+# edit rewrites the archive, so the digest describes the FILE, and any rewrite
+# stamps a new one alongside the revision it bumps.
+
+DIGEST_CHUNK = 1 << 20
+
+
+def digest_of(path: Path) -> str:
+    """The sha256 of a stored file, streamed — an episode is gigabytes."""
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for block in iter(lambda: fh.read(DIGEST_CHUNK), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def content_digest(path: Path) -> str:
+    """The sha256 of what a chapter SHOWS, not of the file that holds it.
+
+    Two digests, two jobs. `digest_of` covers every byte, because integrity
+    means every byte; this one covers the ordered page images and nothing else,
+    because "the same chapter" survives things the file does not: a cbz
+    repacked as zip, a different compression level, and above all the
+    ComicInfo.xml the app writes into each archive — which is per-entry, so
+    two copies of one release under different labels are no longer byte-equal.
+    Without this, duplicate detection would have been switched off the moment
+    the metadata mirror was switched on.
+
+    Names are excluded deliberately: a renumbered set of the same scans is the
+    same content. Each entry's length is folded in, so two pages cannot be
+    mistaken for one longer one."""
+    if is_video(path):
+        return digest_of(path)  # an episode is its file; there is nothing inside
+    h = hashlib.sha256()
+    try:
+        with zipfile.ZipFile(path) as z:
+            for name in sorted(
+                    (n for n in z.namelist()
+                     if not n.endswith("/") and Path(n).suffix.lower() in IMAGE_EXTS),
+                    key=_natkey):
+                blob = z.read(name)
+                h.update(len(blob).to_bytes(8, "big"))
+                h.update(blob)
+    except (zipfile.BadZipFile, OSError, RuntimeError):
+        # unlike `digest_of`, this is a grouping key, not a claim about the
+        # bytes — an archive nobody can open simply groups with nothing, and
+        # the revision pass is what names it as damaged
+        return ""
+    return h.hexdigest()
 
 
 def tmp_path(path: Path) -> Path:

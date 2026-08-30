@@ -352,6 +352,26 @@ class Vault:
         payload = doc.model_dump_json(indent=2, by_alias=True).encode("utf-8")
         _atomic_write(self._doc_path(title_id), payload)
 
+    def save_meta_value(self, title_id: str, apply) -> TitleDoc | None:
+        """Change the meta layer in place, under the lock, leaving every other
+        layer alone. For maintenance that edits stored VALUES rather than
+        committing a draft — a retype has no draft and must not go near the user
+        layer or the chapter rows.
+
+        `apply` receives the loaded document and may return False to say the
+        change was not needed after all, which is how a caller decides from the
+        value it finds UNDER THE LOCK without reading the document twice."""
+        with self._lock(title_id):
+            doc = self.load(title_id)
+            if doc is None:
+                return None
+            # a falsy return means the value was already what it should be, and
+            # rewriting a title.json to change nothing is a write nobody asked for
+            if apply(doc) is False:
+                return None
+            self._save(title_id, doc)
+            return doc
+
     def commit_meta(self, title_id: str, draft: DraftIn, *, create: bool = False) -> TitleDoc | None:
         """Write the draft's layers (meta + provenance + chapters), preserving the
         user layer untouched — a commit can never roll back a star or read progress."""
@@ -364,6 +384,16 @@ class Vault:
             doc = TitleDoc(meta=draft.meta, provenance=draft.provenance, chapters=draft.chapters)
             if existing is not None:
                 doc.user = existing.user
+                # A field the registry no longer offers is ABSENT from the draft,
+                # not emptied by it: the editor builds itself from the registry,
+                # so a definition that was deleted simply stops being asked for.
+                # Without this, removing a field definition would quietly delete
+                # every title's values the next time each was saved — and the
+                # promise that re-adding it brings them back would be a lie.
+                # A field that IS offered and left blank arrives as an empty
+                # value, so clearing one still works exactly as before.
+                for key, value in existing.meta.custom.items():
+                    doc.meta.custom.setdefault(key, value)
             self._save(title_id, doc)
             return doc
 
@@ -433,6 +463,42 @@ class Vault:
         except OSError:
             return 0
 
+    def chapter_files(self, title_id: str) -> dict[str, Path]:
+        """Every chapter's stored media, from ONE directory listing.
+
+        `chapter_media_path` answers for a single chapter and pays up to ten
+        filesystem round trips to do it (the zip, then each video extension,
+        then a glob) — which is right when someone opens one chapter and ruinous
+        when something walks the whole library: on a network vault that is the
+        difference between seconds and minutes. Anything iterating chapters
+        reads the directory once through this instead.
+
+        Precedence matches `chapter_media_path` exactly: `.zip` wins, then a
+        video container, then whatever else is there."""
+        out: dict[str, Path] = {}
+        d = self._chapters_dir(title_id)
+        try:
+            entries = [p for p in d.iterdir() if p.is_file()]
+        except OSError:
+            return out
+        for p in sorted(entries):
+            name, suffix = p.name, p.suffix.lower()
+            if suffix == ".json" or name.endswith(".tmp"):
+                continue
+            if any(name.endswith(f".{k}.jpg") for k in FRAME_KINDS):
+                continue
+            stem = p.stem
+            rank = 0 if suffix == ".zip" else (1 if suffix in media.VIDEO_EXTS else 2)
+            best = out.get(stem)
+            if best is None:
+                out[stem] = p
+                continue
+            best_rank = 0 if best.suffix.lower() == ".zip" else (
+                1 if best.suffix.lower() in media.VIDEO_EXTS else 2)
+            if rank < best_rank:
+                out[stem] = p
+        return out
+
     def chapter_media_path(self, title_id: str, chapter_id: str) -> Path | None:
         """The chapter's stored file. `.zip` WINS for page media: a leftover from
         an interrupted conversion (the pre-conversion `.7z`, a half-written
@@ -484,6 +550,16 @@ class Vault:
             except (ValueError, OSError):
                 continue
         return out
+
+    def chapter_sidecar(self, title_id: str, chapter_id: str) -> dict | None:
+        """ONE chapter's sidecar. `chapter_sidecars` globs the directory and
+        parses every file in it, which is right for a caller that wants them all
+        and a title-sized waste for a caller that wants one."""
+        p = self._chapters_dir(title_id) / f"{safe_id(chapter_id)}.json"
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            return None
 
     def write_chapter_sidecar(self, title_id: str, chapter_id: str, sidecar: dict) -> None:
         with self._lock(title_id):
@@ -560,6 +636,13 @@ class Vault:
                            "container": video_ext.lstrip(".")} if as_video else {}),
                        "pages": 0 if as_video else len(media.image_entries(final)),
                        "size": final.stat().st_size,
+                       # taken HERE, while the file is still warm from being
+                       # written — the same read after the fact costs a full
+                       # pass over a network vault
+                       "sha256": media.digest_of(final),
+                       # what the chapter SHOWS, for finding the same content
+                       # stored twice — see media.content_digest
+                       "content": media.content_digest(final),
                        "rev": int(prev.get("rev") or 0) + 1}
             _atomic_write(d / f"{stem}.json",
                           json.dumps(sidecar, indent=2, ensure_ascii=False).encode("utf-8"))
@@ -597,6 +680,44 @@ class Vault:
         meta = {**self._vault_meta(), "videoFaststart": FASTSTART_VERSION}
         _atomic_write(self._vault_meta_path(),
                       json.dumps(meta, indent=2, ensure_ascii=False).encode("utf-8"))
+
+    # ---- what has been done to this vault -----------------------------------
+    #
+    # A log of the operations run against THIS library, so it travels with the
+    # library and switching between two of them switches their histories too.
+    #
+    # Its own file, NOT `vault.json`: that one is read on every startup for the
+    # migration markers, and the last report is large enough that parsing it
+    # there would make the app pay for it on every launch.
+
+    HISTORY_KEEP = 20
+
+    def _health_path(self) -> Path:
+        return self.root / "health.json"
+
+    def health(self) -> dict:
+        p = self._health_path()
+        if not p.is_file():
+            return {"history": [], "lastCheck": None}
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            return {"history": [], "lastCheck": None}
+        return {"history": data.get("history") or [], "lastCheck": data.get("lastCheck")}
+
+    def write_health(self, *, entry: dict | None = None, last_check: dict | None = None) -> None:
+        """Append one operation to the log, and optionally replace the stored
+        report. Only the newest few are kept — this is a record of what happened
+        lately, not an audit trail."""
+        with self._lock("__health__"):
+            cur = self.health()
+            history = cur["history"]
+            if entry is not None:
+                history = [entry, *history][: self.HISTORY_KEEP]
+            payload = {"schema": 1, "history": history,
+                       "lastCheck": cur["lastCheck"] if last_check is None else last_check}
+            _atomic_write(self._health_path(),
+                          json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8"))
 
     def refresh_stored_episodes(self, *, stop=None) -> int:
         """Bring stored episodes up to what the app now records: the index moved
@@ -655,7 +776,8 @@ class Vault:
         _atomic_write(side_path, json.dumps(merged, indent=2, ensure_ascii=False).encode("utf-8"))
         return True
 
-    def normalize_chapter_archives(self, *, force: bool = False, stop=None) -> int:
+    def normalize_chapter_archives(self, *, force: bool = False, stop=None,
+                                   progress=None, ids: list[str] | None = None) -> int:
         """Consistency pass over the whole vault (part of the zip invariant):
         cbz files are renamed to .zip, rar/7z get repacked when a reader is
         available. A file nothing can read is left alone AND remembered in the
@@ -664,15 +786,41 @@ class Vault:
         the manual re-run — e.g. after installing unrar).
         Returns how many archives changed (the caller refreshes the index)."""
         changed = 0
-        for sid in self.list_ids():
+        # The caller normally hands these in from the index, which already knows
+        # every title — including ones dropped into the folder by hand, because
+        # opening the library scans for them. Listing the shelves again here is
+        # two more round trips per title before the pass can report or be
+        # stopped. `list_ids()` stays for the startup migration, which may run
+        # before the index has been filled.
+        ids = self.list_ids() if ids is None else ids
+        if progress is not None:
+            progress(0, len(ids))
+        for done, sid in enumerate(ids, 1):
             if stop is not None and stop.is_set():
                 break  # the library is closing — leave the rest for next time
+            if progress is not None:
+                progress(done, len(ids))
             home = self._find(sid)
             d = home / "chapters" if home is not None else None
             if d is None or not d.is_dir():
                 continue
+            known = {q.stem for q in d.glob("*.json")}
             for p in list(d.glob("*")):
                 if not p.is_file() or p.suffix == ".json" or p.name.endswith(".tmp"):
+                    continue
+                # An episode is stored as the file it arrived as, and a still is
+                # a still: neither can ever become a page archive, and trying
+                # was a failed repack per video per run — the manual button
+                # passes `force`, so not even the remembered failure stopped it.
+                if p.suffix.lower() in media.VIDEO_EXTS:
+                    continue
+                if any(p.name.endswith(f".{k}.jpg") for k in FRAME_KINDS):
+                    continue
+                # A `.zip` the vault has a sidecar for came through ingest, which
+                # enforces the invariant on the way in. Opening it to confirm is
+                # a read of every archive in the library, every time this runs;
+                # whether its bytes are still good is the health check's job.
+                if p.suffix == ".zip" and p.stem in known:
                     continue
                 if p.suffix == ".zip" and zipfile.is_zipfile(p):
                     continue
@@ -718,6 +866,8 @@ class Vault:
                     side.pop("convertFailed", None)
                     side["pages"] = len(media.image_entries(final))
                     side["size"] = final.stat().st_size
+                    side["sha256"] = media.digest_of(final)
+                    side["content"] = media.content_digest(final)
                     # a converted archive is a new file: everything cached for
                     # the old one has to miss, exactly as after a page edit
                     side["rev"] = int(side.get("rev") or 0) + 1
