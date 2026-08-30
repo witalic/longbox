@@ -83,14 +83,33 @@ function dropValue(key: FacetKey, v: string) {
   lib.exclude[key] = picked(lib.exclude, key).filter((x) => x !== v)
 }
 
-// Each group keeps its own height; the rule between them is the handle.
+// The panel's own height is fixed between the header and the footer, so the
+// groups inside it divide a constant: what one takes, another gives up.
+//
+// VALUES is the sized one and FIELDS takes the rest — the other way round is
+// how looking for a field meant scrolling a four-line list while three hundred
+// values sat below it. A third of the panel is enough to work a vocabulary in
+// and leaves the field list readable.
+const VALUES_SHARE = 0.3
 const gh = reactive<Record<string, number>>(
-  readLocal('lb.filterHeights', isNumMap, { active: 72, fields: 132 }))
+  readLocal('lb.filterHeights', isNumMap, { active: 72 }))
 watch(gh, () => writeLocal('lb.filterHeights', { ...gh }), { deep: true })
+
+const panel = ref<HTMLElement | null>(null)
+// Stored in pixels like the other group, but seeded from the panel's real
+// height: a share only means something once there is something to share.
+function valuesHeight(): number {
+  const box = panel.value?.getBoundingClientRect().height ?? 0
+  return gh.values ?? (Math.round(box * VALUES_SHARE) || 220)
+}
 function startDrag(key: string, e: PointerEvent) {
   const startY = e.clientY
-  const startH = gh[key] ?? 72
-  const move = (ev: PointerEvent) => { gh[key] = Math.max(40, Math.min(320, startH + ev.clientY - startY)) }
+  const startH = key === 'values' ? valuesHeight() : (gh[key] ?? 72)
+  const box = panel.value?.getBoundingClientRect().height ?? 800
+  const move = (ev: PointerEvent) => {
+    const delta = key === 'values' ? startY - ev.clientY : ev.clientY - startY
+    gh[key] = Math.max(40, Math.min(Math.round(box * 0.75), startH + delta))
+  }
   const up = () => {
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', up)
@@ -152,7 +171,7 @@ function clearSection(key: FacetKey) {
 
 <template>
     <!-- FILTERS: one block under its own button, not a docked column -->
-    <div class="fpop">
+    <div ref="panel" class="fpop">
       <div class="fptop">
         <div class="fsearch">
           <Icon name="search" :size="13" />
@@ -235,22 +254,27 @@ function clearSection(key: FacetKey) {
         <span class="fhint">the eye hides one</span>
       </div>
       <template v-if="openSec.fields">
-        <div class="ffields" :style="{ height: `${gh.fields}px` }">
+        <div class="ffields">
           <FieldVisibility title="" :fields="fieldRows" :hidden="hiddenOf('filters', facetFields())"
                            :selected="curField" :counts="fieldCounts"
                            @set="hideFacet" @pick="activeField = $event as FacetKey" />
         </div>
-        <div class="grab" title="Drag to resize" @pointerdown.prevent="startDrag('fields', $event)"></div>
       </template>
 
-      <!-- the values of whatever is picked above -->
+      <!-- the values of whatever is picked above; the rule above them is the
+           handle, so shrinking them is how you get room to find a field. With
+           FIELDS collapsed there is nothing to give room TO, so they simply
+           take the panel — a fixed height there leaves the rest of it empty. -->
+      <div v-if="openSec.fields" class="grab" title="Drag to resize the values"
+           @pointerdown.prevent="startDrag('values', $event)"></div>
       <div class="fvalhead">
         <span class="fglbl">{{ curSection?.label ?? '—' }}</span>
         <span class="fhint">{{ curRows.length }} value{{ curRows.length === 1 ? '' : 's' }}</span>
         <div style="flex:1"></div>
         <button v-if="curField && sectionActive(curField)" class="ftxt" @click="clearSection(curField)">Clear</button>
       </div>
-      <div class="flist scroll">
+      <div class="flist scroll" :class="{ sized: openSec.fields }"
+           :style="openSec.fields ? { height: `${valuesHeight()}px` } : undefined">
         <div v-if="!curRows.length" class="fnone" style="padding: 8px 10px">nothing here</div>
         <div v-for="r in curRows" :key="r.v" class="frow"
              :class="[facetState(curField, r.v), { dead: r.n === 0 && facetState(curField, r.v) === '' }]"
@@ -299,11 +323,12 @@ function clearSection(key: FacetKey) {
 .urow { display: flex; align-items: center; gap: 9px; padding: 5px 6px; border-radius: 6px; color: var(--tx2); cursor: pointer; }
 .urow:hover { background: var(--hover); }
 .uname { flex: 1; min-width: 0; font: 500 12px/1.3 system-ui; }
-.ffields { flex: none; overflow: hidden; padding: 0 4px; display: flex; }
+.ffields { flex: 1 1 0; min-height: 0; overflow: hidden; padding: 0 4px; display: flex; }
 .ffields :deep(.fv) { flex: 1; min-width: 0; }
 .ffields :deep(.fvlist) { max-height: none; flex: 1; }
+.flist.sized { flex: none; }
 .fvalhead { flex: none; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-top: 1px solid var(--line); background: var(--panel2); color: var(--tx2); }
-.flist { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 8px 10px; background: var(--panel2); }
+.flist { flex: 1 1 0; min-height: 0; overflow-y: auto; padding: 6px 8px 10px; background: var(--panel2); }
 .frow { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px; cursor: pointer; color: var(--tx2); }
 .frow:hover { background: var(--hover); color: var(--tx); }
 .frow.in { color: var(--tx); }

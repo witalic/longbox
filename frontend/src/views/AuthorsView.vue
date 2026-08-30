@@ -283,7 +283,6 @@ const initials = initialsOf
 .urow:hover { background: var(--hover); }
 .uname { flex: 1; min-width: 0; font: 500 12px/1.3 system-ui; }
 
-.alabel { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* CARDS: the name leads, three works say what this group is */
 .list.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }

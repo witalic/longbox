@@ -262,9 +262,18 @@ const railSections = computed(() => {
     .sort((a, b) => b.titles - a.titles)
   const named = store.sourceGroups.map((g) => ({ label: g.toUpperCase(), rows: by(g) }))
     .filter((sec) => sec.rows.length)
+  // A site you only bookmarked is a source with nothing taught about it yet.
+  // It belongs in the rail — that is where its links are — but not mixed in
+  // with the sites longbox can actually capture from, so it gets its own band.
   const rest = by('')
+  const taught = rest.filter((x) => x.hasRecipe)
+  const untaught = rest.filter((x) => !x.hasRecipe)
   const restLabel = named.length ? 'UNGROUPED' : 'SOURCES'
-  return rest.length ? [...named, { label: restLabel, rows: rest }] : named
+  return [
+    ...named,
+    ...(taught.length ? [{ label: restLabel, rows: taught }] : []),
+    ...(untaught.length ? [{ label: 'NO RECIPE', rows: untaught }] : []),
+  ]
 })
 
 // Which source groups are folded away. Remembered, because a rail is furniture:
@@ -840,7 +849,21 @@ function onNav(e: any, tabId: string) {
 }
 function onReady(tabId: string) {
   const tab = tabById(tabId)
-  if (tab && tab.zoom !== 1) wvRefs.get(tabId)?.setZoomFactor?.(tab.zoom)
+  const view = wvRefs.get(tabId)
+  // Zoom is remembered by the ENGINE, per origin, and it survives a restart —
+  // so a fresh tab on a site you once zoomed opens zoomed while the tab thinks
+  // it is at 100%, and the readout lies. Take what the view actually has;
+  // apply ours only when this tab has since chosen otherwise.
+  if (tab && view) {
+    if (tab.zoom !== 1) view.setZoomFactor?.(tab.zoom)
+    else {
+      const actual = view.getZoomFactor?.()
+      if (typeof actual === 'number' && actual > 0) tab.zoom = actual
+      else if (actual && typeof actual.then === 'function') {
+        void actual.then((z: number) => { if (z > 0) tab.zoom = z })
+      }
+    }
+  }
   // zoom and mute are properties of the LIVE view, so a fresh document has to
   // be told both again — otherwise a muted tab starts shouting on every reload
   if (tab?.muted) wvRefs.get(tabId)?.setAudioMuted?.(true)

@@ -5,13 +5,14 @@ from __future__ import annotations
 import io
 import json
 import os
+import pathlib
 import shutil
 import zipfile
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.library import media
+from app.library import comicinfo, media
 from app.library.models import ChapterRow, DraftIn, TitleMeta
 from app.library.service import Library
 from app.library.vault import Vault
@@ -146,7 +147,10 @@ def test_ingest_converts_7z_to_zip(lib, tmp_path):
     stored = lib.vault.chapter_media_path("x", "ch-1")
     assert stored is not None and stored.suffix == ".zip"
     with zipfile.ZipFile(stored) as z:
-        assert sorted(z.namelist()) == ["info.txt", "p1.jpg", "p2.jpg"]
+        names = sorted(z.namelist())
+    # the translator's own file survives the repack; the app's metadata mirror
+    # rides along beside it
+    assert [n for n in names if n != comicinfo.NAME] == ["info.txt", "p1.jpg", "p2.jpg"]
 
 
 def test_ingest_stores_cbz_under_the_zip_name(lib, tmp_path):
@@ -174,6 +178,7 @@ def _settle(lib):
     return lib
 
 
+@pytest.mark.migrations
 def test_unmarked_vault_is_normalized_once_on_open(tmp_path):
     lib = _settle(Library(tmp_path))
     lib.create(DraftIn(meta=TitleMeta(title="X"), chapters=[
@@ -197,6 +202,7 @@ def test_unmarked_vault_is_normalized_once_on_open(tmp_path):
     lib.close()
 
 
+@pytest.mark.migrations
 def test_normalized_vault_is_not_swept_again(tmp_path):
     """Ingest keeps the invariant, so the sweep is a migration — a marked vault
     must not re-scan every launch. Hand-dropped files wait for the manual run."""
@@ -267,7 +273,7 @@ def test_added_webp_pages_convert_to_standard_format(client, tmp_path):
     ])
     assert r.status_code == 200
     with zipfile.ZipFile(_chapters_dir(tmp_path) / "b-5-en.zip") as z:
-        names = z.namelist()
+        names = [n for n in z.namelist() if n != comicinfo.NAME]
         assert names == ["001.jpg", "002.png"]  # opaque → jpg, alpha → png
         assert Image.open(io.BytesIO(z.read("001.jpg"))).format == "JPEG"
         assert Image.open(io.BytesIO(z.read("002.png"))).format == "PNG"
@@ -296,7 +302,7 @@ def test_image_downloads_append_as_pages(client, tmp_path):
     assert ch["dl"] is True and ch["pages"] == 2
     stored = _chapters_dir(tmp_path) / "b-5-en.zip"
     with zipfile.ZipFile(stored) as z:
-        names = sorted(z.namelist())
+        names = sorted(n for n in z.namelist() if n != comicinfo.NAME)
     assert names == ["001.jpg", "002.png"]  # appended = last, renumbered
     # the sidecar records the LATEST source
     side = json.loads((_chapters_dir(tmp_path) / "b-5-en.json").read_text(encoding="utf-8"))
@@ -355,7 +361,7 @@ def test_page_capture_accumulates_and_skips_known_pages(client, tmp_path):
     assert ch["pages"] == 3
     with zipfile.ZipFile(_chapters_dir(tmp_path) / "b-5-en.zip") as z:
         # webp converted on the way in; order is capture order
-        assert z.namelist() == ["001.png", "002.jpg", "003.png"]
+        assert [n for n in z.namelist() if n != comicinfo.NAME] == ["001.png", "002.jpg", "003.png"]
     side = json.loads((_chapters_dir(tmp_path) / "b-5-en.json").read_text(encoding="utf-8"))
     assert side["pageKeys"] == ["01.png", "02.webp", "03.png"]
     assert side["importedFrom"] == "page-capture"
@@ -430,7 +436,7 @@ def test_capture_stores_the_format_the_bytes_have(client, tmp_path):
     assert r.status_code == 200
     with zipfile.ZipFile(_chapters_dir(tmp_path) / "b-5-en.zip") as z:
         # sniffed as webp → converted to the standard format, never stored as a lying .jpg
-        assert z.namelist() == ["001.jpg"]
+        assert [n for n in z.namelist() if n != comicinfo.NAME] == ["001.jpg"]
         assert Image.open(io.BytesIO(z.read("001.jpg"))).format == "JPEG"
 
 
@@ -474,7 +480,10 @@ def test_launch_reindexes_only_what_changed(tmp_path, monkeypatch):
     real_load = Vault.load
 
     def counting_load(self, title_id):
-        reads.append(title_id)
+        # patched on the CLASS, so a background thread of a library another test
+        # left open lands here too — count only this vault's reads
+        if self.root == tmp_path:
+            reads.append(title_id)
         return real_load(self, title_id)
 
     monkeypatch.setattr(Vault, "load", counting_load)
@@ -488,6 +497,11 @@ def test_launch_reindexes_only_what_changed(tmp_path, monkeypatch):
     doc = json.loads(doc_path.read_text(encoding="utf-8"))
     doc["meta"]["desc"] = "edited on disk"
     doc_path.write_text(json.dumps(doc), encoding="utf-8")
+    # The sync notices a change by the file's mtime, and a rewrite this fast can
+    # land inside the same filesystem tick as the stamp already recorded — which
+    # makes the test flake, not the sync wrong. Put the edit visibly later.
+    st = doc_path.stat()
+    os.utime(doc_path, ns=(st.st_atime_ns, st.st_mtime_ns + 2_000_000_000))
 
     reads.clear()
     lib = Library(tmp_path)
@@ -892,3 +906,84 @@ def test_a_damaged_page_is_a_missing_page_not_a_500(tmp_path):
             r = c.get(url)
             assert r.status_code == 404, f"{url} answered {r.status_code}"
     lib.close()
+
+
+# ---- the invariants, checked against the code rather than a scenario ----
+#
+# These are the rules the vault is built on (`.claude/rules/backend.md`). A
+# scenario test catches a break where it happens to look; these catch it
+# wherever it is written.
+
+LIBRARY = pathlib.Path(__file__).resolve().parents[1] / "app" / "library"
+
+
+def test_every_vault_write_goes_through_the_atomic_helper():
+    """`tmp → rename`, always: a half-written title.json is a lost title."""
+    import re
+    for f in LIBRARY.glob("*.py"):
+        for i, line in enumerate(f.read_text(encoding="utf-8").split("\n"), 1):
+            if re.search(r"\.write_(bytes|text)\(", line) and "tmp" not in line:
+                raise AssertionError(f"{f.name}:{i} writes without the atomic helper: {line.strip()}")
+
+
+def test_every_sidecar_write_happens_under_the_title_lock():
+    """Read → change → write outside the lock is how a download completing at
+    the same moment loses its `pages`, `size` and `rev` to a stale copy."""
+    import ast
+    src = (LIBRARY / "service.py").read_text(encoding="utf-8")
+    HELPERS = ("_write_media_sidecar", "_mirror_comicinfo")
+
+    class Scan(ast.NodeVisitor):
+        def __init__(self):
+            self.fn, self.depth, self.bad = None, 0, []
+
+        def visit_FunctionDef(self, node):
+            prev, self.fn = self.fn, node.name
+            self.generic_visit(node)
+            self.fn = prev
+
+        def visit_With(self, node):
+            held = any("title_lock" in ast.dump(i.context_expr) for i in node.items)
+            self.depth += held
+            self.generic_visit(node)
+            self.depth -= held
+
+        def visit_Call(self, node):
+            f = node.func
+            if isinstance(f, ast.Attribute) and f.attr in HELPERS and not self.depth:
+                self.bad.append(f"{self.fn}() calls {f.attr}() at line {node.lineno}")
+            self.generic_visit(node)
+
+    scan = Scan()
+    scan.visit(ast.parse(src))
+    assert scan.bad == []
+
+
+def test_a_listing_never_touches_a_file():
+    """The index row carries everything a listing needs. One stat per title is
+    a round trip per title on a network vault — which is what the index is for."""
+    import ast
+    import re
+    src = (LIBRARY / "service.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    lines = src.split("\n")
+    fns = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+    DISK = re.compile(r"vault\.(scan|list_ids|chapter_sidecars?|chapter_media_path|chapter_files"
+                      r"|cover_path|load)\(|\.stat\(\)|\.is_file\(\)|image_entries\(|ZipFile\(")
+
+    def reaches(name, seen=None, depth=0):
+        seen = seen or set()
+        if name in seen or name not in fns or depth > 2:
+            return set()
+        seen.add(name)
+        fn = fns[name]
+        out = {m.group(0) for i in range(fn.lineno - 1, fn.end_lineno)
+               for m in DISK.finditer(lines[i])}
+        for node in ast.walk(fn):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name) and node.func.value.id == "self"):
+                out |= reaches(node.func.attr, seen, depth + 1)
+        return out
+
+    for listing in ("query", "get", "browse", "facets", "count"):
+        assert reaches(listing) == set(), f"{listing}() reads from disk"

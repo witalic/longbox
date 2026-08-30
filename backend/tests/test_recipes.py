@@ -164,3 +164,27 @@ def test_a_source_can_say_which_fields_it_does_not_offer(client):
     })
     now = client.get("/api/recipes/nhentai.net").json()
     assert now["hidden"] == ["studio"] and "title" in now["fields"]
+
+
+def test_a_site_you_only_bookmarked_is_still_a_source(client):
+    """Sources are derived from TITLES, so a domain you have not captured from
+    would have its bookmarks saved and never shown — which reads as "the star
+    did nothing"."""
+    assert [s["domain"] for s in client.get("/api/sources").json()] == []
+
+    client.put("/api/sources/example.org", json={
+        "bookmarks": [{"name": "A page", "url": "https://example.org/x"}]})
+
+    got = client.get("/api/sources").json()
+    site = next(s for s in got if s["domain"] == "example.org")
+    assert site["titles"] == 0 and site["hasRecipe"] is False
+    assert [b["url"] for b in site["bookmarks"]] == ["https://example.org/x"]
+
+
+def test_dropping_the_last_bookmark_takes_the_source_with_it(client):
+    """An entry that says nothing is not worth keeping: a domain with no titles,
+    no recipe and no links is not a source, it is a site you once visited."""
+    client.put("/api/sources/example.org", json={
+        "bookmarks": [{"name": "A page", "url": "https://example.org/x"}]})
+    client.put("/api/sources/example.org", json={"bookmarks": []})
+    assert [s["domain"] for s in client.get("/api/sources").json()] == []

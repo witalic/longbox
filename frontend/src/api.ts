@@ -63,6 +63,9 @@ export const api = {
   // what a metadata field IS — served, not hardcoded, so a new one needs no
   // frontend change (design/metadata-model.md)
   fields: () => req<FieldDef[]>('/fields'),
+  // titles holding a value per field, over the WHOLE library — the browser
+  // only ever has the page it is showing
+  fieldUsage: () => req<Record<string, number>>('/fields/usage'),
   library: (q: LibraryQuery = {}) => req<Title[]>(`/library${qs({ ...q })}`),
   // the unfiltered size of the vault — never list titles just to count them
   libraryCount: () => req<{ total: number }>('/library/count'),
@@ -84,10 +87,14 @@ export const api = {
   patchUser: (id: string, patch: UserPatch) => req<Title>(`/titles/${id}/user`, jsonBody('PATCH', patch)),
   setCover: (id: string, body: CoverUpload) => req<Title>(`/titles/${id}/cover`, jsonBody('POST', body)),
   deleteCover: (id: string) => req<Title>(`/titles/${id}/cover`, { method: 'DELETE' }),
+  // `join` is what a list folds into text with when the TYPE changes, and what
+  // a text splits back on — the backend converts the stored values with it
   putField: (id: string, body: {
-    label: string; type: string; facet?: boolean; multiline?: boolean; placeholder?: string
+    label: string; type: string; facet?: boolean; join?: string; placeholder?: string
   }) => req<FieldDef[]>(`/fields/${id}`, jsonBody('PUT', body)),
-  deleteField: (id: string) => req<FieldDef[]>(`/fields/${id}`, { method: 'DELETE' }),
+  // `values` takes the stored data with the definition — the default keeps it
+  deleteField: (id: string, values = false) =>
+    req<FieldDef[]>(`/fields/${id}${qs({ values })}`, { method: 'DELETE' }),
   recipe: (domain: string) => req<Recipe>(`/recipes/${domain}`),
   saveRecipe: (domain: string, recipe: Recipe) => req<Recipe>(`/recipes/${domain}`, jsonBody('PUT', recipe)),
   removeRecipe: (domain: string) => reqVoid(`/recipes/${domain}`, { method: 'DELETE' }),
@@ -151,12 +158,25 @@ export const api = {
   setLibraryPath: (path: string) => req<AppSettings>('/settings/library-path', jsonBody('PUT', { path })),
   removeLibrary: (path: string) => req<AppSettings>('/settings/libraries', jsonBody('DELETE', { path })),
   rebuildIndex: () => req<AppSettings>('/settings/rebuild', { method: 'POST' }),
-  rebuildStatus: () => req<{ running: boolean; done: number; total: number }>('/settings/rebuild/status'),
   // read while a library switch is in flight: opening a populated vault is slow
   libraryStatus: () =>
     req<{ running: boolean; path: string; done: number; total: number; changed: number }>(
       '/settings/library/status'),
   normalizeArchives: () => req<{ converted: number }>('/settings/normalize-archives', { method: 'POST' }),
+  // one pass, three answers — duplicates and gaps ride along on the same walk
+  checkVault: (deep: boolean, backfill: boolean) =>
+    req<CheckReport>(`/settings/check${qs({ deep, backfill })}`, { method: 'POST' }),
+  // what has been done to this library, and the last report it produced
+  vaultHealth: () => req<VaultHealth>('/settings/health'),
+  deleteLeftovers: () =>
+    req<{ deleted: number; failed: number; bytes: number }>('/settings/leftovers', { method: 'POST' }),
+  // one status for every vault pass — the UI polls this while one is working
+  passStatus: () => req<PassState>('/settings/pass/status'),
+  stopPass: () => req<PassState>('/settings/pass/stop', { method: 'POST' }),
+  refreshComicInfo: () =>
+    req<{ written: number; stopped: boolean }>('/settings/comicinfo', { method: 'POST' }),
+  // one title's own quiet line; the library-wide answer comes with a check
+  gaps: (titleId: string) => req<Gap[]>(`/settings/gaps${qs({ title_id: titleId })}`),
   // page capture: ask what the armed entry already holds, then send only the rest
   knownPages: (titleId: string, chapterId: string, keys: string[]) =>
     req<string[]>(`/titles/${encodeURIComponent(titleId)}/chapters/${encodeURIComponent(chapterId)}/pages/known`,
@@ -174,6 +194,98 @@ export interface AppSettings {
   homepage: string
   libraries: string[]
   app: { name?: string; version?: string; updated?: string; description?: string }
+}
+
+/** How the one running vault pass is going; `running: false` when none is. */
+export interface PassState {
+  running: boolean
+  op: string
+  done: number
+  total: number
+}
+
+/** A title with something wrong, named by what happened to the FILE — one row
+ *  per title and problem, so forty broken chapters read as one problem. */
+export interface BrokenRow {
+  titleId: string
+  title: string
+  what: string
+  count: number
+  num: string
+  lang: string
+  group: string
+}
+
+export interface LeftoverRow {
+  titleId: string
+  title: string
+  name: string
+  bytes: number
+}
+
+export interface DupCopy {
+  titleId: string
+  title: string
+  num: string
+  lang: string
+  group: string
+  detail: string
+  size: number
+}
+
+export interface DupGroup {
+  sha256: string
+  size: number
+  wasted: number
+  copies: DupCopy[]
+}
+
+export interface GapRow {
+  titleId: string
+  title: string
+  lang: string
+  group: string
+  missing: number[]
+  what: string
+}
+
+/** Three answers from one pass. Every `rows` list is capped; the totals are not. */
+export interface CheckReport {
+  checked: number
+  hashed: number
+  total: number
+  expected: number
+  withDigest: number
+  deep: boolean
+  stopped: boolean
+  systemic: boolean
+  at: string
+  broken: { total: number; titles: number; rows: BrokenRow[] }
+  leftovers: { files: number; bytes: number; titles: number; rows: LeftoverRow[] }
+  duplicates: { sets: number; bytes: number; groups: DupGroup[] }
+  gaps: { titles: number; rows: GapRow[] }
+}
+
+/** One operation over the vault: when it ran, how long, and what came of it. */
+export interface HistoryEntry {
+  op: string
+  at: string
+  seconds: number
+  outcome: string
+  stopped: boolean
+}
+
+export interface VaultHealth {
+  history: HistoryEntry[]
+  lastCheck: CheckReport | null
+}
+
+export interface Gap {
+  titleId: string
+  title: string
+  lang: string
+  group: string
+  missing: number[]
 }
 
 export interface ArmInfo {

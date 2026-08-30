@@ -16,6 +16,7 @@ from app.library.models import ChapterRow, DraftIn, TitleMeta
 from app.library.service import Library
 from app.main import create_app
 from app.settings import get_settings
+from .conftest import settled
 
 
 @pytest.fixture(autouse=True)
@@ -26,6 +27,8 @@ def _clean_settings():
 
 
 JPEG = b"\xff\xd8\xff"  # the bytes that make a still a still
+
+
 
 
 def _mp4(path: Path, payload: bytes = b"\x00" * 4096) -> Path:
@@ -312,6 +315,7 @@ def test_an_arriving_episode_is_stored_ready_to_play(tmp_path):
     lib.close()
 
 
+@pytest.mark.migrations
 def test_episodes_already_in_the_vault_are_fixed_once(tmp_path):
     """What was stored before the app could do this gets a one-time pass. The
     bytes are rearranged without changing their number, so the media version
@@ -331,7 +335,7 @@ def test_episodes_already_in_the_vault_are_fixed_once(tmp_path):
 
     # the pass is consumed when a vault is first opened; this one is the
     # re-run, the way Settings would ask for it
-    assert lib.vault.needs_faststart() is False
+    assert settled(lib).vault.needs_faststart() is False
     assert lib.refresh_episodes() == 1
 
     chapter = lib.get(out.id).chapters[0]

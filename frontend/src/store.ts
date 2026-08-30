@@ -3,7 +3,9 @@
 // write-through — they never go through a draft (design/state-model.md §11).
 // The draft itself lives in draft.ts; browser tabs live in browser.ts.
 import { reactive, watch, watchEffect } from 'vue'
-import { api, type DownloadItem, type DownloadsState, type LibraryQuery } from './api'
+import {
+  api, type DownloadItem, type DownloadsState, type LibraryQuery, type PassState,
+} from './api'
 import { chapterRowsOf, emptyFacets, metaOf, sameChapter, type Chapter, type Facets, type FieldDef, type ReadState, type Source, type Title } from './data'
 import { isBoolMap, readLocal, readLocalOne, writeLocal, writeLocalOne } from './local'
 import { stopCaptureFor } from './pagecapture'
@@ -330,6 +332,9 @@ export async function init() {
   // what a previous run left unfinished is already on the sidecar's list
   void pollDownloads(true)
   window.setInterval(() => void pollDownloads(), 1000)
+  // a pass survives leaving the page, so following it has to as well
+  void pollVaultPass(true)
+  window.setInterval(() => void pollVaultPass(), 600)
   // refetch results whenever a server-side filter changes (density is client-only)
   onSelectionChange(reloadLibrary)
 }
@@ -578,6 +583,47 @@ export async function pollDownloads(force = false): Promise<void> {
     downloads.armed = s.armed
     downloads.items = s.items
   } catch { /* the sidecar is busy or gone — keep what we have */ }
+}
+
+// ---- the vault pass: ONE poller, and no client-side copy of the truth -------
+//
+// A check runs on the SERVER. It used to be tracked inside the settings view,
+// which meant walking to the library and back lost the progress of something
+// still running — and a page reload lost it even while the pass carried on.
+// So nothing here decides what is running: the sidecar says, including WHICH
+// row started it, and every screen reads the same answer.
+export const vaultPass = reactive<PassState & { key: string }>(
+  { running: false, op: '', key: '', done: 0, total: 0 })
+let passWatchers = 0
+
+/** Something on screen is showing the pass — keep the poll warm while it is. */
+export function watchVaultPass(on: boolean) {
+  passWatchers = Math.max(0, passWatchers + (on ? 1 : -1))
+}
+
+export async function pollVaultPass(force = false): Promise<void> {
+  if (!force && !passWatchers && !vaultPass.running) return
+  try {
+    Object.assign(vaultPass, await api.passStatus())
+  } catch { /* the sidecar is busy or gone — keep what we have */ }
+}
+
+/** Start a pass and follow it. The caller says what to call; the server says
+ *  what is running, so this returns as soon as the request does — and the poll
+ *  keeps going for anyone still watching. */
+export async function runVaultPass(fn: () => Promise<unknown>): Promise<void> {
+  try {
+    await pollVaultPass(true)
+    await fn()
+  } catch (e) {
+    store.error = String(e)
+  } finally {
+    await pollVaultPass(true)
+  }
+}
+
+export async function stopVaultPass(): Promise<void> {
+  try { Object.assign(vaultPass, await api.stopPass()) } catch { /* already done */ }
 }
 
 export async function refreshTitle(id: string): Promise<void> {
