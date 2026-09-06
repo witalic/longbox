@@ -152,6 +152,10 @@ class ChapterOut(ChapterRow):
     dl: bool = False       # a downloaded archive exists in the vault
     pages: int = 0         # image pages inside the archive (0 for non-zip)
     dlSource: str = ""     # where the DOWNLOAD came from (independent of meta.source)
+    # The name the media ARRIVED under. The vault renames every file to the
+    # chapter's id, so this is the only record of what the episode or chapter
+    # was called at its source.
+    origName: str = ""
     dlAt: str = ""         # when it was downloaded (ISO, from the sidecar)
     v: str = ""            # media version — what a page/video URL is cached under
     position: float = 0.0  # seconds into a video chapter (0 for page media)
@@ -221,6 +225,7 @@ class TitleOut(BaseModel):
                 stills=stills_version(side),
                 dlSource=(side or {}).get("pageUrl") or (side or {}).get("fileUrl") or "",
                 dlAt=(side or {}).get("downloadedAt", ""),
+                origName=(side or {}).get("origName", ""),
             ))
         return cls(
             id=title_id, title=m.title, alt=m.alt, authors=m.authors, artists=m.artists,

@@ -54,6 +54,9 @@ export interface Chapter extends ChapterRow {
   poster: boolean   // the one frame a tile wears is cut and stored
   sheet: string     // the geometry of the stored contact grid, '' when none
   stills: string    // the version those two are cached under (NOT the media's)
+  // The name the file ARRIVED under. The vault renames every stored file to the
+  // chapter's id, so this is the only record of what it was called at its source.
+  origName: string
 }
 
 // The metadata layer of a title — exactly what a draft edits and a commit writes.
@@ -421,6 +424,13 @@ export function mediaLabel(c: Chapter, empty = ''): string {
     return formatDuration(c.duration) || 'video'
   }
   return c.pages ? `${c.pages} pg` : 'file'
+}
+
+// What the media column can say about itself on hover: the name the file arrived
+// under (the vault renamed it to the chapter id) and where it came from. Two
+// facts, one per line, and nothing at all when it holds neither.
+export function mediaTitle(c: Chapter): string {
+  return [c.origName, c.dlSource].filter(Boolean).join('\n')
 }
 
 // Stored, listed, catalogued — and not openable here. Asked in ONE place so the

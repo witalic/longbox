@@ -22,7 +22,7 @@ import { readLocalOne, writeLocalOne } from '../local'
 import { api, type Gap } from '../api'
 import {
   ARCHIVE_RE, FILE_ACCEPT, IMAGE_RE, MEDIA_ACCEPT, VIDEO_RE, compareChapterNums, coverStyle,
-  faviconFor, filterOptions, isReadable, isUnsupported, mediaLabel, orderedChaptersOf,
+  faviconFor, filterOptions, isReadable, isUnsupported, mediaLabel, mediaTitle, orderedChaptersOf,
   chaptersInScope, fieldValue, hasValue, labelChoices, nextLabel, nextLabels, sameChapter,
   unsupportedNote, type FieldDef,
 } from '../data'
@@ -999,7 +999,7 @@ async function removeRow(c: Chapter) {
                     <span class="chtitle"></span>
                     <span class="chright">
                       <span class="pgcol mono" :class="{ unsup: isUnsupported(c) }"
-                            :title="isUnsupported(c) ? unsupportedNote(c) : c.dlSource">{{ mediaLabel(c) }}</span>
+                            :title="isUnsupported(c) ? unsupportedNote(c) : mediaTitle(c)">{{ mediaLabel(c) }}</span>
                       <span v-if="editMode" class="chacts">
                         <button class="chact" title="Edit entry: label · language · group · source link" @click.stop="openEntryEdit(c)"><Icon name="edit" :size="12" :sw="1.9" /></button>
                         <button class="chact" title="Add images to this entry" @click.stop="pickAddImagesRow(c)"><Icon name="image" :size="12" :sw="1.9" /></button>
@@ -1038,7 +1038,7 @@ async function removeRow(c: Chapter) {
                 <span class="chright">
                   <span v-if="node.rows[0].lang || node.rows[0].group" class="trbadge"><span class="mono" style="color:var(--accent);font-size:9px">{{ node.rows[0].lang || '?' }}</span><template v-if="node.rows[0].group">{{ node.rows[0].group }}</template></span>
                   <span class="pgcol mono" :class="{ unsup: isUnsupported(node.rows[0]) }"
-                    :title="isUnsupported(node.rows[0]) ? unsupportedNote(node.rows[0]) : node.rows[0].dlSource">{{ mediaLabel(node.rows[0]) }}</span>
+                    :title="isUnsupported(node.rows[0]) ? unsupportedNote(node.rows[0]) : mediaTitle(node.rows[0])">{{ mediaLabel(node.rows[0]) }}</span>
                   <span v-if="editMode" class="chacts">
                     <button class="chact" title="Edit entry: label · language · group · source link" @click.stop="openEntryEdit(node.rows[0])"><Icon name="edit" :size="12" :sw="1.9" /></button>
                     <button class="chact" title="Add images to this entry" @click.stop="pickAddImagesRow(node.rows[0])"><Icon name="image" :size="12" :sw="1.9" /></button>

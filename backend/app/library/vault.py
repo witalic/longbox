@@ -579,7 +579,8 @@ class Vault:
         gains nothing from a zip and would pay a full rewrite for every edit.
         The sidecar always describes the file actually stored.
         """
-        video_ext = Path(filename or src.name).suffix.lower()
+        arrived_as = Path(filename or src.name).name
+        video_ext = Path(arrived_as).suffix.lower()
         as_video = video_ext in media.VIDEO_EXTS
         if as_video and not media.looks_like_video(src):
             raise media.UnsupportedArchiveError(
@@ -626,6 +627,10 @@ class Vault:
                 if media.remux_faststart(final):
                     probe = media.probe_mp4(final)
             sidecar = {**sidecar,
+                       # The vault renames every file to the chapter's id, so
+                       # this is the only record of what the episode or chapter
+                       # was actually called where it came from.
+                       "origName": arrived_as,
                        "kind": "video" if as_video else "pages",
                        **({"codec": probe.get("codec", ""),
                            "faststart": probe.get("faststart", False),

@@ -1,6 +1,7 @@
 """The armed-download flow and chapter media ops, offline with real zip files."""
 from __future__ import annotations
 
+import base64
 import io
 import zipfile
 
@@ -220,6 +221,37 @@ def test_import_local_archive(client, tmp_path):
     # identity is required; empty bodies are rejected
     assert client.post("/api/titles/berserk/chapters/import", params={"num": " "}, content=b"x").status_code == 422
     assert client.post("/api/titles/berserk/chapters/import", params={"num": "8"}, content=b"").status_code == 422
+
+
+def test_the_name_a_file_arrived_under_is_kept(client, tmp_path):
+    """The vault renames every stored file to the chapter's id, so the sidecar is
+    the only place the original name can survive — and later features (matching a
+    re-download, writing a tree back out) have nothing else to go on."""
+    t = download(client, tmp_path, num="5", name="[Group] Berserk - 05 [1080p].zip")
+    ch = next(c for c in t["chapters"] if c["num"] == "5")
+    assert ch["origName"] == "[Group] Berserk - 05 [1080p].zip"
+
+
+def test_a_locally_imported_file_keeps_its_name_too(client, tmp_path):
+    src = make_zip(tmp_path, "local.zip")
+    r = client.post("/api/titles/berserk/chapters/import",
+                    params={"num": "9", "filename": "Vol. 3 — bonus chapter.cbz"},
+                    content=src.read_bytes())
+    ch = next(c for c in r.json()["chapters"] if c["num"] == "9")
+    assert ch["origName"] == "Vol. 3 — bonus chapter.cbz"
+
+
+def test_a_chapter_built_from_captured_pages_claims_no_original_name(client):
+    """Page capture assembles an archive that never existed as a file anywhere.
+    Reporting the vault's own name here would be a fabricated provenance."""
+    r = client.post("/api/titles/berserk/chapters/b-5-en/pages/capture", json={
+        "images": [{"key": "p1.jpg", "contentType": "image/jpeg",
+                    "data": base64.b64encode(b"page-bytes").decode(),
+                    "pageUrl": "https://site/r/1"}]})
+    assert r.status_code == 200
+    ch = next(c for c in r.json()["chapters"] if c["id"] == "b-5-en")
+    assert ch["dl"] is True and ch["pages"] == 1   # there IS a sidecar to have lied in
+    assert ch["origName"] == ""
 
 
 def test_read_state_survives_media_attach(client, tmp_path):
