@@ -6,6 +6,7 @@ Everything a chapter already is — identity, provenance, translations, progress
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -29,6 +30,27 @@ def _clean_settings():
 JPEG = b"\xff\xd8\xff"  # the bytes that make a still a still
 
 
+@pytest.fixture
+def coarse_clock(monkeypatch):
+    """A filesystem whose DIRECTORY timestamps never move on their own.
+
+    Real ones all round: Windows to ~15ms, some network shares to a whole
+    second. Everything that decides "has this title changed" is keyed by the
+    chapters directory's mtime, so on any of them two writes can land under one
+    stamp — and the app is not allowed to depend on which filesystem it is
+    standing on. Here the rounding is total, so the collision is certain rather
+    than a coin flip."""
+    real = media.replace_atomically
+    pinned: dict[Path, int] = {}
+
+    def rounded(tmp: Path, final: Path):
+        real(tmp, final)
+        d = final.parent
+        if d.is_dir():
+            was = pinned.setdefault(d, d.stat().st_mtime_ns)
+            os.utime(d, ns=(was, was))
+
+    monkeypatch.setattr(media, "replace_atomically", rounded)
 
 
 def _mp4(path: Path, payload: bytes = b"\x00" * 4096) -> Path:
@@ -342,6 +364,32 @@ def test_episodes_already_in_the_vault_are_fixed_once(tmp_path):
     assert chapter.faststart is True
     assert chapter.v != before                        # the version cannot repeat
     assert lib.refresh_episodes() == 0
+    lib.close()
+
+
+@pytest.mark.migrations
+def test_a_pass_reaches_the_index_on_a_filesystem_that_rounds_its_clock(tmp_path, coarse_clock):
+    """The pass fixed the file; the app has to be able to SEE that it did.
+
+    Every "has this title changed" answer in the app comes from one number —
+    the chapters directory's mtime — and every filesystem rounds it. When the
+    pass's write lands under the stamp the index already holds, the sync it
+    triggers finds nothing stale, and the app goes on describing an episode it
+    has already repaired. So a write inside a chapters directory MOVES that
+    stamp by construction; here nothing else can move it."""
+    lib = Library(tmp_path / "v")
+    out = lib.create(DraftIn(meta=TitleMeta(title="Series")))
+    lib.attach_chapter_media(out.id, num="1", lang="", group="",
+                             src=_mp4(tmp_path / "ep.mp4"), sidecar={"filename": "ep.mp4"})
+    cid = lib.get(out.id).chapters[0].id
+    _index_last_mp4(lib.vault.chapter_media_path(out.id, cid), b"\xab" * 4096)
+    lib._sidecar_cache.clear()
+    lib._index(out.id, lib.vault.load(out.id))
+    assert lib.get(out.id).chapters[0].faststart is False
+
+    assert settled(lib).vault.needs_faststart() is False
+    assert lib.refresh_episodes() == 1
+    assert lib.get(out.id).chapters[0].faststart is True
     lib.close()
 
 

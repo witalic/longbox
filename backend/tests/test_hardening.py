@@ -230,14 +230,14 @@ def test_unreadable_file_is_left_alone_without_faking_a_sidecar(tmp_path):
     d = lib.vault._chapters_dir("x")
     d.mkdir(parents=True, exist_ok=True)
     (d / "ch-1.rar").write_bytes(b"unreadable-garbage")
-    assert lib.vault.normalize_chapter_archives() == 0
+    assert lib.vault.normalize_chapter_archives() == (0, [])
     assert not (d / "ch-1.json").exists()
     assert (d / "ch-1.rar").read_bytes() == b"unreadable-garbage"
     assert next(c for c in lib.get("x").chapters if c.id == "ch-1").dl is False
     # replacing it with something readable converts it on the next pass
     with zipfile.ZipFile(d / "ch-1.rar", "w") as z:  # actually zip bytes now
         z.writestr("p1.jpg", b"img")
-    assert lib.vault.normalize_chapter_archives() == 1
+    assert lib.vault.normalize_chapter_archives() == (1, ["x"])
     assert (d / "ch-1.zip").is_file() and not (d / "ch-1.rar").exists()
     lib.close()
 
@@ -251,10 +251,12 @@ def test_failed_conversion_is_remembered_for_a_known_chapter(tmp_path):
     d.mkdir(parents=True, exist_ok=True)
     (d / "ch-1.rar").write_bytes(b"unreadable-garbage")
     (d / "ch-1.json").write_text(json.dumps({"pages": 0}), encoding="utf-8")
-    assert lib.vault.normalize_chapter_archives() == 0
+    # nothing converted — but the sidecar the index carries did change, so the
+    # title is still reported as one to re-read
+    assert lib.vault.normalize_chapter_archives() == (0, ["x"])
     side = json.loads((d / "ch-1.json").read_text(encoding="utf-8"))
     assert side["convertFailed"]
-    assert lib.vault.normalize_chapter_archives() == 0  # skipped, not retried
+    assert lib.vault.normalize_chapter_archives() == (0, [])  # skipped, not retried
     lib.close()
 
 

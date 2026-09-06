@@ -292,12 +292,30 @@ class Library:
     def refresh_episodes(self) -> int:
         """Bring stored episodes up to what the app records about them, once per
         vault. Anything arriving now gets it at ingest."""
-        changed = self.vault.refresh_stored_episodes(stop=self._closing)
+        changed, touched = self.vault.refresh_stored_episodes(stop=self._closing)
         if not self._closing.is_set():
             self.vault.mark_faststart()
-        if changed and not self._closing.is_set():
-            self.sync()  # the media version moved; the index carries it
+        self._reindex(touched)
         return changed
+
+    def _reindex(self, title_ids: list[str], stop: threading.Event | None = None) -> None:
+        """Refresh the index rows for titles a PASS just rewrote.
+
+        Not `sync()`. Sync exists to find changes nobody announced — a file
+        dropped into the vault by hand — and it finds them by comparing
+        timestamps. A filesystem records those at the resolution of a clock
+        tick (~15ms on Windows, a whole second on some shares), so a pass whose
+        write lands in the same tick as the row it is replacing is invisible to
+        it: the episode gets repaired on disk and the app goes on describing the
+        broken one. A pass knows exactly which titles it touched. There is
+        nothing to detect."""
+        for tid in title_ids:
+            if self._closing.is_set() or (stop is not None and stop.is_set()):
+                return
+            with self.vault.title_lock(tid):
+                doc = self.vault.load(tid)
+                if doc is not None:
+                    self._index(tid, doc)
 
     def normalize_archives(self, *, force: bool = False, progress: Progress = None,
                            stop: threading.Event | None = None) -> int:
@@ -318,15 +336,11 @@ class Library:
         if progress is not None:
             progress(0, len(ids or []))
         try:
-            changed = self.vault.normalize_chapter_archives(
+            changed, touched = self.vault.normalize_chapter_archives(
                 force=force, progress=progress, ids=ids, stop=stop or self._closing)
             if not self._closing.is_set():
                 self.vault.mark_normalized()
-            if changed and not self._closing.is_set():
-                # sync, NOT rescan: a rebuild is DELETE + INSERT over the whole
-                # table, and this runs on a background thread while the app is
-                # being used — it would drop a title committed a moment ago
-                self.sync()
+            self._reindex(touched, stop)
             self._record("convert archives", started,
                          f"{changed} converted" if changed else "everything already zip")
             return changed

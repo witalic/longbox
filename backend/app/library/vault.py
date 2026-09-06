@@ -763,13 +763,18 @@ class Vault:
             _atomic_write(self._health_path(),
                           json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8"))
 
-    def refresh_stored_episodes(self, *, stop=None) -> int:
+    def refresh_stored_episodes(self, *, stop=None) -> tuple[int, list[str]]:
         """Bring stored episodes up to what the app now records: the index moved
         in front of the media where that applies, plus the two facts a listing
         must never guess — which container it is, and whether the app can play
         it. Ingest does all of this for anything arriving now; this is the
-        one-time pass for what was already in the vault."""
+        one-time pass for what was already in the vault.
+
+        Returns how many EPISODES changed and which TITLES they belong to — the
+        caller has to refresh exactly those index rows, and must not have to
+        rediscover them by comparing timestamps."""
         changed = 0
+        touched: list[str] = []
         for sid in self.list_ids():
             if stop is not None and stop.is_set():
                 break  # the library is closing — the rest waits for next time
@@ -798,7 +803,9 @@ class Vault:
                             stamp["codec"] = probe["codec"]
                     if self._restamp_episode(d, p.stem, stamp, bump=rewrote):
                         changed += 1
-        return changed
+                        if sid not in touched:
+                            touched.append(sid)
+        return changed, touched
 
     def _restamp_episode(self, chapters: Path, stem: str, stamp: dict, *, bump: bool) -> bool:
         """The revision moves ONLY when the bytes did. A remux rearranges them
@@ -821,15 +828,20 @@ class Vault:
         return True
 
     def normalize_chapter_archives(self, *, force: bool = False, stop=None,
-                                   progress=None, ids: list[str] | None = None) -> int:
+                                   progress=None,
+                                   ids: list[str] | None = None) -> tuple[int, list[str]]:
         """Consistency pass over the whole vault (part of the zip invariant):
         cbz files are renamed to .zip, rar/7z get repacked when a reader is
         available. A file nothing can read is left alone AND remembered in the
         sidecar (`convertFailed` = its mtime) so a later pass doesn't burn time
         on the same hopeless conversion; `force` retries those too (the point of
         the manual re-run — e.g. after installing unrar).
-        Returns how many archives changed (the caller refreshes the index)."""
+
+        Returns how many ARCHIVES changed and which TITLES they belong to — the
+        caller has to refresh exactly those index rows, and must not have to
+        rediscover them by comparing timestamps."""
         changed = 0
+        touched: list[str] = []
         # The caller normally hands these in from the index, which already knows
         # every title — including ones dropped into the folder by hand, because
         # opening the library scans for them. Listing the shelves again here is
@@ -906,6 +918,10 @@ class Vault:
                             side["convertFailed"] = mark
                             _atomic_write(side_path,
                                           json.dumps(side, indent=2, ensure_ascii=False).encode("utf-8"))
+                            # a sidecar the index carries changed, so this title
+                            # needs re-reading even though nothing converted
+                            if sid not in touched:
+                                touched.append(sid)
                         continue
                     side.pop("convertFailed", None)
                     side["pages"] = len(media.image_entries(final))
@@ -918,7 +934,9 @@ class Vault:
                     _atomic_write(side_path,
                                   json.dumps(side, indent=2, ensure_ascii=False).encode("utf-8"))
                     changed += 1
-        return changed
+                    if sid not in touched:
+                        touched.append(sid)
+        return changed, touched
 
     def delete_chapter_media(self, title_id: str, chapter_id: str) -> bool:
         """Delete a chapter's files. Raises MediaInUseError when Windows will not
