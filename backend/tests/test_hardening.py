@@ -53,6 +53,42 @@ def test_recapture_with_two_uploads_keeps_both_rows(lib):
     assert [(c.id, c.url) for c in out.chapters] == [("old-1", "u1"), ("fresh-b", "u2")]
 
 
+def _commit(lib, tid, rows):
+    doc = lib.vault.load(tid)
+    return lib.commit(tid, DraftIn(meta=doc.meta, provenance=doc.provenance, chapters=rows))
+
+
+def test_a_renumbered_chapter_does_not_block_the_number_it_freed(lib):
+    """Add chapter 2, rename it to 3, add chapter 2 again.
+
+    A chapter's id is derived from the number it was CREATED under and then kept
+    for life — the media file is named after it — so the renamed row still
+    answers to the id "2" derives. The new row derived the same id, was taken
+    for a repeat of that row and dropped, and the button read as broken."""
+    out = lib.create(DraftIn(meta=TitleMeta(title="X")))
+    t = _commit(lib, out.id, [ChapterRow(id="", num="2", lang="EN", group="g")])
+    first = t.chapters[0].id
+
+    t = _commit(lib, out.id, [ChapterRow(**{**c.model_dump(), "num": "3"}) for c in t.chapters])
+    assert [(c.id, c.num) for c in t.chapters] == [(first, "3")]  # the id never moves
+
+    t = _commit(lib, out.id, [*(ChapterRow(**c.model_dump()) for c in t.chapters),
+                              ChapterRow(id="", num="2", lang="EN", group="g")])
+    assert sorted(c.num for c in t.chapters) == ["2", "3"]
+    assert len({c.id for c in t.chapters}) == 2
+    assert next(c for c in t.chapters if c.num == "3").id == first
+
+
+def test_a_repeat_of_a_number_that_is_still_that_number_is_still_a_repeat(lib):
+    """The rule above must not turn every collision into a new row: a second
+    chapter 2 while chapter 2 IS chapter 2 is the duplicate it looks like."""
+    out = lib.create(DraftIn(meta=TitleMeta(title="X")))
+    t = _commit(lib, out.id, [ChapterRow(id="", num="2", lang="EN", group="g")])
+    t = _commit(lib, out.id, [*(ChapterRow(**c.model_dump()) for c in t.chapters),
+                              ChapterRow(id="", num="2", lang="EN", group="g")])
+    assert [c.num for c in t.chapters] == ["2"]
+
+
 def test_reconcile_restores_row_with_archive_but_no_sidecar(lib, tmp_path):
     """A crash can leave a chapter's zip without its sidecar — a commit from a
     stale draft must still treat that row as media-backed and put it back."""

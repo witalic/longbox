@@ -791,7 +791,12 @@ export async function addChapterRow(
     body.chapters.push({ id: '', num: ch.num, title: '', url: ch.url || '', lang: ch.lang, group: ch.group, date: '' })
     const saved = await api.commitTitle(t.id, body)
     cache([saved])
-    return saved.chapters.find((c) => sameChapter(c, ch)) ?? null
+    const added = saved.chapters.find((c) => sameChapter(c, ch))
+    // The commit came back without the row it was asked for. That is a bug
+    // wherever it happens, and it used to happen in silence — a button that
+    // looked broken. Say so rather than return nothing.
+    if (!added) store.error = `Chapter ${ch.num} was not added — the library refused the row`
+    return added ?? null
   } catch (e) {
     store.error = e instanceof Error ? e.message : String(e)
     return null

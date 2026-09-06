@@ -242,6 +242,23 @@ def _finding(title_id: str, doc: TitleDoc, ch: ChapterRow, kind: str, detail: st
             "kind": kind, "detail": detail}
 
 
+def _free_id(cid: str, taken: set[str]) -> str:
+    """`cid`, or the first variant of it nobody holds.
+
+    An id is derived from the number a chapter was CREATED under, and then never
+    again — the media file is named after it. Renumber that chapter and it keeps
+    the id anyway, so the number it freed up derives an id somebody else is
+    still using. The row is not a duplicate and must not be treated as one: give
+    it a name of its own. Ids are opaque; all they owe anyone is uniqueness and
+    never changing afterwards."""
+    if cid not in taken:
+        return cid
+    n = 2
+    while f"{cid}-{n}" in taken:
+        n += 1
+    return f"{cid}-{n}"
+
+
 class Library:
     def __init__(self, root: Path, *, defer_sync: bool = False) -> None:
         self.vault = Vault(root)
@@ -1258,16 +1275,30 @@ class Library:
             if bucket and adopted_id in bucket:
                 bucket.remove(adopted_id)
 
+        # Who currently answers to each id, and as WHAT. A row keeps the id it
+        # was created under for life (its media file is named after it), so an
+        # id derived from a number says nothing about the number its holder
+        # wears today.
+        held = {c.id: key(c) for c in old.chapters}
+        held.update({c.id: key(c) for c in draft.chapters if c.id})
+
         rows, taken = [], set()
         for c in draft.chapters:
             cid = c.id or self.chapter_id_for(c.num, c.lang, c.group)
+            adopted = None
             if cid not in old_ids:
                 adopted = by_url.get(c.url) if c.url else None
                 if adopted is None and by_key.get(key(c)):
                     adopted = by_key[key(c)][0]
-                if adopted is not None:
-                    claim(adopted)
-                    cid = adopted
+            if adopted is not None:
+                claim(adopted)
+                cid = adopted
+            elif not c.id and held.get(cid, key(c)) != key(c):
+                # The id this number derives is held by a row that has since
+                # been RENUMBERED. This is a different chapter, not a repeat of
+                # that one — dropping it as a twin is how "add chapter 2" does
+                # nothing at all after chapter 2 was renamed to 3.
+                cid = _free_id(cid, set(held) | taken)
             if cid in taken:
                 continue  # the draft itself repeats one id — trust the first copy
             taken.add(cid)
@@ -1393,9 +1424,10 @@ class Library:
 
     @staticmethod
     def chapter_id_for(num: str, lang: str, group: str) -> str:
-        """The id a chapter identity gets. The ONLY place an id is derived: a
-        client that invents its own would disagree with the row reconciliation
-        writes, and then address media that lives under a different id."""
+        """The id a chapter identity gets — the FIRST choice for one, and the
+        only place an id is derived: a client that invents its own would
+        disagree with the row reconciliation writes, and then address media that
+        lives under a different id. `_free_id` settles the rest."""
         n = Library._norm
         digest = hashlib.sha1(f"{n(num)}|{n(lang)}|{n(group)}".encode()).hexdigest()[:8]
         return safe_id(f"ch-{num or 'x'}-{digest}")
