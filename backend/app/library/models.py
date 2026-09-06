@@ -194,7 +194,18 @@ class TitleOut(BaseModel):
     # user-defined field values, keyed by field id — served flat so the editor
     # reads them the same way it reads a built-in
     custom: dict[str, str | list[str]] = {}
-    cover: str  # local cover endpoint URL when bytes exist, else ""
+    # Three answers, because there are three different questions.
+    #
+    # What a tile SHOWS, in rotation order: the title's own covers, or — when it
+    # has none — stand-ins cut from its own media (Library._stand_ins).
+    covers: list[str] = []
+    # The first of those. Almost every surface wants one image, and asking each
+    # of them to index a list is how they end up disagreeing about which.
+    cover: str
+    # What is actually STORED for this title. Empty means nobody has given it a
+    # cover and `covers` is standing in — which is what the editor needs to know
+    # before offering to remove one.
+    ownCovers: list[str] = []
     fav: bool
     rating: int
     unread: int  # chapters not marked read
@@ -202,10 +213,13 @@ class TitleOut(BaseModel):
     chapters: list[ChapterOut]
 
     @classmethod
-    def from_doc(cls, title_id: str, doc: TitleDoc, cover_url: str = "",
-                 media: dict[str, dict] | None = None) -> "TitleOut":
+    def from_doc(cls, title_id: str, doc: TitleDoc, covers: list[str] | None = None,
+                 media: dict[str, dict] | None = None,
+                 own: list[str] | None = None) -> "TitleOut":
         m, u = doc.meta, doc.user
         media = media or {}
+        covers = list(covers or [])
+        own = list(own if own is not None else covers)
         chapters = []
         for c in doc.chapters:
             side = media.get(c.id)
@@ -234,7 +248,8 @@ class TitleOut(BaseModel):
             characters=m.characters,
             flags=m.flags, desc=m.desc, source=m.source, coverSource=m.coverSource,
             chapterOrder=m.chapterOrder, custom=dict(m.custom),
-            cover=cover_url, fav=u.fav, rating=u.rating,
+            covers=covers, cover=covers[0] if covers else "", ownCovers=own,
+            fav=u.fav, rating=u.rating,
             unread=sum(1 for c in chapters if c.read != "read"),
             provenance=doc.provenance, chapters=chapters,
         )

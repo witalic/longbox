@@ -2,6 +2,10 @@
 `title.json` documents are the source of truth, so dropping or corrupting this DB
 never loses content (`rebuild()` re-scans the vault and repopulates it). The
 schema is versioned via PRAGMA user_version — a mismatch simply drops the cache.
+Which is why the version is moved as rarely as it can be: dropping it makes the
+first launch after an update re-read every title in the library, and on a
+networked vault that is the difference between opening the app and waiting for
+it. A change that existing rows already satisfy is not a schema change.
 
 Filtering model (design: linked faceted filters with exclusions):
 - single-valued facets (type, status): include = OR within the facet;
@@ -94,7 +98,7 @@ class LibraryIndex:
 
     @staticmethod
     def _row(title_id: str, doc: TitleDoc, touched: int = 0,
-             media: dict[str, dict] | None = None, media_at: int = 0, cover: str = "") -> dict:
+             media: dict[str, dict] | None = None, media_at: int = 0, covers: str = "") -> dict:
         m, u = doc.meta, doc.user
         states = [u.read.get(c.id, "unread") for c in doc.chapters]
         total = len(states)
@@ -114,9 +118,17 @@ class LibraryIndex:
             # what made a big library take seconds to appear.
             "media": json.dumps(media or {}),
             "media_at": media_at,
-            # the cover endpoint URL, versioned by the file's mtime: composing it
-            # per listing means one stat per title, on the network, every time
-            "cover": cover,
+            # The title's cover endpoint URLs, space-separated (a URL here never
+            # holds one), each versioned by its file's mtime: composing them per
+            # listing means one stat per title, on the network, every time.
+            #
+            # The COLUMN is still called `cover`, and that is deliberate. A
+            # schema change drops this whole cache, and a library of a thousand
+            # titles then pays a full re-read on the one launch after an update
+            # — for a rename. The values need no conversion either: a title with
+            # one cover stores exactly the string it always did, and nothing had
+            # more than one until now.
+            "cover": covers,
         }
 
     @property
@@ -128,13 +140,13 @@ class LibraryIndex:
     def rebuild(self, docs: dict[str, TitleDoc], touched: dict[str, int] | None = None,
                 media: dict[str, dict[str, dict]] | None = None,
                 media_at: dict[str, int] | None = None,
-                cover: dict[str, str] | None = None) -> None:
+                covers: dict[str, str] | None = None) -> None:
         with self._lock, self._db:
             self._db.execute("DELETE FROM titles")
             self._db.executemany(
                 self._insert_sql,
                 [self._row(tid, doc, (touched or {}).get(tid, 0), (media or {}).get(tid),
-                           (media_at or {}).get(tid, 0), (cover or {}).get(tid, ""))
+                           (media_at or {}).get(tid, 0), (covers or {}).get(tid, ""))
                  for tid, doc in docs.items()],
             )
 
@@ -150,10 +162,10 @@ class LibraryIndex:
                      cover=excluded.cover"""
 
     def upsert(self, title_id: str, doc: TitleDoc, touched: int = 0,
-               media: dict[str, dict] | None = None, media_at: int = 0, cover: str = "") -> None:
+               media: dict[str, dict] | None = None, media_at: int = 0, covers: str = "") -> None:
         with self._lock, self._db:
             self._db.execute(self._upsert_sql,
-                             self._row(title_id, doc, touched, media, media_at, cover))
+                             self._row(title_id, doc, touched, media, media_at, covers))
 
     def upsert_many(self, rows: list[tuple[str, TitleDoc, int, dict[str, dict], int, str,
                                             tuple[int, int, str]]]) -> None:
@@ -169,13 +181,13 @@ class LibraryIndex:
         if not rows:
             return
         guarded = (f"{self._upsert_sql} WHERE titles.touched = :was_touched"
-                   " AND titles.media_at = :was_media_at AND titles.cover = :was_cover")
+                   " AND titles.media_at = :was_media_at AND titles.cover = :was_covers")
         params = []
-        for tid, doc, touched, media, media_at, cover, was in rows:
-            row = self._row(tid, doc, touched, media, media_at, cover)
+        for tid, doc, touched, media, media_at, covers, was in rows:
+            row = self._row(tid, doc, touched, media, media_at, covers)
             # all THREE stamps: a cover replaced from a local file changes only
             # this column — title.json and the chapter directory never move
-            row["was_touched"], row["was_media_at"], row["was_cover"] = was
+            row["was_touched"], row["was_media_at"], row["was_covers"] = was
             params.append(row)
         with self._lock, self._db:
             self._db.executemany(guarded, params)
@@ -186,11 +198,12 @@ class LibraryIndex:
 
     def stamps(self) -> dict[str, tuple[int, int, str]]:
         """Every indexed title's id with the (document mtime, chapter-dir mtime,
-        cover URL) it was indexed at. Comparing these against one vault scan is
-        what lets a launch reload only what changed — the cover URL carries the
-        cover's own mtime, so a cover replaced outside the app is noticed too."""
+        cover URLs) it was indexed at. Comparing these against one vault scan is
+        what lets a launch reload only what changed — a cover URL carries that
+        file's own mtime, so a cover replaced outside the app is noticed too."""
         with self._lock:
-            rows = self._db.execute("SELECT id, touched, media_at, cover FROM titles").fetchall()
+            rows = self._db.execute(
+                "SELECT id, touched, media_at, cover FROM titles").fetchall()
         return {r["id"]: (r["touched"], r["media_at"], r["cover"]) for r in rows}
 
     def count(self) -> int:
@@ -205,10 +218,13 @@ class LibraryIndex:
             return None
         return TitleDoc.model_validate_json(row["doc"]), json.loads(row["media"]), row["cover"]
 
-    def all_docs(self) -> list[tuple[str, TitleDoc, str]]:
+    def all_docs(self) -> list[tuple[str, TitleDoc]]:
+        """Every document, without the columns a listing needs. Anything that
+        has to SHOW a title goes through `query()`, which carries the media and
+        the covers with it."""
         with self._lock:
-            rows = self._db.execute("SELECT id, doc, cover FROM titles").fetchall()
-        return [(r["id"], TitleDoc.model_validate_json(r["doc"]), r["cover"]) for r in rows]
+            rows = self._db.execute("SELECT id, doc FROM titles").fetchall()
+        return [(r["id"], TitleDoc.model_validate_json(r["doc"])) for r in rows]
 
     def query(
         self,

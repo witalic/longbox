@@ -57,6 +57,7 @@ export interface CoverUpload {
   sourceUrl?: string
   url?: string         // fallback: the backend fetches this
   referer?: string
+  append?: boolean     // add another cover instead of replacing the first
 }
 
 export const api = {
@@ -86,7 +87,13 @@ export const api = {
   removeTitle: (id: string) => reqVoid(`/titles/${id}`, { method: 'DELETE' }),
   patchUser: (id: string, patch: UserPatch) => req<Title>(`/titles/${id}/user`, jsonBody('PATCH', patch)),
   setCover: (id: string, body: CoverUpload) => req<Title>(`/titles/${id}/cover`, jsonBody('POST', body)),
-  deleteCover: (id: string) => req<Title>(`/titles/${id}/cover`, { method: 'DELETE' }),
+  // No index = every cover goes. The covers left close the gap, so a position
+  // always means the same thing it does in `ownCovers`.
+  deleteCover: (id: string, i?: number) =>
+    req<Title>(`/titles/${id}/cover${i === undefined ? '' : `?i=${i}`}`, { method: 'DELETE' }),
+  // `order` names the covers by their CURRENT positions
+  reorderCovers: (id: string, order: number[]) =>
+    req<Title>(`/titles/${id}/covers`, jsonBody('PUT', { order })),
   // `join` is what a list folds into text with when the TYPE changes, and what
   // a text splits back on — the backend converts the stored values with it
   putField: (id: string, body: {

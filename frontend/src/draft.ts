@@ -109,7 +109,10 @@ export function draftFromTitle(t: Title) {
     meta: metaOf(t, store.fields),
     provenance: JSON.parse(JSON.stringify(t.provenance || {})),
     chapters: chapterRowsOf(t.chapters),
-    cover: { kind: t.cover ? 'keep' : 'none', preview: t.cover },
+    // ownCovers, NOT cover: a title with none of its own SHOWS a stand-in cut
+    // from its media, and a draft that read that as "there is a cover here"
+    // would lock automatic capture out of a field that is empty.
+    cover: { kind: t.ownCovers.length ? 'keep' : 'none', preview: t.ownCovers[0] ?? '' },
     saving: false,
   })
 }
@@ -322,8 +325,11 @@ export async function commitDraft(asNew = false): Promise<string | null> {
       try {
         saved = await api.setCover(saved.id, { url: d.cover.sourceUrl, referer: d.cover.referer })
       } catch { /* the document is saved; a failed cover fetch is not fatal */ }
-    } else if (d.cover.kind === 'none' && target && store.byId[target]?.cover) {
-      saved = await api.deleteCover(saved.id)
+    } else if (d.cover.kind === 'none' && target && store.byId[target]?.ownCovers.length) {
+      // The draft models ONE cover — the first. Clearing that field means "drop
+      // the cover I was editing", never "drop all eight of them"; removing the
+      // rest is the strip's job on the title page, and it asks first.
+      saved = await api.deleteCover(saved.id, 0)
     }
     cache([saved])
     rememberDraftDefaults(d.meta) // the next fresh draft starts from these choices

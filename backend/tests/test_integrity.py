@@ -315,7 +315,7 @@ def test_a_stopped_pass_says_it_covered_only_part(lib, tmp_path):
 
     # the mirror needs something to mirror before being stopped means anything:
     # a pass with no work did not cover "part" of it
-    for tid, doc, _c in lib.index.all_docs():
+    for tid, doc in lib.index.all_docs():
         lib.commit(tid, DraftIn(meta=TitleMeta(title=f"{doc.meta.title} II"), chapters=[
             ChapterRow(id=c.id, num=c.num, lang=c.lang, group=c.group) for c in doc.chapters]))
     assert lib.refresh_comicinfo(stop=stop2)["stopped"] is True
@@ -383,7 +383,7 @@ def test_a_library_wide_failure_is_named_as_one(lib, tmp_path):
     """A drive that is not mounted is not three thousand damaged files, and a
     report that lists them as such buries the only useful thing it knows."""
     _library_of(lib, tmp_path, 5)
-    for tid, doc, _c in lib.index.all_docs():
+    for tid, doc in lib.index.all_docs():
         for ch in doc.chapters:
             p = lib.vault.chapter_media_path(tid, ch.id)
             if p:
@@ -393,7 +393,7 @@ def test_a_library_wide_failure_is_named_as_one(lib, tmp_path):
 
 def test_one_damaged_chapter_is_not_a_library_wide_failure(lib, tmp_path):
     _library_of(lib, tmp_path, 4)
-    tid, doc, _c = lib.index.all_docs()[0]
+    tid, doc = lib.index.all_docs()[0]
     lib.vault.chapter_media_path(tid, doc.chapters[0].id).unlink()
     r = lib.check()
     assert r["broken"]["total"] == 1 and r["systemic"] is False
@@ -662,7 +662,7 @@ def test_a_sweep_with_no_scope_still_covers_the_whole_library(lib, tmp_path):
     """The scope is an optimisation, not the guarantee — asked with nothing to
     go on, the sweep is still right."""
     _library_of(lib, tmp_path, 3)
-    for tid, _doc, _c in lib.index.all_docs():
+    for tid, _doc in lib.index.all_docs():
         (lib.vault._chapters_dir(tid) / "g.zip.b2.tmp").write_bytes(b"x" * 64)
     assert lib.delete_leftovers()["deleted"] == 3
 
@@ -682,7 +682,7 @@ def test_a_pass_reads_each_title_directory_once(lib, tmp_path, monkeypatch):
     is the rule the vault already learned once ("one scan, not three stats")."""
     _library_of(lib, tmp_path, 4)
     # rows with no media at all: the expensive case, and the common one
-    for tid, doc, _c in lib.index.all_docs():
+    for tid, doc in lib.index.all_docs():
         lib.commit(tid, DraftIn(meta=doc.meta, chapters=[
             *doc.chapters, ChapterRow(id="", num="9", lang="EN", group="g")]))
 
@@ -766,7 +766,7 @@ def test_a_sweep_put_down_early_corrects_nothing(lib, tmp_path):
     list is how a report ends up claiming two files in zero titles — so a
     stopped sweep leaves the numbers exactly as the check measured them."""
     _library_of(lib, tmp_path, 4)
-    ids = [tid for tid, _d, _c in lib.index.all_docs()]
+    ids = [tid for tid, _d in lib.index.all_docs()]
     for tid in ids:
         (lib.vault._chapters_dir(tid) / "g.zip.b2.tmp").write_bytes(b"x" * 100)
     before = lib.check()["leftovers"]

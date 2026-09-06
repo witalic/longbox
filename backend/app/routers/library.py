@@ -24,7 +24,7 @@ from ..library.models import (
 )
 from ..library.media import MediaInUseError
 from ..library.service import Library
-from ..library.vault import safe_id
+from ..library.vault import MAX_COVERS, safe_id
 from ..passes import _pass
 from ..scraper.covers import fetch_cover
 
@@ -289,20 +289,23 @@ class CoverIn(BaseModel):
     sourceUrl: str = ""    # where the bytes came from (provenance)
     url: str = ""          # fallback: fetch this URL server-side
     referer: str = ""      # fallback: send this page's origin as Referer
+    append: bool = False   # add another cover instead of replacing the first
 
 
 @router.get("/titles/{title_id}/cover")
-def get_cover(request: Request, title_id: str, w: int = 0):
-    """The cover; `w` > 0 serves a cached high-quality downscale (the URL is
-    versioned by mtime, so long client caching is safe)."""
+def get_cover(request: Request, title_id: str, w: int = 0, i: int = 0):
+    """One cover; `i` is its position in the title's list (0 = the one every
+    older URL means). `w` > 0 serves a cached high-quality downscale — the URL
+    is versioned by mtime, so long client caching is safe."""
     width = min(max(w, 0), 1024) or None
+    slot = min(max(i, 0), MAX_COVERS - 1)
     if width:
-        got = _lib(request).cover_thumb(title_id, width)
+        got = _lib(request).cover_thumb(title_id, width, slot)
         if got is None:
             raise HTTPException(status_code=404, detail="no cover")
         data, ct = got
         return Response(content=data, media_type=ct, headers={"Cache-Control": "max-age=86400"})
-    path = _lib(request).vault.cover_path(title_id)
+    path = _lib(request).vault.cover_path(title_id, slot)
     if path is None:
         raise HTTPException(status_code=404, detail="no cover")
     ext = path.suffix.lstrip(".").lower()
@@ -330,15 +333,33 @@ def set_cover(request: Request, title_id: str, body: CoverIn) -> TitleOut:
         source = body.url
     else:
         raise HTTPException(status_code=422, detail="either data or url is required")
-    title = _lib(request).set_cover(title_id, data, ext, source)
+    title = _lib(request).set_cover(title_id, data, ext, source, append=body.append)
     if title is None:
         raise HTTPException(status_code=404, detail="title not found")
     return title
 
 
 @router.delete("/titles/{title_id}/cover", response_model=TitleOut)
-def delete_cover(request: Request, title_id: str) -> TitleOut:
-    title = _lib(request).delete_cover(title_id)
+def delete_cover(request: Request, title_id: str,
+                 i: int | None = Query(default=None, ge=0)) -> TitleOut:
+    """Remove one cover by position, or — with no `i` — every cover the title
+    has. Only an ABSENT `i` means all of them: a client's off-by-one arriving as
+    -1 would otherwise wipe the lot."""
+    title = _lib(request).delete_cover(title_id, i)
+    if title is None:
+        raise HTTPException(status_code=404, detail="title not found")
+    return title
+
+
+class CoverOrderIn(BaseModel):
+    """The covers' new order, as their CURRENT positions. Positions left out keep
+    their relative order at the end — a stale list may reorder, never delete."""
+    order: list[int] = Field(default_factory=list, max_length=MAX_COVERS)
+
+
+@router.put("/titles/{title_id}/covers", response_model=TitleOut)
+def reorder_covers(request: Request, title_id: str, body: CoverOrderIn) -> TitleOut:
+    title = _lib(request).reorder_covers(title_id, body.order)
     if title is None:
         raise HTTPException(status_code=404, detail="title not found")
     return title

@@ -23,6 +23,7 @@ import { api } from '../api'
 import { ensurePostersFor } from '../frames'
 import { readLocalOne, writeLocalOne } from '../local'
 import { coverStyle, mediaLabel, orderedChaptersOf, initials, statusColor, type Chapter, type Title } from '../data'
+import CoverArt from '../components/CoverArt.vue'
 
 const lib = store.library
 
@@ -195,14 +196,14 @@ async function deleteSelected() {
       <div v-else-if="lib.density === 'grid'" class="grid">
         <div v-for="t in shown" :key="t.id" class="gcard" :class="{ selon: isSel(t.id) }" @click="cardClick(t)"
              @mousedown.middle.prevent="!selMode && openTitleBackground(t.id)">
-          <div class="cover" :style="coverStyle(t)">
-            <span v-if="!t.cover" class="mono let">{{ t.title[0] }}</span>
+          <CoverArt class="cover" :covers="t.covers" :id="t.id" :title="t.title">
+            <span v-if="!t.covers.length" class="mono let">{{ t.title[0] }}</span>
             <span v-if="t.unread && !selMode" class="badge">{{ t.unread }} new</span>
             <span v-if="selMode" class="selbox" :class="{ on: isSel(t.id) }"><Icon v-if="isSel(t.id)" name="check" :size="11" :sw="3" /></span>
             <button v-if="!selMode" class="favbtn" :style="{ color: t.fav ? 'var(--fav)' : '#cfd3dc' }" @click.stop="toggleFav(t)">
               <Icon name="star" :size="14" :sw="1.8" :fill="t.fav ? 'var(--fav)' : 'none'" />
             </button>
-          </div>
+          </CoverArt>
           <div>
             <div class="gtitle">{{ t.title }}</div>
             <div class="gmeta">
@@ -262,7 +263,9 @@ async function deleteSelected() {
         <div v-for="t in shown" :key="t.id" class="ecard" :class="{ selon: isSel(t.id) }" @click="cardClick(t)"
              @mousedown.middle.prevent="!selMode && openTitleBackground(t.id)">
           <span v-if="selMode" class="selbox row" :class="{ on: isSel(t.id) }"><Icon v-if="isSel(t.id)" name="check" :size="10" :sw="3" /></span>
-          <span class="ecover" :style="coverStyle(t, 320)"><span v-if="!t.cover" class="mono">{{ t.title[0] }}</span></span>
+          <CoverArt class="ecover" :covers="t.covers" :id="t.id" :title="t.title" :w="320">
+            <span v-if="!t.covers.length" class="mono elet">{{ t.title[0] }}</span>
+          </CoverArt>
           <div class="emeta">
             <div class="etitlerow"><span class="etitle">{{ t.title }}</span><span v-if="t.type" class="etype">{{ t.type }}</span></div>
             <div class="estatus">
@@ -421,7 +424,8 @@ async function deleteSelected() {
 .exp { padding: 16px 24px 24px; display: flex; flex-direction: column; gap: 12px; }
 .ecard { display: flex; gap: 20px; padding: 16px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); cursor: pointer; align-items: stretch; }
 .ecard:hover { border-color: #3a4150; }
-.ecover { width: 132px; height: 196px; border-radius: 7px; flex: none; display: flex; align-items: center; justify-content: center; font: 600 34px/1 Georgia, serif; color: rgba(242,237,230,.2); }
+.ecover { width: 132px; height: 196px; border-radius: 7px; flex: none; display: flex; align-items: center; justify-content: center; }
+.elet { font: 600 34px/1 Georgia, serif; color: rgba(242,237,230,.2); }
 .emeta { flex: 0 1 300px; min-width: 180px; display: flex; flex-direction: column; }
 .etitlerow { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
 .etitle { font: 600 16px/1.1 system-ui; color: var(--tx); }

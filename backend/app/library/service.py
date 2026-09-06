@@ -25,7 +25,7 @@ from .models import (
     AuthorWork, BrowseGroup, ChapterRow, DraftIn, Source, TitleDoc, TitleOut, UserPatch,
 )
 from .vault import FRAME_KINDS, Vault, safe_id
-from .versions import cache_key, chapter_version, cover_version
+from .versions import cache_key, chapter_version, cover_version, stills_version
 
 
 log = logging.getLogger("longbox.library")
@@ -96,6 +96,9 @@ LEFTOVER_KINDS = ("stray", "orphan")
 # A list of thousands is not a list. Rows are capped; the totals never are, and
 # every list says how much of itself is showing.
 ROW_CAP = 200
+# How many stand-ins a title with no stored cover is worth composing. The grid
+# rotates them on hover, and past a handful nobody ever sees the rest.
+_DERIVED_COVERS = 6
 # When this share of the media the library EXPECTS to hold cannot be read, the
 # count is not the answer — a whole library failing at once is a folder that
 # moved, not damage. The floor keeps a two-chapter vault from being told its
@@ -311,7 +314,7 @@ class Library:
         # The index already knows every title, so the sweep does not go back to
         # the disk to find that out. Empty means it has not been filled yet
         # (the startup migration), and the vault lists the shelves itself.
-        ids = [tid for tid, _doc, _cover in self.index.all_docs()] or None
+        ids = [tid for tid, _doc in self.index.all_docs()] or None
         if progress is not None:
             progress(0, len(ids or []))
         try:
@@ -447,7 +450,7 @@ class Library:
         has been stable since today, not that it is what arrived."""
         findings: list[dict] = []
         checked = hashed = seen = with_digest = 0
-        for title_id, doc, _cover in self._walk(progress, stop):
+        for title_id, doc in self._walk(progress, stop):
             seen += 1
             sidecars = self.vault.chapter_sidecars(title_id)
             # ONE directory listing for the whole title: asking per chapter costs
@@ -558,7 +561,7 @@ class Library:
         rows = self.index.query()
         total = len(rows)
         seen = 0
-        for title_id, doc, sidecars, _cover in rows:
+        for title_id, doc, sidecars, _covers in rows:
             if stop is not None and stop.is_set():
                 break
             seen += 1
@@ -606,7 +609,7 @@ class Library:
             row = self.index.get(title_id)
             docs = [(title_id, row[0])] if row else []
         else:
-            docs = [(tid, doc) for tid, doc, _cover in self._walk(progress, stop)]
+            docs = list(self._walk(progress, stop))
         out: list[dict] = []
         for tid, doc in docs:
             if doc.meta.chapterOrder == "manual":
@@ -657,7 +660,8 @@ class Library:
         freed = 0
         seen = 0
         survivors: list[dict] = []
-        scope = list(title_ids) if title_ids is not None else             [tid for tid, _d, _c in self.index.all_docs()]
+        scope = (list(title_ids) if title_ids is not None
+                 else [tid for tid, _d in self.index.all_docs()])
         total = len(scope)
         if progress is not None:
             progress(0, total)
@@ -772,8 +776,8 @@ class Library:
         started = time.perf_counter()
         indexed = self.index.stamps()
         scanned = self.vault.scan()
-        on_disk = {tid: (doc_at, ch_at, self._cover_of(tid, name, cover_at, cover_size))
-                   for tid, (doc_at, ch_at, name, cover_at, cover_size) in scanned.items()}
+        on_disk = {tid: (doc_at, ch_at, self._covers_of(tid, stamps))
+                   for tid, (doc_at, ch_at, stamps) in scanned.items()}
         statted = time.perf_counter()
         for gone in indexed.keys() - on_disk.keys():
             self.index.remove(gone)
@@ -833,7 +837,7 @@ class Library:
         touched = {}
         media = {}
         media_at = {}
-        cover = {}
+        covers = {}
         for i, tid in enumerate(ids):
             if stop is not None and stop.is_set():
                 # a rebuild put down halfway leaves the index as it was: half a
@@ -845,14 +849,14 @@ class Library:
                 doc = None
             if doc is not None:
                 docs[tid] = doc
-                doc_at, ch_at, name, cover_at, cover_size = scanned[tid]
+                doc_at, ch_at, stamps = scanned[tid]
                 touched[tid] = doc_at
                 media[tid] = self._sidecars(tid)
                 media_at[tid] = ch_at
-                cover[tid] = self._cover_of(tid, name, cover_at, cover_size)
+                covers[tid] = self._covers_of(tid, stamps)
             if progress:
                 progress(i + 1, len(ids))
-        self.index.rebuild(docs, touched, media, media_at, cover)
+        self.index.rebuild(docs, touched, media, media_at, covers)
         self._record("rebuild index", started, f"{len(docs)} title(s) re-read")
 
     def close(self) -> None:
@@ -866,19 +870,31 @@ class Library:
     # ---- DTO composition ----
 
     @classmethod
-    def _cover_of(cls, title_id: str, name: str, mtime: int, size: int) -> str:
-        """The cover endpoint URL, versioned so a re-captured cover busts every
-        cache. Composed from a scan, never from a fresh stat."""
-        v = cover_version(name, mtime, size)
-        return f"/api/titles/{title_id}/cover?v={v}" if v else ""
+    def _covers_of(cls, title_id: str, stamps: tuple[tuple[str, int, int], ...]) -> str:
+        """A title's cover endpoint URLs as the index stores them: space-separated
+        and each versioned, so a re-captured cover busts every cache. Composed
+        from a scan, never from a fresh stat. The first cover keeps the URL it
+        has always had — a slot only names itself once there is a second one."""
+        out = []
+        for slot, (name, mtime, size) in enumerate(stamps):
+            v = cover_version(name, mtime, size)
+            if v:
+                out.append(f"/api/titles/{title_id}/cover?v={v}"
+                           + (f"&i={slot}" if slot else ""))
+        return " ".join(out)
 
-    def _cover_url(self, title_id: str) -> str:
-        """The same URL for ONE title, straight after a write."""
-        path = self.vault.cover_path(title_id)
-        if path is None:
-            return ""
-        stat = path.stat()
-        return self._cover_of(title_id, path.name, stat.st_mtime_ns, stat.st_size)
+    def _covers_url(self, title_id: str) -> str:
+        """The same URLs for ONE title, straight after a write."""
+        stamps = []
+        for path in self.vault.cover_paths(title_id):
+            try:
+                stat = path.stat()
+            except OSError:
+                # A position is what `&i=` means. Skipping one would renumber
+                # every cover after it; stopping keeps the ones before it right.
+                break
+            stamps.append((path.name, stat.st_mtime_ns, stat.st_size))
+        return self._covers_of(title_id, tuple(stamps))
 
     def _index(self, title_id: str, doc: TitleDoc) -> None:
         """Refresh the index for one title. ALWAYS called inside that title's
@@ -895,7 +911,7 @@ class Library:
         # store fresh stamps over stale content and never notice
         stamp = self.vault.chapters_stamp(title_id)
         self.index.upsert(title_id, doc, self.vault.touched_at(title_id),
-                          self._sidecars(title_id), stamp, self._cover_url(title_id))
+                          self._sidecars(title_id), stamp, self._covers_url(title_id))
 
     def _sidecars(self, title_id: str) -> dict[str, dict]:
         """Chapter sidecars, cached per title against the chapters dir's mtime.
@@ -918,17 +934,41 @@ class Library:
         """One title composed right after a write, when the sidecars on disk are
         newer than whatever the index row still carries."""
         self._sidecar_cache.pop(title_id, None)  # the write is newer than any cache
-        return self._out(title_id, doc, self._sidecars(title_id), self._cover_url(title_id))
+        return self._out(title_id, doc, self._sidecars(title_id), self._covers_url(title_id))
 
-    def _out(self, title_id: str, doc: TitleDoc, sidecars: dict[str, dict], cover: str) -> TitleOut:
+    def _out(self, title_id: str, doc: TitleDoc, sidecars: dict[str, dict], covers: str) -> TitleOut:
         media_map = {c.id: sidecars[safe_id(c.id)] for c in doc.chapters if safe_id(c.id) in sidecars}
-        return TitleOut.from_doc(title_id, doc, cover, media_map)
+        own = covers.split()
+        return TitleOut.from_doc(title_id, doc,
+                                 own or self._stand_ins(title_id, doc, sidecars),
+                                 media_map, own=own)
+
+    @staticmethod
+    def _stand_ins(title_id: str, doc: TitleDoc, sidecars: dict[str, dict]) -> list[str]:
+        """What a title with no cover of its own can show instead: the first page
+        of each downloaded chapter, or the frame the window already cut for an
+        episode's tile. Composed from the sidecars the caller is already holding,
+        so a coverless title costs no disk at all."""
+        out: list[str] = []
+        for c in doc.chapters:
+            if len(out) >= _DERIVED_COVERS:
+                break
+            side = sidecars.get(safe_id(c.id))
+            if not side:
+                continue
+            base = f"/api/titles/{title_id}/chapters/{c.id}"
+            if side.get("kind") == "video":
+                if side.get("poster"):
+                    out.append(f"{base}/frames/poster?v={stills_version(side)}")
+            elif side.get("pages"):
+                out.append(f"{base}/pages/0?v={chapter_version(side)}")
+        return out
 
     # ---- reads (via the index) ----
 
     def query(self, **kwargs) -> list[TitleOut]:
-        return [self._out(tid, doc, media, cover)
-                for tid, doc, media, cover in self.index.query(**kwargs)]
+        return [self._out(tid, doc, media, covers)
+                for tid, doc, media, covers in self.index.query(**kwargs)]
 
     def get(self, title_id: str) -> TitleOut | None:
         row = self.index.get(title_id)
@@ -945,7 +985,7 @@ class Library:
         under the lock before anything is written; this only says where to look.
         """
         sep = join or ", "
-        return [tid for tid, doc, _c in self.index.all_docs()
+        return [tid for tid, doc in self.index.all_docs()
                 if _retyped(doc.meta.custom.get(field_id), to_type, sep) is not None]
 
     def clear_field(self, field_id: str, progress: Progress = None,
@@ -956,7 +996,7 @@ class Library:
         value are opened. Nothing else about them is touched — this is the
         second half of "remove the field", for when you mean the data too."""
         started = time.monotonic()
-        scope = [tid for tid, doc, _c in self.index.all_docs()
+        scope = [tid for tid, doc in self.index.all_docs()
                  if field_id in doc.meta.custom]
         total = len(scope)
         cleared = seen = 0
@@ -990,7 +1030,7 @@ class Library:
         sep = (join or ", ").strip() or (join or ", ")
         bad: list[dict] = []
         total = 0
-        for tid, doc, _c in self.index.all_docs():
+        for tid, doc in self.index.all_docs():
             value = doc.meta.custom.get(field_id)
             if not isinstance(value, list):
                 continue
@@ -1068,7 +1108,7 @@ class Library:
         is currently showing: reading the count off that made every field report
         whatever the library happened to be filtered to."""
         used: dict[str, int] = {f.id: 0 for f in fields.registry()}
-        for _tid, doc, _cover in self.index.all_docs():
+        for _tid, doc in self.index.all_docs():
             for f in fields.registry():
                 if f.values is not None:
                     if fields.facet_values(f, doc):
@@ -1096,10 +1136,9 @@ class Library:
         # Filtering a browse means "which groups survive, and what is left inside
         # them" — so it is the same selection the library is under, applied to the
         # documents BEFORE they are grouped. A group with nothing left disappears.
-        docs = (self.index.query(**selection) if selection else
-                [(tid, doc, {}, cover) for tid, doc, cover in self.index.all_docs()])
+        docs = self.index.query(**(selection or {}))
         agg: dict[str, dict] = {}
-        for tid, doc, _media, cover in docs:
+        for tid, doc, media, covers in docs:
             m = doc.meta
             for value in fields.facet_values(f, doc):
                 name = value.strip()
@@ -1111,7 +1150,9 @@ class Library:
                     g["author"] = g["author"] or name in m.authors
                     g["artist"] = g["artist"] or name in m.artists
                 if tid not in g["works"]:
-                    g["works"][tid] = AuthorWork(id=tid, title=m.title, cover=cover)
+                    shown = covers.split() or self._stand_ins(tid, doc, media)
+                    g["works"][tid] = AuthorWork(id=tid, title=m.title,
+                                                 cover=shown[0] if shown else "")
                     g["chapters"] += len(doc.chapters)
                     g["tags"].update(m.tags)
         favs = self.vault.author_favorites() if people else set()
@@ -1136,7 +1177,7 @@ class Library:
         """Sites aggregated from the titles' source bindings. Recipe detail is
         joined on in the router (the recipe store is app-level state)."""
         agg: dict[str, int] = {}
-        for _, doc, _cover in self.index.all_docs():
+        for _, doc in self.index.all_docs():
             domain = doc.meta.source.domain or (urlsplit(doc.meta.source.url).hostname or "")
             if domain:
                 agg[domain] = agg.get(domain, 0) + 1
@@ -1270,32 +1311,54 @@ class Library:
             self._index(title_id, doc)
         return self._out_now(title_id, doc)
 
-    def set_cover(self, title_id: str, data: bytes, ext: str, source_url: str = "") -> TitleOut | None:
+    def set_cover(self, title_id: str, data: bytes, ext: str, source_url: str = "",
+                  append: bool = False) -> TitleOut | None:
         """Store captured cover bytes; record where they came from in the meta
         layer (the cover is part of the draft flow, but its bytes arrive as a
-        side-channel upload right after the commit)."""
+        side-channel upload right after the commit).
+
+        `coverSource` describes the FIRST cover only — it is one field, and a
+        title that wears five images cannot honestly claim one origin for them
+        all. Appending therefore leaves it alone. Returns None when the title is
+        gone, and the title unchanged when it already carries the maximum."""
         with self.vault.title_lock(title_id):
             doc = self.vault.load(title_id)
             if doc is None:
                 return None
-            self.vault.write_cover(title_id, data, ext)
-            if source_url and doc.meta.coverSource != source_url:
-                doc.meta.coverSource = source_url
+            if append:
+                if self.vault.add_cover(title_id, data, ext) is None:
+                    return self._out_now(title_id, doc)
+            else:
+                self.vault.write_cover(title_id, data, ext)
+                if source_url and doc.meta.coverSource != source_url:
+                    doc.meta.coverSource = source_url
+                    draft = DraftIn(meta=doc.meta, provenance=doc.provenance, chapters=doc.chapters)
+                    doc = self.vault.commit_meta(title_id, draft) or doc
+            self._index(title_id, doc)
+        return self._out_now(title_id, doc)
+
+    def delete_cover(self, title_id: str, slot: int | None = None) -> TitleOut | None:
+        """Remove one cover, or — with no slot — every cover this title has."""
+        with self.vault.title_lock(title_id):
+            doc = self.vault.load(title_id)
+            if doc is None:
+                return None
+            self.vault.delete_cover(title_id, slot)
+            # the provenance belongs to the first cover: it is only stale once
+            # that one is gone, which a delete of any other slot cannot do
+            if doc.meta.coverSource and not self.vault.cover_paths(title_id):
+                doc.meta.coverSource = ""
                 draft = DraftIn(meta=doc.meta, provenance=doc.provenance, chapters=doc.chapters)
                 doc = self.vault.commit_meta(title_id, draft) or doc
             self._index(title_id, doc)
         return self._out_now(title_id, doc)
 
-    def delete_cover(self, title_id: str) -> TitleOut | None:
+    def reorder_covers(self, title_id: str, order: list[int]) -> TitleOut | None:
         with self.vault.title_lock(title_id):
             doc = self.vault.load(title_id)
             if doc is None:
                 return None
-            self.vault.delete_cover(title_id)
-            if doc.meta.coverSource:
-                doc.meta.coverSource = ""
-                draft = DraftIn(meta=doc.meta, provenance=doc.provenance, chapters=doc.chapters)
-                doc = self.vault.commit_meta(title_id, draft) or doc
+            self.vault.set_cover_order(title_id, order)
             self._index(title_id, doc)
         return self._out_now(title_id, doc)
 
@@ -1547,15 +1610,19 @@ class Library:
             tmp.unlink(missing_ok=True)
         return thumb, "image/jpeg"
 
-    def cover_thumb(self, title_id: str, width: int) -> tuple[bytes, str] | None:
+    def cover_thumb(self, title_id: str, width: int, slot: int = 0) -> tuple[bytes, str] | None:
         """A cached downscaled cover — grids and lists never load the original."""
-        path = self.vault.cover_path(title_id)
+        path = self.vault.cover_path(title_id, slot)
         if path is None:
             return None
         ct = media.CT_BY_EXT.get(path.suffix.lower(), "application/octet-stream")
         stat = path.stat()
+        # The FILE NAME is in the key, not just its extension. A cover version is
+        # mtime.size.ext, and two covers of one title routinely agree on all
+        # three — written in the same breath, same format, same size — so
+        # without the name the second one is served the first one's thumbnail.
         key = cache_key("cover", cover_version(path.name, stat.st_mtime_ns, stat.st_size),
-                        safe_id(title_id), width)
+                        safe_id(title_id), path.stem, width)
         return self._cached_thumb(key, lambda: (path.read_bytes(), ct), width)
 
     def chapter_video_path(self, title_id: str, chapter_id: str) -> Path | None:

@@ -21,8 +21,10 @@ import {
 import { readLocalOne, writeLocalOne } from '../local'
 import { api, type Gap } from '../api'
 import {
-  ARCHIVE_RE, FILE_ACCEPT, IMAGE_RE, MEDIA_ACCEPT, VIDEO_RE, compareChapterNums, coverStyle,
-  faviconFor, filterOptions, isReadable, isUnsupported, mediaLabel, mediaTitle, orderedChaptersOf,
+  ARCHIVE_RE, FILE_ACCEPT, IMAGE_RE, MAX_COVERS, MEDIA_ACCEPT, VIDEO_RE, compareChapterNums,
+  coverAt, coverStyle,
+  faviconFor, filterOptions, isReadable, isUnsupported, mediaLabel, mediaTitle, movedBefore,
+  orderedChaptersOf,
   chaptersInScope, fieldValue, hasValue, labelChoices, nextLabel, nextLabels, sameChapter,
   unsupportedNote, type FieldDef,
 } from '../data'
@@ -417,30 +419,94 @@ async function onAttachFile(e: Event) {
   }
 }
 
-// ---- manual cover: set/replace from a local image, or remove ----
+// ---- covers: a title may wear several ----
+//
+// Not draft state. Cover bytes have always been written straight to the vault
+// (the draft carries at most the ONE the capture picked), so adding, removing
+// and reordering are immediate write-throughs like fav and rating are.
 const coverFileEl = ref<HTMLInputElement | null>(null)
+// which slot the file picker is filling: -1 replaces the first, MAX appends
+const coverSlot = ref(-1)
+
+function pickCover(slot: number) {
+  coverSlot.value = slot
+  coverFileEl.value?.click()
+}
+
 async function onCoverFile(e: Event) {
   const input = e.target as HTMLInputElement
   const f = input.files?.[0]
+  const append = coverSlot.value >= 0
   input.value = ''
+  coverSlot.value = -1
   if (!f || !t.value) return
   const bytes = new Uint8Array(await f.arrayBuffer())
   let bin = ''
   for (let i = 0; i < bytes.length; i += 32768) bin += String.fromCharCode(...bytes.subarray(i, i + 32768))
   try {
-    cache([await api.setCover(t.value.id, { data: btoa(bin), contentType: f.type || 'image/jpeg' })])
+    cache([await api.setCover(t.value.id, {
+      data: btoa(bin), contentType: f.type || 'image/jpeg', append,
+    })])
   } catch (err) {
     store.error = err instanceof Error ? err.message : String(err)
   }
 }
-async function removeCover() {
-  if (!t.value) return
+
+async function removeCover(slot?: number) {
+  const title = t.value
+  // A slot is a position in the list the SERVER holds; mid-reorder the strip is
+  // showing one it has not applied yet, so the × would take a different cover
+  // than the one under the pointer.
+  if (!title || (slot !== undefined && reordering.value)) return
+  const many = title.ownCovers.length > 1
   const ok = await askConfirm({
-    title: 'Remove cover', danger: true, okLabel: 'Remove',
-    message: 'Remove the stored cover image?',
+    title: slot === undefined && many ? 'Remove every cover' : 'Remove cover',
+    danger: true, okLabel: 'Remove',
+    message: slot === undefined && many
+      ? `Remove all ${title.ownCovers.length} stored cover images?`
+      : 'Remove the stored cover image?',
   })
   if (!ok) return
-  try { cache([await api.deleteCover(t.value.id)]) } catch (e) { store.error = String(e) }
+  try { cache([await api.deleteCover(title.id, slot)]) } catch (e) { store.error = String(e) }
+}
+
+// Reorder is drag-and-drop over the strip. The move is shown at once and the
+// server is told afterwards, like the chapter order is — a strip that waits for
+// a round trip before it moves reads as a strip that ignored the drag.
+const dragCover = ref<number | null>(null)
+const coverDrop = ref<number | null>(null)
+const shownCovers = ref<string[] | null>(null)   // the optimistic order, if any
+// A reorder names the covers by their positions in the list the SERVER holds.
+// While one is in flight the strip is showing a list the server has not applied
+// yet, so a second drag would send positions into the wrong list — the strip
+// simply does not drag until the first answer is in.
+const reordering = ref(false)
+const ownCovers = computed(() => shownCovers.value ?? t.value?.ownCovers ?? [])
+watch(() => t.value?.ownCovers, () => { shownCovers.value = null })
+
+function clearCoverDrag() {
+  dragCover.value = null
+  coverDrop.value = null
+}
+
+async function onCoverDrop(to: number) {
+  const from = dragCover.value
+  const title = t.value
+  clearCoverDrag()
+  if (from === null || to === from || !title || reordering.value) return
+  // The strip outlines the tile you are ON, so the drop means "it lands here";
+  // `movedBefore` inserts BEFORE its target, which is one short going right.
+  const order = movedBefore(title.ownCovers.map((_c, i) => i), from, to > from ? to + 1 : to)
+  shownCovers.value = order.map((i) => title.ownCovers[i])
+  reordering.value = true
+  try {
+    cache([await api.reorderCovers(title.id, order)])
+  } catch (e) {
+    store.error = String(e)
+    shownCovers.value = null
+  } finally {
+    reordering.value = false
+  }
 }
 
 // ---- the pages pane (right column, open by default) ----
@@ -806,14 +872,42 @@ async function removeRow(c: Chapter) {
             <Icon name="star" :size="16" :sw="1.8" :fill="t.fav ? 'var(--fav)' : 'none'" />
           </button>
           <div class="covacts">
-            <button class="covbtn" :title="t.cover ? 'Replace the cover with an image file' : 'Set a cover from an image file'" @click="coverFileEl?.click()">
+            <button class="covbtn" :title="ownCovers.length ? 'Replace the first cover with an image file' : 'Set a cover from an image file'" @click="pickCover(-1)">
               <Icon name="image" :size="13" :sw="1.9" />
             </button>
-            <button v-if="t.cover" class="covbtn" title="Remove cover" @click="removeCover">
+            <button v-if="ownCovers.length" class="covbtn"
+                    :title="ownCovers.length > 1 ? 'Remove every cover' : 'Remove cover'" @click="removeCover()">
               <Icon name="x" :size="12" :sw="2.2" />
             </button>
           </div>
           <input ref="coverFileEl" type="file" accept="image/*" style="display:none" @change="onCoverFile" />
+        </div>
+
+        <!-- the STORED covers, in the order they rotate in. A title showing a
+             stand-in cut from its own media has none, so the strip is just + -->
+        <div class="striplbl">
+          <span>COVERS</span>
+          <span v-if="ownCovers.length" class="cnt mono">{{ ownCovers.length }} of {{ MAX_COVERS }}</span>
+        </div>
+        <div class="strip">
+          <div v-for="(c, i) in ownCovers" :key="c" class="ctile"
+               :class="{ first: i === 0, drop: coverDrop === i }"
+               :style="{ backgroundImage: `url(&quot;${coverAt(c, 120)}&quot;)` }"
+               :title="i === 0 ? 'Shown everywhere; drag to reorder' : 'Drag to reorder'"
+               :draggable="!reordering" @dragstart="dragCover = i" @dragend="clearCoverDrag"
+               @dragover.prevent="coverDrop = i" @drop.prevent="onCoverDrop(i)">
+            <span class="no mono">{{ i + 1 }}</span>
+            <button class="kill" title="Remove this cover" :disabled="reordering"
+                    @click.stop="removeCover(i)">
+              <Icon name="x" :size="10" :sw="2.6" />
+            </button>
+          </div>
+          <button v-if="ownCovers.length < MAX_COVERS" class="cadd" title="Add another cover"
+                  :class="{ drop: coverDrop === ownCovers.length }"
+                  @click="pickCover(ownCovers.length)"
+                  @dragover.prevent="coverDrop = ownCovers.length" @drop.prevent="onCoverDrop(ownCovers.length)">
+            <Icon name="plus" :size="14" :sw="2.2" />
+          </button>
         </div>
       </div>
 
@@ -1178,6 +1272,18 @@ async function removeRow(c: Chapter) {
 }
 .headmore { position: absolute; right: 26px; bottom: 10px; z-index: 2; }
 .coverwrap { flex: none; width: 196px; }
+.striplbl { display: flex; align-items: center; gap: 6px; margin-top: 12px; font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
+.striplbl .cnt { color: var(--tx2); letter-spacing: 0; }
+.strip { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.ctile { position: relative; width: 44px; height: 62px; flex: none; border-radius: 6px; border: 1px solid var(--line); background: #181a1f center/cover no-repeat; cursor: grab; }
+.ctile.first { border-color: var(--accent); }
+.ctile.drop { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ctile .no { position: absolute; left: 3px; top: 3px; font: 700 8.5px/1 ui-monospace, monospace; color: #fff; background: rgba(10,10,14,.62); border-radius: 6px; padding: 2px 4px; }
+.ctile .kill { position: absolute; right: 2px; bottom: 2px; width: 16px; height: 16px; border: none; border-radius: 6px; background: rgba(10,10,14,.62); color: #e6e8ee; cursor: pointer; display: none; align-items: center; justify-content: center; }
+.ctile:hover .kill { display: flex; }
+.ctile .kill:disabled { display: none; }
+.cadd { width: 44px; height: 62px; flex: none; border-radius: 6px; border: 1px dashed var(--line); background: transparent; color: var(--tx3); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.cadd:hover, .cadd.drop { border-color: var(--accent); color: var(--accent); }
 .cover { position: relative; width: 196px; height: 284px; border-radius: 8px; overflow: hidden; box-shadow: 0 10px 28px rgba(0,0,0,.45); border: 1px solid var(--line); display: flex; flex-direction: column; justify-content: flex-end; padding: 16px; }
 .ctitle { font: 600 26px/1.02 Georgia, serif; letter-spacing: -.5px; color: #f2ede6; text-shadow: 0 2px 10px rgba(0,0,0,.5); }
 .cstory { margin-top: 6px; font-size: 10px; letter-spacing: .14em; color: rgba(242,237,230,.6); }

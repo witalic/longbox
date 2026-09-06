@@ -3,7 +3,7 @@
 Layout: one directory per title under the library root:
 
     <root>/<title-id>/title.json      the layered document
-    <root>/<title-id>/cover.<ext>     captured cover bytes
+    <root>/<title-id>/cover.<ext>     cover bytes; more covers as cover-2, cover-3…
     <root>/<title-id>/chapters/       reserved for chapter media (next phase)
 
 Writes are atomic (`tmp → rename`) and serialized per title, so a meta commit and
@@ -22,6 +22,7 @@ import threading
 import time
 import zipfile
 from collections import defaultdict
+from collections.abc import Iterable
 from pathlib import Path
 
 from . import media
@@ -62,6 +63,46 @@ _CYR = {
 }
 
 _COVER_EXTS = ("jpg", "jpeg", "png", "webp", "gif", "avif")
+
+# A title may wear several covers. The first keeps the name every vault already
+# writes (`cover.<ext>`); the rest are `cover-2.<ext>` … so the ORDER is the file
+# names themselves — it survives a rebuild without a word in the document, and a
+# vault written by an older build reads back as a one-cover title.
+MAX_COVERS = 8
+_COVER_RE = re.compile(r"cover(?:-([2-9]|[1-9]\d+))?\.([a-z0-9]+)$")
+
+
+def _cover_slots(names: Iterable[str]) -> dict[int, str]:
+    """The cover files among one title directory's entries, keyed by the SLOT
+    each one occupies and at most one per slot — the same precedence every
+    reader applies, so a scan and a serve can never disagree about which file is
+    the cover. The keys are the slots the names actually claim, not positions:
+    slot 1 can be missing while slot 2 is there, and a write that treated "how
+    many there are" as "the next free one" would land on top of it."""
+    by_slot: dict[int, dict[str, str]] = defaultdict(dict)
+    for name in names:
+        m = _COVER_RE.fullmatch(name.lower())
+        if m is None or m.group(2) not in _COVER_EXTS:
+            continue
+        slot = int(m.group(1) or 1) - 1
+        if slot < MAX_COVERS:
+            by_slot[slot][m.group(2)] = name
+    out: dict[int, str] = {}
+    for slot in sorted(by_slot):
+        for ext in _COVER_EXTS:
+            if ext in by_slot[slot]:
+                out[slot] = by_slot[slot][ext]
+                break
+    return out
+
+
+def _cover_name(slot: int, ext: str) -> str:
+    return f"cover.{ext}" if slot == 0 else f"cover-{slot + 1}.{ext}"
+
+
+# What one `scan()` entry carries: the document's mtime, the chapter directory's
+# mtime, and (name, mtime, size) per cover — everything a listing is versioned by.
+CoverStamps = tuple[int, int, tuple[tuple[str, int, int], ...]]
 
 # Bump when the archive-normalization pass learns something new — every vault
 # then earns exactly ONE more sweep.
@@ -179,10 +220,10 @@ class Vault:
             except OSError:
                 continue  # a stuck legacy dir must never block startup
 
-    def _scan_one(self, path: str) -> tuple[int, int, str, int, int] | None:
+    def _scan_one(self, path: str) -> CoverStamps | None:
         """One title directory read as a single listing: the document's mtime,
-        the chapter directory's mtime, and the cover file with its mtime and
-        size (a version built on the timestamp alone can repeat)."""
+        the chapter directory's mtime, and every cover with its mtime and size
+        (a version built on the timestamp alone can repeat)."""
         doc_at = ch_at = 0
         covers: dict[str, tuple[str, int, int]] = {}
         try:
@@ -193,27 +234,25 @@ class Vault:
                         doc_at = it.stat().st_mtime_ns
                     elif name == "chapters" and it.is_dir():
                         ch_at = it.stat().st_mtime_ns
-                    elif name.startswith("cover."):
-                        ext = name.rsplit(".", 1)[-1]
-                        if ext in _COVER_EXTS:
-                            st = it.stat()
-                            covers[ext] = (it.name, st.st_mtime_ns, st.st_size)
+                    elif name.startswith("cover") and it.is_file():
+                        # is_file() so a scan and a serve pick the same set: the
+                        # serve side lists files, and a stamp only one of them
+                        # sees would make this title stale on every launch
+                        st = it.stat()
+                        covers[it.name] = (it.name, st.st_mtime_ns, st.st_size)
         except OSError:
             return None
         if not doc_at:
             return None
-        # the same precedence cover_path() applies, so both agree on which file wins
-        for ext in _COVER_EXTS:
-            if ext in covers:
-                return (doc_at, ch_at, *covers[ext])
-        return (doc_at, ch_at, "", 0, 0)
+        slots = _cover_slots(covers)
+        return (doc_at, ch_at, tuple(covers[slots[n]] for n in sorted(slots)))
 
-    def scan(self) -> dict[str, tuple[int, int, str, int, int]]:
+    def scan(self) -> dict[str, CoverStamps]:
         """Every title in the vault with the stamps a listing needs, in ONE
         directory pass. A scandir entry already carries its stat data, so this
         costs one round trip per directory instead of three per title — the
         difference between "instant" and "ten seconds" on a network vault."""
-        out: dict[str, tuple[int, int, str, int, int]] = {}
+        out: dict[str, CoverStamps] = {}
         try:
             shelves = list(os.scandir(self.root))
         except OSError:
@@ -935,28 +974,42 @@ class Vault:
 
     # ---- covers ----
 
-    def cover_path(self, title_id: str) -> Path | None:
-        d = self._dir(title_id)
-        for ext in _COVER_EXTS:
-            p = d / f"cover.{ext}"
-            if p.is_file():
-                return p
-        return None
+    def _cover_names(self, title_id: str) -> dict[int, str]:
+        """Slot → file name — ONE directory listing, never a stat per slot per
+        extension."""
+        try:
+            with os.scandir(self._dir(title_id)) as items:
+                return _cover_slots(it.name for it in items if it.is_file())
+        except OSError:
+            return {}
 
-    def write_cover(self, title_id: str, data: bytes, ext: str) -> Path:
+    def cover_paths(self, title_id: str) -> list[Path]:
+        """Every stored cover, in display order."""
+        d = self._dir(title_id)
+        names = self._cover_names(title_id)
+        return [d / names[slot] for slot in sorted(names)]
+
+    def cover_path(self, title_id: str, slot: int = 0) -> Path | None:
+        """One stored cover by DISPLAY position (not by file name): after a
+        delete compacts the slots, position and name agree again anyway."""
+        paths = self.cover_paths(title_id)
+        return paths[slot] if 0 <= slot < len(paths) else None
+
+    def write_cover(self, title_id: str, data: bytes, ext: str, slot: int = 0) -> Path:
+        """Store cover bytes in one slot, replacing whatever that slot held."""
         with self._lock(title_id):
             d = self._dir(title_id)
             d.mkdir(parents=True, exist_ok=True)
             before = None
             for old in _COVER_EXTS:
-                p = d / f"cover.{old}"
+                p = d / _cover_name(slot, old)
                 try:
                     st = p.stat()
                     before = (st.st_mtime_ns, st.st_size)
                 except OSError:
                     pass
                 p.unlink(missing_ok=True)
-            path = d / f"cover.{ext}"
+            path = d / _cover_name(slot, ext)
             _atomic_write(path, data)
             # The cover is cached under (mtime, size). A replacement of the same
             # size landing inside one filesystem tick would reuse that key — and
@@ -968,7 +1021,80 @@ class Vault:
                 os.utime(path, ns=(bump, bump))
             return path
 
-    def delete_cover(self, title_id: str) -> None:
+    def add_cover(self, title_id: str, data: bytes, ext: str) -> Path | None:
+        """Store one MORE cover, in the first slot nothing occupies. None when
+        the title already fills them all — a silent no-op would read as a button
+        that does nothing.
+
+        The first FREE slot, not the count: an interrupted reorder, or files
+        dropped into the vault by hand, can leave a gap, and "how many are
+        there" would then name a slot that already holds a cover — which this
+        write would delete."""
         with self._lock(title_id):
-            for ext in _COVER_EXTS:
-                (self._dir(title_id) / f"cover.{ext}").unlink(missing_ok=True)
+            used = self._cover_names(title_id)
+            free = next((n for n in range(MAX_COVERS) if n not in used), None)
+            if free is None:
+                return None
+            return self.write_cover(title_id, data, ext, slot=free)
+
+    def delete_cover(self, title_id: str, slot: int | None = None) -> None:
+        """Remove one cover (by display position) or, with no slot, all of them.
+        The survivors are renamed down so the slots stay a dense 0..n-1 — a hole
+        would make "the third cover" mean two different files."""
+        with self._lock(title_id):
+            paths = self.cover_paths(title_id)
+            if slot is None:
+                for p in paths:
+                    p.unlink(missing_ok=True)
+                return
+            if not 0 <= slot < len(paths):
+                return
+            keep = paths[:slot] + paths[slot + 1:]
+            # compact FIRST, so an interrupted delete leaves a dense list rather
+            # than a gap the next add would write into
+            self._rename_slots(title_id, keep)
+            if paths[slot].name not in {p.name for p in self.cover_paths(title_id)}:
+                paths[slot].unlink(missing_ok=True)
+
+    def set_cover_order(self, title_id: str, order: list[int]) -> None:
+        """Re-slot the covers into `order` (display positions of the current
+        list). Positions the caller left out keep their relative order at the
+        end, so a stale list can reorder but never delete."""
+        with self._lock(title_id):
+            paths = self.cover_paths(title_id)
+            seen: list[int] = []
+            for i in order:
+                if 0 <= i < len(paths) and i not in seen:
+                    seen.append(i)
+            seen.extend(i for i in range(len(paths)) if i not in seen)
+            self._rename_slots(title_id, [paths[i] for i in seen])
+
+    def _rename_slots(self, title_id: str, paths: list[Path]) -> None:
+        """Lay `paths` out as slots 0..n-1.
+
+        COPY, then replace, then remove what is left over — never rename the
+        originals out of the way first. The target of one move is the source of
+        another whenever the order really changes, and a crash between the two
+        renames would leave the vault holding no bytes for that cover at all.
+        This way every cover exists under some name at every instant; the worst
+        an interruption leaves is a duplicate and a `.tmp` the stray sweep
+        collects."""
+        d = self._dir(title_id)
+        staged: list[tuple[Path, str]] = []
+        for i, src in enumerate(paths):
+            tmp = media.tmp_path(d / f"cover-stage-{i}{src.suffix}")
+            try:
+                shutil.copyfile(src, tmp)
+            except OSError:
+                tmp.unlink(missing_ok=True)
+                return  # a partial reorder is worse than none: leave the order alone
+            staged.append((tmp, _cover_name(i, src.suffix.lstrip(".").lower())))
+        for tmp, name in staged:
+            try:
+                media.replace_atomically(tmp, d / name)
+            finally:
+                tmp.unlink(missing_ok=True)
+        keep = {name for _tmp, name in staged}
+        for old in paths:
+            if old.name not in keep:
+                old.unlink(missing_ok=True)

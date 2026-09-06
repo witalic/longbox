@@ -81,10 +81,19 @@ export interface TitleMeta {
   custom: Record<string, string | string[]>
 }
 
+// How many covers a title may store. The VAULT enforces it (it runs out of
+// slots and says so); this is only so the strip can stop offering "add another"
+// at the same number rather than after a refused request.
+export const MAX_COVERS = 8
+
 // The flat wire DTO (meta + user layer + derived), as served by the backend.
 export interface Title extends TitleMeta {
   id: string
-  cover: string // local cover endpoint URL when bytes exist, else ''
+  // What a tile SHOWS, in rotation order: the title's own covers, or — when it
+  // has none — stand-ins the backend cut from its own media.
+  covers: string[]
+  cover: string      // the first of those; '' only when there is nothing at all
+  ownCovers: string[] // the covers actually STORED; the editor manages exactly these
   fav: boolean
   rating: number
   unread: number
@@ -369,6 +378,19 @@ export function coverStyle(t: { cover: string; id: string; title?: string }, w =
 // string; a caller could not know which it had.
 export function hostOf(url: string): string {
   try { return new URL(url).hostname.replace(/^www\./, '') } catch { return '' }
+}
+
+// A drag-and-drop reorder: the row at `from` lands where `to` currently is, and
+// a `to` outside the list means the end. Written once because three views were
+// each getting the "dragging downwards shifts the target" adjustment right (or
+// not) on their own.
+export function movedBefore<T>(rows: readonly T[], from: number, to: number): T[] {
+  const out = [...rows]
+  if (from < 0 || from >= out.length) return out
+  const [moved] = out.splice(from, 1)
+  const at = to < 0 || to > out.length ? out.length : to > from ? to - 1 : to
+  out.splice(at, 0, moved)
+  return out
 }
 
 export function coverAt(cover: string, w: number): string {
