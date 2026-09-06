@@ -11,7 +11,9 @@ tags or cover, and longbox learns a reusable per-site recipe.
   status, genres, tags, languages, flags, authors, artists, characters, studio), full-text search
   over titles and alternate names, favorites, ratings, reading progress, bulk select/delete, and
   footer pagination. Shelves narrow the library by type; **Browse by** groups it along any list
-  field, and each shelf keeps its own list of axes.
+  field, and each shelf keeps its own list of axes. A title may wear **several covers** — the
+  grid fades through them while you hover it — and one you never gave a cover shows what it
+  actually holds: the first page of each downloaded chapter, or an episode's own preview frame.
 - **Capture browser** — a real embedded browser: tabs (pinning, reordering, background tabs,
   per-tab zoom and audio mute), a floating find bar, a page context menu (copy or save an image,
   open a link in a background tab), and the shortcuts a browser is expected to have — `F5`,
@@ -25,7 +27,9 @@ tags or cover, and longbox learns a reusable per-site recipe.
   a page the library may already hold asks first, showing what each candidate record *is*.
 - **Per-site recipes** — taught once per domain, stored versioned with ordered fallback candidates
   (picked selector → structural fallback → page metadata), reused for every next title on that
-  site. Each source decides which metadata fields it offers, and keeps its own bookmarks.
+  site. Each source decides which metadata fields it offers, and keeps its own bookmarks. Groups
+  and bookmarks are ordered by dragging them; a site you are done with can be **frozen** — it
+  keeps its recipe and its links and stays in Sources, but stops being offered in the browser.
 - **Fields you define** — the metadata registry is per library: add your own fields (text,
   description, number, list, date) and choose which appear on title pages, in the filters and in
   the capture dock. A field's type is a promise about its data, so number and date can be left but
@@ -34,9 +38,11 @@ tags or cover, and longbox learns a reusable per-site recipe.
 - **Downloads** — arm the next download for a specific chapter, then just download the file in the
   embedded browser; longbox intercepts it and files it into the vault. Archives (zip/cbz/7z/rar)
   are normalized to zip, single images accumulate into the chapter page by page, and a video is
-  stored as itself. A panel over the app shows every transfer with its title, chapter and
-  progress — and closing the window with transfers running warns first: each one keeps its place
-  (partial file, byte offset, validators) and can be picked up later or started over.
+  stored as itself. The vault renames every stored file to the chapter's id, so the name it
+  arrived under is recorded with it and shown on the entry. A panel over the app shows every
+  transfer with its title, chapter and progress — and closing the window with transfers running
+  warns first: each one keeps its place (partial file, byte offset, validators) and can be picked
+  up later or started over.
 - **Page capture** — for sources that never serve a file: teach which images on a reader page are
   the pages (once per site), arm a chapter, and read. Every page you open is fetched with the
   browser's own session and filed into that chapter; pages already stored are never fetched again,

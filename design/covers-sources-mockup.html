@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Covers &amp; Sources — mockup</title>
+<style>
+/* ---- the app's own tokens (frontend/src/styles.css), verbatim ---- */
+:root {
+  --bg: #0a0b0d; --bg2: #0f1115; --panel: #15171b; --panel2: #1b1e24;
+  --line: #262a31; --hover: #2a2e36;
+  --tx: #e8eaef; --tx2: #9aa1ad; --tx3: #697080;
+  --accent: #7089e6; --accent-ink: #0d0e11; --accentSoft: rgba(112, 137, 230, .14);
+  --fav: #e0687a; --good: #5fb88a; --warn: #d6a44f; --adult: #e0687a;
+}
+html[data-theme="light"] {
+  --bg: #f0eeea; --bg2: #e6e3dd; --panel: #faf9f6; --panel2: #edeae4;
+  --line: #d2cdc2; --hover: #e2ded6;
+  --tx: #2a2c31; --tx2: #575d67; --tx3: #8d95a1;
+  --accent: #5f77d4; --accent-ink: #ffffff; --accentSoft: rgba(95, 119, 212, .15);
+  --fav: #d6516a; --good: #3f9e6f; --warn: #b07d2a; --adult: #d6516a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--tx); font: 400 13px/1.45 system-ui; }
+
+/* control grammar: 30 (controls) / 44 (work bands), radius 6, text 11/12/13 */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--tx); border-radius: 6px; height: 30px; padding: 0 13px; cursor: pointer; font: 600 12px/1 system-ui; white-space: nowrap; }
+.btn:hover { border-color: var(--accent); }
+.btn.ghost { background: transparent; color: var(--tx2); }
+.btn.small { height: 26px; padding: 0 10px; font-size: 11px; }
+.mono { font-family: ui-monospace, monospace; }
+
+.page { max-width: 1180px; margin: 0 auto; padding: 26px 24px 60px; }
+h1 { font: 700 22px/1.1 system-ui; margin: 0 0 4px; letter-spacing: -.3px; }
+h2 { font: 600 13px/1 system-ui; margin: 0; }
+.lede { color: var(--tx2); max-width: 78ch; margin: 0 0 26px; }
+.block { border: 1px solid var(--line); border-radius: 10px; background: var(--bg2); margin-bottom: 22px; overflow: hidden; }
+.bhead { height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.bhead .n { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
+.bbody { padding: 18px 16px; }
+.note { font: 400 11.5px/1.55 system-ui; color: var(--tx3); margin-top: 12px; max-width: 88ch; }
+.note b { color: var(--tx2); font-weight: 600; }
+
+/* ============ 1 · the title page's cover column ============ */
+.band { display: flex; gap: 26px; align-items: flex-start; }
+.coverwrap { flex: none; width: 196px; }
+.cover { position: relative; width: 196px; height: 284px; border-radius: 8px; overflow: hidden; box-shadow: 0 10px 28px rgba(0,0,0,.45); border: 1px solid var(--line); display: flex; flex-direction: column; justify-content: flex-end; padding: 16px; background: linear-gradient(150deg, #3d4a7a, #1b2036); }
+.ctitle { font: 600 26px/1.02 Georgia, serif; letter-spacing: -.5px; color: #f2ede6; text-shadow: 0 2px 10px rgba(0,0,0,.5); }
+.favbtn { position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; border: none; border-radius: 8px; background: rgba(10,10,14,.55); color: var(--fav); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.covacts { position: absolute; bottom: 8px; right: 8px; display: flex; gap: 6px; }
+.covbtn { width: 28px; height: 28px; border: none; border-radius: 7px; background: rgba(10,10,14,.55); color: #cfd3dc; cursor: pointer; display: flex; align-items: center; justify-content: center; font: 500 13px/1 system-ui; }
+
+/* the strip: one tile per STORED cover, plus the one that adds another */
+.strip { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.ctile { position: relative; width: 44px; height: 62px; border-radius: 5px; border: 1px solid var(--line); overflow: hidden; cursor: grab; flex: none; }
+.ctile.first { border-color: var(--accent); }
+.ctile .no { position: absolute; left: 3px; top: 3px; font: 700 8.5px/1 ui-monospace, monospace; color: #fff; background: rgba(10,10,14,.62); border-radius: 3px; padding: 2px 3px; }
+.ctile .kill { position: absolute; right: 2px; bottom: 2px; width: 16px; height: 16px; border: none; border-radius: 4px; background: rgba(10,10,14,.62); color: #e6e8ee; font: 600 11px/1 system-ui; cursor: pointer; display: none; align-items: center; justify-content: center; }
+.ctile:hover .kill { display: flex; }
+.ctile.drop { outline: 2px solid var(--accent); outline-offset: -2px; }
+.cadd { width: 44px; height: 62px; border-radius: 5px; border: 1px dashed var(--line); background: transparent; color: var(--tx3); cursor: pointer; font: 400 17px/1 system-ui; display: flex; align-items: center; justify-content: center; flex: none; }
+.cadd:hover { border-color: var(--accent); color: var(--accent); }
+.striplbl { display: flex; align-items: center; gap: 6px; margin-top: 12px; font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
+.striplbl .cnt { color: var(--tx2); letter-spacing: 0; }
+
+.info { flex: 1; min-width: 0; }
+.badges { display: flex; gap: 8px; margin-bottom: 12px; }
+.typebadge { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; font: 600 10px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--accent); border: 1px solid var(--accent); border-radius: 5px; text-transform: uppercase; }
+.statusbadge { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; font: 500 11px/1 system-ui; color: var(--tx2); border: 1px solid var(--line); border-radius: 5px; }
+.sdot { width: 6px; height: 6px; border-radius: 50%; background: var(--good); }
+.h1t { font: 600 22px/1.15 system-ui; letter-spacing: -.3px; margin-bottom: 6px; }
+.metarow { display: flex; gap: 12px; padding: 5px 0; font-size: 12.5px; }
+.metarow .lbl { width: 74px; flex: none; font: 700 9px/1.5 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); padding-top: 2px; }
+.metarow .val { color: var(--tx2); }
+
+/* the grid tile, to show what the rotation looks like at rest */
+.grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 18px; max-width: 720px; }
+.gcard { display: flex; flex-direction: column; gap: 9px; }
+.gcov { position: relative; aspect-ratio: 2/3; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 8px 22px rgba(0,0,0,.4); }
+.gcov .layer { position: absolute; inset: 0; opacity: 0; transition: opacity .45s ease; }
+.gcov .layer.on { opacity: 1; }
+.gcov .many { position: absolute; right: 6px; top: 6px; font: 700 8.5px/1 ui-monospace, monospace; color: #fff; background: rgba(10,10,14,.6); border-radius: 4px; padding: 3px 4px; }
+.gtitle { font: 600 12.5px/1.3 system-ui; }
+.gsub { font: 500 10px/1 ui-monospace, monospace; color: var(--tx3); margin-top: 4px; }
+
+/* ============ 2 · Sources ============ */
+.srclist { max-width: 900px; }
+.ghead { display: flex; align-items: center; gap: 9px; height: 34px; padding: 0 8px; margin-top: 6px; color: var(--tx3); cursor: grab; }
+.ghead .ggrip { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); opacity: 0; letter-spacing: -2px; }
+.ghead:hover .ggrip { opacity: 1; }
+.ghead:hover { color: var(--tx2); }
+.glbl { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; }
+.grule { flex: 1; height: 1px; background: var(--line); }
+.ghead.drop { color: var(--accent); }
+.ghead.drop .grule { background: var(--accent); }
+
+.srow { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 8px; border-radius: 8px; color: var(--tx2); cursor: pointer; }
+.srow:hover { background: var(--hover); }
+.srow.frozen { opacity: .55; }
+.init { width: 24px; height: 24px; flex: none; border-radius: 6px; display: flex; align-items: center; justify-content: center; font: 700 9px/1 system-ui; color: var(--tx2); background: var(--panel2); border: 1px solid var(--line); }
+.sname { flex: none; font: 600 13px/1 system-ui; color: var(--tx); }
+.rmark { display: inline-flex; align-items: center; gap: 6px; font: 500 10px/1 ui-monospace, monospace; color: var(--good); }
+.rmark.none { color: var(--warn); }
+.frozenmark { display: inline-flex; align-items: center; gap: 5px; font: 500 10px/1 ui-monospace, monospace; color: var(--tx3); border: 1px solid var(--line); border-radius: 5px; padding: 4px 7px; }
+.snum { font-size: 10.5px; color: var(--tx3); }
+.sbm { display: inline-flex; align-items: center; gap: 6px; width: 52px; justify-content: flex-end; font-size: 10.5px; color: var(--tx3); }
+.chev { color: var(--tx3); font-size: 10px; }
+
+.sopen { display: flex; gap: 24px; padding: 6px 8px 16px 44px; }
+.bmcol { flex: 1; min-width: 0; }
+.collbl { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); padding: 6px 6px 7px; }
+.bmrow { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 6px; border-radius: 6px; color: var(--tx2); cursor: pointer; }
+.bmrow:hover { background: var(--hover); }
+.bmrow .bgrip { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); opacity: 0; cursor: grab; letter-spacing: -2px; width: 10px; }
+.bmrow:hover .bgrip { opacity: 1; }
+.bmrow.drop { box-shadow: inset 0 2px 0 var(--accent); }
+.star { color: var(--fav); }
+.bmname { font: 500 12px/1 system-ui; color: var(--tx); }
+.bmurl { flex: 1; min-width: 0; font: 400 10.5px/1 ui-monospace, monospace; color: var(--tx3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bmact { width: 24px; height: 24px; border: 1px solid transparent; background: transparent; border-radius: 6px; color: var(--tx3); cursor: pointer; }
+.bmrow:hover .bmact { border-color: var(--line); }
+.metacol { flex: none; width: 320px; }
+.acts { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 12px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Covers &amp; Sources</h1>
+  <p class="lede">Two surfaces, four changes. Nothing new is invented here: the cover column already
+    had a hover action bar, Sources already had groups and bookmarks in a saved order. What is added
+    is a way to say <i>which</i> and <i>in what order</i> — and, for a site you are done with, a way
+    to keep it without having it offered.</p>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">1 · TITLE PAGE</span><h2>Several covers, managed where the cover is</h2></div>
+    <div class="bbody">
+      <div class="band">
+        <div class="coverwrap">
+          <div class="cover">
+            <div class="ctitle">Berserk</div>
+            <button class="favbtn">★</button>
+            <div class="covacts">
+              <button class="covbtn" title="Replace this cover">⬒</button>
+              <button class="covbtn" title="Remove every cover">✕</button>
+            </div>
+          </div>
+          <div class="striplbl">COVERS <span class="cnt mono">3 of 8</span></div>
+          <div class="strip">
+            <div class="ctile first" style="background:linear-gradient(150deg,#3d4a7a,#1b2036)">
+              <span class="no">1</span><button class="kill">✕</button>
+            </div>
+            <div class="ctile drop" style="background:linear-gradient(150deg,#7a4a3d,#361f1b)">
+              <span class="no">2</span><button class="kill">✕</button>
+            </div>
+            <div class="ctile" style="background:linear-gradient(150deg,#3d7a5a,#1b3626)">
+              <span class="no">3</span><button class="kill">✕</button>
+            </div>
+            <button class="cadd" title="Add another cover">＋</button>
+          </div>
+        </div>
+
+        <div class="info">
+          <div class="badges">
+            <span class="typebadge">manga</span>
+            <span class="statusbadge"><i class="sdot"></i>ongoing</span>
+          </div>
+          <div class="h1t">Berserk</div>
+          <div class="metarow"><span class="lbl">STORY</span><span class="val">Kentaro Miura</span></div>
+          <div class="metarow"><span class="lbl">ART</span><span class="val">Kentaro Miura</span></div>
+          <div class="metarow"><span class="lbl">STUDIO</span><span class="val">Hakusensha</span></div>
+          <div class="metarow"><span class="lbl">FILE</span><span class="val mono" style="font-size:11.5px">[Group] Berserk v01 (2003) (Digital).cbz</span></div>
+        </div>
+      </div>
+
+      <p class="note">The strip is the <b>stored</b> covers only, in the order they rotate. Drag a tile
+        to reorder — the first one is what every list, card and tooltip in the app shows. <b>✕</b> on a
+        tile removes that one and closes the gap; the <b>✕</b> on the big cover still means "remove them
+        all". <b>＋</b> picks an image file, exactly like the existing replace button.
+        <br><br>
+        <b>FILE</b> is the fourth change and the smallest: the name the archive or episode arrived
+        under. The vault renames every stored file to the chapter's id, so without this the original
+        name is gone. It is recorded per chapter at ingest and shown on the chapter's media column on
+        hover; the row above is only here to say where it would read if it were a title-level fact —
+        it is not, so it will NOT be drawn there.</p>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">2 · LIBRARY GRID</span><h2>Rotation, and only while you are looking at it</h2></div>
+    <div class="bbody">
+      <div class="grid">
+        <div class="gcard">
+          <div class="gcov" id="rot">
+            <div class="layer on" style="background:linear-gradient(150deg,#3d4a7a,#1b2036)"></div>
+            <div class="layer" style="background:linear-gradient(150deg,#7a4a3d,#361f1b)"></div>
+            <div class="layer" style="background:linear-gradient(150deg,#3d7a5a,#1b3626)"></div>
+          </div>
+          <div><div class="gtitle">Berserk</div><div class="gsub">manga</div></div>
+        </div>
+        <div class="gcard">
+          <div class="gcov"><div class="layer on" style="background:linear-gradient(150deg,#5a3d7a,#2a1b36)"></div></div>
+          <div><div class="gtitle">Solo Ascension</div><div class="gsub">manhwa</div></div>
+        </div>
+        <div class="gcard">
+          <div class="gcov">
+            <div class="layer on" style="background:linear-gradient(150deg,#2c3038,#16181d)"></div>
+            <div class="many mono">PAGE 1</div>
+          </div>
+          <div><div class="gtitle">Untitled scan set</div><div class="gsub">image set</div></div>
+        </div>
+      </div>
+      <p class="note">Hover the first tile. A title with several covers fades through them while the
+        pointer is on it and snaps back to the first when it leaves — a grid of hundreds animating on
+        its own is not a grid anyone can scan, and the extra images are not even fetched until the
+        first hover.
+        <br><br>
+        The third tile is a title <b>nobody gave a cover</b>. Rather than a coloured block it now shows
+        what it actually holds: the first page of its first chapter, or — for an episode — the frame the
+        player already cut for its tile. Several chapters means several stand-ins, so those rotate too.
+        The badge is here only to make the mockup legible; the real tile draws no badge.</p>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">3 · SOURCES</span><h2>Your order, and a site you are done with</h2></div>
+    <div class="bbody">
+      <div class="srclist">
+          <div class="ghead"><span class="ggrip">⠿</span><span class="glbl">MANGA · 2</span><span class="grule"></span></div>
+
+          <div class="srow">
+            <span class="init">MA</span>
+            <span class="sname">mangadex.org</span>
+            <span class="rmark">✓ v3</span>
+            <span style="flex:1"></span>
+            <span class="snum mono">412 titles</span>
+            <span class="sbm mono">★ 2</span>
+            <span class="chev">▾</span>
+          </div>
+
+          <div class="sopen">
+            <div class="bmcol">
+              <div class="collbl">BOOKMARKS</div>
+              <div class="bmrow"><span class="bgrip">⠿</span><span class="star">★</span><span class="bmname">Follows</span><span class="bmurl">https://mangadex.org/titles/feed</span><button class="bmact">↗</button><button class="bmact">✕</button></div>
+              <div class="bmrow drop"><span class="bgrip">⠿</span><span class="star">★</span><span class="bmname">Latest</span><span class="bmurl">https://mangadex.org/titles/latest</span><button class="bmact">↗</button><button class="bmact">✕</button></div>
+            </div>
+            <div class="metacol">
+              <div class="collbl">RECIPE</div>
+              <div style="font:400 11px/1.4 system-ui;color:var(--tx3)">learned from captures · updates as you edit</div>
+              <div class="acts">
+                <button class="btn small">Open homepage</button>
+                <button class="btn ghost small">Freeze</button>
+                <button class="btn ghost small">Forget recipe</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="srow frozen">
+            <span class="init">BA</span>
+            <span class="sname">batoto.example</span>
+            <span class="rmark">✓ v1</span>
+            <span class="frozenmark">❄ frozen</span>
+            <span style="flex:1"></span>
+            <span class="snum mono">37 titles</span>
+            <span class="sbm mono">★ 0</span>
+            <span class="chev">▸</span>
+          </div>
+
+          <div class="ghead drop"><span class="ggrip">⠿</span><span class="glbl">WEBTOONS · 1</span><span class="grule"></span></div>
+          <div class="srow">
+            <span class="init">TO</span>
+            <span class="sname">toonily.example</span>
+            <span class="rmark none">no recipe</span>
+            <span style="flex:1"></span>
+            <span class="snum mono">8 titles</span>
+            <span class="sbm mono">★ 1</span>
+            <span class="chev">▸</span>
+          </div>
+        </div>
+
+      </div>
+
+      <p class="note">Group order is already stored as a list; it just has no way to be changed. Dragging
+        a group header writes the new order, and both rails — the sidebar's GROUPS section here and the
+        browser's source tree — follow it, because both are drawn from that same list. Bookmarks drag the same way,
+        inside their source. <b>Sorting the domains within a group stays the existing Titles / Name
+        toggle in the header</b> — the manual order is for groups, not for hundreds of domains.
+        <br><br>
+        <b>Freeze</b> is the other half of Remove. Remove hides a source and forgets its recipe; freeze
+        keeps everything — the recipe, the bookmarks, the title count — and only stops the browser's
+        rail from offering it. The row stays here, dimmed, with the button reading <b>Thaw</b>.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+// the rotation, so it can actually be judged rather than described
+const box = document.getElementById('rot')
+const layers = [...box.querySelectorAll('.layer')]
+let at = 0, timer = null
+box.addEventListener('mouseenter', () => {
+  if (timer) return
+  timer = setInterval(() => {
+    layers[at].classList.remove('on')
+    at = (at + 1) % layers.length
+    layers[at].classList.add('on')
+  }, 1600)
+})
+box.addEventListener('mouseleave', () => {
+  clearInterval(timer); timer = null
+  layers[at].classList.remove('on'); at = 0; layers[0].classList.add('on')
+})
+</script>
+</body>
+</html>

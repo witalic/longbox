@@ -144,7 +144,7 @@ library/
   index.db                # rebuildable cache (never authoritative)
   <title-id>/
     title.json            # layered: meta + provenance + chapters + user
-    cover.<ext>           # the captured cover bytes
+    cover.<ext>           # cover bytes; further covers as cover-2.<ext>, cover-3.<ext>…
     chapters/
       <chapter-id>.cbz    # pages; ComicInfo.xml inside        (next phase)
       <chapter-id>.json   # per-chapter state: download, source (next phase)
@@ -160,7 +160,7 @@ library/
     "type": "manga", "status": "Ongoing", "year": "",
     "genres": [], "tags": [], "flags": {"adult": false, "ai": false, "censored": false},
     "desc": "",
-    "coverSource": "",            // URL the cover bytes were captured from
+    "coverSource": "",            // URL the FIRST cover's bytes were captured from
     "source": {"domain": "", "url": ""}   // where this title is captured from
   },
   "provenance": {                 // per meta-field origin
@@ -194,7 +194,7 @@ minimal version editing it is forbidden outright.
 command scans the disk and reconstructs it from scratch. A corrupt index cannot lose
 content by construction (I7), because it never owned any.
 It carries everything a listing needs — each title's **chapter media** (the sidecars) and its
-**cover URL** — plus the mtimes it saw them at, for one reason: **a listing must never touch
+**cover URLs** — plus the mtimes it saw them at, for one reason: **a listing must never touch
 the filesystem**. On a vault that lives on a network share, one stat per title is the
 difference between a screen that appears and a screen that arrives.
 
@@ -318,9 +318,11 @@ PUT    /api/titles/{id}          commit a draft into an existing title (meta lay
 DELETE /api/titles/{id}
 PATCH  /api/titles/{id}/user     write-through user layer {fav?, rating?, read?}
 POST   /api/titles/{id}/cover    cover bytes captured in page context (base64 + source URL);
-                                 or {url, referer} → server-side fetch as a fallback
-DELETE /api/titles/{id}/cover
-GET    /api/titles/{id}/cover    serve the stored bytes
+                                 or {url, referer} → server-side fetch as a fallback.
+                                 {append:true} stores one MORE instead of replacing the first
+DELETE /api/titles/{id}/cover?i= one cover by position; without `i`, every one of them
+GET    /api/titles/{id}/cover?i= serve the stored bytes (`i` defaults to the first)
+PUT    /api/titles/{id}/covers   reorder {order:[…]} — the covers' CURRENT positions
 GET    /api/authors              derived from titles
 GET    /api/sources              derived from titles + recipe store
 GET/PUT /api/recipes/{domain}    versioned candidate-based recipes

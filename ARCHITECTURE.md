@@ -63,18 +63,32 @@ library/
                                provenance  — per-field origin (auto|manual) + source URL
                                chapters[]  — one row per translation; id = dedup key + file stem
                                user        — fav/rating/read; instant write-through
-      cover.<ext>            captured cover bytes
+      cover.<ext>            cover bytes; further covers as cover-2.<ext>, cover-3.<ext>…
       chapters/
         <chapter-id>.zip     page media — ALWAYS a plain zip (see below)
         <chapter-id>.mp4     episode media — stored as the file it arrived as
-        <chapter-id>.json    download provenance sidecar (source, pages, size, date,
-                             sha256 of the file + content digest of the pages,
-                             and for an episode: duration, codec, faststart, resume points)
+        <chapter-id>.json    download provenance sidecar (source, the name the file
+                             ARRIVED under, pages, size, date, sha256 of the file +
+                             content digest of the pages, and for an episode:
+                             duration, codec, faststart, resume points)
         <chapter-id>.poster.jpg  the one frame a tile wears
         <chapter-id>.sheet.jpg   the 3x3 contact sheet a preview shows
   fields.json                the library's own metadata fields (registry additions)
 ```
 
+- **Covers are a list, and its order is the file names.** A title may store several; the first
+  keeps the name every older vault already writes, so nothing has to be migrated and a rebuilt
+  index reconstructs the order from the directory alone. A title that stores NONE shows
+  stand-ins cut from its own media — the first page of each downloaded chapter, or an episode's
+  stored poster — composed from the sidecars the index already carries, so a coverless title
+  costs no disk. `covers` is what a tile shows; `ownCovers` is what somebody actually gave it,
+  which is the question the editor asks.
+- **A pass re-indexes what it touched.** The one-time vault passes (the zip sweep, the episode
+  pass) return the title ids they rewrote, and those rows are refreshed directly. They do NOT
+  fall back on `sync()`: sync finds changes nobody announced, and it finds them by comparing
+  directory timestamps — which a filesystem records at the resolution of a clock tick, so a
+  pass writing inside the same tick as the row it replaces is invisible to it. A pass knows
+  what it changed; there is nothing to detect.
 - **Two digests, two jobs.** `sha256` covers every byte of the stored file — that is what
   integrity means, and the revision pass compares it. `content` covers only the ordered page
   images, so it survives a repack, a renumbering and the per-entry `ComicInfo.xml`; duplicate
