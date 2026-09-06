@@ -9,7 +9,7 @@
 // (design/metadata-model.md), so a field the app gains — or the user defines —
 // draws itself without a line of code in this file.
 import { computed, reactive } from 'vue'
-import { DEFAULT_STATUSES, DEFAULT_TYPES, type FieldDef } from '../data'
+import { DEFAULT_STATUSES, type FieldDef } from '../data'
 import { clearField, draftState, setCoverUrl, setManual } from '../draft'
 import { store, visibleFields } from '../store'
 import Combo from './Combo.vue'
@@ -99,9 +99,12 @@ function badge(field: string): 'auto' | 'manual' | '' {
   return d.value?.provenance[field]?.origin ?? ''
 }
 
-// Open vocabularies: the common values for the two fields that have any, plus
-// everything the library already holds, minus what this title already carries.
-const COMMON: Record<string, readonly string[]> = { type: DEFAULT_TYPES, status: DEFAULT_STATUSES }
+// Open vocabularies: everything the library already holds, minus what this
+// title already carries. Only STATUS is seeded with values the vault may not
+// have yet — a small closed set every library ends up using. TYPE is not: a
+// suggested word nobody in this vault uses is how one library ends up holding
+// `comic` and `comics` with one title under each.
+const COMMON: Record<string, readonly string[]> = { status: DEFAULT_STATUSES }
 function suggestions(f: FieldDef): string[] {
   const all = [...new Set([...(COMMON[f.id] ?? []), ...(store.vocab[f.vocab] ?? [])])]
   return f.control === 'chips' ? all.filter((v) => !list(f).includes(v)) : all

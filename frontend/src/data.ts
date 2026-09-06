@@ -7,7 +7,10 @@
 // onto the canonical values first.
 export type MediaType = string
 export type Status = string
-export const DEFAULT_TYPES = ['manga', 'manhwa', 'manhua', 'comic', 'image set']
+// Only STATUS gets a starting vocabulary. Type does not: a suggestion list of
+// five words the library has never seen is how a vault ends up with `comic` and
+// `comics` and one title under each — the type picker offers what is in the
+// vault and nothing else.
 export const DEFAULT_STATUSES = ['ongoing', 'completed', 'paused']
 export type ReadState = 'read' | 'reading' | 'unread'
 export type Origin = 'auto' | 'manual'
