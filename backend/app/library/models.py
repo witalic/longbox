@@ -295,6 +295,10 @@ class Source(BaseModel):
     fields: list[str] = []  # recipe field names mapped for this domain
     group: str = ""         # the user's grouping; "" = ungrouped
     bookmarks: list[Bookmark] = []
+    # Frozen: still a source, still listed here, but kept out of the browser's
+    # rail. A site you have finished with clutters the place you browse from
+    # long before you are willing to forget what longbox learned about it.
+    frozen: bool = False
 
 
 class FacetValue(BaseModel):

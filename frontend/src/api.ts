@@ -77,7 +77,8 @@ export const api = {
   browse: (field: string, q: LibraryQuery = {}) =>
     req<BrowseGroup[]>(`/browse/${field}${qs({ ...q })}`),
   sources: () => req<Source[]>('/sources'),
-  putSourcePrefs: (domain: string, body: { group?: string; bookmarks?: Bookmark[] }) =>
+  putSourcePrefs: (domain: string,
+                   body: { group?: string; bookmarks?: Bookmark[]; frozen?: boolean }) =>
     req<Source[]>(`/sources/${domain}`, jsonBody('PUT', body)),
   sourceGroups: () => req<string[]>('/source-groups'),
   putSourceGroups: (groups: string[]) =>

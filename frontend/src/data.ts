@@ -141,6 +141,7 @@ export interface Source {
   fields: string[] // recipe field names mapped for this domain
   group: string    // the user's grouping; '' = ungrouped
   bookmarks: Bookmark[]
+  frozen: boolean  // still listed here, kept out of the browser's rail
 }
 
 export interface FacetValue { v: string; n: number }

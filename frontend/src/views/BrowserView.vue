@@ -257,8 +257,11 @@ const railOpen = reactive<Record<string, boolean>>({})
 // tree: one label, its sites, the next label. With no groups yet there is one
 // band, and it is simply called SOURCES.
 const railSections = computed(() => {
-  const by = (name: string) => [...store.sources]
-    .filter((x) => (x.group || '') === name)
+  // A FROZEN source is still a source — it keeps its recipe, its links and its
+  // titles — it has just been finished with, so this is the one place it stops
+  // appearing. Sources is where it is thawed again.
+  const by = (name: string) => store.sources
+    .filter((x) => !x.frozen && (x.group || '') === name)
     .sort((a, b) => b.titles - a.titles)
   const named = store.sourceGroups.map((g) => ({ label: g.toUpperCase(), rows: by(g) }))
     .filter((sec) => sec.rows.length)

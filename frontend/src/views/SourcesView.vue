@@ -11,7 +11,7 @@ import RailSection from '../components/RailSection.vue'
 import { askConfirm, refreshDerived, refreshLibrary, store } from '../store'
 import { newTab } from '../browser'
 import { api } from '../api'
-import { faviconFor, type Bookmark, type Source } from '../data'
+import { faviconFor, movedBefore, type Bookmark, type Source } from '../data'
 
 const UNGROUPED = '—'
 
@@ -68,7 +68,8 @@ async function setGroup(s: Source, name: string) {
   await savePrefs(s, { group: g })
 }
 
-async function savePrefs(s: Source, body: { group?: string; bookmarks?: Bookmark[] }) {
+async function savePrefs(s: Source,
+                         body: { group?: string; bookmarks?: Bookmark[]; frozen?: boolean }) {
   busy.value = s.domain
   try {
     store.sources = await api.putSourcePrefs(s.domain, body)
@@ -85,6 +86,44 @@ async function newGroup() {
   try {
     store.sourceGroups = await api.putSourceGroups([...store.sourceGroups, name])
   } catch (e) { store.error = String(e) }
+}
+
+// ---- the group order ----
+//
+// It is already a stored LIST — it just had no way to be changed. Dragging a
+// header writes the whole list, and everything else that draws groups (the rail
+// here, the browser's source tree) reads that same list, so neither needs a
+// drag of its own. UNGROUPED is not in it: it is where "no group" lands, and it
+// stays last by construction.
+const dragGroup = ref<string | null>(null)
+const groupDrop = ref<string | null>(null)
+function clearGroupDrag() {
+  dragGroup.value = null
+  groupDrop.value = null
+}
+// UNGROUPED is not a group — it is the absence of one — so it never lights up
+// as somewhere to drop, and dropping there does nothing.
+function onGroupOver(name: string) {
+  groupDrop.value = dragGroup.value && name !== UNGROUPED ? name : null
+}
+async function onGroupDrop(target: string) {
+  const from = dragGroup.value
+  clearGroupDrag()
+  if (from === null || from === target || target === UNGROUPED || from === UNGROUPED) return
+  const names = [...store.sourceGroups]
+  const at = names.indexOf(from)
+  const onto = names.indexOf(target)
+  // The header you drop on lights up whole, so the drop means "it takes this
+  // group's place"; `movedBefore` inserts BEFORE its target, which going down
+  // the list is one short — dropping on the next group would do nothing at all.
+  const next = movedBefore(names, at, onto > at ? onto + 1 : onto)
+  store.sourceGroups = next   // the move shows now; the server is told after
+  try {
+    store.sourceGroups = await api.putSourceGroups(next)
+  } catch (e) {
+    store.error = String(e)
+    store.sourceGroups = names
+  }
 }
 
 // ---- bookmarks ----
@@ -106,7 +145,33 @@ async function removeBookmark(s: Source, i: number) {
   await savePrefs(s, { bookmarks: s.bookmarks.filter((_, x) => x !== i) })
 }
 
+// The list is sent whole on every write anyway (an index into a list somebody
+// may have reordered is not an address), so a reorder is just another write.
+const dragBm = ref<number | null>(null)
+const bmDrop = ref<string | null>(null)   // "<domain>#<index>" — one source at a time
+function clearBmDrag() {
+  dragBm.value = null
+  bmDrop.value = null
+}
+function onBookmarkOver(s: Source, i: number) {
+  bmDrop.value = dragBm.value === null ? null : `${s.domain}#${i}`
+}
+async function onBookmarkDrop(s: Source, to: number) {
+  const from = dragBm.value
+  clearBmDrag()
+  if (from === null || from === to) return
+  await savePrefs(s, { bookmarks: movedBefore(s.bookmarks, from, to) })
+}
+
 // ---- the site itself ----
+//
+// Freeze is the other half of Remove. Remove hides the source and forgets what
+// longbox learned about it; freeze keeps all of it and only stops the browser's
+// rail from offering the site — the row stays here, dimmed.
+async function setFrozen(s: Source, frozen: boolean) {
+  await savePrefs(s, { frozen })
+}
+
 async function forgetRecipe(domain: string) {
   const ok = await askConfirm({
     title: 'Forget recipe', danger: true, okLabel: 'Forget',
@@ -177,7 +242,13 @@ void refreshDerived()
 
       <div v-else class="list">
         <template v-for="sec in sections" :key="sec.name">
-          <div class="ghead" @click="closed[sec.name] = !closed[sec.name]">
+          <div class="ghead" :class="{ drop: groupDrop === sec.name, named: sec.name !== UNGROUPED }"
+               :draggable="sec.name !== UNGROUPED && !picked"
+               :title="sec.name === UNGROUPED ? '' : 'Drag onto another group to reorder'"
+               @click="closed[sec.name] = !closed[sec.name]"
+               @dragstart="dragGroup = sec.name" @dragend="clearGroupDrag"
+               @dragover.prevent="onGroupOver(sec.name)" @drop.prevent="onGroupDrop(sec.name)">
+            <span v-if="sec.name !== UNGROUPED && !picked" class="ggrip mono">&#8942;&#8942;</span>
             <Icon name="chevron" :size="10" :sw="2.4" :style="{ transform: closed[sec.name] ? 'rotate(-90deg)' : '' }" />
             <span class="glbl">{{ sec.name === UNGROUPED ? 'UNGROUPED' : sec.name.toUpperCase() }} · {{ sec.rows.length }}</span>
             <span class="grule"></span>
@@ -185,7 +256,7 @@ void refreshDerived()
 
           <template v-if="!closed[sec.name]">
             <template v-for="s in sec.rows" :key="s.id">
-              <div class="srow" :class="{ on: open === s.domain, busy: busy === s.domain }"
+              <div class="srow" :class="{ on: open === s.domain, busy: busy === s.domain, cold: s.frozen }"
                    @click="open = open === s.domain ? null : s.domain">
                 <span class="init">
                   <img v-if="!noIcon[s.domain]" class="favimg" :src="faviconFor(s.domain)" alt=""
@@ -197,6 +268,7 @@ void refreshDerived()
                   <Icon v-if="s.hasRecipe" name="check" :size="11" :sw="2.6" />
                   {{ s.hasRecipe ? `v${s.recipeVer}` : 'no recipe' }}
                 </span>
+                <span v-if="s.frozen" class="coldmark mono" title="Kept here, not offered in the browser">frozen</span>
                 <span style="flex:1"></span>
                 <span class="snum mono">{{ s.titles }} title{{ s.titles === 1 ? '' : 's' }}</span>
                 <span class="sbm mono" :class="{ has: s.bookmarks.length }">
@@ -210,7 +282,12 @@ void refreshDerived()
               <div v-if="open === s.domain" class="sopen" @click.stop>
                 <div class="bmcol">
                   <div class="collbl">BOOKMARKS</div>
-                  <div v-for="(b, i) in s.bookmarks" :key="b.url + i" class="bmrow" @click="newTab(b.url)">
+                  <div v-for="(b, i) in s.bookmarks" :key="b.url + i" class="bmrow"
+                       :class="{ drop: bmDrop === `${s.domain}#${i}` }" draggable="true"
+                       @click="newTab(b.url)"
+                       @dragstart="dragBm = i" @dragend="clearBmDrag"
+                       @dragover.prevent="onBookmarkOver(s, i)" @drop.prevent="onBookmarkDrop(s, i)">
+                    <span class="bgrip mono" title="Drag to reorder">&#8942;&#8942;</span>
                     <Icon name="star" :size="12" :sw="1.8" fill="currentColor" class="star" />
                     <span class="bmname">{{ b.name }}</span>
                     <span class="bmurl mono">{{ b.url }}</span>
@@ -260,6 +337,11 @@ void refreshDerived()
                     <button class="btn sm" :disabled="!s.homepage" @click="newTab(s.homepage)">
                       <Icon name="browser" :size="12" :sw="1.9" />Open homepage
                     </button>
+                    <button class="btn ghost sm" :disabled="busy === s.domain"
+                            :title="s.frozen
+                              ? 'Offer this site in the browser again'
+                              : 'Keep everything, but stop offering this site in the browser'"
+                            @click="setFrozen(s, !s.frozen)">{{ s.frozen ? 'Thaw' : 'Freeze' }}</button>
                     <button v-if="s.hasRecipe" class="btn ghost sm" :disabled="busy === s.domain"
                             title="Forget the learned selectors; titles are untouched"
                             @click="forgetRecipe(s.domain)">Forget recipe</button>
@@ -294,6 +376,11 @@ void refreshDerived()
 .list { padding: 10px 24px 20px; }
 .ghead { display: flex; align-items: center; gap: 9px; height: 34px; padding: 0 8px; margin-top: 6px; cursor: pointer; color: var(--tx3); }
 .ghead:hover { color: var(--tx2); }
+.ghead.named[draggable="true"] { cursor: grab; }
+.ghead .ggrip { font-size: 11px; letter-spacing: -2px; opacity: 0; }
+.ghead:hover .ggrip { opacity: 1; }
+.ghead.drop { color: var(--accent); }
+.ghead.drop .grule { background: var(--accent); }
 .glbl { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; }
 .grule { flex: 1; height: 1px; background: var(--line); }
 
@@ -301,6 +388,9 @@ void refreshDerived()
 .srow:hover { background: var(--hover); }
 .srow.on { background: var(--panel); }
 .srow.busy { opacity: .6; pointer-events: none; }
+.srow.cold { opacity: .55; }
+.srow.cold:hover { opacity: .85; }
+.coldmark { flex: none; font-size: 10px; color: var(--tx3); border: 1px solid var(--line); border-radius: 6px; padding: 4px 7px; }
 .init { width: 24px; height: 24px; flex: none; border-radius: 6px; display: flex; align-items: center; justify-content: center; font: 700 9px/1 system-ui; color: var(--tx2); background: var(--panel2); border: 1px solid var(--line); overflow: hidden; }
 .favimg { width: 15px; height: 15px; object-fit: contain; }
 .sname { flex: none; font: 600 13px/1 system-ui; color: var(--tx); }
@@ -316,6 +406,9 @@ void refreshDerived()
 .collbl { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); padding: 6px 6px 7px; }
 .bmrow { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 6px; border-radius: 6px; color: var(--tx2); cursor: pointer; }
 .bmrow:hover { background: var(--hover); }
+.bmrow.drop { box-shadow: inset 0 2px 0 var(--accent); }
+.bgrip { width: 10px; flex: none; font-size: 11px; letter-spacing: -2px; color: var(--tx3); opacity: 0; cursor: grab; }
+.bmrow:hover .bgrip { opacity: 1; }
 .star { flex: none; color: var(--fav); }
 .bmname { flex: none; font: 500 12px/1 system-ui; color: var(--tx); }
 .bmurl { flex: 1; min-width: 0; font-size: 10.5px; color: var(--tx3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

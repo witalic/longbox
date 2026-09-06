@@ -797,6 +797,7 @@ def list_sources(request: Request) -> list[Source]:
             s.fields = list(recipe.fields.keys())
         mine = prefs.get(s.domain) or {}
         s.group = str(mine.get("group") or "")
+        s.frozen = bool(mine.get("frozen"))
         s.bookmarks = [Bookmark.model_validate(b) for b in (mine.get("bookmarks") or [])
                        if isinstance(b, dict) and b.get("url")]
     return sources
@@ -807,6 +808,7 @@ class SourcePrefsIn(BaseModel):
     into a list somebody else may have reordered is not a stable address."""
     group: str | None = None
     bookmarks: list[Bookmark] | None = None
+    frozen: bool | None = None
 
 
 @router.put("/sources/{domain}", response_model=list[Source])
@@ -818,8 +820,12 @@ def put_source_prefs(domain: str, body: SourcePrefsIn, request: Request) -> list
             mine["group"] = body.group.strip()
         if body.bookmarks is not None:
             mine["bookmarks"] = [b.model_dump() for b in body.bookmarks if b.url.strip()]
+        if body.frozen is not None:
+            mine["frozen"] = body.frozen
+        if not mine.get("frozen"):
+            mine.pop("frozen", None)  # False is the default; storing it says nothing
         # an entry that says nothing is not worth keeping in the config
-        if mine.get("group") or mine.get("bookmarks"):
+        if mine.get("group") or mine.get("bookmarks") or mine.get("frozen"):
             prefs[domain] = mine
         else:
             prefs.pop(domain, None)

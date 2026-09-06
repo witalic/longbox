@@ -463,6 +463,28 @@ def test_a_source_carries_its_group_and_saved_links(own_client):
     assert again["toonily.example"]["bookmarks"] == []
 
 
+def test_freezing_a_source_keeps_it_listed(own_client):
+    """Freezing is not removing: the source stays here with its links and its
+    recipe, and only the browser's rail stops offering it."""
+    after = own_client.put("/api/sources/mangadex.org", json={"frozen": True}).json()
+    mine = next(s for s in after if s["domain"] == "mangadex.org")
+    assert mine["frozen"] is True and mine["titles"] == 1
+    # partial, like every other pref: a later group change does not thaw it
+    own_client.put("/api/sources/mangadex.org", json={"group": "Manga"})
+    again = next(s for s in own_client.get("/api/sources").json() if s["domain"] == "mangadex.org")
+    assert again["frozen"] is True and again["group"] == "Manga"
+    thawed = own_client.put("/api/sources/mangadex.org", json={"frozen": False}).json()
+    assert next(s for s in thawed if s["domain"] == "mangadex.org")["frozen"] is False
+
+
+def test_a_thawed_source_with_nothing_else_leaves_no_husk(own_client):
+    own_client.put("/api/sources/mangadex.org", json={"frozen": True})
+    own_client.put("/api/sources/mangadex.org", json={"frozen": False})
+    from app.config_store import config_path
+    cfg = json.loads(config_path().read_text(encoding="utf-8"))
+    assert "mangadex.org" not in (cfg.get("sources") or {})
+
+
 def test_clearing_both_forgets_the_entry_instead_of_keeping_a_husk(own_client):
     own_client.put("/api/sources/mangadex.org", json={"group": "Manga"})
     own_client.put("/api/sources/mangadex.org", json={"group": "", "bookmarks": []})
