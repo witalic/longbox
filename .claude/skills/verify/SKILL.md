@@ -1,6 +1,6 @@
 ---
 name: verify
-description: Run the full offline verification pipeline (backend tests, frontend type-check + build, shell syntax checks) and report a pass/fail summary. Use after any code change, before handing over to the owner.
+description: Run the full offline verification pipeline (backend tests, frontend type-check + build, shell syntax checks, version copies) and report a pass/fail summary. Use after any code change, before handing over to the owner.
 ---
 
 # Verify
@@ -20,6 +20,10 @@ Run everything that can be verified without launching the app (live testing is t
    node --check shell/main.js
    node --check shell/app-preload.js
    node --check shell/pick-preload.js
+   ```
+4. **Version copies** — every copy agrees with `app-meta.json`:
+   ```bash
+   python tools/version.py
    ```
 
 Report one line per step (pass/fail + the failing output when red). If anything fails, fix it and

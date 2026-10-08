@@ -44,16 +44,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: The tag must match the version in the repo
+      # app-meta.json is the one source; tools/version.py names every copy of it
+      - name: Every copy of the version agrees with app-meta.json
+        run: python tools/version.py
+
+      - name: The tag must name that version
         if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        run: |
-          version=$(node -p "require('./shell/package.json').version")
-          tag="${GITHUB_REF_NAME#v}"
-          test "$version" = "$tag" || {
-            echo "tag $GITHUB_REF_NAME does not match shell/package.json ($version)"
-            exit 1
-          }
+        run: python tools/version.py --tag "${{ github.ref_name }}"
 
       - name: Install the sidecar's dependencies
         run: |

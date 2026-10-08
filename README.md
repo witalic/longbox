@@ -191,13 +191,29 @@ cd backend && python -m pytest        # offline API + vault tests
 cd frontend && npx vue-tsc --noEmit   # type-check
 cd frontend && npm run build          # production build (served by the sidecar at /app/)
 node --check shell/main.js            # after touching shell scripts
+python tools/version.py               # every copy of the version agrees with app-meta.json
 ```
+
+## Versioning
+
+The version has one source: `app-meta.json`, which the sidecar, the shell and the About page read
+directly. The few files that must carry a literal of their own — `shell/package.json` and its
+lockfile (electron-builder names the installers and the release after it), `backend/pyproject.toml`
+and the project page — are written by one command, never by hand:
+
+```bash
+python tools/version.py 2.3.0         # set the version (and today's date) and write every copy
+python tools/version.py               # check that nothing disagrees
+```
+
+A release is that bump committed as `chore(release): 2.3.0`, then the tag `v2.3.0` pushed.
 
 ## Packaging
 
 Builds run on GitHub Actions (`.github/workflows/build.yml`) for Windows, macOS (arm64 and x64)
-and Linux: push a `v*` tag matching the version in `shell/package.json` to publish a release, or
-run the workflow by hand for artifacts. Locally:
+and Linux: push a `v*` tag naming the version in `app-meta.json` to publish a release, or run the
+workflow by hand for artifacts. CI refuses a tag — or any copy of the version — that disagrees.
+Locally:
 
 ```bash
 cd frontend && npm run build                                   # the UI the sidecar serves

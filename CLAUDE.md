@@ -16,7 +16,11 @@ python run.py --backend                        # sidecar only, 127.0.0.1:8787 (d
 cd backend && ../.venv/Scripts/python.exe -m pytest   # offline tests (Windows venv path)
 cd frontend && npx vue-tsc --noEmit && npm run build  # type-check + build
 node --check shell/main.js                     # after touching shell scripts
+python tools/version.py                        # every version copy agrees with app-meta.json
+python tools/version.py X.Y.Z                  # release bump: app-meta.json + every copy
 ```
+
+The version has ONE source, `app-meta.json`; never hand-edit a version anywhere else.
 
 ## Non-negotiable invariants
 

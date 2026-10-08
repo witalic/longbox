@@ -8,3 +8,6 @@ Loaded every session (global rule — no `paths`).
   scope (`feat(scraper/backend): …`); one logical change per commit.
 - A commit must be a logically-complete, tested block — no dangling references to not-yet-built
   pieces.
+- **Releases.** The version lives in `app-meta.json` only; `python tools/version.py X.Y.Z` sets it
+  (with today's date) and writes every copy a tool insists on. Commit as `chore(release): X.Y.Z`,
+  then the owner pushes the `vX.Y.Z` tag — CI refuses a tag or a copy that disagrees.
