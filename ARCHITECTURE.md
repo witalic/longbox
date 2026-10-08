@@ -17,8 +17,8 @@ the process shape, transport/auth, the vault layout as implemented, and what eac
                │ HTTP (localhost, or remote host)
 ┌──────────────▼─ FastAPI sidecar (Python) ─────────────────────┐
 │  routers/   library · downloads · recipes · settings          │
-│  library/   layered vault docs · chapter media (zip) ·        │
-│             SQLite index (rebuildable)                        │
+│  library/   layered vault docs · chapter media (zip/episode)  │
+│             · SQLite index (rebuildable)                      │
 │  scraper/   recipe storage (client extracts; server stores)   │
 └───────────────────────────────────────────────────────────────┘
 ```
@@ -54,34 +54,38 @@ echo before loading the UI. **Never send the library or a token over a non-TLS r
 ```
 library/
   index.db                   rebuildable cache
+  vault.json                 one-time migration markers (zipNormalized, videoFaststart)
+  fields.json                the library's own metadata fields (registry additions)
   authors.json               author favorites (user layer, vault-level)
-  vault.json                 vault-level markers (one-time migrations)
+  health.json                what was done to this library + the last check report — its
+                             own file, so startup never parses it
   <type-shelf>/              one directory per TYPE (manga/, image-set/, …; typeless → other/)
     <title-id>/
       title.json             schema-versioned, layered:
                                meta        — written ONLY via draft → commit
                                provenance  — per-field origin (auto|manual) + source URL
                                chapters[]  — one row per translation; id = dedup key + file stem
-                               user        — fav/rating/read; instant write-through
-      cover.<ext>            cover bytes; further covers as cover-2.<ext>, cover-3.<ext>…
+                               user        — fav/rating/read/position; instant write-through
+      cover.<ext>            cover bytes; further covers as cover-2.<ext> … cover-8.<ext>
       chapters/
         <chapter-id>.zip     page media — ALWAYS a plain zip (see below)
-        <chapter-id>.mp4     episode media — stored as the file it arrived as
+        <chapter-id>.<video-ext>  episode media (mp4 m4v webm mkv mov avi ts) — stored
+                             as the file it arrived as
         <chapter-id>.json    download provenance sidecar (source, the name the file
-                             ARRIVED under, pages, size, date, sha256 of the file +
-                             content digest of the pages, and for an episode:
-                             duration, codec, faststart, resume points)
+                             ARRIVED under, pages, size, revision, page keys, sha256 of
+                             the file + content digest of the pages, the ComicInfo stamp,
+                             and for an episode: container, playable, codec, faststart,
+                             duration, stills)
         <chapter-id>.poster.jpg  the one frame a tile wears
         <chapter-id>.sheet.jpg   the 3x3 contact sheet a preview shows
-  fields.json                the library's own metadata fields (registry additions)
 ```
 
-- **Covers are a list, and its order is the file names.** A title may store several; the first
+- **Covers are a list, and its order is the file names.** A title may store up to eight; the first
   keeps the name every older vault already writes, so nothing has to be migrated and a rebuilt
   index reconstructs the order from the directory alone. A title that stores NONE shows
   stand-ins cut from its own media — the first page of each downloaded chapter, or an episode's
-  stored poster — composed from the sidecars the index already carries, so a coverless title
-  costs no disk. `covers` is what a tile shows; `ownCovers` is what somebody actually gave it,
+  stored poster, up to six — composed from the sidecars the index already carries, so a
+  coverless title costs no disk. `covers` is what a tile shows; `ownCovers` is what somebody actually gave it,
   which is the question the editor asks.
 - **A pass re-indexes what it touched.** The one-time vault passes (the zip sweep, the episode
   pass) return the title ids they rewrote, and those rows are refreshed directly. They do NOT
@@ -89,15 +93,6 @@ library/
   directory timestamps — which a filesystem records at the resolution of a clock tick, so a
   pass writing inside the same tick as the row it replaces is invisible to it. A pass knows
   what it changed; there is nothing to detect.
-- **Two digests, two jobs.** `sha256` covers every byte of the stored file — that is what
-  integrity means, and the revision pass compares it. `content` covers only the ordered page
-  images, so it survives a repack, a renumbering and the per-entry `ComicInfo.xml`; duplicate
-  detection uses that one. Both are stamped wherever the media is written (ingest, page ops, the
-  zip sweep) and never by a pass that only reads. Writing the metadata mirror restamps `sha256`
-  and `size` — but not `rev`: the pages did not change, so no cached page may miss.
-- **ComicInfo.xml is a mirror.** Written where the archive is being rewritten anyway; a metadata
-  edit does not rewrite archives, and `refresh_comicinfo()` is the explicit half. Read only into
-  entry fields the caller left empty — a typed label is a decision and outranks a file.
 - **Type shelves.** A title lives on the shelf its `type` dictates; changing the type physically
   moves the directory (and sweeps the emptied shelf). Legacy flat layouts migrate on open.
 - **The zip invariant.** Every stored chapter archive is a plain zip: cbz keeps its bytes under
@@ -106,16 +101,20 @@ library/
   operation (add / delete / move / reorder) works on every stored chapter. Because ingest enforces
   this, the whole-vault sweep is a **migration, not a startup chore**: it runs once per vault
   (marked by `zipNormalized` in `vault.json`), on a background thread, and Settings can re-run it
-  for content dropped into the folder by hand.
+  for content dropped into the folder by hand. Its sibling, the episode pass (`videoFaststart`),
+  moves an older mp4's index to the front once per vault, the way ingest does for new ones.
 - **Episode stills.** The app ships no video decoder, so a frame cannot be cut on the backend —
-  but the WINDOW decodes these files to play them. It seeks nine spots once per episode, composes
-  them into one sheet (a 3x3 grid has exactly the aspect ratio of one frame, so the preview and
-  the player share a box), keeps the liveliest single frame as the poster, and hands both to the
-  vault. They carry a version of their OWN (`stills`), never the media revision: bumping that
-  re-points the `<video>` of an episode that may be playing right then.
+  but the WINDOW decodes these files to play them. Episodes on screen get their stills one at a
+  time, once each: a tile needs only a poster (three spots, the liveliest wins); a preview asks
+  for the sheet — nine spots composed 3x3, which has exactly the aspect ratio of one frame, so
+  the preview and the player share a box — and that job supplies the poster too if none is
+  stored. Both go to the vault. They carry a version of their OWN (`stills`), never the media
+  revision: bumping that re-points the `<video>` of an episode that may be playing right then.
 - **No-orphan commits.** A meta commit reconciles chapters: a re-captured row adopts the old row's
   id (by URL, else by num+lang+group), and media-backed rows missing from a stale draft are
-  restored — downloaded chapters are removed only by the explicit delete endpoints.
+  restored — downloaded chapters are removed only by the explicit delete endpoints. A row keeps
+  its id for life, so a new row whose derived id is still held by a renumbered one gets a
+  suffixed id (`_free_id`) rather than being dropped as its twin.
 
 ## Concurrency & durability
 
@@ -136,9 +135,11 @@ Endpoints run sync on FastAPI's threadpool, so races are real and handled struct
   fails the request instead of stranding the next launch — and the old one closes on a delay.
 - A corrupt index cannot lose content — it never owned any; rebuild rescans the files, skipping
   documents it cannot parse rather than aborting.
-- **One vault pass at a time** (`app/passes.py`). Checking the vault, converting archives,
-  rewriting metadata, sweeping leftovers and retyping a field all walk the same library, so they
-  share one slot, one progress record and one stop event. The SERVER names the running pass and
+- **One vault pass at a time** (`backend/app/passes.py`). Checking the vault, converting
+  archives, rewriting metadata, sweeping leftovers, retyping or clearing a field and rebuilding
+  the index all walk the same library, so they share one slot, one progress record and one stop
+  event. (The one-time startup migrations run outside it, single-flight on their own thread.)
+  The SERVER names the running pass and
   which row started it, so leaving the settings page — or reloading it — cannot lose the progress
   of something still running. Every pass reports its size before its first slow step and says
   whether it was put down early; a report that covered part of the library never claims to have
@@ -146,12 +147,14 @@ Endpoints run sync on FastAPI's threadpool, so races are real and handled struct
 
 ## Integrity, and the passes that check it
 
-- **Two digests, two jobs** (both stamped wherever media is written — ingest, page ops, the zip
-  sweep). `sha256` covers every byte of the stored file: that is what integrity means, and the
-  revision pass compares it. `content` covers only the ordered page images, so it survives a
-  repack, a renumbering and the per-entry `ComicInfo.xml`; duplicate detection uses that one.
-  Writing the metadata mirror restamps `sha256` and `size` but never `rev` — the pages did not
-  change, so no cached page may miss.
+- **Two digests, two jobs.** `sha256` covers every byte of the stored file: that is what
+  integrity means, and the revision pass compares it. `content` covers only the ordered page
+  images, so it survives a repack, a renumbering and the per-entry `ComicInfo.xml`; duplicate
+  detection uses that one. Both are stamped wherever media is written (ingest, page ops, the zip
+  sweep) and never by a pass that only reads — except a full check asked to *baseline*, which
+  records a first `sha256` (never `content`) for media stored before digests existed. Writing
+  the metadata mirror restamps `sha256` and `size` but never `rev` — the pages did not change,
+  so no cached page may miss.
 - **One check, three answers**: is anything broken, is anything wasting space, is anything
   missing. Duplicates and numbering gaps read the index, so they cost nothing on top of the walk.
   The composition from mechanism (`orphan`, `stray`, `noDigest`) to what a person is told lives in
@@ -165,16 +168,20 @@ Endpoints run sync on FastAPI's threadpool, so races are real and handled struct
 - **`ComicInfo.xml` is a mirror**, written where the archive is being rewritten anyway; the
   sidecar records which one it last got, so a settled chapter is skipped without opening it. A
   metadata edit does not rewrite archives — `refresh_comicinfo()` is the explicit half, and it
-  narrows to the titles whose stored mirror no longer matches.
+  narrows to the titles whose stored mirror no longer matches. It is read back only when an
+  import names no number, and only into entry fields the caller left empty — a typed label is
+  a decision and outranks a file.
 - **`Vault.chapter_files()`** reads a title's chapter directory ONCE. Asking per chapter costs up
   to ten filesystem round trips each, which is the difference between seconds and minutes on a
   network vault; anything walking the library uses the listing.
 
 ## Media & downloads
 
-- Covers and chapter pages are served with cached LANCZOS downscales (`?w=`), keyed by file mtime
-  so edits invalidate automatically. Tall webtoon pages crop in previews only, never in the reader.
-- Downloads come in two lanes, chosen per source in the capture dock:
+- Covers and chapter pages are served with LANCZOS downscales (`?w=`), cached in the app's cache
+  directory under the version from `library/versions.py` (a chapter's `rev.size.pages`, a
+  cover's `mtime.size.ext`) — never by page count or a bare mtime, so an edit misses the cache by
+  construction. Tall webtoon pages crop in previews only, never in the reader.
+- Downloads come in two lanes, chosen in the capture dock's Downloads tab:
   - **Archive** — the **armed flow** (`state-model.md` §9): the user arms ONE next download for a
     specific chapter; the shell intercepts `will-download`, streams progress, and hands the
     finished temp file to the sidecar for ingest (conversion to zip + sidecar provenance + row
@@ -183,8 +190,9 @@ Endpoints run sync on FastAPI's threadpool, so races are real and handled struct
     names ONE entry and arms it, then reads; finishing the chapter is explicit and steps the label
     forward. The page-image selector is taught once per domain (pick mode → the recipe's `pages`
     rule). Each page view is scanned, the vault is asked what the armed entry already holds
-    (`pages/known`), and only the rest are fetched through the page context and appended
-    (`pages/capture`). Dedup is by the image's **file name**, recorded in the sidecar
+    (`pages/known`), and only the rest are fetched — by the shell's main process, with the
+    session's cookies and the reader page as referer (the page context is only the fallback, for
+    `blob:`/`data:` or refused images) — and appended (`pages/capture`). Dedup is by the image's **file name**, recorded in the sidecar
     (`pageKeys`) — CDN URLs carry rotating tokens, names don't — so flipping back re-downloads
     nothing; unreadable media is distrusted and re-captured. `pageKeys` runs parallel to the
     pages, so deleting, moving or reordering pages carries their keys with them. Stored format is
@@ -209,28 +217,35 @@ Endpoints run sync on FastAPI's threadpool, so races are real and handled struct
 ```
 backend/app/
   main.py security.py settings.py config_store.py
-  library/  models.py (layers + flat DTO) · vault.py (dirs, locks, media ingest)
-            media.py (zip ops, conversion, thumbnails) · index.py · service.py
-  scraper/  models.py (recipe v2) · recipes.py (per-domain store) · covers.py (fallback fetch)
-  library/  fields.py (the metadata registry: builtin + per-library custom)
-            comicinfo.py (the ComicInfo.xml mirror: build, parse, write into an archive)
   passes.py (the one vault pass at a time: progress, stop, who is running)
+  library/  models.py (layers + flat DTO) · vault.py (shelves, locks, media ingest, covers,
+            the vault/fields/authors/health files) · media.py (zip ops, conversion, thumbnails,
+            mp4 probe + faststart, digests) · index.py · service.py ·
+            migrations.py (title.json schema steps) · versions.py (versions + cache keys) ·
+            fields.py (the metadata registry: builtin + per-library custom) ·
+            comicinfo.py (the ComicInfo.xml mirror: build, parse, write into an archive)
+  scraper/  models.py (recipe v2) · recipes.py (per-domain store) · covers.py (fallback fetch)
   routers/  library.py · downloads.py · recipes.py · settings.py
 frontend/src/
+  App.vue (the frame: views, tabs, downloads panel, close guard) · styles.css (the design tokens)
   store.ts (app state, facets, user layer, downloads) · draft.ts (THE draft) · browser.ts (tabs)
-  sessions.ts (tab-session restore) · keys.ts (physical-key bindings) · normalize.ts · data.ts
-  frames.ts (episode stills, cut in the window, once per episode)
+  api.ts (the sidecar client) · local.ts (validated localStorage) · data.ts (domain helpers)
+  sessions.ts (tab-session restore) · keys.ts (physical-key bindings) · normalize.ts
+  pagecapture.ts (the page-capture activity) · frames.ts (episode stills, cut in the window)
   views/      LibraryView · AuthorsView (browse by any axis) · TitleView · ReaderView ·
               BrowserView · SourcesView · SettingsView
   components/ MetadataEditor (the one editor) · CapturePanel (draft + downloads dock) ·
               PassButton + ProgressBar (run/progress/stop, one grammar everywhere) ·
               Settings* (one component per settings section) ·
               VideoSurface (preview + player, one per app) · DownloadsPanel · PickInspector ·
-              EntryFields · FilterBlock · FieldVisibility · MenuButton · RailSection ·
-              SearchBox · Pager · Combo · …
+              CoverArt (covers, rotating on hover) · EntryFields · FilterBlock · FieldVisibility ·
+              MenuButton · RailSection · SearchBox · Pager · Combo · ConfirmModal · Dropdown ·
+              Stars · Icon
 shell/
-  main.js (sidecar spawn, auth cookie, frameless chrome, will-download + resume, browser keys,
-           page context menu, close guard, session hardening)
-  app-preload.js (folder picker, titlebar, browsing data, download control, page keys)
-  pick-preload.js (pick/snapshot, page-context fetches, background-tab links)
+  main.js (sidecar spawn on a stable port + /health handshake, auth cookie, frameless chrome,
+           will-download + resume, page-image fetches, browser keys, page context menu,
+           close guard, browsing data, session hardening)
+  app-preload.js (folder picker, titlebar, browsing data, download control, close guard,
+                  page-image fetch, page keys)
+  pick-preload.js (pick/snapshot, page scan, page-context fetch fallback, background-tab links)
 ```

@@ -92,8 +92,8 @@ class FieldProvenance(BaseModel):
 class ChapterRow(BaseModel):
     """One scraped chapter row — one row per translation (language + group).
 
-    `id` is the dedup key for accumulative capture AND the future on-disk file
-    name (`chapters/<id>.cbz`), so it is not editable like a normal field.
+    `id` is the dedup key for accumulative capture AND the stem of every file the
+    chapter owns (`chapters/<id>.zip`, its sidecar, …), so it never changes.
     Capture-merge into a draft is add-only by id: an existing row is never
     overwritten by a re-capture (I3 for chapters, by construction).
     """

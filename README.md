@@ -176,7 +176,15 @@ right-click → *Open* to get past the unidentified-developer warning.
 
 ## Running (development)
 
-Requires Python ≥ 3.11 (with a `.venv` at the repo root), Node.js and npm.
+Requires Python ≥ 3.11, Node.js and npm. One-time setup — `run.py` expects the `.venv` at the
+repo root:
+
+```bash
+python -m venv .venv                  # then activate it (.venv\Scripts\activate on Windows)
+pip install -e "backend[dev]"         # the sidecar, its test tools and pyinstaller
+cd frontend && npm ci && cd ..
+cd shell && npm ci && cd ..           # fetches Electron itself
+```
 
 ```bash
 python run.py             # build the frontend, launch the Electron shell (spawns the sidecar)
@@ -242,4 +250,6 @@ frontend/   Vue 3 + Vite + TS UI: library, title page, reader, capture browser, 
 shell/      Electron: sidecar spawn + auth, embedded browser, download interception, preloads
 design/     design docs (state-model.md is the canonical architecture) + mockups and the GUI canvas
 docs/       the project page published at witalic.github.io/longbox
+packaging/  the frozen-sidecar spec and the macOS ad-hoc signing hook
+tools/      version.py (the one version, everywhere) · screenshots.py (the project page's images)
 ```

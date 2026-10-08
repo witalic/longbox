@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "longbox-backend"
 version = "2.2.0"
-description = "longbox FastAPI sidecar — local comics library, index and (later) scraper"
+description = "longbox FastAPI sidecar — the vault, its index and the API the app talks to"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",

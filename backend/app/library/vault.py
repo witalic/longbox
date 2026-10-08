@@ -1,10 +1,11 @@
 """The on-disk vault — the source of truth (design/state-model.md §8).
 
-Layout: one directory per title under the library root:
+Layout: one directory per title, on the shelf of its type:
 
-    <root>/<title-id>/title.json      the layered document
-    <root>/<title-id>/cover.<ext>     cover bytes; more covers as cover-2, cover-3…
-    <root>/<title-id>/chapters/       reserved for chapter media (next phase)
+    <root>/<shelf>/<title-id>/title.json    the layered document
+    <root>/<shelf>/<title-id>/cover.<ext>   cover bytes; more covers as cover-2, cover-3…
+    <root>/<shelf>/<title-id>/chapters/     chapter media (<id>.zip or the episode's own
+                                            file) beside its <id>.json sidecar
 
 Writes are atomic (`tmp → rename`) and serialized per title, so a meta commit and
 a user-layer write-through can never interleave and roll each other back. The

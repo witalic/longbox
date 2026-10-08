@@ -1,6 +1,6 @@
 # longbox — metadata: standard fields, custom fields, and what each surface shows
 
-Status: **§2–§4, the registry and custom fields are built; §6's surfaces are landing.** Companion to `design/state-model.md` (§4 the draft,
+Status: **built** — §2–§6 have landed (§7); §8 lists what is deliberately not built. Companion to `design/state-model.md` (§4 the draft,
 §5 provenance, §8 vault shape). Everything here is the metadata layer; the user layer
 (fav/rating/read/position) is untouched by all of it.
 
@@ -38,12 +38,13 @@ rewrite of the user's files.
 ### 3.1 Definitions live in the vault
 
 ```jsonc
-// <root>/vault.json
+// <root>/fields.json
 {
+  "schema": 1,
   "fields": [
-    { "id": "f_7c1a", "label": "Studio note", "type": "text",   "order": 0 },
-    { "id": "f_9d20", "label": "MAL score",   "type": "number", "order": 1 },
-    { "id": "f_3e88", "label": "Shelf",       "type": "list",   "order": 2 }
+    { "id": "studio_note", "label": "Studio note", "type": "text"   },
+    { "id": "mal_score",   "label": "MAL score",   "type": "number" },
+    { "id": "shelf",       "label": "Shelf",       "type": "list"   }
   ]
 }
 ```
@@ -52,8 +53,9 @@ In the vault, not in app config, for one reason: they describe the user's *conte
 Move the library to another machine and its schema has to travel with it, or every
 title is suddenly full of values nothing can name.
 
-**`id` is stable and generated; the label is not the key.** Renaming "MAL score" to
-"Score" must not orphan a single value.
+**`id` is stable; the label is not the key.** The id is derived from the first label
+(`^[a-z][a-z0-9_]{0,31}$`) and then frozen, so renaming "MAL score" to "Score" does not
+orphan a single value.
 
 ### 3.2 Five types
 
@@ -149,9 +151,10 @@ with the field id as the key — and **standard fields keep their existing names
 (`genres`, `tags`, `authors`, `studio`). One filter model, one facet model, one code
 path; custom fields are then not a special case anywhere.
 
-The index is a rebuildable cache, so it absorbs this cheaply: a `custom_values(title_id,
-field_id, value)` table alongside the existing rows, filled by `Library._index` at write
-time like everything else a listing needs.
+The index is a rebuildable cache, so it absorbs this cheaply: single-valued fields have
+indexed columns SQLite filters on, and multi-valued ones — custom fields included — are
+read from the document the row already carries, filtered in Python at local scale. No
+per-field table to keep in step.
 
 **Cost, paid:** the library query, the facets endpoint, the store's filter state and
 every call site moved at once. There is no half-migration that is not worse than both
@@ -164,19 +167,20 @@ Two surfaces, two different owners — this is the part with a real decision in 
 
 ### 5.1 The capture dock → bound to the SOURCE
 
-`Recipe` is already per-domain and already knows which fields it can extract. It gains:
+`Recipe` is already per-domain and already knows which fields it can extract. It gains
+the fields this source does NOT offer:
 
 ```jsonc
-{ "domain": "example.org", "show": ["title", "authors", "tags", "f_9d20"] }
+{ "domain": "example.org", "hidden": ["studio", "mal_score"] }
 ```
 
-Default when a recipe is learned: the fields it actually extracts, plus `title`.
 A site that never gives a studio should not show a studio row in a 344px dock.
 
 ### 5.2 The library filters → bound to the USER
 
 The filter sidebar already keeps its UI state in `local.ts` (`lb.facetOpen`). Field
-visibility is the same class of preference and goes next to it (`lb.filterFields`).
+visibility is the same class of preference and goes next to it (`lb.hiddenFields`, one
+list per surface — the title page and each shelf's browse axes use the same mechanism).
 It is a view preference, not content: it should not travel with the vault, and it
 should not need a server round trip to change.
 

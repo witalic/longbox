@@ -1,7 +1,8 @@
 # PyInstaller spec for the longbox sidecar.
 #
-#     pyinstaller packaging/sidecar.spec --noconfirm
+#     pyinstaller packaging/sidecar.spec --noconfirm --distpath dist-sidecar --workpath build-sidecar
 #
+# dist-sidecar/ is where shell/package.json's extraResources looks for the bundle.
 # ONEDIR, deliberately: a one-file build unpacks itself into a temp directory on
 # every launch, which is exactly the startup cost the library work just removed.
 # The built frontend rides along inside the bundle — the sidecar serves it.

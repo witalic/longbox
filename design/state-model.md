@@ -108,7 +108,9 @@ origin, a field stores its source URL and recipe version — cheap and useful fo
 "Teaching" is a **recipe per domain**: a map `field → extractor`, stored separately from
 titles (it is app-level knowledge about sites), versioned. One recipe covers a title page's
 fields; a separate rule covers the chapter list (a "chapter row" selector + sub-rules
-`id / title / url / language / group / date` relative to the row).
+`id / num / title / url / lang / group / date` relative to the row). The same store keeps
+the `pages` rule of page capture (§9) and `hidden` — the registry fields this source does
+not offer, which is a fact about the site, not a user setting.
 
 **Interaction:** teach-me mode — the user clicks an element on the page; the app
 generalizes how to find it (the pick inspector: DOM path, match-on toggles, scope,
@@ -116,8 +118,9 @@ position, cleanup, live truthful preview). Teaching happens once per site and ap
 all of its titles; recipes live on disk, so they survive reload and restart.
 
 **Resilience** (§7.2 — "independent of any single technique"): a field's extractor is not
-one rule but an **ordered list of candidates** — e.g. stable CSS selector → structural
-path → OpenGraph/microdata fallback. Capture tries candidates in order and records which
+one rule but an **ordered list of candidates** — e.g. picked CSS selector → row-label
+anchor (the value beside a label such as "Status", wherever that row moves) → structural
+path → OpenGraph/JSON-LD fallback. Capture tries candidates in order and records which
 one worked. When a site's markup changes, the field arrives in the draft *empty* — an
 expected, normal state, not an app error. The user re-teaches one field; the recipe
 updates; every title on that site benefits.
@@ -141,54 +144,65 @@ about "rows visible now".
 
 ```
 library/
-  index.db                # rebuildable cache (never authoritative)
-  <title-id>/
-    title.json            # layered: meta + provenance + chapters + user
-    cover.<ext>           # cover bytes; further covers as cover-2.<ext>, cover-3.<ext>…
-    chapters/
-      <chapter-id>.cbz    # pages; ComicInfo.xml inside        (next phase)
-      <chapter-id>.json   # per-chapter state: download, source (next phase)
+  index.db                  # rebuildable cache (never authoritative)
+  vault.json                # one-time migration markers (zipNormalized, videoFaststart)
+  fields.json               # this library's own metadata fields (registry additions)
+  authors.json              # author favorites (user layer, vault-level)
+  health.json               # what was done to this library + the last check report
+  <type-shelf>/             # one per type (manga/, image-set/, …); typeless → other/
+    <title-id>/
+      title.json            # layered: meta + provenance + chapters + user
+      cover.<ext>           # the first cover; more as cover-2.<ext> … cover-8.<ext>
+      chapters/
+        <chapter-id>.zip          # page media — ALWAYS a plain zip; ComicInfo.xml inside
+        <chapter-id>.<video-ext>  # an episode, stored as the file it arrived as
+        <chapter-id>.json         # sidecar: provenance, digests, revision, page keys, video facts
+        <chapter-id>.poster.jpg   # the frame a tile wears
+        <chapter-id>.sheet.jpg    # the 3x3 contact sheet a preview shows
 ```
 
-`title.json` (schema 1):
+`title.json` (schema 3):
 
 ```jsonc
 {
-  "schema": 1,
+  "schema": 3,
   "meta": {                       // written ONLY via draft → commit
-    "title": "…", "alt": "…", "authors": [], "artists": [],
-    "type": "manga", "status": "Ongoing", "year": "",
+    "title": "…", "alt": "…", "authors": [], "artists": [], "characters": [], "studio": [],
+    "type": "manga", "status": "ongoing", "year": "",   // type/status stored lowercase
     "genres": [], "tags": [], "flags": {"adult": false, "ai": false, "censored": false},
     "desc": "",
     "coverSource": "",            // URL the FIRST cover's bytes were captured from
-    "source": {"domain": "", "url": ""}   // where this title is captured from
+    "source": {"domain": "", "url": ""},  // where this title is captured from
+    "chapterOrder": "auto",       // "auto" = by number; "manual" = this array's order
+    "custom": {"<field-id>": "…"} // user-defined fields (fields.json); text or list
   },
   "provenance": {                 // per meta-field origin
     "title": {"origin": "manual"},
     "desc":  {"origin": "auto", "url": "https://…", "recipeVersion": 3}
   },
   "chapters": [                   // scraped records; one row per translation
-    {"id": "ch-93-en-group", "num": "93", "title": "…", "url": "…",
+    {"id": "ch-93-1a2b3c4d", "num": "93", "title": "…", "url": "…",
      "lang": "EN", "group": "…", "date": ""}
   ],
   "user": {                       // written ONLY via instant write-through
     "fav": false, "rating": 0,
-    "read": {"<chapter-id>": "read|reading|unread"}
+    "read": {"<chapter-id>": "read|reading|unread"},
+    "position": {"<chapter-id>": 0.0}   // seconds into an episode
   }
 }
 ```
 
 **Two layers with different write semantics:** metadata (+ chapters) goes only through
-draft → commit; the **user layer** (favorite, rating, read progress) is **instant
-write-through** with no draft — a star tap that demanded "commit your changes" would be a
-mockery, and the reader will write progress in the background. The write code enforces the
+draft → commit; the **user layer** (favorite, rating, read state, playback position) is
+**instant write-through** with no draft — a star tap that demanded "commit your changes"
+would be a mockery, and the reader writes progress in the background. The write code enforces the
 consequence: a metadata commit merges *its* layer and never touches the user layer, and
 both layers go through one serialized write point per title — otherwise editing a
 description could roll back progress updated in parallel.
 
-**The chapter id is special.** It is at once the dedup key (§7) and the on-disk file name
-(next phase). Changing an id is therefore not a field edit but a small migration; in the
-minimal version editing it is forbidden outright.
+**The chapter id is special.** It is at once the dedup key (§7) and the stem of every file
+the chapter owns. It therefore never changes: renumbering edits `num`, not `id`, and a new
+row whose derived id is still held by a renumbered one gets a suffixed id instead.
 
 **The index** is SQLite as a pure cache: updated incrementally after commit; a rebuild
 command scans the disk and reconstructs it from scratch. A corrupt index cannot lose
@@ -212,9 +226,9 @@ document (or a chapter directory) older than the one already indexed is refused,
 that started before a commit can never put the old state back on top of it.
 
 
-**Why CBZ** (next phase): atomic write of one file, standard enough that any third-party
-reader opens it — the library outlives even longbox itself — and a simple contract for our
-own reader.
+**Why a plain zip:** atomic write of one file, and CBZ is the same container, so any
+third-party reader opens it — the library outlives even longbox itself — and a simple
+contract for our own reader.
 
 ## 9. Media download — the ARMED-DOWNLOAD handshake (landed)
 
@@ -231,20 +245,31 @@ fetches chapters itself):
    captured list doesn't have it), recording the **download source per chapter**
    (`fileUrl` + `pageUrl`) — deliberately independent of the title's metadata source:
    different chapters and languages may come from different sites.
-4. One arm = one download; unarmed downloads are rejected and discarded. Arms expire.
+4. One arm = one download; unarmed downloads are rejected and discarded. Arms expire
+   (15 minutes). The arm is consumed when the transfer STARTS, so the next chapter can be
+   armed while one still streams.
+5. A transfer interrupted by a quit is remembered in the app config — the chapter it was
+   claiming, its byte offset, URL chain and `ETag`/`Last-Modified` — and a later launch can
+   re-arm and resume it; whether the range is honoured is the source's call.
 
-Storage: every chapter is a **plain zip** (`chapters/<chapter-id>.zip` — CBZ is the same
+Storage: page media is a **plain zip** (`chapters/<chapter-id>.zip` — CBZ is the same
 thing, so any third-party reader opens it), converted at ingest when the site served
-rar/7z and refused when nothing can read it, plus a provenance sidecar
-(`<chapter-id>.json`: fileUrl, pageUrl, filename, size, pages, date). Pages are the
-zip's image entries in natural order; deleting pages rewrites the archive atomically.
+rar/7z and refused when nothing can read it; a single downloaded image is appended as the
+chapter's next page; an episode is stored as the file it arrived as
+(`<chapter-id>.<video-ext>`). Beside it, a sidecar (`<chapter-id>.json`): fileUrl, pageUrl,
+filename, origName (the name the file arrived under — the vault renames every file to the
+id), downloadedAt, kind, pages, size, rev, pageKeys, the digests below; for an episode also
+container, playable, codec, faststart, duration and its stills. Pages are the zip's image
+entries in natural order; every page operation rewrites the archive atomically.
 
 The sidecar also carries what the vault can PROVE about the file: `sha256` over every
 byte (integrity), `content` over the ordered page images (the same chapter through a
 repack or a renumbering, which is what duplicate detection compares), and `comicinfo`,
 the mirror the archive last received. All three are stamped wherever the media is
 written and never by a pass that only reads — a settled chapter is therefore skipped
-without being opened at all.
+without being opened at all. The one exception is explicit: a full check asked to
+*baseline* records a first `sha256` (never `content`) for media stored before digests
+existed, and reports it as exactly that.
 Read state stays a separate axis in the user layer. An automated politeness queue is
 deliberately NOT built — the armed handshake makes bulk fetching impossible.
 
@@ -278,22 +303,25 @@ reads as the app losing their work. Page COUNT cannot serve as that version (del
 pages, add two), nor can a file timestamp (a copy carries it over, a share rounds it, two
 writes share a tick). A chapter is versioned by `revision.size.pages` from its sidecar, where
 the revision is a counter every page operation bumps; a cover by `mtime.size.ext`, and a
-cover write that would land on the previous stamp moves the timestamp itself. ONE version
-serves the URL and the server-side cache, so the editor, the reader and the library grid can
-never disagree about what a page is. Both live in `library/versions.py`, whose `cache_key`
+cover write that would land on the previous stamp moves the timestamp itself; an episode's
+stills by a counter of their OWN (`stills`), never the media revision — bumping that would
+re-point the `<video>` of an episode that may be playing right then. ONE version serves the
+URL and the server-side cache, so the editor, the reader and the library grid can never
+disagree about what a page is. All three live in `library/versions.py`, whose `cache_key`
 REFUSES a key without a version — a new cached artifact cannot quietly opt out of the rule.
 
 **A chapter id is assigned by the vault, never proposed by a client.** A commit can adopt an
 existing row's id (§7), so an id derived on the client is a guess that the vault may not
 share — and media addressed by that guess lands nowhere. The client sends the identity
 (num + language + group) with an empty id; `Library.chapter_id_for` is the only derivation
-in the app.
+in the app, and `_free_id` suffixes it when a renumbered row still holds the derived id.
 
 ## 10. The reader (landed)
 
-The reader reads **only the vault** — opens the chapter zip, writes progress into the user
-layer write-through. The network does not exist as a dependency in the reader, so "reading
-offline" is not a mode but the only way it works (I7).
+The reader reads **only the vault** — opens the chapter zip, or streams the episode file by
+range — and writes read state and playback position into the user layer write-through. The
+network does not exist as a dependency in the reader, so "reading offline" is not a mode
+but the only way it works (I7).
 
 ## 11. Automatic vs explicit
 
@@ -307,26 +335,52 @@ One rule: **ephemeral — automatic; persistent — explicit.**
 | Grabbing the pages of a view once capture is armed | automatic (the human still turns the pages) |
 | User layer (star, rating, progress) | instant, no confirmation |
 
-## 12. API surface (this phase)
+## 12. API surface
+
+The routers (`backend/app/routers/*.py`) are authoritative; this is the map of families.
 
 ```
-GET    /api/library?…            filtered list (flat DTO, composed from layers)
-GET    /api/library/facets
-GET    /api/titles/{id}          flat DTO + provenance map
-POST   /api/titles               commit a NEW draft   {meta, chapters, provenance}
-PUT    /api/titles/{id}          commit a draft into an existing title (meta layers only)
+GET    /health                    open, pre-guard: echoes sha256(token) for the shell's handshake
+
+GET    /api/library?…             filtered list (flat DTO, composed from layers)
+GET    /api/library/count · /api/library/facets
+GET    /api/browse/{field_id}     the library grouped along any list field
+POST   /api/authors/{id}/favorite author favorites (user layer, vault-level)
+
+GET    /api/titles/{id}           flat DTO + provenance map
+POST   /api/titles                commit a NEW draft   {meta, chapters, provenance}
+PUT    /api/titles/{id}           commit a draft into an existing title (meta layers only)
 DELETE /api/titles/{id}
-PATCH  /api/titles/{id}/user     write-through user layer {fav?, rating?, read?}
-POST   /api/titles/{id}/cover    cover bytes captured in page context (base64 + source URL);
-                                 or {url, referer} → server-side fetch as a fallback.
-                                 {append:true} stores one MORE instead of replacing the first
-DELETE /api/titles/{id}/cover?i= one cover by position; without `i`, every one of them
-GET    /api/titles/{id}/cover?i= serve the stored bytes (`i` defaults to the first)
-PUT    /api/titles/{id}/covers   reorder {order:[…]} — the covers' CURRENT positions
-GET    /api/authors              derived from titles
-GET    /api/sources              derived from titles + recipe store
-GET/PUT /api/recipes/{domain}    versioned candidate-based recipes
-GET    /api/settings, PUT /api/settings/…   (unchanged)
+PATCH  /api/titles/{id}/user      write-through user layer {fav?, rating?, read?, position?}
+POST   /api/titles/{id}/cover     cover bytes captured in page context (base64 + source URL);
+                                  or {url, referer} → server-side fetch as a fallback.
+                                  {append:true} stores one MORE instead of replacing the first
+DELETE /api/titles/{id}/cover?i=  one cover by position; without `i`, every one of them
+GET    /api/titles/{id}/cover?i=&w=  the stored bytes (`i` defaults to the first; `w` downscales)
+PUT    /api/titles/{id}/covers    reorder {order:[…]} — the covers' CURRENT positions
+
+…/titles/{id}/chapters/
+POST   import                     attach a file from disk: by chapter id, or num/lang/group
+POST   {cid}/pages/known|capture  page capture: which keys are held · append the rest
+POST   {cid}/pages/add|move|reorder|delete    page operations (atomic archive rewrites)
+GET    {cid}/pages · {cid}/pages/{index}      the page list · one page (`w` downscales)
+GET    {cid}/video                episode bytes, Range-served in windows
+POST   {cid}/video/meta           duration, as the window measured it
+GET/PUT {cid}/frames/{kind}       an episode's poster / sheet, cut by the window
+DELETE {cid}/media · {cid}        the media only · the entry with its media
+
+GET/PUT/DELETE /api/fields…       the per-library registry (custom fields, usage, retype)
+GET    /api/sources · PUT/DELETE /api/sources/{domain}   sources + their prefs (group, bookmarks, frozen)
+GET/PUT /api/source-groups        group names, in the user's order
+GET    /api/recipes · GET/PUT/DELETE /api/recipes/{domain}   versioned candidate-based recipes
+
+/api/downloads                    GET list · POST/DELETE /arm · POST /start ·
+                                  POST /{id}/progress|complete|failed|interrupted|rearm · DELETE /{id}
+
+GET    /api/settings · PUT /api/settings/homepage|library-path · DELETE /api/settings/libraries
+GET    /api/settings/pass/status · POST /api/settings/pass/stop · GET /api/settings/library/status
+POST   /api/settings/check|normalize-archives|comicinfo|leftovers|rebuild   the vault passes
+GET    /api/settings/health · /api/settings/gaps
 ```
 
 Gone: `/api/import` and the server-side HTML extraction engine. Extraction happens in the
@@ -335,33 +389,7 @@ validates. The wire DTO stays flat/camelCase so the library UI consumes it direc
 
 ## 13. Module layout
 
-```
-backend/app/
-  main.py  security.py  settings.py  config_store.py
-  library/
-    models.py     # layers: TitleMeta, Provenance, ChapterRow, UserLayer, TitleDoc + flat DTO
-    vault.py      # per-title dirs, atomic writes, serialized per-title write point
-    index.py      # SQLite cache (kept, adapted)
-    service.py    # queries, commits (meta), write-through (user), covers
-  scraper/
-    models.py     # Recipe v2: candidates per field, chapter rule
-    recipes.py    # per-domain versioned store (kept)
-    covers.py     # server-side URL fetch — fallback only
-  routers/
-    library.py  settings.py  recipes.py
-
-frontend/src/
-  store.ts        # app store: views, library data, filters, user-layer mutations
-  draft.ts        # THE draft: seed (blank | vault | snapshot), provenance merge, commit
-  browser.ts      # pure browsing tabs (no capture state)
-  views/BrowserView.vue          # tab strip, toolbar, webview host, capture panel dock
-  components/CapturePanel.vue    # draft header, auto-fill, MetadataEditor, commit footer
-  components/MetadataEditor.vue  # the ONE editor (Title edit + capture panel)
-  components/PickInspector.vue   # chain, match-on, scope, position, cleanup, live preview
-shell/
-  main.js         # kept: sidecar spawn, auth cookie, session hardening, webview preload
-  pick-preload.js # v2: pick chain, live preview, snapshot extract, cover bytes
-```
+One map, kept current: `ARCHITECTURE.md` § Module map.
 
 ## 14. Invariant → mechanism map
 
@@ -372,16 +400,24 @@ shell/
 | **I3** no clobbering | per-field provenance persisted in the vault (§5); auto-merge cannot write into `manual` |
 | **I4** truthful preview | the preview renders from the draft — the same bytes that get committed (§4); normalization lives client-side |
 | **I5** consistent controls | one universal field widget; capture and edit are one screen with different seeds (§4) |
-| **I6** good citizen | a human drives pagination (§7); the download queue has per-domain concurrency, backoff and budget (§9) |
+| **I6** good citizen | a human drives pagination (§7) and every download: one arm = one chapter through the site's own button, and page capture fetches only the pages the human opens (§9) — there is no crawler to throttle |
 | **I7** offline & rebuildable | the vault is primary, the index a cache with rebuild (§8); the reader has no network dependency (§10) |
 | **I8** trust boundary | login only on the site, the app owns only the session (§2); media through the browser session (§9); loopback-only API |
 
 ## 15. Phases
 
-1. **This refactor:** vault v2 + layered `title.json` + provenance; recipes v2; draft
+All three have landed.
+
+1. **The refactor:** vault v2 + layered `title.json` + provenance; recipes v2; draft
    store + shared MetadataEditor; real browser + snapshot capture + pick inspector v2;
    accumulative chapter-list capture. No legacy migration — the prototype's data format is
    abandoned.
-2. **Download:** per-chapter media into `chapters/<id>.cbz`, the politeness queue, the
-   chapter state machine.
-3. **Reader:** vault-only, write-through progress.
+2. **Download:** the armed handshake and page capture (§9) into `chapters/<id>.zip` or the
+   episode's own file, with sidecars. It landed without the politeness queue and the chapter
+   state machine first planned: the human drives every download, and a chapter's state is
+   derived from its media and the user layer.
+3. **Reader:** vault-only, write-through progress (§10).
+
+Since then the model has grown without changing shape: episodes as chapters, the field
+registry (`design/metadata-model.md`), several covers per title, and the vault passes that
+check it (`ARCHITECTURE.md` § Integrity).

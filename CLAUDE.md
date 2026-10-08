@@ -11,6 +11,8 @@ layout, module map).
 ## Commands
 
 ```bash
+python -m venv .venv && .venv/Scripts/python.exe -m pip install -e "backend[dev]"   # setup
+(cd frontend && npm ci) && (cd shell && npm ci)                                      # setup
 python run.py                                  # build frontend + launch the Electron shell
 python run.py --backend                        # sidecar only, 127.0.0.1:8787 (dev, no auth)
 cd backend && ../.venv/Scripts/python.exe -m pytest   # offline tests (Windows venv path)

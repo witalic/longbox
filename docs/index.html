@@ -101,7 +101,10 @@ td.k { color: var(--tx); white-space: nowrap; }
 
 footer { padding: 40px 0 64px; color: var(--tx3); font-size: 13px; }
 footer a { color: var(--tx2); }
-@media (max-width: 640px) { .hero h1 { font-size: 34px; } h2 { font-size: 23px; } }
+@media (max-width: 640px) {
+  .hero h1 { font-size: 34px; } h2 { font-size: 23px; }
+  .hnav { min-width: 0; overflow-x: auto; scrollbar-width: none; gap: 14px; }
+}
 </style>
 </head>
 <body>
@@ -123,6 +126,7 @@ footer a { color: var(--tx2); }
       <a href="#capture">Capture</a>
       <a href="#start">Get started</a>
       <a href="#storage">Storage</a>
+      <a href="#integrity">Integrity</a>
       <a href="https://github.com/witalic/longbox">GitHub</a>
     </nav>
   </div>
@@ -161,9 +165,17 @@ footer a { color: var(--tx2); }
       editing a title's metadata can never roll them back.
     </p>
     <p class="sub">
-      The fields themselves are yours: add your own to the registry — text, list, number, date or
-      flag — group them, and decide which appear on title pages, in the filters, and in the capture
-      dock of each source.
+      A title may wear <strong>several covers</strong>, and the grid fades through them while you
+      hover it. One you never gave a cover is not a blank tile: it shows what it actually holds —
+      the first page of each downloaded chapter, or an episode's own preview frame.
+    </p>
+    <p class="sub">
+      The fields themselves are yours: add your own to the registry — text, description, number,
+      list or date — and decide which appear on title pages, in the filters, and in the capture
+      dock of each source. A type is a promise about the data: a field can stop being a number or
+      a date but never become one, and a list folds into text only on a separator no value
+      contains. Every filled field draws itself on the title page by its type — nothing to wire
+      up per screen.
     </p>
     <figure class="shot">
       <img src="img/01-library.png" alt="The library grid with the faceted filter rail" />
@@ -186,6 +198,12 @@ footer a { color: var(--tx2); }
       folder, moves pages between entries, and reorders pages by dragging. Every metadata field
       remembers whether it was captured automatically or typed by you — automatic capture can never
       overwrite your edit.
+    </p>
+    <p class="sub">
+      Covers are added, removed and reordered by dragging in the same editor; the first one is what
+      the title wears. Every stored file is renamed to its entry, so the name it
+      <em>arrived</em> under is kept with it — hover the entry's file to see it, along with where
+      it came from.
     </p>
     <figure class="shot">
       <img src="img/03-title.png" alt="A title page with its chapter list" />
@@ -230,6 +248,13 @@ footer a { color: var(--tx2); }
       opening it in the full-window player.
     </p>
     <p class="sub">
+      It gets in the same ways a chapter does: an armed download from a source, or a file or whole
+      folder you already have, dropped on the entry. Attaching a new file replaces the media and
+      keeps the entry — read state and translation rows survive. An mp4 whose index sits at the end
+      has it moved to the front on the way in, so playback starts at once instead of fetching the
+      tail first.
+    </p>
+    <p class="sub">
       Its preview is cut <em>from the file itself</em>: nine frames laid out as a contact sheet,
       each tile a link to the second it came from, so you can see what an episode is before playing
       it and start where you meant to. That happens once — the frames are stored beside the media
@@ -238,8 +263,10 @@ footer a { color: var(--tx2); }
     </p>
     <p class="sub">
       Playback is in place, on the title page, with arrow-key scrubbing and the player's own
-      controls; the same surface fills the window when you want it to. Files a browser cannot open
-      (mkv, avi) are still catalogued and offered to your system player rather than hidden.
+      controls; the same surface fills the window when you want it to. A file that is playing is
+      never replaced or deleted under the player — the app says which entry to close first. Files
+      a browser cannot play (mkv, avi, mov, ts) are still stored, listed and catalogued, and say
+      so, with the file offered for saving elsewhere — nothing is silently dropped.
     </p>
     <figure class="shot">
       <img src="img/10-episode.png" alt="A title page showing an episode as a grid of nine frames cut from it" />
@@ -329,7 +356,8 @@ footer a { color: var(--tx2); }
 
     <h3 style="margin-top:44px;font-size:18px">Getting the chapters in</h3>
     <p class="sub">Three ways, because sites differ. All three end with the same thing on disk: one
-      plain zip per chapter, with a note recording where it came from.</p>
+      plain zip per chapter — or, for an episode, the video itself — with a note recording where it
+      came from.</p>
     <div class="feat">
       <div class="card">
         <h3>① The site offers a file</h3>
@@ -391,6 +419,16 @@ footer a { color: var(--tx2); }
     <figure class="shot">
       <img src="img/07-authors.png" alt="The authors view" />
     </figure>
+
+    <h3 style="margin-top:44px;font-size:18px">Sources are the sites you actually use</h3>
+    <p class="sub">
+      A site becomes a source the moment you bookmark a page on it, and waits under
+      <b>NO RECIPE</b> until you teach it one. Each source keeps its recipe, its bookmarks and the
+      metadata fields it offers; sources sit in groups you name, which fold away in the browser,
+      and groups and bookmarks keep the order you drag them into. A site you are done with can be
+      <strong>frozen</strong>: it keeps its recipe and its links and stays in Sources, but stops
+      being offered in the browser — until you thaw it.
+    </p>
   </div>
 </section>
 
@@ -431,18 +469,26 @@ footer a { color: var(--tx2); }
     <h2>Nothing you can't open without longbox</h2>
     <p class="sub">
       The folder on disk is the truth; the search index is a cache that can be deleted and rebuilt
-      at any time. Every chapter is a plain zip — CBZ is the same container — so any comic reader
-      opens them. Archives that arrive as rar or 7z are converted on the way in.
+      at any time. Every chapter of pages is a plain zip — CBZ is the same container — so any comic
+      reader opens them; archives that arrive as rar or 7z are converted on the way in, and an
+      episode is kept as the video file it arrived as.
+    </p>
+    <p class="sub">
+      Each archive also carries a <code>ComicInfo.xml</code> describing its work, so the library
+      reads correctly in Komga, Kavita and anything else that speaks the format — it outlives this
+      app. The file is a mirror, written where an archive is being rewritten anyway; a metadata
+      edit never silently rewrites gigabytes, and Settings brings the rest in line on demand. An
+      archive that already describes itself names its own entry on the way in.
     </p>
 <pre>library/
   index.db                     <span class="c">rebuildable cache — safe to delete</span>
   manga/
     paper-lanterns/
       title.json               <span class="c">metadata · provenance · chapters · your layer</span>
-      cover.jpg
+      cover.jpg                <span class="c">the first cover; more as cover-2.jpg, cover-3.jpg…</span>
       chapters/
-        ch-1-en.zip            <span class="c">the pages</span>
-        ch-1-en.json           <span class="c">where the file came from</span>
+        ch-1-3f9a0c12.zip      <span class="c">the pages, with ComicInfo.xml inside</span>
+        ch-1-3f9a0c12.json     <span class="c">source · the name it arrived under · checksums</span>
   image-set/
     neon-fieldwork/…</pre>
     <table>
@@ -450,7 +496,8 @@ footer a { color: var(--tx2); }
       <tr><td class="k">Atomic writes</td><td>A write either lands whole or not at all; a crash mid-save cannot leave a half-written title.</td></tr>
       <tr><td class="k">Your layer is separate</td><td>Favourites, ratings and read progress live apart from metadata — a re-capture never touches them.</td></tr>
       <tr><td class="k">Nothing is orphaned</td><td>Re-capturing a chapter list keeps downloaded files bound to their rows; media is removed only when you say so.</td></tr>
-      <tr><td class="k">Provenance</td><td>Each field records whether it came from a site or from you; each downloaded file records its source.</td></tr>
+      <tr><td class="k">Provenance</td><td>Each field records whether it came from a site or from you; each downloaded file records its source and the name it arrived under.</td></tr>
+      <tr><td class="k">Checksummed</td><td>Every stored file is hashed as it lands — once over every byte, once over its ordered pages — so the vault can later prove what changed.</td></tr>
     </table>
 
     <div class="note warn">
@@ -461,14 +508,43 @@ footer a { color: var(--tx2); }
   </div>
 </section>
 
+<section id="integrity">
+  <div class="wrap">
+    <div class="eyebrow">Integrity</div>
+    <h2>A vault you can ask whether it is still whole</h2>
+    <p class="sub">
+      Settings → Health runs <strong>one check with three answers</strong>: is anything broken, is
+      anything wasting space, is anything missing. A quick check compares the disk against the
+      record; a full check re-reads every byte. Either can be stopped, and a report cut short says
+      so. Nothing here runs by itself, and nothing changes your files.
+    </p>
+    <p class="sub">
+      Answers are sentences about files — <em>the file is gone</em>, <em>the file changed since it
+      was stored</em> — and each says what to do about it. Content stored twice is found by what
+      the pages <em>are</em>, not by the file that holds them, so a repack or a renumbering does not
+      hide a duplicate; which copy to keep is your call, never the app's. Numbering gaps are
+      claimed only where the entries provably form a run. Leftovers of interrupted writes are the
+      one thing deleted here — after every one is listed with its size.
+    </p>
+    <p class="sub">
+      What has been done is recorded with the library: when each check ran, how long it took and
+      what it found, with the last report kept in full — so a check that took an hour is still
+      there after a restart.
+    </p>
+  </div>
+</section>
+
 <section>
   <div class="wrap">
     <div class="eyebrow">Settings</div>
     <h2>Only what the app actually does</h2>
     <p class="sub">
-      Multiple library folders with instant switching, your own metadata fields, the browser's
-      homepage and one-click cookie or cache clearing, rebindable keys, theme, and the two
-      maintenance actions: rebuild the search index, or re-run the archive conversion sweep.
+      One section at a time, from a rail that shows what needs you before you open it: Storage
+      (multiple library folders with instant switching), Health, Maintenance (rebuild the search
+      index, convert archives, write metadata into them), Fields, Browser (homepage, one-click
+      cookie or cache clearing), Appearance, Keyboard and About. Everything that walks the library
+      shares one slot, one progress bar and one stop button — and leaving the page does not lose
+      what is running.
     </p>
     <figure class="shot">
       <img src="img/08-settings.png" alt="The settings screen" />
