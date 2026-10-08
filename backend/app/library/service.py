@@ -19,6 +19,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from ..scraper.recipes import RecipeStore
+from ..scraper.sources import SourcePrefs
 from . import comicinfo, fields, media
 from .index import LibraryIndex
 from .models import (
@@ -264,6 +266,9 @@ class Library:
         self.vault = Vault(root)
         # the registry is per-library: point it at THIS vault's definitions
         fields.set_custom(self.vault.custom_fields())
+        # …and so is what it knows about its sites, and how its owner keeps them
+        self.recipes = RecipeStore(self.vault)
+        self.source_prefs = SourcePrefs(self.vault)
         self.index = LibraryIndex(root / "index.db")
         # two concurrent creates may derive the same fresh id — serialize the
         # pick-unique-id → first-commit step

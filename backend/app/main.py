@@ -10,15 +10,17 @@ import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from .legacy_config import move_site_data_into
 from .library.service import Library
+from .library.vault import UnreadableDocument
 from .routers import downloads as downloads_router
 from .routers import library as library_router
 from .routers import recipes as recipes_router
 from .routers import settings as settings_router
-from .scraper.recipes import RecipeStore
 from .security import ApiGuard
 from .settings import get_settings, resolve_library_path
 
@@ -75,9 +77,9 @@ async def lifespan(app: FastAPI):
         # a big (or networked) library never stands between launch and a window.
         lib = Library(root, defer_sync=True)
         log.info("library ready at %s (%d titles indexed)", root, lib.count())
+        move_site_data_into(lib)
         lib.sync_in_background()
     app.state.library = lib
-    app.state.recipes = RecipeStore()
     try:
         yield
     finally:
@@ -98,6 +100,10 @@ def create_app(library: Library | None = None) -> FastAPI:
     app.include_router(settings_router.router)
     app.include_router(recipes_router.router)
     app.include_router(downloads_router.router)
+
+    @app.exception_handler(UnreadableDocument)
+    def unreadable(_request: Request, exc: UnreadableDocument) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
 
     @app.get("/health")
     def health() -> dict:

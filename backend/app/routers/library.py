@@ -17,16 +17,16 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from ..config_store import config_transaction, load_config
 from ..library import fields, media
 from ..library.models import (
     Bookmark, BrowseGroup, CustomFieldDef, DraftIn, FacetCounts, Source, TitleOut, UserPatch,
 )
 from ..library.media import MediaInUseError
 from ..library.service import Library
-from ..library.vault import MAX_COVERS, safe_id
+from ..library.vault import MAX_COVERS, UnreadableDocument, safe_id
 from ..passes import _pass
 from ..scraper.covers import fetch_cover
+from ..scraper.models import domain_key
 
 router = APIRouter(prefix="/api")
 
@@ -739,21 +739,10 @@ def delete_source(request: Request, domain: str) -> dict:
     """Remove a source from the Sources list and forget its learned recipe.
     Titles KEEP their source links — those are removed per title, explicitly.
     Capturing from the domain again (saving a recipe) brings it back."""
-    with config_transaction() as cfg:
-        hidden = set(cfg.get("hidden_sources", []))
-        hidden.add(domain)
-        cfg["hidden_sources"] = sorted(hidden)
-    recipe_deleted = request.app.state.recipes.delete(domain)
+    lib = _lib(request)
+    recipe_deleted = lib.recipes.delete(domain)  # first: it is the write that may refuse
+    lib.source_prefs.set_removed(domain, True)
     return {"hidden": True, "recipeDeleted": recipe_deleted}
-
-
-def _source_prefs(cfg: dict) -> dict:
-    """The user's own layer over the sources: group and saved links, per domain.
-
-    It lives in the app config, not in a recipe: a recipe is what longbox LEARNED
-    about a site, while a bookmark is where the user likes to start on it."""
-    prefs = cfg.get("sources")
-    return prefs if isinstance(prefs, dict) else {}
 
 
 @router.get("/browse/{field_id}", response_model=list[BrowseGroup])
@@ -776,26 +765,30 @@ def browse_by(
 
 @router.get("/sources", response_model=list[Source])
 def list_sources(request: Request) -> list[Source]:
-    recipes = request.app.state.recipes
-    cfg = load_config()
-    hidden = set(cfg.get("hidden_sources", []))
-    prefs = _source_prefs(cfg)
-    sources = [s for s in _lib(request).sources() if s.domain not in hidden]
+    lib = _lib(request)
+    try:
+        stored, recipes = lib.recipes.catalog()
+    except UnreadableDocument:
+        # the sites are still the owner's to arrange: a broken recipes.json says
+        # so where recipes are used, not by taking the whole list down with it
+        stored, recipes = set(), {}
+    layer = lib.source_prefs.snapshot()
+    sources = [s for s in lib.sources() if domain_key(s.domain) not in layer.removed]
     # A site is also a source once you have bookmarked a page on it or taught it
     # a recipe — the library derives sources from TITLES, so a domain you have
     # not captured from yet would otherwise have its bookmarks saved and never
     # shown, which reads as "the star did nothing".
-    known = {s.domain for s in sources}
-    for domain in sorted((set(prefs) | set(recipes.list_domains())) - known - hidden):
+    known = {domain_key(s.domain) for s in sources}
+    for domain in sorted((set(layer.prefs) | stored) - known - layer.removed):
         sources.append(Source(id=safe_id(domain), domain=domain,
                               homepage=f"https://{domain}/", titles=0))
     for s in sources:  # join the saved per-domain recipe onto each source
-        recipe = recipes.get(s.domain)
+        recipe = recipes.get(domain_key(s.domain))
         if recipe is not None:
             s.hasRecipe = True
             s.recipeVer = recipe.version
             s.fields = list(recipe.fields.keys())
-        mine = prefs.get(s.domain) or {}
+        mine = layer.prefs.get(domain_key(s.domain)) or {}
         s.group = str(mine.get("group") or "")
         s.frozen = bool(mine.get("frozen"))
         s.bookmarks = [Bookmark.model_validate(b) for b in (mine.get("bookmarks") or [])
@@ -813,30 +806,16 @@ class SourcePrefsIn(BaseModel):
 
 @router.put("/sources/{domain}", response_model=list[Source])
 def put_source_prefs(domain: str, body: SourcePrefsIn, request: Request) -> list[Source]:
-    with config_transaction() as cfg:
-        prefs = dict(_source_prefs(cfg))
-        mine = dict(prefs.get(domain) or {})
-        if body.group is not None:
-            mine["group"] = body.group.strip()
-        if body.bookmarks is not None:
-            mine["bookmarks"] = [b.model_dump() for b in body.bookmarks if b.url.strip()]
-        if body.frozen is not None:
-            mine["frozen"] = body.frozen
-        if not mine.get("frozen"):
-            mine.pop("frozen", None)  # False is the default; storing it says nothing
-        # an entry that says nothing is not worth keeping in the config
-        if mine.get("group") or mine.get("bookmarks") or mine.get("frozen"):
-            prefs[domain] = mine
-        else:
-            prefs.pop(domain, None)
-        cfg["sources"] = prefs
+    bookmarks = (None if body.bookmarks is None
+                 else [b.model_dump() for b in body.bookmarks if b.url.strip()])
+    _lib(request).source_prefs.put(domain, group=body.group, bookmarks=bookmarks,
+                                   frozen=body.frozen)
     return list_sources(request)
 
 
 @router.get("/source-groups", response_model=list[str])
-def list_source_groups() -> list[str]:
-    groups = load_config().get("source_groups")
-    return [g for g in groups if isinstance(g, str) and g.strip()] if isinstance(groups, list) else []
+def list_source_groups(request: Request) -> list[str]:
+    return _lib(request).source_prefs.snapshot().groups
 
 
 class SourceGroupsIn(BaseModel):
@@ -844,15 +823,8 @@ class SourceGroupsIn(BaseModel):
 
 
 @router.put("/source-groups", response_model=list[str])
-def put_source_groups(body: SourceGroupsIn) -> list[str]:
+def put_source_groups(body: SourceGroupsIn, request: Request) -> list[str]:
     """The ordered group list. Renaming one here does NOT re-tag its sources —
     the caller sends the moves it wants, so a rename can never orphan a domain
     behind the app's back."""
-    seen: list[str] = []
-    for g in body.groups:
-        name = g.strip()
-        if name and name not in seen:
-            seen.append(name)
-    with config_transaction() as cfg:
-        cfg["source_groups"] = seen
-    return seen
+    return _lib(request).source_prefs.set_groups(body.groups)

@@ -15,7 +15,6 @@
 // which carries no capture state) and ends when the user stops it.
 import { reactive } from 'vue'
 import type { EditableField } from './draft'
-import { isRecord, readLocal, writeLocal } from './local'
 
 // What pick mode can target: the draft's metadata fields, plus the page-image
 // selector that page capture teaches.
@@ -39,41 +38,6 @@ export const pageCapture = reactive<PageCaptureState>({
   titleId: null, chapterId: null, label: '', selector: '', domain: '', tabId: null,
   active: false, busy: false, status: '', added: 0, error: '',
 })
-
-// ---- what counts as a page (Settings → Advanced) ----
-// A selector wide enough to catch every page also catches the reader's icons
-// and ads, so a match must LOOK like a page: past an absolute floor, and not
-// much narrower than the widest match on the same view. The defaults suit
-// ordinary readers; odd sources need the knobs.
-export interface PageFilter {
-  minPx: number      // an image smaller than this in either dimension is furniture
-  widthRatio: number // …and it must be at least this share of the widest match
-}
-export const PAGE_FILTER_DEFAULTS: PageFilter = { minPx: 200, widthRatio: 0.5 }
-const FILTER_KEY = 'lb.pageFilter'
-
-const stored = readLocal(FILTER_KEY, isRecord, {} as Record<string, unknown>)
-export const pageFilter = reactive<PageFilter>({
-  minPx: clamp(stored.minPx, 0, 2000, PAGE_FILTER_DEFAULTS.minPx),
-  widthRatio: clamp(stored.widthRatio, 0, 1, PAGE_FILTER_DEFAULTS.widthRatio),
-})
-
-function clamp(v: unknown, lo: number, hi: number, fallback: number): number {
-  const n = Number(v)
-  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : fallback
-}
-
-export function savePageFilter(patch: Partial<PageFilter>) {
-  if (patch.minPx !== undefined) {
-    pageFilter.minPx = Math.round(clamp(patch.minPx, 0, 2000, PAGE_FILTER_DEFAULTS.minPx))
-  }
-  if (patch.widthRatio !== undefined) {
-    pageFilter.widthRatio = clamp(patch.widthRatio, 0, 1, PAGE_FILTER_DEFAULTS.widthRatio)
-  }
-  writeLocal(FILTER_KEY, { ...pageFilter })
-}
-
-export function resetPageFilter() { savePageFilter(PAGE_FILTER_DEFAULTS) }
 
 export function startPageCapture(opts: {
   titleId: string; chapterId: string; label: string; selector: string

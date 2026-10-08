@@ -1,5 +1,9 @@
 """App configuration persisted OUTSIDE the library (so it survives changing the
 library path). A small JSON file in the OS per-user config dir.
+
+It holds what belongs to THIS machine and nothing that describes a library:
+where the libraries are, the browser's homepage, and transfers a quit cut
+short. Anything a library should carry to another machine lives in its vault.
 """
 from __future__ import annotations
 

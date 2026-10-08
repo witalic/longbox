@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 # the shape this build writes
-CURRENT_SCHEMA = 3
+CURRENT_SCHEMA = 4
 
 
 def _v1_to_v2(doc: dict) -> dict:
@@ -35,9 +35,18 @@ def _v2_to_v3(doc: dict) -> dict:
     return {**doc, "meta": meta}
 
 
+def _v3_to_v4(doc: dict) -> dict:
+    """How the reader shows a title used to be remembered by the machine, keyed
+    by the title's id; it belongs to the title, so it moves with the vault."""
+    user = dict(doc.get("user") or {})
+    user.setdefault("reader", {})
+    return {**doc, "user": user}
+
+
 _STEPS: dict[int, Callable[[dict], dict]] = {
     1: _v1_to_v2,
     2: _v2_to_v3,
+    3: _v3_to_v4,
 }
 
 

@@ -482,6 +482,8 @@ footer a { color: var(--tx2); }
     </p>
 <pre>library/
   index.db                     <span class="c">rebuildable cache — safe to delete</span>
+  recipes.json                 <span class="c">what longbox learned about your sites</span>
+  sources.json                 <span class="c">your sites: groups, bookmarks</span>
   manga/
     paper-lanterns/
       title.json               <span class="c">metadata · provenance · chapters · your layer</span>
@@ -495,6 +497,7 @@ footer a { color: var(--tx2); }
       <tr><th>Guarantee</th><th>What it means in practice</th></tr>
       <tr><td class="k">Atomic writes</td><td>A write either lands whole or not at all; a crash mid-save cannot leave a half-written title.</td></tr>
       <tr><td class="k">Your layer is separate</td><td>Favourites, ratings and read progress live apart from metadata — a re-capture never touches them.</td></tr>
+      <tr><td class="k">The folder is the library</td><td>Recipes, sources, bookmarks and reader settings live in it too — copy it to another machine and it arrives whole. What stays behind belongs to the machine: your sign-ins, where its libraries are, its caches.</td></tr>
       <tr><td class="k">Nothing is orphaned</td><td>Re-capturing a chapter list keeps downloaded files bound to their rows; media is removed only when you say so.</td></tr>
       <tr><td class="k">Provenance</td><td>Each field records whether it came from a site or from you; each downloaded file records its source and the name it arrived under.</td></tr>
       <tr><td class="k">Checksummed</td><td>Every stored file is hashed as it lands — once over every byte, once over its ordered pages — so the vault can later prove what changed.</td></tr>

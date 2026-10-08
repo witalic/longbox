@@ -12,9 +12,14 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 CandidateKind = Literal["css", "anchor", "meta"]
+
+
+def domain_key(domain: str) -> str:
+    """How a site is keyed wherever the vault stores something about it."""
+    return domain.strip().lower()
 
 
 class Candidate(BaseModel):
@@ -63,3 +68,12 @@ class Recipe(BaseModel):
     # studio should not show a STUDIO row in the 344px dock — and that is a fact
     # about the SITE, so it belongs to the recipe, not to the user's settings.
     hidden: list[str] = []
+
+
+class PageFilter(BaseModel):
+    """What page capture accepts as a PAGE among the images its selector
+    matches: a selector wide enough to catch every page also catches the
+    reader's icons and ads, so a match must be past an absolute floor and not
+    much narrower than the widest match on the same view."""
+    minPx: int = Field(default=200, ge=0, le=2000)
+    widthRatio: float = Field(default=0.5, ge=0, le=1)

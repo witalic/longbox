@@ -23,7 +23,8 @@ import threading
 import time
 import zipfile
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from . import media
@@ -31,6 +32,31 @@ from .migrations import migrate
 from .models import CustomFieldDef, DraftIn, TitleDoc, UserPatch
 
 _SAFE_ID = re.compile(r"[^a-z0-9._-]+")
+
+
+class UnreadableDocument(RuntimeError):
+    """A vault-level document this build cannot read or must not write."""
+
+
+# The shape of the vault-level documents this build writes. ANY change to the
+# shape of recipes.json or sources.json bumps it: an older build refuses to write
+# a newer document only because it carries a bigger number.
+DOC_SCHEMA = 1
+
+# The least a file stamp can move and still read as moved everywhere a vault
+# may live: FAT keeps two seconds, many shares round to one.
+_STAMP_STEP_NS = 2_000_000_000
+
+# Keyed by the document's PATH, not held per Vault: a library switched away and
+# back within its close delay is two Vault objects over one directory, and their
+# writes to the same document must still take turns.
+_DOC_LOCKS: dict[str, threading.Lock] = defaultdict(threading.Lock)
+_DOC_LOCKS_GUARD = threading.Lock()
+
+
+def _doc_lock(path: Path) -> threading.Lock:
+    with _DOC_LOCKS_GUARD:
+        return _DOC_LOCKS[os.path.normcase(os.path.abspath(path))]
 
 
 def _unlink_stubborn(path: Path, tries: int = 5) -> None:
@@ -191,6 +217,45 @@ class Vault:
             payload = {"schema": 1, "fields": [d.model_dump() for d in defs]}
             _atomic_write(self._fields_path(),
                           json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"))
+
+    # ---- the library's own documents (recipes.json, sources.json) ----
+    #
+    # What the library knows about the sites it was built from, and how its owner
+    # arranged them, travel with the vault like its fields do.
+    #
+    # "There is none" is the ONLY answer a read gives without the document: a
+    # client told "nothing saved" builds its next write on that, and the write
+    # replaces what is there. So a document that cannot be parsed raises, a read
+    # that failed (a network share that blinked) raises as itself, and a document
+    # from a NEWER build is read but never written — it may hold what this build
+    # would drop, on a vault that build still opens.
+
+    def read_doc(self, name: str) -> dict:
+        try:
+            data = (self.root / name).read_bytes()
+        except FileNotFoundError:
+            return {}
+        try:
+            raw = json.loads(data.decode("utf-8"))
+        except ValueError as e:
+            raise UnreadableDocument(f"{name} cannot be read ({e}) — fix or move it aside") from e
+        if not isinstance(raw, dict):
+            raise UnreadableDocument(f"{name} is not a JSON object — fix or move it aside")
+        return raw
+
+    @contextmanager
+    def doc_transaction(self, name: str) -> Iterator[dict]:
+        """Load → mutate → save one root document as a single serialized step."""
+        path = self.root / name
+        with _doc_lock(path):
+            doc = self.read_doc(name)
+            schema = doc.get("schema", DOC_SCHEMA)
+            if not isinstance(schema, int) or schema > DOC_SCHEMA:
+                raise UnreadableDocument(f"{name} was written by a newer longbox — "
+                                         "this one reads it but does not change it")
+            yield doc
+            doc["schema"] = DOC_SCHEMA
+            _atomic_write(path, json.dumps(doc, ensure_ascii=False, indent=2).encode("utf-8"))
 
     # ---- the per-type layout ----
 
@@ -453,7 +518,21 @@ class Vault:
                 # a resume point, not a rating: 0 means "start over", so it is
                 # stored as sent rather than treated as "no value"
                 doc.user.position.update({k: max(0.0, float(v)) for k, v in patch.position.items()})
+            if patch.reader is not None:
+                doc.user.reader = patch.reader.model_dump()
+            # How the reader shows a title is not a change TO the title: the
+            # library's "updated" order is this document's mtime, and a zoom
+            # tweak must not lift the title to the top of the shelf. The stamp
+            # still MOVES — past anything a share rounds away — because backups,
+            # mirrors and other indexes find a changed file by it.
+            path = self._doc_path(title_id)
+            before = path.stat() if patch.model_fields_set == {"reader"} else None
             self._save(title_id, doc)
+            if before is not None:
+                try:
+                    os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns + _STAMP_STEP_NS))
+                except OSError:
+                    pass  # the write landed; only the shelf order moves
             return doc
 
     def delete(self, title_id: str) -> bool:

@@ -17,6 +17,8 @@ paths:
 - Never touch `localStorage` directly: `local.ts` (`readLocal`/`writeLocal` for JSON,
   `readLocalOne`/`writeLocalOne` for plain string prefs) is the one place that validates a read
   and swallows a denied write — a stale key from an older build must not crash a view.
+  localStorage is for THIS machine's view state only (theme, folds, defaults); anything keyed by
+  a title or describing the library belongs in the vault, through the API.
 - A long-running activity (page capture) CARRIES its target with the work, never reading it
   back off reactive state across awaits — a Finish mid-flight would otherwise file results
   into the wrong entry. Queued page images each hold their own title/chapter, so the queue

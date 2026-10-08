@@ -47,6 +47,21 @@ export function writeLocal(key: string, value: unknown): void {
   } catch { /* storage unavailable or full — a preference is not worth throwing */ }
 }
 
+export function removeLocal(key: string): void {
+  try { localStorage.removeItem(key) } catch { /* storage unavailable */ }
+}
+
+// Every stored key under a prefix — for moving what an older build kept here
+// to where it belongs now.
+export function localKeys(prefix: string): string[] {
+  try {
+    return Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i) ?? '')
+      .filter((k) => k.startsWith(prefix))
+  } catch {
+    return []
+  }
+}
+
 // The shape that covers most preferences.
 export const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)

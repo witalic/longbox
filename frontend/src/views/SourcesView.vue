@@ -8,7 +8,7 @@ import Icon from '../components/Icon.vue'
 import SearchBox from '../components/SearchBox.vue'
 import MenuButton from '../components/MenuButton.vue'
 import RailSection from '../components/RailSection.vue'
-import { askConfirm, refreshDerived, refreshLibrary, store } from '../store'
+import { askConfirm, refreshDerived, refreshLibrary, sourcesKnown, store } from '../store'
 import { newTab } from '../browser'
 import { api } from '../api'
 import { faviconFor, movedBefore, type Bookmark, type Source } from '../data'
@@ -56,6 +56,7 @@ const closed = reactive<Record<string, boolean>>({})
 // Typing a name that does not exist yet CREATES the group: being able to file a
 // source only into groups you made somewhere else is not filing, it is paperwork.
 async function setGroup(s: Source, name: string) {
+  if (!sourcesKnown()) return
   const g = name.trim()
   if (g && !store.sourceGroups.includes(g)) {
     try {
@@ -70,6 +71,7 @@ async function setGroup(s: Source, name: string) {
 
 async function savePrefs(s: Source,
                          body: { group?: string; bookmarks?: Bookmark[]; frozen?: boolean }) {
+  if (!sourcesKnown()) return
   busy.value = s.domain
   try {
     store.sources = await api.putSourcePrefs(s.domain, body)
@@ -81,6 +83,7 @@ async function savePrefs(s: Source,
 }
 
 async function newGroup() {
+  if (!sourcesKnown()) return
   const name = window.prompt('Name the group:', '')?.trim()
   if (!name) return
   try {
@@ -110,6 +113,7 @@ async function onGroupDrop(target: string) {
   const from = dragGroup.value
   clearGroupDrag()
   if (from === null || from === target || target === UNGROUPED || from === UNGROUPED) return
+  if (!sourcesKnown()) return
   const names = [...store.sourceGroups]
   const at = names.indexOf(from)
   const onto = names.indexOf(target)

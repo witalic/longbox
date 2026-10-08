@@ -2,7 +2,8 @@
 // FastAPI sidecar serves this UI at /app/ so /api is same-origin; in dev, Vite
 // proxies /api to the sidecar (see vite.config.ts).
 import type {
-  Bookmark, BrowseGroup, DraftCommit, Facets, FieldDef, FrameKind, Recipe, Source, Title, UserPatch,
+  Bookmark, BrowseGroup, DraftCommit, Facets, FieldDef, FrameKind, PageFilter, Recipe, Source, Title,
+  UserPatch,
 } from './data'
 
 export class ApiError extends Error {
@@ -106,6 +107,8 @@ export const api = {
   recipe: (domain: string) => req<Recipe>(`/recipes/${domain}`),
   saveRecipe: (domain: string, recipe: Recipe) => req<Recipe>(`/recipes/${domain}`, jsonBody('PUT', recipe)),
   removeRecipe: (domain: string) => reqVoid(`/recipes/${domain}`, { method: 'DELETE' }),
+  pageFilter: () => req<PageFilter>('/page-filter'),
+  savePageFilter: (f: PageFilter) => req<PageFilter>('/page-filter', jsonBody('PUT', f)),
   removeSource: (domain: string) =>
     req<{ hidden: boolean; recipeDeleted: boolean }>(`/sources/${domain}`, { method: 'DELETE' }),
   // armed downloads: the arm is consumed when a download STARTS (its chapter

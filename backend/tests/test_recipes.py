@@ -1,6 +1,8 @@
 """Recipe v2 store + API: candidate-based rules, per-domain versioning."""
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -12,7 +14,7 @@ from app.settings import get_settings
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("LONGBOX_CONFIG_DIR", str(tmp_path / "cfg"))  # isolate the recipe store
+    monkeypatch.setenv("LONGBOX_CONFIG_DIR", str(tmp_path / "cfg"))  # isolate the app config
     get_settings.cache_clear()
     lib = Library(tmp_path / "lib")
     with TestClient(create_app(lib)) as c:
@@ -127,12 +129,14 @@ def test_anchor_candidates_roundtrip(client):
 
 
 def test_legacy_pre_candidate_recipe_is_unlearned(client, tmp_path):
-    # A prototype-era recipe file (selector/kind shape) parses into candidate-less
+    # A prototype-era recipe (selector/kind shape) parses into candidate-less
     # rules; the store must report it as absent, not as a recipe that no-ops.
-    legacy = '{"domain": "old.example", "version": 3, "fields": {"title": {"selector": "h1", "kind": "single"}}}'
-    (tmp_path / "cfg" / "recipes").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "cfg" / "recipes" / "old.example.json").write_text(legacy, encoding="utf-8")
+    legacy = {"domain": "old.example", "version": 3,
+              "fields": {"title": {"selector": "h1", "kind": "single"}}}
+    (tmp_path / "lib" / "recipes.json").write_text(
+        json.dumps({"schema": 1, "recipes": {"old.example": legacy}}), encoding="utf-8")
     assert client.get("/api/recipes/old.example").status_code == 404
+    assert client.get("/api/recipes").json() == ["old.example"]  # still there, untouched
 
 
 def test_model_defaults_are_lean():

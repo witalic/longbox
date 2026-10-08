@@ -7,20 +7,18 @@ import {
   commitDraft, confirmDiscard, discardDraft, draftFromTitle, draftState, isDirty, newDraft,
 } from '../draft'
 import {
-  addChapterRow, askConfirm, cache, downloads, groupRings, langRings, openTitle, pollDownloads,
-  refreshTitle as refreshTitleOf, store, titleById, watchDownloads,
+  addChapterRow, askConfirm, cache, downloads, groupRings, langRings, openTitle, pageFilter,
+  pollDownloads, refreshTitle as refreshTitleOf, resetPageFilter, savePageFilter, store,
+  titleById, watchDownloads,
 } from '../store'
 import { browser, newTab } from '../browser'
 import { api, type DownloadItem } from '../api'
 import {
   chaptersInScope, compareChapterNums, coverAt, faviconFor, groupByNum, hostOf, labelChoices,
-  matchTitles, nextLabel, nextLabels, sameChapter,
+  matchTitles, nextLabel, nextLabels, PAGE_FILTER_DEFAULTS, sameChapter,
   type Chapter,
 } from '../data'
-import {
-  PAGE_FILTER_DEFAULTS, pageCapture, pageFilter, resetPageFilter, savePageFilter,
-  startPageCapture, stopPageCapture, type PickField,
-} from '../pagecapture'
+import { pageCapture, startPageCapture, stopPageCapture, type PickField } from '../pagecapture'
 import Combo from './Combo.vue'
 import FieldVisibility from './FieldVisibility.vue'
 import Icon from './Icon.vue'

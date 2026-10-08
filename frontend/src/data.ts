@@ -99,9 +99,54 @@ export interface Title extends TitleMeta {
   ownCovers: string[] // the covers actually STORED; the editor manages exactly these
   fav: boolean
   rating: number
+  // how the reader shows THIS title — empty until it was first adjusted. Read
+  // field by field: it comes from a file a person may have edited by hand.
+  reader: Partial<ReaderPrefs>
   unread: number
   provenance: Provenance
   chapters: Chapter[]
+}
+
+export interface ReaderPrefs {
+  mode: 'pages' | 'strip'
+  fit: 'height' | 'width' | 'custom'
+  width: number   // px, for the custom fit
+  margins: number // px around the page
+}
+
+// A stored number as one the app can use: anything that is not a number reads
+// as the fallback, anything out of range as the nearest bound.
+function boundedNumber(v: unknown, lo: number, hi: number, fallback: number): number {
+  const n = Number(v)
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : fallback
+}
+
+// Reader settings from wherever they were kept, as the nearest thing the reader
+// can draw — the same bounds the vault enforces on a write.
+export function readerPrefsOf(p: Record<string, unknown>): ReaderPrefs {
+  return {
+    mode: p.mode === 'strip' ? 'strip' : 'pages',
+    fit: p.fit === 'width' || p.fit === 'custom' ? p.fit : 'height',
+    width: Math.round(boundedNumber(p.width ?? 720, 480, 1400, 720)),
+    margins: Math.round(boundedNumber(p.margins ?? 0, 0, 200, 0)),
+  }
+}
+
+// What page capture accepts as a PAGE among the images its selector matches: a
+// selector wide enough to catch every page also catches the reader's icons and
+// ads, so a match must be past an absolute floor and not much narrower than
+// the widest match on the same view. Kept in the vault, beside the recipes.
+export interface PageFilter {
+  minPx: number      // an image smaller than this in either dimension is furniture
+  widthRatio: number // …and it must be at least this share of the widest match
+}
+export const PAGE_FILTER_DEFAULTS: PageFilter = { minPx: 200, widthRatio: 0.5 }
+
+export function pageFilterOf(p: Record<string, unknown>): PageFilter {
+  return {
+    minPx: Math.round(boundedNumber(p.minPx, 0, 2000, PAGE_FILTER_DEFAULTS.minPx)),
+    widthRatio: boundedNumber(p.widthRatio, 0, 1, PAGE_FILTER_DEFAULTS.widthRatio),
+  }
 }
 
 export interface DraftCommit {
@@ -115,6 +160,7 @@ export interface UserPatch {
   rating?: number
   read?: Record<string, ReadState>
   position?: Record<string, number> // chapter id → seconds, for video chapters
+  reader?: ReaderPrefs
 }
 
 export interface AuthorWork { id: string; title: string; cover: string }

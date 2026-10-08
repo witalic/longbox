@@ -429,8 +429,8 @@ def test_guard_rejects_non_loopback_host(monkeypatch, tmp_path):
 # ---- the user's own layer over a source ----------------------------------
 #
 # Group and bookmarks are NOT recipe material: a recipe is what longbox learned
-# about a site, these are how the user relates to it. They live in the app
-# config, so these tests get a config dir of their own.
+# about a site, these are how the user relates to it. Both live in the vault
+# (sources.json), so a library carried to another machine keeps them.
 
 @pytest.fixture
 def own_client(tmp_path, monkeypatch):
@@ -477,20 +477,20 @@ def test_freezing_a_source_keeps_it_listed(own_client):
     assert next(s for s in thawed if s["domain"] == "mangadex.org")["frozen"] is False
 
 
-def test_a_thawed_source_with_nothing_else_leaves_no_husk(own_client):
+def _sources_doc(tmp_path) -> dict:
+    return json.loads((tmp_path / "lib" / "sources.json").read_text(encoding="utf-8"))
+
+
+def test_a_thawed_source_with_nothing_else_leaves_no_husk(own_client, tmp_path):
     own_client.put("/api/sources/mangadex.org", json={"frozen": True})
     own_client.put("/api/sources/mangadex.org", json={"frozen": False})
-    from app.config_store import config_path
-    cfg = json.loads(config_path().read_text(encoding="utf-8"))
-    assert "mangadex.org" not in (cfg.get("sources") or {})
+    assert "mangadex.org" not in _sources_doc(tmp_path)["sources"]
 
 
-def test_clearing_both_forgets_the_entry_instead_of_keeping_a_husk(own_client):
+def test_clearing_both_forgets_the_entry_instead_of_keeping_a_husk(own_client, tmp_path):
     own_client.put("/api/sources/mangadex.org", json={"group": "Manga"})
     own_client.put("/api/sources/mangadex.org", json={"group": "", "bookmarks": []})
-    from app.config_store import config_path
-    cfg = json.loads(config_path().read_text(encoding="utf-8"))
-    assert "mangadex.org" not in (cfg.get("sources") or {})
+    assert "mangadex.org" not in _sources_doc(tmp_path)["sources"]
 
 
 def test_group_names_are_ordered_deduped_and_trimmed(own_client):

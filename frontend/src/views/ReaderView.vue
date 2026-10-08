@@ -11,10 +11,10 @@ import Icon from '../components/Icon.vue'
 import Dropdown from '../components/Dropdown.vue'
 import VideoSurface from '../components/VideoSurface.vue'
 import { api } from '../api'
-import { closeReader, setRead, store, titleById } from '../store'
+import { closeReader, setRead, setReaderPrefs, store, titleById } from '../store'
 import {
   READ_COLOR as readColor, coverAt, filterOptions, formatDuration, groupByNum, hueFor,
-  isReadable, mediaLabel, orderedChaptersOf, type Chapter, type Title,
+  isReadable, mediaLabel, orderedChaptersOf, readerPrefsOf, type Chapter, type Title,
 } from '../data'
 import { bindingsFor, keyLabel, matches } from '../keys'
 import { isRecord, readLocal, readLocalOne, writeLocal, writeLocalOne } from '../local'
@@ -43,27 +43,45 @@ watch(settingsOpen, (v) => writeLocalOne('lb.readerSettings', v ? '1' : '0'))
 const thumbs = ref(readLocalOne('lb.readerThumbs', ['0', '1'] as const, '0') === '1')
 watch(thumbs, (v) => writeLocalOne('lb.readerThumbs', v ? '1' : '0'))
 
+// A title's own settings live IN the title (they travel with the vault); the
+// last ones used are this machine's default for a title that has none yet.
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 let prefsReady = false // don't re-save while restoring
 let autoDone = true // long-strip auto-suggest fires only for titles with NO saved prefs
-function loadPrefs(id: string) {
+function loadPrefs(title: Title) {
   prefsReady = false
-  const own = readLocal(`lb.reader.${id}`, isRecord, null as Record<string, unknown> | null)
-  const p = own ?? readLocal('lb.reader.default', isRecord, {} as Record<string, unknown>)
-  mode.value = p.mode === 'strip' ? 'strip' : 'pages'
-  fit.value = p.fit === 'width' || p.fit === 'custom' ? p.fit : 'height'
-  widthPx.value = clamp(Number(p.width) || 720, 480, 1400)
-  margins.value = clamp(Number(p.margins) || 0, 0, 200)
+  const own = Object.keys(title.reader ?? {}).length ? title.reader : null
+  const p = readerPrefsOf(own ?? readLocal('lb.reader.default', isRecord, {} as Record<string, unknown>))
+  mode.value = p.mode
+  fit.value = p.fit
+  widthPx.value = p.width
+  margins.value = p.margins
   autoDone = !!own
   void nextTick(() => { prefsReady = true })
 }
+// a dragged slider is one write, not forty — and the pending one carries its
+// own title, so switching titles before it lands cannot misfile it
+let pendingPrefs: (() => void) | null = null
+let prefsTimer: number | undefined
+function flushPrefs() {
+  window.clearTimeout(prefsTimer)
+  pendingPrefs?.()
+  pendingPrefs = null
+}
 watch([mode, fit, widthPx, margins], () => {
   if (!prefsReady || !t.value) return
-  const p = { mode: mode.value, fit: fit.value, width: widthPx.value, margins: margins.value }
-  writeLocal(`lb.reader.${t.value.id}`, p)
+  const title = t.value
+  const p = readerPrefsOf({ mode: mode.value, fit: fit.value, width: widthPx.value, margins: margins.value })
   writeLocal('lb.reader.default', p)
+  window.clearTimeout(prefsTimer)
+  pendingPrefs = () => void setReaderPrefs(title, p)
+  prefsTimer = window.setTimeout(flushPrefs, 400)
 })
-watch(() => t.value?.id, (id) => { if (id) loadPrefs(id) }, { immediate: true })
+watch(() => t.value?.id, () => {
+  flushPrefs()
+  if (t.value) loadPrefs(t.value)
+}, { immediate: true })
+onBeforeUnmount(flushPrefs)
 
 // ---- the chapter list (display order, lang/group filters like the title page) ----
 const ordered = computed<Chapter[]>(() =>

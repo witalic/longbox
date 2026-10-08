@@ -8,7 +8,7 @@ frontend consumes, composed from those layers.
 """
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -115,6 +115,22 @@ class UserLayer(BaseModel):
     # chapter remembers WHERE in the file — "read" alone cannot resume an
     # episode. Both kinds can appear in one title, so both live here.
     position: dict[str, float] = {}
+    # How the reader shows THIS title (ReaderPrefs; empty = never set). Kept
+    # loose on the way in from disk: a hand-edited value must not cost the whole
+    # title — the reader clamps what it reads, and a PATCH is validated.
+    reader: dict[str, Any] = {}
+
+    @field_validator("reader", mode="before")
+    @classmethod
+    def _any_reader(cls, v: object) -> dict:
+        return v if isinstance(v, dict) else {}
+
+
+class ReaderPrefs(BaseModel):
+    mode: Literal["pages", "strip"] = "pages"
+    fit: Literal["height", "width", "custom"] = "height"
+    width: int = Field(default=720, ge=480, le=1400)
+    margins: int = Field(default=0, ge=0, le=200)
 
 
 class TitleDoc(BaseModel):
@@ -143,6 +159,7 @@ class UserPatch(BaseModel):
     rating: int | None = None
     read: dict[str, ReadState] | None = None
     position: dict[str, float] | None = None
+    reader: ReaderPrefs | None = None
 
 
 # ---- wire DTOs (flat camelCase, composed from the layers) ----
@@ -208,6 +225,7 @@ class TitleOut(BaseModel):
     ownCovers: list[str] = []
     fav: bool
     rating: int
+    reader: dict[str, Any] = {}
     unread: int  # chapters not marked read
     provenance: dict[str, FieldProvenance]
     chapters: list[ChapterOut]
@@ -249,7 +267,7 @@ class TitleOut(BaseModel):
             flags=m.flags, desc=m.desc, source=m.source, coverSource=m.coverSource,
             chapterOrder=m.chapterOrder, custom=dict(m.custom),
             covers=covers, cover=covers[0] if covers else "", ownCovers=own,
-            fav=u.fav, rating=u.rating,
+            fav=u.fav, rating=u.rating, reader=dict(u.reader),
             unread=sum(1 for c in chapters if c.read != "read"),
             provenance=doc.provenance, chapters=chapters,
         )

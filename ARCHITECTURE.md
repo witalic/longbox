@@ -57,6 +57,9 @@ library/
   vault.json                 one-time migration markers (zipNormalized, videoFaststart)
   fields.json                the library's own metadata fields (registry additions)
   authors.json               author favorites (user layer, vault-level)
+  recipes.json               per-site recipes (versioned per domain) + the page-capture filter
+  sources.json               the owner's layer over the sites: group order, per-site group,
+                             bookmarks, frozen; sites removed from Sources
   health.json                what was done to this library + the last check report — its
                              own file, so startup never parses it
   <type-shelf>/              one directory per TYPE (manga/, image-set/, …; typeless → other/)
@@ -80,6 +83,26 @@ library/
         <chapter-id>.sheet.jpg   the 3x3 contact sheet a preview shows
 ```
 
+- **The vault carries everything that describes the library; the app config carries the
+  machine.** Recipes, the source layer, fields, author favorites and how the reader shows each
+  title all live in the vault, so a library moved to another machine arrives whole. The config
+  dir keeps only what cannot travel: where this machine's libraries are, transfers it was in
+  the middle of, the thumbnail cache — and the Electron session (sign-ins). An older build kept
+  recipes and the source layer in the config; on first start this build moves them into the
+  library it opens and removes them there (`legacy_config.py`).
+- **Vault-level documents** (`recipes.json`, `sources.json`) go through `Vault.read_doc()` and
+  `Vault.doc_transaction()`: one lock per document PATH (two Vault objects over one directory
+  still take turns), atomic write. "There is none" is the only empty answer a read gives: a
+  client told "nothing saved" builds its next write on it, and that write replaces what is
+  there. So a file that cannot be parsed answers 409 to reads and writes alike, a read that
+  failed (a share that blinked) raises as itself, and a document from a newer build is read
+  but never written. The client refuses the same way: a recipe or a whole-list write
+  (bookmarks, group order) is built only on what was actually read.
+- **How the reader shows a title** lives in its `user` layer, but a write of only that moves
+  the document's mtime — the library's "updated" order — by two seconds instead of to "now":
+  a zoom tweak never lifts a title to the top of the shelf, yet the file still reads as
+  changed to backups, mirrors and other indexes (two seconds outlast FAT's and a share's
+  rounding).
 - **Covers are a list, and its order is the file names.** A title may store up to eight; the first
   keeps the name every older vault already writes, so nothing has to be migrated and a rebuilt
   index reconstructs the order from the directory alone. A title that stores NONE shows
@@ -216,7 +239,8 @@ Endpoints run sync on FastAPI's threadpool, so races are real and handled struct
 
 ```
 backend/app/
-  main.py security.py settings.py config_store.py
+  main.py security.py settings.py config_store.py (this machine's config)
+  legacy_config.py (moves what an older build kept in the config into the vault, once)
   passes.py (the one vault pass at a time: progress, stop, who is running)
   library/  models.py (layers + flat DTO) · vault.py (shelves, locks, media ingest, covers,
             the vault/fields/authors/health files) · media.py (zip ops, conversion, thumbnails,
@@ -224,7 +248,8 @@ backend/app/
             migrations.py (title.json schema steps) · versions.py (versions + cache keys) ·
             fields.py (the metadata registry: builtin + per-library custom) ·
             comicinfo.py (the ComicInfo.xml mirror: build, parse, write into an archive)
-  scraper/  models.py (recipe v2) · recipes.py (per-domain store) · covers.py (fallback fetch)
+  scraper/  models.py (recipe v2, page filter) · recipes.py (recipes.json) ·
+            sources.py (sources.json) · covers.py (fallback fetch)
   routers/  library.py · downloads.py · recipes.py · settings.py
 frontend/src/
   App.vue (the frame: views, tabs, downloads panel, close guard) · styles.css (the design tokens)

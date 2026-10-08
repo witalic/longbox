@@ -106,7 +106,10 @@ origin, a field stores its source URL and recipe version — cheap and useful fo
 ## 6. The recipe — teaching a site
 
 "Teaching" is a **recipe per domain**: a map `field → extractor`, stored separately from
-titles (it is app-level knowledge about sites), versioned. One recipe covers a title page's
+titles but IN THE VAULT (`recipes.json`), versioned. It is knowledge about the sites this
+library was built from, so it travels with the library: a vault carried to another machine
+arrives knowing its sites, and two libraries never share — or overwrite — each other's
+recipes. One recipe covers a title page's
 fields; a separate rule covers the chapter list (a "chapter row" selector + sub-rules
 `id / num / title / url / lang / group / date` relative to the row). The same store keeps
 the `pages` rule of page capture (§9) and `hidden` — the registry fields this source does
@@ -116,6 +119,13 @@ not offer, which is a fact about the site, not a user setting.
 generalizes how to find it (the pick inspector: DOM path, match-on toggles, scope,
 position, cleanup, live truthful preview). Teaching happens once per site and applies to
 all of its titles; recipes live on disk, so they survive reload and restart.
+
+**The owner's layer over the sources** — which group a site sits in and the groups' order,
+the bookmarks kept on it, whether it is frozen or removed — is not recipe material (a recipe
+is what longbox LEARNED; a bookmark is where the owner likes to start), but it describes the
+same library's sites, so it lives beside the recipes (`sources.json`). The app config keeps
+only what belongs to the machine: where its libraries are, transfers it was in the middle
+of, and caches. The site's own session (cookies) stays in the browser (§2).
 
 **Resilience** (§7.2 — "independent of any single technique"): a field's extractor is not
 one rule but an **ordered list of candidates** — e.g. picked CSS selector → row-label
@@ -148,6 +158,8 @@ library/
   vault.json                # one-time migration markers (zipNormalized, videoFaststart)
   fields.json               # this library's own metadata fields (registry additions)
   authors.json              # author favorites (user layer, vault-level)
+  recipes.json              # what longbox learned per site (§6) + the page-capture filter
+  sources.json              # the owner's layer over the sites: groups, bookmarks, frozen, removed
   health.json               # what was done to this library + the last check report
   <type-shelf>/             # one per type (manga/, image-set/, …); typeless → other/
     <title-id>/
@@ -161,11 +173,11 @@ library/
         <chapter-id>.sheet.jpg    # the 3x3 contact sheet a preview shows
 ```
 
-`title.json` (schema 3):
+`title.json` (schema 4):
 
 ```jsonc
 {
-  "schema": 3,
+  "schema": 4,
   "meta": {                       // written ONLY via draft → commit
     "title": "…", "alt": "…", "authors": [], "artists": [], "characters": [], "studio": [],
     "type": "manga", "status": "ongoing", "year": "",   // type/status stored lowercase
@@ -187,13 +199,15 @@ library/
   "user": {                       // written ONLY via instant write-through
     "fav": false, "rating": 0,
     "read": {"<chapter-id>": "read|reading|unread"},
-    "position": {"<chapter-id>": 0.0}   // seconds into an episode
+    "position": {"<chapter-id>": 0.0},  // seconds into an episode
+    "reader": {"mode": "pages", "fit": "height", "width": 720, "margins": 0}  // {} = never set
   }
 }
 ```
 
 **Two layers with different write semantics:** metadata (+ chapters) goes only through
-draft → commit; the **user layer** (favorite, rating, read state, playback position) is
+draft → commit; the **user layer** (favorite, rating, read state, playback position, how the
+reader shows the title) is
 **instant write-through** with no draft — a star tap that demanded "commit your changes"
 would be a mockery, and the reader writes progress in the background. The write code enforces the
 consequence: a metadata commit merges *its* layer and never touches the user layer, and
@@ -351,7 +365,7 @@ GET    /api/titles/{id}           flat DTO + provenance map
 POST   /api/titles                commit a NEW draft   {meta, chapters, provenance}
 PUT    /api/titles/{id}           commit a draft into an existing title (meta layers only)
 DELETE /api/titles/{id}
-PATCH  /api/titles/{id}/user      write-through user layer {fav?, rating?, read?, position?}
+PATCH  /api/titles/{id}/user      write-through user layer {fav?, rating?, read?, position?, reader?}
 POST   /api/titles/{id}/cover     cover bytes captured in page context (base64 + source URL);
                                   or {url, referer} → server-side fetch as a fallback.
                                   {append:true} stores one MORE instead of replacing the first
@@ -373,6 +387,7 @@ GET/PUT/DELETE /api/fields…       the per-library registry (custom fields, usa
 GET    /api/sources · PUT/DELETE /api/sources/{domain}   sources + their prefs (group, bookmarks, frozen)
 GET/PUT /api/source-groups        group names, in the user's order
 GET    /api/recipes · GET/PUT/DELETE /api/recipes/{domain}   versioned candidate-based recipes
+GET/PUT /api/page-filter          what page capture accepts as a page
 
 /api/downloads                    GET list · POST/DELETE /arm · POST /start ·
                                   POST /{id}/progress|complete|failed|interrupted|rearm · DELETE /{id}

@@ -1,62 +1,119 @@
-"""Per-domain recipe storage. Recipes live in the app config dir (not the library —
-they are app-level knowledge about sites), one JSON file per domain, versioned.
+"""Per-domain recipe storage — IN THE VAULT (`<root>/recipes.json`).
+
+What longbox learned about the sites a library was built from belongs to that
+library: carrying the vault to another machine carries its sites with it. One
+document keyed by domain, each recipe versioned on its own. The page-capture
+filter rides along, because it is the same kind of knowledge — what a reader's
+page looks like.
 """
 from __future__ import annotations
 
-import os
-import re
-import threading
-from pathlib import Path
+from pydantic import ValidationError
 
-from ..config_store import config_dir
-from .models import Recipe
+from ..library.vault import UnreadableDocument, Vault
+from .models import PageFilter, Recipe, domain_key
 
-_SAFE = re.compile(r"[^a-z0-9.-]+")
+DOC = "recipes.json"
 
 
-def _safe_domain(domain: str) -> str:
-    return _SAFE.sub("_", domain.strip().lower()).strip("._-") or "unknown"
+def _parse(domain: str, raw: object) -> Recipe:
+    """A stored recipe — or UnreadableDocument for one this build cannot read,
+    which must then be neither applied nor saved over."""
+    try:
+        return Recipe.model_validate(raw)
+    except ValidationError as e:
+        raise UnreadableDocument(
+            f"the recipe for {domain} in {DOC} is in a shape this build cannot read") from e
+
+
+def _usable(recipe: Recipe) -> bool:
+    # A pre-candidate (prototype-era) recipe parses but can extract nothing —
+    # it reads as unlearned rather than as a recipe that silently no-ops.
+    return (recipe.chapters is not None or bool(recipe.hidden)
+            or any(f.candidates for f in recipe.fields.values()))
+
+
+def _recipes_of(doc: dict) -> dict:
+    recipes = doc.setdefault("recipes", {})
+    if not isinstance(recipes, dict):
+        raise UnreadableDocument(f"{DOC} holds recipes in a shape this build cannot read")
+    return recipes
 
 
 class RecipeStore:
-    def __init__(self, root: Path | None = None) -> None:
-        self.dir = (root or config_dir()) / "recipes"
-        self.dir.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.Lock()  # save() is read-bump-write
+    def __init__(self, vault: Vault) -> None:
+        self.vault = vault
 
-    def _path(self, domain: str) -> Path:
-        return self.dir / f"{_safe_domain(domain)}.json"
+    def _recipes(self) -> dict:
+        return _recipes_of(self.vault.read_doc(DOC))
 
     def get(self, domain: str) -> Recipe | None:
-        p = self._path(domain)
-        if not p.is_file():
+        raw = self._recipes().get(domain_key(domain))
+        if raw is None:
             return None
-        recipe = Recipe.model_validate_json(p.read_text(encoding="utf-8"))
-        # A pre-candidate (prototype-era) file parses but can extract nothing —
-        # treat it as unlearned rather than showing a recipe that silently no-ops.
-        usable = (recipe.chapters is not None or bool(recipe.hidden)
-                  or any(f.candidates for f in recipe.fields.values()))
-        return recipe if usable else None
+        recipe = _parse(domain, raw)
+        return recipe if _usable(recipe) else None
+
+    def catalog(self) -> tuple[set[str], dict[str, Recipe]]:
+        """Every domain with a stored recipe, and the recipes among them that can
+        be applied — from ONE read, which is what a listing joins. One this build
+        cannot read is listed but not applied, and saving over it is refused."""
+        stored = self._recipes()
+        usable: dict[str, Recipe] = {}
+        for key, raw in stored.items():
+            try:
+                recipe = _parse(key, raw)
+            except UnreadableDocument:
+                continue
+            if _usable(recipe):
+                usable[key] = recipe
+        return set(stored), usable
 
     def list_domains(self) -> list[str]:
-        return sorted(Recipe.model_validate_json(p.read_text(encoding="utf-8")).domain
-                      for p in self.dir.glob("*.json"))
+        return sorted(self._recipes())
 
     def save(self, recipe: Recipe) -> Recipe:
         """Persist a recipe, bumping the version past any existing one for that domain."""
-        with self._lock:
-            existing = self.get(recipe.domain)
-            recipe.version = (existing.version + 1) if existing else max(recipe.version, 1)
-            path = self._path(recipe.domain)
-            tmp = path.with_name(path.name + ".tmp")
-            tmp.write_text(recipe.model_dump_json(indent=2), encoding="utf-8")
-            os.replace(tmp, path)  # a crash mid-write must not corrupt the recipe
-            return recipe
+        key = domain_key(recipe.domain)
+        with self.vault.doc_transaction(DOC) as doc:
+            recipes = _recipes_of(doc)
+            existing = _parse(key, recipes[key]) if key in recipes else None
+            usable = existing is not None and _usable(existing)
+            recipe.version = existing.version + 1 if usable else max(recipe.version, 1)
+            recipes[key] = recipe.model_dump()
+        return recipe
+
+    def adopt(self, recipes: list[Recipe]) -> int:
+        """Take recipes learned elsewhere, versions and all. A domain this vault
+        already knows keeps its own. Returns how many were taken."""
+        have = self._recipes()
+        if all(domain_key(r.domain) in have for r in recipes):
+            return 0
+        taken = 0
+        with self.vault.doc_transaction(DOC) as doc:
+            mine = _recipes_of(doc)
+            for recipe in recipes:
+                key = domain_key(recipe.domain)
+                if key not in mine:
+                    mine[key] = recipe.model_dump()
+                    taken += 1
+        return taken
 
     def delete(self, domain: str) -> bool:
         """Forget everything learned about a domain."""
-        p = self._path(domain)
-        if not p.is_file():
+        key = domain_key(domain)
+        if key not in self._recipes():
             return False
-        p.unlink()
-        return True
+        with self.vault.doc_transaction(DOC) as doc:
+            return _recipes_of(doc).pop(key, None) is not None
+
+    def page_filter(self) -> PageFilter:
+        try:
+            return PageFilter.model_validate(self.vault.read_doc(DOC).get("pageFilter") or {})
+        except ValidationError:
+            return PageFilter()
+
+    def set_page_filter(self, value: PageFilter) -> PageFilter:
+        with self.vault.doc_transaction(DOC) as doc:
+            doc["pageFilter"] = value.model_dump()
+        return value

@@ -20,10 +20,10 @@ import {
   mergeCapture, mergeSnapshot, noteCaptureSource, type EditableField, type Snapshot,
 } from '../draft'
 import { isBoolMap, readLocal, writeLocal } from '../local'
-import { pageCapture, pageFilter, pageKeyFor, stopCaptureFor, type PickField } from '../pagecapture'
+import { pageCapture, pageKeyFor, stopCaptureFor, type PickField } from '../pagecapture'
 import { hostOf, matchTitles, type Candidate, type FieldRule, type Recipe } from '../data'
 import type { CleanFlags } from '../normalize'
-import { cache, refreshDerived, store } from '../store'
+import { cache, pageFilter, refreshDerived, sourcesKnown, store } from '../store'
 
 const isElectron = typeof navigator !== 'undefined' && navigator.userAgent.includes('Electron')
 
@@ -193,19 +193,50 @@ function onFound(e: any) {
 function devtools() { wv()?.openDevTools?.() }
 
 // ---- per-domain recipes (candidate-based; the client extracts, the backend stores) ----
+//
+// The recipe the library holds for a domain, null when it holds none — and a
+// THROW when the library could not be asked. A save replaces the domain's
+// recipe and is built on what this returns, so "could not ask" must never read
+// as "has none": the save would wipe everything the site had been taught.
 const recipes = reactive<Record<string, Recipe | null>>({})
 async function getRecipe(host: string): Promise<Recipe | null> {
-  if (!(host in recipes)) {
-    try { recipes[host] = await api.recipe(host) } catch { recipes[host] = null }
+  if (host in recipes) return recipes[host]
+  const gen = store.libraryGen
+  let r: Recipe | null = null
+  try {
+    r = await api.recipe(host)
+  } catch (e) {
+    if (!(e instanceof ApiError && e.status === 404)) throw e
   }
-  return recipes[host]
+  // an answer from the library we left knows nothing about this one
+  if (gen !== store.libraryGen) throw new Error('the library changed while its recipe was being read')
+  recipes[host] = r
+  return r
 }
+// for APPLYING a recipe only: a library that cannot be asked has nothing to apply
+async function recipeToApply(host: string): Promise<Recipe | null> {
+  try { return await getRecipe(host) } catch { return null }
+}
+// for building a save on: null when the stored recipe could not be read
+async function recipeToBuildOn(host: string): Promise<{ cur: Recipe | null } | null> {
+  try {
+    return { cur: await getRecipe(host) }
+  } catch (e) {
+    store.error = `The recipe for ${host} could not be read, so nothing was saved (${e instanceof Error ? e.message : e}).`
+    return null
+  }
+}
+// recipes belong to the library: another one knows other sites
+watch(() => store.libraryGen, () => {
+  for (const host of Object.keys(recipes)) delete recipes[host]
+  if (!pageCapture.active) pageCapture.selector = ''
+})
 watch(domain, async (h) => {
   if (!h) return
   // the star reads this domain's saved links, and the browser can be the first
   // screen a session ever opens
   if (!store.sources.length) void refreshDerived()
-  const r = await getRecipe(h)
+  const r = await recipeToApply(h)
   // page capture is taught PER DOMAIN — a site that already knows its reader
   // arms with the right selector immediately. An ACTIVE capture keeps its own:
   // browsing elsewhere must never repoint a running session.
@@ -293,7 +324,7 @@ function setGroupOpen(label: string, open: boolean) {
 async function toggleBookmark() {
   const host = domain.value
   const url = active.value?.url || ''
-  if (!host || !url) return
+  if (!host || !url || !sourcesKnown()) return
   const cur = bookmarksHere.value
   const next = bookmarked.value
     ? cur.filter((b) => b.url !== url)
@@ -312,7 +343,9 @@ async function setSourceHidden(id: string, hidden: boolean) {
   const host = domain.value
   if (!host) return
   // built on the STORED recipe, like every other write to it — see saveRecipeField
-  const cur = await getRecipe(host)
+  const read = await recipeToBuildOn(host)
+  if (!read) return
+  const { cur } = read
   const next: Recipe = {
     domain: host,
     version: cur?.version ?? 1,
@@ -324,7 +357,8 @@ async function setSourceHidden(id: string, hidden: boolean) {
   }
   try {
     recipes[host] = await api.saveRecipe(host, next)
-  } catch {
+  } catch (e) {
+    store.error = e instanceof Error ? e.message : String(e)
     recipes[host] = next // the panel keeps working even if persisting failed
   }
 }
@@ -334,7 +368,9 @@ async function saveRecipeField(host: string, field: string, rule: FieldRule | nu
   // actually holds — not on whatever happens to be cached. Picking a field on a
   // tab whose recipe had not been fetched yet used to PUT a recipe containing
   // only that field, wiping every rule the site had been taught.
-  const cur = await getRecipe(host)
+  const read = await recipeToBuildOn(host)
+  if (!read) return null
+  const { cur } = read
   const next: Recipe = {
     domain: host,
     version: cur?.version ?? 1,
@@ -345,7 +381,8 @@ async function saveRecipeField(host: string, field: string, rule: FieldRule | nu
   if (field && rule) next.fields[field] = rule
   try {
     recipes[host] = await api.saveRecipe(host, next)
-  } catch {
+  } catch (e) {
+    store.error = e instanceof Error ? e.message : String(e)
     recipes[host] = next // keep the learned rule locally even if persisting failed
   }
   return recipes[host]
@@ -402,7 +439,7 @@ async function autofill() {
   if (!tab || !draftState.cur) return
   busy.value = true
   try {
-    const recipe = await getRecipe(domain.value)
+    const recipe = await recipeToApply(domain.value)
     const snap = await requestSnapshot(snapshotRules(recipe))
     if (!snap) { panel.value?.showFlash('could not read the page'); return }
     // Clean captured values with the rules' SAVED flags, not the defaults —
@@ -441,7 +478,7 @@ async function mergeField(field: string) {
   if (!tab || !draftState.cur || !isEditableField(field)) return
   busy.value = true
   try {
-    const recipe = await getRecipe(domain.value)
+    const recipe = await recipeToApply(domain.value)
     const rule = snapshotRules(recipe)[field]
     if (!rule) { panel.value?.showFlash(`${field} is not taught on this site yet — pick it first`); return }
     const snap = await requestSnapshot({ [field]: rule })

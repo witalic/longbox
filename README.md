@@ -61,6 +61,10 @@ tags or cover, and longbox learns a reusable per-site recipe.
   teach it one.
 - **Local-first storage** — one directory per title on a per-type shelf; a rebuildable SQLite index
   (deleting it never loses content); atomic writes; multiple switchable library locations.
+  Everything that describes a library lives in it — recipes, sources with their groups and
+  bookmarks, your fields, how the reader shows each title — so copying the folder to another
+  machine moves the whole library. The app's own folder keeps only what belongs to the machine:
+  where its libraries are, unfinished transfers, caches and your sign-ins.
 - **Integrity** — every stored file is checksummed as it lands, and a revision pass checks the vault
   against its own records: damaged archives, files gone missing, records without media, leftovers
   from an interrupted write. Content stored twice is found by what the pages *are*, not by the file
