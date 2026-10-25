@@ -96,6 +96,10 @@ One rule: **automatic capture may write only into fields whose origin is `auto` 
 are empty; `manual` fields are untouchable.** That is the whole of I3 — not an `if` in the
 right place, but a merge invariant.
 
+The library's **rules** (design/metadata-management.md) do not bend it: a captured value
+passes the rules BEFORE it reaches the draft, and what they make of it is still `auto` —
+the next capture makes the same thing. A bulk operation changes values, never their origin.
+
 Critically, **provenance is persisted in the vault**, inside `title.json`, not only in the
 draft. Otherwise I3 would only hold within one session. The real scenario: the user
 captures a title, hand-fixes a bad name, commits; a week later opens the same page and
@@ -154,12 +158,13 @@ about "rows visible now".
 
 ```
 library/
-  index.db                  # rebuildable cache (never authoritative)
+  index.db                  # rebuildable cache (never authoritative) + the bulk-run journal
   vault.json                # one-time migration markers (zipNormalized, videoFaststart)
   fields.json               # this library's own metadata fields (registry additions)
   authors.json              # author favorites (user layer, vault-level)
   recipes.json              # what longbox learned per site (§6) + the page-capture filter
   sources.json              # the owner's layer over the sites: groups, bookmarks, frozen, removed
+  rules.json                # what a value becomes on its way in (design/metadata-management.md)
   health.json               # what was done to this library + the last check report
   <type-shelf>/             # one per type (manga/, image-set/, …); typeless → other/
     <title-id>/
@@ -388,6 +393,8 @@ GET    /api/sources · PUT/DELETE /api/sources/{domain}   sources + their prefs 
 GET/PUT /api/source-groups        group names, in the user's order
 GET    /api/recipes · GET/PUT/DELETE /api/recipes/{domain}   versioned candidate-based recipes
 GET/PUT /api/page-filter          what page capture accepts as a page
+/api/metadata/…                   values across a scope, bulk operations (preview, run, history,
+                                  revert) and rules — design/metadata-management.md §9
 
 /api/downloads                    GET list · POST/DELETE /arm · POST /start ·
                                   POST /{id}/progress|complete|failed|interrupted|rearm · DELETE /{id}

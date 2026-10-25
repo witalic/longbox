@@ -17,7 +17,7 @@ import Icon from '../components/Icon.vue'
 import PickInspector, { type ChainNode, type PickUse, type ProbeReq, type ProbeResult } from '../components/PickInspector.vue'
 import {
   applyCapture, applyCoverCapture, applyCoverUrlAuto, draftState, isEditableField,
-  mergeCapture, mergeSnapshot, noteCaptureSource, type EditableField, type Snapshot,
+  mergeCapture, mergeSnapshotRuled, noteCaptureSource, type EditableField, type Snapshot,
 } from '../draft'
 import { isBoolMap, readLocal, writeLocal } from '../local'
 import { pageCapture, pageKeyFor, stopCaptureFor, type PickField } from '../pagecapture'
@@ -422,25 +422,27 @@ function fillAnyway() {
   const s = heldFill.value
   heldFill.value = null
   fillMatches.value = []
-  if (s) applyFill(s)
+  if (s) void applyFill(s)
 }
 function cancelFill() {
   heldFill.value = null
   fillMatches.value = []
 }
-function applyFill(s: Snapshot) {
-  const written = mergeIntoDraft(s)
+async function applyFill(s: Snapshot) {
+  const written = await mergeIntoDraft(s)
   panel.value?.showFlash(written.length
     ? `✓ filled: ${written.join(', ')}` : 'nothing new — manual fields are kept')
 }
 
 async function autofill() {
   const tab = active.value
-  if (!tab || !draftState.cur) return
+  const d = draftState.cur
+  if (!tab || !d) return
   busy.value = true
   try {
     const recipe = await recipeToApply(domain.value)
     const snap = await requestSnapshot(snapshotRules(recipe))
+    if (draftState.cur !== d) return // another draft took its place meanwhile
     if (!snap) { panel.value?.showFlash('could not read the page'); return }
     // Clean captured values with the rules' SAVED flags, not the defaults —
     // including the separator a list-into-text field was taught, or autofill
@@ -455,7 +457,7 @@ async function autofill() {
     }
     // Only for a draft that is not yet a record: filling one that already
     // targets a title is an edit of that title, and needs no second opinion.
-    if (!draftState.cur.targetId) {
+    if (!d.targetId) {
       const name = String(s.fields.title || tab.title || '')
       const near = matchTitles(name, Object.values(store.byId), 0.55, 4)
       if (near.length) {
@@ -464,7 +466,7 @@ async function autofill() {
         return
       }
     }
-    applyFill(s)
+    await applyFill(s)
   } finally {
     busy.value = false
   }
@@ -475,17 +477,19 @@ async function autofill() {
 // pages can be asked.
 async function mergeField(field: string) {
   const tab = active.value
-  if (!tab || !draftState.cur || !isEditableField(field)) return
+  const d = draftState.cur
+  if (!tab || !d || !isEditableField(field)) return
   busy.value = true
   try {
     const recipe = await recipeToApply(domain.value)
     const rule = snapshotRules(recipe)[field]
     if (!rule) { panel.value?.showFlash(`${field} is not taught on this site yet — pick it first`); return }
     const snap = await requestSnapshot({ [field]: rule })
+    if (draftState.cur !== d) return
     const raw = snap?.fields[field]
     if (!snap || raw === undefined) { panel.value?.showFlash('could not read the page'); return }
-    const added = mergeCapture(field, raw, { lower: !!rule.lower, stripCounts: !!rule.stripCounts },
-                               { url: snap.url, recipeVersion: recipe?.version ?? 0 })
+    const added = await mergeCapture(field, raw, { lower: !!rule.lower, stripCounts: !!rule.stripCounts },
+                                     { url: snap.url, recipeVersion: recipe?.version ?? 0 }, domain.value)
     panel.value?.showFlash(added ? `✓ ${field} +${added}` : `nothing new in ${field} on this page`)
     if (added) noteCaptureSource(domain.value, tab.url)
   } finally {
@@ -493,14 +497,16 @@ async function mergeField(field: string) {
   }
 }
 
-function mergeIntoDraft(s: Snapshot): string[] {
+async function mergeIntoDraft(s: Snapshot): Promise<string[]> {
+  const d = draftState.cur
+  if (!d) return []
   // cover arrived as URL-only (byte fetch failed)? hand it to the merge as a field
   const written = new Set<string>()
   const coverUrl = typeof s.fields.cover === 'string' ? s.fields.cover : ''
   const { cover: _drop, ...fields } = s.fields
-  for (const f of mergeSnapshot({ ...s, fields })) written.add(f)
-  if (!s.cover && coverUrl && draftState.cur) {
-    const d = draftState.cur
+  for (const f of await mergeSnapshotRuled({ ...s, fields })) written.add(f)
+  if (draftState.cur !== d) return []
+  if (!s.cover && coverUrl) {
     if (d.provenance.cover?.origin === 'auto' || d.cover.kind === 'none') {
       applyCoverUrlAuto(coverUrl, s.url, { url: s.url, recipeVersion: s.recipeVersion })
       written.add('cover')
@@ -564,6 +570,7 @@ async function onUse(result: PickUse) {
     return
   }
   const field = ins.field as EditableField
+  const d = draftState.cur
   // The learned rule, most-reliable first: the row-label anchor (when the user
   // kept it on) is position-independent, so reordered info rows on another page
   // cannot shift the match; then the picked selector, then generated fallbacks.
@@ -583,17 +590,21 @@ async function onUse(result: PickUse) {
   }
   const saved = await saveRecipeField(host, field, rule)
   const prov = { url: tab.url, recipeVersion: saved?.version ?? 0 }
+  // the site stays taught either way; the value lands only in the draft it was picked for
+  const same = () => !!d && draftState.cur === d
+  if (!same()) { closeInspect(); return }
   if (field === 'cover') {
     // bytes through the page context; URL-only if the fetch is refused
     const snap = await requestSnapshot({ cover: rule })
+    if (!same()) { closeInspect(); return }
     if (snap?.cover) applyCoverCapture(snap.cover, prov)
     else if (typeof snap?.fields.cover === 'string' && snap.fields.cover) applyCoverUrlAuto(snap.fields.cover, tab.url, prov)
     else panel.value?.showFlash('could not resolve the cover image')
   } else {
-    applyCapture(field, result.mode === 'list' ? result.values : result.values[0] ?? '',
-      { lower: result.lower, stripCounts: result.stripCounts }, prov)
+    await applyCapture(field, result.mode === 'list' ? result.values : result.values[0] ?? '',
+      { lower: result.lower, stripCounts: result.stripCounts }, prov, host)
   }
-  noteCaptureSource(host, tab.url) // a per-field pick binds the source too
+  if (same()) noteCaptureSource(host, tab.url) // a per-field pick binds the source too
   closeInspect()
 }
 

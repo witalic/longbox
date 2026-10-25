@@ -15,7 +15,7 @@ import Dropdown from '../components/Dropdown.vue'
 import Pager from '../components/Pager.vue'
 import {
   store, openTitle, openTitleBackground, openReader, toggleFav, resetFilters,
-  activeFilterCount, askConfirm, deleteTitles, goAuthorsFor, setRating,
+  activeFilterCount, askConfirm, deleteTitles, editInMetadata, goAuthorsFor, setRating,
   opening,
 } from '../store'
 import { startNewTitle } from '../browser'
@@ -143,6 +143,8 @@ async function deleteSelected() {
           <template v-if="selMode">
             <span class="selinfo mono">{{ selIds.length }} selected</span>
             <button class="btn ghost" :disabled="selIds.length === results.length" title="Select everything matching the current filters" @click="selectAllFiltered">All {{ results.length }}</button>
+            <button class="btn" :disabled="!selIds.length" title="Change the metadata of exactly these titles"
+                    @click="editInMetadata(selIds)"><Icon name="meta" :size="13" :sw="1.9" />Edit in Metadata</button>
             <button class="btn dangerbtn" :disabled="!selIds.length" @click="deleteSelected"><Icon name="x" :size="12" :sw="2.2" />Delete</button>
             <button class="btn ghost" @click="toggleSelMode">Cancel</button>
           </template>

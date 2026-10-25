@@ -53,13 +53,15 @@ echo before loading the UI. **Never send the library or a token over a non-TLS r
 
 ```
 library/
-  index.db                   rebuildable cache
+  index.db                   rebuildable cache — plus the journal of bulk metadata runs and
+                             the rules' fired counts, which a rebuild leaves alone
   vault.json                 one-time migration markers (zipNormalized, videoFaststart)
   fields.json                the library's own metadata fields (registry additions)
   authors.json               author favorites (user layer, vault-level)
   recipes.json               per-site recipes (versioned per domain) + the page-capture filter
   sources.json               the owner's layer over the sites: group order, per-site group,
                              bookmarks, frozen; sites removed from Sources
+  rules.json                 what a value becomes on its way into a title (ordered)
   health.json                what was done to this library + the last check report — its
                              own file, so startup never parses it
   <type-shelf>/              one directory per TYPE (manga/, image-set/, …; typeless → other/)
@@ -90,8 +92,16 @@ library/
   the middle of, the thumbnail cache — and the Electron session (sign-ins). An older build kept
   recipes and the source layer in the config; on first start this build moves them into the
   library it opens and removes them there (`legacy_config.py`).
-- **Vault-level documents** (`recipes.json`, `sources.json`) go through `Vault.read_doc()` and
-  `Vault.doc_transaction()`: one lock per document PATH (two Vault objects over one directory
+- **Bulk metadata changes** (`design/metadata-management.md`) cost the titles that CHANGE, not
+  the library: the change is worked out from the index (that is the preview), each changed
+  title is read once and written once (`Vault.rewrite_in_place`, its stamp stepped by two
+  seconds so the "updated" order holds), and the index refreshes in batches without reading a
+  chapter directory (`LibraryIndex.apply_meta`, guarded by the stamp so it never overwrites a
+  newer row). A type renamed for a whole shelf into a new one is one directory rename. Every
+  run is journaled in `index.db` and revertible; the rules that change values on their way in
+  live in `rules.json` and run in the sidecar, for capture, typing and new chapters alike.
+- **Vault-level documents** (`recipes.json`, `sources.json`, `rules.json`) go through
+  `Vault.read_doc()` and `Vault.doc_transaction()`: one lock per document PATH (two Vault objects over one directory
   still take turns), atomic write. "There is none" is the only empty answer a read gives: a
   client told "nothing saved" builds its next write on it, and that write replaces what is
   there. So a file that cannot be parsed answers 409 to reads and writes alike, a read that
@@ -159,8 +169,8 @@ Endpoints run sync on FastAPI's threadpool, so races are real and handled struct
 - A corrupt index cannot lose content — it never owned any; rebuild rescans the files, skipping
   documents it cannot parse rather than aborting.
 - **One vault pass at a time** (`backend/app/passes.py`). Checking the vault, converting
-  archives, rewriting metadata, sweeping leftovers, retyping or clearing a field and rebuilding
-  the index all walk the same library, so they share one slot, one progress record and one stop
+  archives, rewriting metadata, sweeping leftovers, retyping or clearing a field, rebuilding
+  the index, and a bulk metadata run or its revert all walk the same library, so they share one slot, one progress record and one stop
   event. (The one-time startup migrations run outside it, single-flight on their own thread.)
   The SERVER names the running pass and
   which row started it, so leaving the settings page — or reloading it — cannot lose the progress
@@ -242,7 +252,9 @@ backend/app/
   main.py security.py settings.py config_store.py (this machine's config)
   legacy_config.py (moves what an older build kept in the config into the vault, once)
   passes.py (the one vault pass at a time: progress, stop, who is running)
-  library/  models.py (layers + flat DTO) · vault.py (shelves, locks, media ingest, covers,
+  library/  operations.py (bulk metadata: apply, preview from the index, run, revert) ·
+            rules.py (what a value becomes on its way in; rules.json) ·
+            models.py (layers + flat DTO) · vault.py (shelves, locks, media ingest, covers,
             the vault/fields/authors/health files) · media.py (zip ops, conversion, thumbnails,
             mp4 probe + faststart, digests) · index.py · service.py ·
             migrations.py (title.json schema steps) · versions.py (versions + cache keys) ·
@@ -250,7 +262,7 @@ backend/app/
             comicinfo.py (the ComicInfo.xml mirror: build, parse, write into an archive)
   scraper/  models.py (recipe v2, page filter) · recipes.py (recipes.json) ·
             sources.py (sources.json) · covers.py (fallback fetch)
-  routers/  library.py · downloads.py · recipes.py · settings.py
+  routers/  library.py · downloads.py · recipes.py · settings.py · metadata.py
 frontend/src/
   App.vue (the frame: views, tabs, downloads panel, close guard) · styles.css (the design tokens)
   store.ts (app state, facets, user layer, downloads) · draft.ts (THE draft) · browser.ts (tabs)
@@ -258,7 +270,7 @@ frontend/src/
   sessions.ts (tab-session restore) · keys.ts (physical-key bindings) · normalize.ts
   pagecapture.ts (the page-capture activity) · frames.ts (episode stills, cut in the window)
   views/      LibraryView · AuthorsView (browse by any axis) · TitleView · ReaderView ·
-              BrowserView · SourcesView · SettingsView
+              BrowserView · SourcesView · MetadataView (values, rules, history) · SettingsView
   components/ MetadataEditor (the one editor) · CapturePanel (draft + downloads dock) ·
               PassButton + ProgressBar (run/progress/stop, one grammar everywhere) ·
               Settings* (one component per settings section) ·

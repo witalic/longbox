@@ -2,8 +2,9 @@
 // FastAPI sidecar serves this UI at /app/ so /api is same-origin; in dev, Vite
 // proxies /api to the sidecar (see vite.config.ts).
 import type {
-  Bookmark, BrowseGroup, DraftCommit, Facets, FieldDef, FrameKind, PageFilter, Recipe, Source, Title,
-  UserPatch,
+  Bookmark, BrowseGroup, DraftCommit, Facets, FieldDef, FieldValues, FrameKind, MetaAction, MetaField,
+  MetaPreview, MetaRun, MetaScope, MetaValue, PageFilter, Recipe, Rule, RuleApply, RuleStats, Source,
+  Title, UserPatch,
 } from './data'
 
 export class ApiError extends Error {
@@ -13,15 +14,26 @@ export class ApiError extends Error {
   }
 }
 
+// A refusal says WHY when the sidecar did ("rename needs the value to rename
+// into", "rules.json cannot be read") — a status code alone tells nobody what
+// to do next.
+async function failure(res: Response, method: string, path: string): Promise<ApiError> {
+  let detail: unknown = null
+  try { detail = (await res.json())?.detail } catch { /* no body to read */ }
+  const said = typeof detail === 'string' ? detail
+    : Array.isArray(detail) && typeof detail[0]?.msg === 'string' ? detail[0].msg : ''
+  return new ApiError(res.status, said || `${method} ${path} → ${res.status}`)
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, { credentials: 'same-origin', ...init })
-  if (!res.ok) throw new ApiError(res.status, `${init?.method ?? 'GET'} ${path} → ${res.status}`)
+  if (!res.ok) throw await failure(res, init?.method ?? 'GET', path)
   return res.json() as Promise<T>
 }
 
 async function reqVoid(path: string, init: RequestInit): Promise<void> {
   const res = await fetch(`/api${path}`, { credentials: 'same-origin', ...init })
-  if (!res.ok) throw new ApiError(res.status, `${init.method} ${path} → ${res.status}`)
+  if (!res.ok) throw await failure(res, init.method ?? 'GET', path)
 }
 
 function jsonBody(method: string, data: unknown): RequestInit {
@@ -109,6 +121,34 @@ export const api = {
   removeRecipe: (domain: string) => reqVoid(`/recipes/${domain}`, { method: 'DELETE' }),
   pageFilter: () => req<PageFilter>('/page-filter'),
   savePageFilter: (f: PageFilter) => req<PageFilter>('/page-filter', jsonBody('PUT', f)),
+  // metadata: a scope travels in the body — a selection can be thousands of ids
+  metaFields: (scope: MetaScope) =>
+    req<{ inScope: number; fields: MetaField[] }>('/metadata/fields', jsonBody('POST', { scope })),
+  metaValues: (field: string, scope: MetaScope) =>
+    req<MetaValue[]>('/metadata/values', jsonBody('POST', { field, scope })),
+  metaPreview: (actions: MetaAction[], scope: MetaScope) =>
+    req<MetaPreview>('/metadata/preview', jsonBody('POST', { actions, scope })),
+  metaRun: (actions: MetaAction[], scope: MetaScope, remember: boolean) =>
+    req<{ run: number; changed: number; failed: number; stopped: boolean; rules: Rule[] }>(
+      '/metadata/run', jsonBody('POST', { actions, scope, remember })),
+  metaRuns: () => req<MetaRun[]>('/metadata/runs'),
+  metaRevert: (run: number) =>
+    req<{ reverted: number; kept: number; failed: number; stopped: boolean }>(`/metadata/runs/${run}/revert`, { method: 'POST' }),
+  rules: () => req<{ rules: Rule[]; stats: Record<string, RuleStats> }>('/metadata/rules'),
+  saveRules: (rules: Rule[]) =>
+    req<{ rules: Rule[]; stats: Record<string, RuleStats> }>('/metadata/rules', jsonBody('PUT', { rules })),
+  // `trial`: rules to try instead of the stored ones (nothing is counted);
+  // `context`: what the title already holds, for a rule to move or add into;
+  // `locked`: fields nothing may write
+  applyRules: (values: FieldValues, domain = '',
+               opts: { trial?: Rule[]; context?: FieldValues; locked?: string[] } = {}) =>
+    req<RuleApply>('/metadata/rules/apply', jsonBody('POST', {
+      values, domain, rules: opts.trial ?? null, context: opts.context ?? {}, locked: opts.locked ?? [],
+    })),
+  rulePreview: (id: string, scope: MetaScope) =>
+    req<MetaPreview>(`/metadata/rules/${id}/preview`, jsonBody('POST', { scope })),
+  ruleRun: (id: string, scope: MetaScope) =>
+    req<{ run: number; changed: number }>(`/metadata/rules/${id}/run`, jsonBody('POST', { scope })),
   removeSource: (domain: string) =>
     req<{ hidden: boolean; recipeDeleted: boolean }>(`/sources/${domain}`, { method: 'DELETE' }),
   // armed downloads: the arm is consumed when a download STARTS (its chapter

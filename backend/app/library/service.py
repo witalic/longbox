@@ -22,11 +22,13 @@ from urllib.parse import urlsplit
 from ..scraper.recipes import RecipeStore
 from ..scraper.sources import SourcePrefs
 from . import comicinfo, fields, media
+from . import rules as rules_mod
 from .index import LibraryIndex
+from .rules import RuleStore
 from .models import (
     AuthorWork, BrowseGroup, ChapterRow, DraftIn, Source, TitleDoc, TitleOut, UserPatch,
 )
-from .vault import FRAME_KINDS, Vault, safe_id
+from .vault import FRAME_KINDS, UnreadableDocument, Vault, safe_id
 from .versions import cache_key, chapter_version, cover_version, stills_version
 
 
@@ -269,6 +271,7 @@ class Library:
         # …and so is what it knows about its sites, and how its owner keeps them
         self.recipes = RecipeStore(self.vault)
         self.source_prefs = SourcePrefs(self.vault)
+        self.rules = RuleStore(self.vault)
         self.index = LibraryIndex(root / "index.db")
         # two concurrent creates may derive the same fresh id — serialize the
         # pick-unique-id → first-commit step
@@ -383,6 +386,11 @@ class Library:
                    "seconds": round(time.monotonic() - started, 1),
                    "outcome": outcome, "stopped": stopped},
             last_check=last_check)
+
+    def record_op(self, op: str, started: float, outcome: str, *, stopped: bool = False) -> None:
+        """A line in what has been done to this library — for passes that live
+        outside this module (operations.py)."""
+        self._record(op, started, outcome, stopped=stopped)
 
     def health(self) -> dict:
         """What has been done to this library, newest first, and the last report."""
@@ -1226,6 +1234,10 @@ class Library:
 
     def create(self, draft: DraftIn) -> TitleOut:
         """Commit a NEW draft, assigning a unique filesystem-safe id."""
+        rules, fired = self._chapter_rules(), []
+        for c in draft.chapters:
+            c.lang, c.group = self._ruled(rules, c.lang, c.group, c.url or draft.meta.source.url, fired)
+        self._count_fired(fired)
         with self._create_lock:
             base = safe_id(draft.meta.title or "untitled")
             tid, n = base, 2
@@ -1287,14 +1299,23 @@ class Library:
         held = {c.id: key(c) for c in old.chapters}
         held.update({c.id: key(c) for c in draft.chapters if c.id})
 
+        rules, fired = self._chapter_rules(), []
         rows, taken = [], set()
         for c in draft.chapters:
+            raw = (c.lang, c.group)
+            if not c.id:  # a new row: the rules decide its language and group — and so its id
+                c.lang, c.group = self._ruled(rules, c.lang, c.group, c.url or draft.meta.source.url, fired)
             cid = c.id or self.chapter_id_for(c.num, c.lang, c.group)
             adopted = None
             if cid not in old_ids:
                 adopted = by_url.get(c.url) if c.url else None
-                if adopted is None and by_key.get(key(c)):
-                    adopted = by_key[key(c)][0]
+                # the spelling as it arrived first: a row stored before a rule
+                # existed is still this chapter, and must not be doubled
+                for lang, group in dict.fromkeys((raw, (c.lang, c.group))):
+                    bucket = by_key.get((c.num.strip().casefold(), lang.strip().casefold(),
+                                         group.strip().casefold()))
+                    if adopted is None and bucket:
+                        adopted = bucket[0]
             if adopted is not None:
                 claim(adopted)
                 cid = adopted
@@ -1352,6 +1373,7 @@ class Library:
                 rows.insert(idx, c)
             kept.add(safe_id(c.id))
         draft.chapters = rows
+        self._count_fired(fired)
 
     def patch_user(self, title_id: str, patch: UserPatch) -> TitleOut | None:
         with self.vault.title_lock(title_id):
@@ -1427,6 +1449,31 @@ class Library:
     def _norm(s: str) -> str:
         return s.strip().casefold()
 
+    def _chapter_rules(self) -> list:
+        """The library's rules, read ONCE for a whole commit or ingest. Rules that
+        cannot be read let identities through as typed rather than refuse the
+        write — the Rules view says what is wrong with the file."""
+        try:
+            return self.rules.rules()
+        except UnreadableDocument:
+            return []
+
+    @staticmethod
+    def _ruled(rules: list, lang: str, group: str, url: str, fired: list[str]) -> tuple[str, str]:
+        """A NEW chapter's language and group as the rules leave them — the
+        identity it is then named by. Rows already stored are never rewritten
+        here: that is what applying a rule to existing titles is for."""
+        if not rules:
+            return lang, group
+        out, hits = rules_mod.apply(rules, {"language": lang, "group": group},
+                                    rules_mod.host_of(url))
+        fired += [f.rule for f in hits]
+        return str(out["language"]), str(out["group"])
+
+    def _count_fired(self, fired: list[str]) -> None:
+        if fired:
+            self.index.rule_fired(fired, datetime.now(timezone.utc).isoformat(timespec="seconds"))
+
     @staticmethod
     def chapter_id_for(num: str, lang: str, group: str) -> str:
         """The id a chapter identity gets — the FIRST choice for one, and the
@@ -1491,6 +1538,13 @@ class Library:
                     num = said.get("num") or num
                     lang = lang or said.get("lang", "")
                     group = group or said.get("group", "")
+                n = self._norm
+                if not any(n(c.num) == n(num) and n(c.lang) == n(lang) and n(c.group) == n(group)
+                           for c in doc.chapters):  # a new row is named by the rules
+                    fired: list[str] = []
+                    lang, group = self._ruled(self._chapter_rules(), lang, group,
+                                              url or doc.meta.source.url, fired)
+                    self._count_fired(fired)
                 row, _ = self._row_for(doc, num=num, lang=lang, group=group, url=url)
             suffix = Path(sidecar.get("filename") or src.name).suffix.lower()
             if suffix in media.IMAGE_EXTS:

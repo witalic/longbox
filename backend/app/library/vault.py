@@ -23,12 +23,12 @@ import threading
 import time
 import zipfile
 from collections import defaultdict
-from collections.abc import Iterable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
 from . import media
-from .migrations import migrate
+from .migrations import CURRENT_SCHEMA, migrate
 from .models import CustomFieldDef, DraftIn, TitleDoc, UserPatch
 
 _SAFE_ID = re.compile(r"[^a-z0-9._-]+")
@@ -36,6 +36,10 @@ _SAFE_ID = re.compile(r"[^a-z0-9._-]+")
 
 class UnreadableDocument(RuntimeError):
     """A vault-level document this build cannot read or must not write."""
+
+
+class NewerDocument(RuntimeError):
+    """A title document a newer build wrote: read, never rewritten in bulk."""
 
 
 # The shape of the vault-level documents this build writes. ANY change to the
@@ -163,8 +167,11 @@ def _atomic_write(path: Path, data: bytes) -> None:
     tmp.write_bytes(data)
     try:
         media.replace_atomically(tmp, path)
-    finally:
-        tmp.unlink(missing_ok=True)  # only survives a rename that never happened
+    except BaseException:
+        # only a rename that never happened leaves the scratch file behind — and
+        # deleting a name that is already gone is a round trip per write for nothing
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 class Vault:
@@ -476,6 +483,105 @@ class Vault:
                 return None
             self._save(title_id, doc)
             return doc
+
+    def rewrite_in_place(self, title_id: str, apply: Callable[[TitleDoc], object],
+                         ) -> tuple[TitleDoc, object, int, int] | None:
+        """The BULK path: change one title's document with as few round trips as
+        a vault allows — one open (the stat comes off the handle), one atomic
+        write — and move its stamp by the minimum step rather than to "now": a
+        bulk change is maintenance, and the shelf's "updated" order must hold.
+
+        `apply` mutates the document and returns what it changed; a falsy
+        result writes nothing. A change of type moves the title onto its new
+        shelf FIRST, by a rename within the vault — if that is refused nothing
+        is written, and nothing is ever copied. A document a newer build wrote
+        is refused: rewriting it would drop what this build does not know.
+
+        Returns (doc, what apply returned, the stamp written, the stamp read),
+        or None when the title is gone or nothing changed."""
+        with self._lock(title_id):
+            sid = safe_id(title_id)
+            path = self._dir_fast(title_id) / "title.json"
+            try:
+                with open(path, "rb") as f:
+                    data, st = f.read(), os.fstat(f.fileno())
+            except FileNotFoundError:
+                path = self._doc_path(title_id)  # the location cache was stale
+                try:
+                    with open(path, "rb") as f:
+                        data, st = f.read(), os.fstat(f.fileno())
+                except FileNotFoundError:
+                    return None
+            raw = json.loads(data.decode("utf-8"))
+            if isinstance(raw.get("schema"), int) and raw["schema"] > CURRENT_SCHEMA:
+                raise NewerDocument(f"{title_id} was written by a newer longbox")
+            raw, _ = migrate(raw)
+            doc = TitleDoc.model_validate(raw)
+            shelf = type_dir_name(doc.meta.type)
+            result = apply(doc)
+            if not result:
+                return None
+            target = type_dir_name(doc.meta.type)
+            if target != shelf:
+                path = self._move_title(sid, target) / "title.json"
+            _atomic_write(path, doc.model_dump_json(indent=2, by_alias=True).encode("utf-8"))
+            stamp = st.st_mtime_ns + _STAMP_STEP_NS
+            try:
+                os.utime(path, ns=(st.st_atime_ns, stamp))
+            except OSError:
+                stamp = path.stat().st_mtime_ns  # the write landed; only the order moves
+            return doc, result, stamp, st.st_mtime_ns
+
+    def _move_title(self, sid: str, shelf: str) -> Path:
+        """Put a title on a shelf by renaming its directory — the bulk path's
+        move, which never falls back to copying: a rename the filesystem refuses
+        (a file held open) raises, and the title stays where it was."""
+        cur = self._find(sid)
+        if cur is None:
+            raise FileNotFoundError(sid)
+        dest = self.root / shelf / sid
+        if cur == dest:
+            self._loc[sid] = shelf
+            return dest
+        if dest.exists():
+            raise FileExistsError(f"{shelf}/{sid} already exists")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        os.rename(cur, dest)
+        self._loc[sid] = shelf
+        try:
+            if cur.parent != self.root and not any(cur.parent.iterdir()):
+                cur.parent.rmdir()
+        except OSError:
+            pass
+        return dest
+
+    def rename_shelf(self, old: str, new: str, title_ids: Iterable[str]) -> bool:
+        """Move a whole shelf at once: ONE directory rename, however many titles
+        sit on it. `title_ids` are the titles on it, whose locks are held across
+        the rename so no write lands in a directory that is moving. Refused
+        (False) when the target shelf already exists, when the shelf holds a
+        directory these ids do not name (a title the index has not seen yet — it
+        would move without its type changing), or when the filesystem says no;
+        then the titles move one by one."""
+        src, dst = self.root / old, self.root / new
+        if old == new or not src.is_dir() or dst.exists():
+            return False
+        with ExitStack() as held:
+            ids = sorted(title_ids)
+            for tid in ids:
+                held.enter_context(self._lock(tid))
+            try:
+                with os.scandir(src) as entries:
+                    children = {e.name for e in entries if e.is_dir()}
+                if not children <= {safe_id(t) for t in ids}:
+                    return False
+                os.rename(src, dst)
+            except OSError:
+                return False
+            for sid, shelf in list(self._loc.items()):
+                if shelf == old:
+                    self._loc[sid] = new
+        return True
 
     def commit_meta(self, title_id: str, draft: DraftIn, *, create: bool = False) -> TitleDoc | None:
         """Write the draft's layers (meta + provenance + chapters), preserving the

@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Metadata management — mockup</title>
+<style>
+/* ---- the app's own tokens (frontend/src/styles.css), verbatim ---- */
+:root {
+  --bg: #0a0b0d; --bg2: #0f1115; --panel: #15171b; --panel2: #1b1e24;
+  --line: #262a31; --hover: #2a2e36;
+  --tx: #e8eaef; --tx2: #9aa1ad; --tx3: #697080;
+  --accent: #7089e6; --accent-ink: #0d0e11; --accentSoft: rgba(112, 137, 230, .14);
+  --fav: #e0687a; --good: #5fb88a; --warn: #d6a44f; --adult: #e0687a;
+}
+html[data-theme="light"] {
+  --bg: #f0eeea; --bg2: #e6e3dd; --panel: #faf9f6; --panel2: #edeae4;
+  --line: #d2cdc2; --hover: #e2ded6;
+  --tx: #2a2c31; --tx2: #575d67; --tx3: #8d95a1;
+  --accent: #5f77d4; --accent-ink: #ffffff; --accentSoft: rgba(95, 119, 212, .15);
+  --fav: #d6516a; --good: #3f9e6f; --warn: #b07d2a; --adult: #d6516a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--tx); font: 400 13px/1.45 system-ui; -webkit-font-smoothing: antialiased; }
+.mono { font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; }
+
+/* ---- the page around the frames ---- */
+.page { max-width: 1420px; margin: 0 auto; padding: 26px 24px 60px; }
+h1 { font: 700 22px/1.1 system-ui; margin: 0 0 4px; letter-spacing: -.3px; }
+h2 { font: 600 13px/1 system-ui; margin: 0; }
+.lede { color: var(--tx2); max-width: 82ch; margin: 0 0 26px; }
+.block { border: 1px solid var(--line); border-radius: 10px; background: var(--bg2); margin-bottom: 22px; overflow: hidden; }
+.bhead { height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.bhead .n { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
+.bbody { padding: 18px 16px; }
+.note { font: 400 11.5px/1.55 system-ui; color: var(--tx3); margin: 12px 0 0; max-width: 92ch; }
+.note b { color: var(--tx2); font-weight: 600; }
+.themebtn { position: fixed; top: 14px; right: 16px; z-index: 5; }
+
+/* ---- the app's control grammar (controls 30, radius 6, text 11/12/13) ---- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--tx);
+  border-radius: 6px; height: 30px; padding: 0 13px; cursor: pointer;
+  font: 600 12px/1 system-ui; white-space: nowrap;
+}
+.btn:hover { border-color: var(--accent); }
+.btn.accent { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.ghost { background: transparent; color: var(--tx2); }
+.btn.small { height: 26px; padding: 0 10px; font-size: 11px; }
+.btn.danger { color: var(--adult); border-color: color-mix(in srgb, var(--adult) 40%, var(--line)); }
+.btn.acton { border-color: var(--accent); color: var(--accent); background: var(--accentSoft); }
+.seg { display: flex; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 2px; height: 30px; width: fit-content; }
+.seg .opt { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; padding: 0 11px; border-radius: 4px; border: none; background: transparent; font: 500 12px/1 system-ui; color: var(--tx2); cursor: pointer; }
+.seg .opt.on { background: var(--accentSoft); color: var(--accent); }
+.seg.text { height: 26px; }
+.seg.text .opt { padding: 0 8px; font-size: 11px; }
+.in { font: 500 12.5px/1.3 system-ui; color: var(--tx); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 0 10px; height: 30px; outline: none; width: 100%; }
+.in.focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accentSoft); }
+.pill { display: inline-flex; align-items: center; gap: 7px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; height: 30px; padding: 0 11px; font: 500 12px/1 system-ui; color: var(--tx2); }
+.pill .k { font: 500 9px/1 ui-monospace, monospace; letter-spacing: .08em; color: var(--tx3); }
+.numbadge { font: 600 9.5px/1 ui-monospace, monospace; color: var(--accent-ink); background: var(--accent); border-radius: 999px; padding: 3px 5px; }
+.chip { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line); font: 500 11.5px/1 system-ui; color: var(--tx); white-space: nowrap; }
+.chip.ruled { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+.chip .rmark { font: 600 9px/1 ui-monospace, monospace; color: var(--accent); letter-spacing: .04em; }
+.cb { width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid var(--tx3); flex: none; display: inline-flex; align-items: center; justify-content: center; }
+.cb.on { background: var(--accent); border-color: var(--accent); }
+.cb.on::after { content: ''; width: 7px; height: 4px; border: 2px solid var(--accent-ink); border-top: 0; border-right: 0; transform: rotate(-45deg) translate(1px, -1px); }
+.toggle { width: 26px; height: 15px; border-radius: 999px; background: var(--line); position: relative; flex: none; }
+.toggle::after { content: ''; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 999px; background: var(--tx3); }
+.toggle.on { background: var(--accent); }
+.toggle.on::after { left: 13px; background: var(--accent-ink); }
+.ic { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---- the app frame: titlebar 40, sidebar 220, work bands 44 ---- */
+.app { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--bg); display: flex; flex-direction: column; }
+.tabbar { height: 40px; flex: none; background: var(--bg2); border-bottom: 1px solid var(--line); display: flex; align-items: center; padding: 0 14px; gap: 9px; }
+.tabbar .logo { width: 22px; height: 22px; border-radius: 6px; background: linear-gradient(#8194f4, #3e4eb2); flex: none; }
+.tabbar .name { font: 700 13.5px/1 system-ui; letter-spacing: -.2px; }
+.tabbar .wc { margin-left: auto; display: flex; gap: 18px; color: var(--tx3); font: 400 13px/1 system-ui; }
+.approw { display: flex; min-height: 0; }
+.side { width: 220px; flex: none; background: var(--bg2); border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+.nav { padding: 12px 10px 6px; display: flex; flex-direction: column; gap: 2px; }
+.navitem { height: 36px; display: flex; align-items: center; gap: 11px; padding: 0 12px; border-radius: 8px; color: var(--tx2); font: 500 13px/1 system-ui; }
+.navitem.on { background: var(--accentSoft); color: var(--accent); }
+.navitem .new { margin-left: auto; font: 700 8.5px/1 ui-monospace, monospace; letter-spacing: .1em; color: var(--accent); }
+.rail { flex: 1; padding: 6px 10px 10px; overflow: hidden; }
+.rlabel { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); padding: 12px 12px 8px; display: flex; }
+.rlabel span { margin-left: auto; letter-spacing: 0; }
+.ritem { height: 30px; display: flex; align-items: center; gap: 9px; padding: 0 12px; border-radius: 6px; font: 500 12.5px/1 system-ui; color: var(--tx2); }
+.ritem.on { background: var(--hover); color: var(--tx); }
+.ritem .sn { margin-left: auto; font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); }
+.ritem .kind { font: 500 9px/1 ui-monospace, monospace; color: var(--tx3); letter-spacing: .06em; }
+.foot { height: 44px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 9px; padding: 0 16px; font: 500 11px/1.3 system-ui; color: var(--tx3); flex: none; }
+.foot .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.vhead { height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.vhead .t { font: 600 15px/1 system-ui; }
+.vhead .sub { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); }
+.vhead .right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.work { flex: 1; min-height: 0; display: flex; }
+.vfoot { height: 44px; flex: none; white-space: nowrap; overflow: hidden; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 12px; padding: 0 16px; font: 500 11.5px/1 system-ui; color: var(--tx3); }
+.vfoot b { color: var(--tx2); font-weight: 600; }
+.vfoot .lnk { color: var(--accent); font-weight: 600; }
+
+/* ---- scope (the library's filter grammar) ---- */
+.scope { width: 210px; flex: none; border-right: 1px solid var(--line); background: var(--bg2); overflow: hidden; }
+.shead2 { height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--line); font: 600 12px/1 system-ui; }
+.shead2 .clr { margin-left: auto; font: 500 11px/1 system-ui; color: var(--accent); }
+.fsec { padding: 10px 14px 4px; }
+.fsec .fl { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); margin-bottom: 8px; display: flex; }
+.fsec .fl span { margin-left: auto; letter-spacing: 0; }
+.frow { display: flex; align-items: center; gap: 8px; height: 26px; font: 500 12px/1 system-ui; color: var(--tx2); }
+.frow .n { margin-left: auto; font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); }
+.frow.in1 { color: var(--tx); }
+.frow.in1 .mk { background: var(--accent); }
+.frow.ex .mk { background: var(--adult); }
+.frow.ex { color: var(--tx3); text-decoration: line-through; }
+.mk { width: 7px; height: 7px; border-radius: 2px; background: var(--line); flex: none; }
+.scopebox { margin: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 10px 12px; }
+.scopebox .big { font: 600 15px/1 system-ui; }
+.scopebox .s { font: 500 11px/1.4 system-ui; color: var(--tx3); margin-top: 4px; }
+
+/* ---- values ---- */
+.vals { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.vtool { height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--line); }
+.vtool .in { width: 220px; }
+.vtool .selc { margin-left: auto; font: 500 11px/1 ui-monospace, monospace; color: var(--accent); }
+.vrow { display: grid; grid-template-columns: 22px minmax(0, 1fr) 130px 52px 136px; align-items: center; gap: 10px; height: 34px; padding: 0 14px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); font: 500 12.5px/1 system-ui; }
+.vrow.hd { height: 30px; font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .1em; color: var(--tx3); }
+.vrow.sel { background: var(--accentSoft); }
+.vrow .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vrow .cnt { display: flex; align-items: center; gap: 8px; font: 500 11px/1 ui-monospace, monospace; color: var(--tx2); }
+.vrow .bar { flex: 1; height: 4px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.vrow .bar span { display: block; height: 100%; background: var(--tx3); }
+.vrow.sel .bar span { background: var(--accent); }
+.vrow .man { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); }
+.vrow .man.w { color: var(--warn); }
+.rulebadge { font: 500 10.5px/1 ui-monospace, monospace; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rulebadge.none { color: var(--tx3); }
+
+/* ---- the action panel: what you are about to do, and what it will cost ---- */
+.act { width: 330px; flex: none; border-left: 1px solid var(--line); background: var(--bg2); display: flex; flex-direction: column; }
+.ahead { height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid var(--line); font: 600 13px/1 system-ui; }
+.ahead .x { margin-left: auto; color: var(--tx3); }
+.abody { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+.lbl { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); margin-bottom: 6px; }
+.from { display: flex; flex-wrap: wrap; gap: 6px; }
+.hint { font: 400 11.5px/1.45 system-ui; color: var(--tx3); }
+.hint b { color: var(--tx2); font-weight: 600; }
+.check { display: flex; gap: 9px; align-items: flex-start; font: 500 12px/1.4 system-ui; }
+.check .hint { margin-top: 2px; }
+.preview { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); overflow: hidden; }
+.pv1 { padding: 12px 14px; display: flex; align-items: baseline; gap: 8px; border-bottom: 1px solid var(--line); }
+.pv1 .big { font: 600 22px/1 system-ui; letter-spacing: -.3px; }
+.pv1 .s { font: 500 12px/1 system-ui; color: var(--tx2); }
+.pvl { padding: 8px 14px; display: flex; gap: 8px; align-items: flex-start; font: 400 11.5px/1.45 system-ui; color: var(--tx2); border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+.pvl .d { width: 7px; height: 7px; border-radius: 999px; margin-top: 5px; flex: none; background: var(--good); }
+.pvl .d.w { background: var(--warn); }
+.pvl .d.i { background: var(--accent); }
+.sample { padding: 8px 14px 10px; }
+.srow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; height: 24px; align-items: center; font: 500 11.5px/1 system-ui; }
+.srow .tt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--tx2); }
+.srow .ch { font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); }
+.srow .ch s { color: var(--adult); text-decoration: none; }
+.srow .ch i { color: var(--good); font-style: normal; }
+.afoot { margin-top: auto; height: 44px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 8px; padding: 0 16px; }
+.afoot .cost { margin-left: auto; font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); }
+
+/* ---- rules ---- */
+.rules { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.rrow { display: grid; grid-template-columns: 14px 26px 92px minmax(0, 1fr) 130px; align-items: center; gap: 12px; min-height: 44px; padding: 7px 14px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+.rrow.on { background: var(--accentSoft); }
+.rrow.off { opacity: .5; }
+.grip { color: var(--tx3); font: 700 11px/1 system-ui; letter-spacing: -2px; }
+.fld { font: 600 11px/1 ui-monospace, monospace; color: var(--tx2); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; height: 22px; display: inline-flex; align-items: center; padding: 0 7px; width: fit-content; }
+.rdesc { font: 500 12.5px/1.45 system-ui; min-width: 0; }
+.rdesc .arrow { color: var(--tx3); margin: 0 5px; }
+.rdesc .cond { display: block; font: 400 11px/1.4 system-ui; color: var(--tx3); }
+.rhits { font: 500 11px/1.35 ui-monospace, monospace; color: var(--tx3); text-align: right; }
+.editor { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 10px 10px; align-items: center; }
+.editor .k { font: 600 11.5px/1 system-ui; color: var(--tx2); }
+.sel2 { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); font: 500 12px/1 system-ui; width: 100%; }
+.sel2::after { content: '⌄'; color: var(--tx3); }
+.try { border: 1px dashed var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.tryout { display: flex; align-items: center; gap: 8px; font: 500 12px/1 system-ui; flex-wrap: wrap; }
+.tryout .via { font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); }
+
+/* ---- history ---- */
+.hrow { display: grid; grid-template-columns: 112px minmax(0, 1fr) 96px 64px 104px; align-items: center; gap: 12px; height: 44px; padding: 0 16px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); font: 500 12.5px/1 system-ui; }
+.hrow.hd { height: 30px; font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .1em; color: var(--tx3); }
+.hrow .when { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); }
+.hrow .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hrow .what .m { color: var(--tx3); }
+.hrow .num { font: 500 11px/1 ui-monospace, monospace; color: var(--tx2); }
+.hrow .state { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); }
+.hrow.rev .what { color: var(--tx3); text-decoration: line-through; }
+
+/* ---- side-by-side panels ---- */
+.duo { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.card { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow: hidden; }
+.card .act { width: auto; border-left: 0; }
+
+/* ---- entry points ---- */
+.selbar { height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.selbar .info { font: 500 11px/1 ui-monospace, monospace; color: var(--accent); }
+.edrow { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; align-items: center; padding: 12px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.edrow .k { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.typing { font: 500 12px/1 system-ui; color: var(--tx2); border-bottom: 1px solid var(--accent); padding: 3px 1px; }
+.tip { position: relative; display: inline-flex; }
+.tip .bub { position: absolute; top: 28px; left: 0; white-space: nowrap; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; font: 500 11px/1.35 system-ui; color: var(--tx2); box-shadow: 0 6px 18px rgba(0,0,0,.25); z-index: 2; }
+.tip .bub b { color: var(--tx); font-weight: 600; }
+</style>
+</head>
+<body>
+<button class="btn ghost themebtn" onclick="const h=document.documentElement;h.dataset.theme=h.dataset.theme==='dark'?'light':'dark'">Theme</button>
+<div class="page">
+  <h1>Metadata</h1>
+  <p class="lede">One view for keeping a library's vocabulary in order: every field's values with their
+    counts, operations that change what titles already hold — over the whole library, the current
+    filter or a selection — rules that change what enters a title from then on, and the history of
+    every run, each one revertible. Model and decisions: <span class="mono">design/metadata-management.md</span>.</p>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">1 · VALUES</span><h2>Merge three spellings into one, over a filtered scope — and remember it</h2></div>
+    <div class="bbody">
+      <div class="app">
+        <div class="tabbar"><span class="logo"></span><span class="name">longbox</span><span class="wc">⌄ &nbsp; – &nbsp; ▢ &nbsp; ✕</span></div>
+        <div class="approw" style="height:760px">
+          <aside class="side">
+            <nav class="nav">
+              <div class="navitem"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="6" height="16" rx="1"/><rect x="11" y="4" width="4" height="16" rx="1"/><path d="M17 5l3 14"/></svg>Library</div>
+              <div class="navitem"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/></svg>Browse</div>
+              <div class="navitem"><svg class="ic" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Sources</div>
+              <div class="navitem on"><svg class="ic" viewBox="0 0 24 24"><path d="M4 7h10M4 12h16M4 17h7"/><circle cx="18" cy="7" r="2"/><circle cx="15" cy="17" r="2"/></svg>Metadata<span class="new">NEW</span></div>
+              <div class="navitem"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>Settings</div>
+            </nav>
+            <div class="rail">
+              <div class="rlabel">TITLE<span>values</span></div>
+              <div class="ritem">Type<span class="sn">6</span></div>
+              <div class="ritem">Status<span class="sn">4</span></div>
+              <div class="ritem">Genres<span class="sn">48</span></div>
+              <div class="ritem on">Tags<span class="sn">1,204</span></div>
+              <div class="ritem">Authors<span class="sn">812</span></div>
+              <div class="ritem">Artists<span class="sn">640</span></div>
+              <div class="ritem">Studio<span class="sn">37</span></div>
+              <div class="ritem">Characters<span class="sn">2,110</span></div>
+              <div class="ritem">Year<span class="sn">41</span></div>
+              <div class="ritem">Shelf code <span class="kind">YOURS</span><span class="sn">19</span></div>
+              <div class="rlabel">CHAPTERS<span>values</span></div>
+              <div class="ritem">Language<span class="sn">9</span></div>
+              <div class="ritem">Group<span class="sn">156</span></div>
+            </div>
+            <div class="foot"><span class="dot"></span>3,912 titles · library verified</div>
+          </aside>
+
+          <div class="main">
+            <div class="vhead">
+              <span class="t">Tags</span>
+              <span class="sub">312 values in scope</span>
+              <div class="right">
+                <div class="seg"><button class="opt on">Values</button><button class="opt">Rules <span class="mono" style="color:var(--tx3)">14</span></button><button class="opt">History</button></div>
+                <button class="btn acton">Scope <span class="numbadge">2</span></button>
+              </div>
+            </div>
+            <div class="work">
+              <!-- the scope: the library's own filter grammar -->
+              <div class="scope">
+                <div class="shead2">Scope<span class="clr">Clear</span></div>
+                <div class="scopebox"><div class="big">1,906 <span style="font:500 12px system-ui;color:var(--tx2)">titles</span></div>
+                  <div class="s">of 3,912 · an operation changes only titles in here that hold the value</div></div>
+                <div class="fsec">
+                  <div class="fl">SHELF</div>
+                  <div class="frow in1"><span class="mk"></span>manga<span class="n">1,906</span></div>
+                  <div class="frow"><span class="mk"></span>manhwa<span class="n">1,412</span></div>
+                  <div class="frow"><span class="mk"></span>image-set<span class="n">594</span></div>
+                </div>
+                <div class="fsec">
+                  <div class="fl">SOURCE<span>any of</span></div>
+                  <div class="frow"><span class="mk"></span>mangadex.org<span class="n">1,120</span></div>
+                  <div class="frow ex"><span class="mk"></span>example-scans.net<span class="n">203</span></div>
+                  <div class="frow"><span class="mk"></span>no source<span class="n">583</span></div>
+                </div>
+                <div class="fsec">
+                  <div class="fl">STATUS</div>
+                  <div class="frow"><span class="mk"></span>ongoing<span class="n">812</span></div>
+                  <div class="frow"><span class="mk"></span>completed<span class="n">1,004</span></div>
+                </div>
+              </div>
+
+              <!-- the values -->
+              <div class="vals">
+                <div class="vtool">
+                  <input class="in" value="roman" readonly>
+                  <div class="seg text"><button class="opt on">Count</button><button class="opt">A–Z</button></div>
+                  <div class="seg text"><button class="opt on">All</button><button class="opt">No rule</button></div>
+                  <span class="selc">3 selected</span>
+                </div>
+                <div class="vrow hd"><span></span><span>VALUE</span><span>TITLES</span><span>TYPED</span><span>RULE</span></div>
+                <div class="vrow sel"><span class="cb on"></span><span class="v">romance</span><span class="cnt"><span class="bar"><span style="width:92%"></span></span>1,284</span><span class="man">12</span><span class="rulebadge none">—</span></div>
+                <div class="vrow sel"><span class="cb on"></span><span class="v">Romance</span><span class="cnt"><span class="bar"><span style="width:31%"></span></span>412</span><span class="man w">25</span><span class="rulebadge none">—</span></div>
+                <div class="vrow sel"><span class="cb on"></span><span class="v">романтика</span><span class="cnt"><span class="bar"><span style="width:8%"></span></span>96</span><span class="man">0</span><span class="rulebadge none">—</span></div>
+                <div class="vrow"><span class="cb"></span><span class="v">romantic comedy</span><span class="cnt"><span class="bar"><span style="width:14%"></span></span>188</span><span class="man">3</span><span class="rulebadge none">—</span></div>
+                <div class="vrow"><span class="cb"></span><span class="v">romance (255)</span><span class="cnt"><span class="bar"><span style="width:2%"></span></span>21</span><span class="man">0</span><span class="rulebadge">→ romance · rule 1</span></div>
+                <div class="vrow"><span class="cb"></span><span class="v">roman</span><span class="cnt"><span class="bar"><span style="width:1%"></span></span>4</span><span class="man">4</span><span class="rulebadge none">—</span></div>
+                <div class="vrow"><span class="cb"></span><span class="v">romance subtext</span><span class="cnt"><span class="bar"><span style="width:1%"></span></span>3</span><span class="man">0</span><span class="rulebadge">removed · rule 6</span></div>
+                <div class="vfoot" style="margin-top:auto">Last run: <b>moved tag completed → status</b> · 2,118 titles · 6.2 s<span class="lnk">Revert</span><span style="margin-left:auto">⇧-click selects a range</span></div>
+              </div>
+
+              <!-- the action: what will happen, before it happens -->
+              <div class="act">
+                <div class="ahead">Merge 3 values<span class="x">✕</span></div>
+                <div class="abody">
+                  <div><div class="lbl">FROM</div>
+                    <div class="from"><span class="chip">romance</span><span class="chip">Romance</span><span class="chip">романтика</span></div></div>
+                  <div><div class="lbl">INTO</div>
+                    <input class="in focus" value="romance" readonly>
+                    <div class="hint" style="margin-top:6px">The most used spelling. Any value works — an existing one merges, a new one renames.</div></div>
+                  <div class="seg text"><button class="opt on">Rename / merge</button><button class="opt">Move to field</button><button class="opt">Remove</button></div>
+                  <div class="check"><span class="cb on"></span><div>Also make it a rule<div class="hint">From now on capture and your typing turn <b>Romance</b> and <b>романтика</b> into <b>romance</b> — in every title, not just this scope.</div></div></div>
+                  <div class="preview">
+                    <div class="pv1"><span class="big">508</span><span class="s">titles change</span></div>
+                    <div class="pvl"><span class="d w"></span><span><b>25</b> of these values were typed by you — they change too.</span></div>
+                    <div class="pvl"><span class="d i"></span><span><b>483</b> came from capture; the new rule keeps the next capture from bringing them back.</span></div>
+                    <div class="pvl"><span class="d"></span><span><b>1,284</b> titles already hold <b>romance</b> — untouched, nothing to write.</span></div>
+                    <div class="sample">
+                      <div class="srow"><span class="tt">Berserk</span><span class="ch"><s>Romance</s> → <i>romance</i></span></div>
+                      <div class="srow"><span class="tt">Ночь в лесу</span><span class="ch"><s>романтика</s> → <i>romance</i></span></div>
+                      <div class="srow"><span class="tt">Paper Lanterns</span><span class="ch"><s>Romance</s>, romance → <i>romance</i></span></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="afoot"><button class="btn accent">Merge in 508 titles</button><button class="btn ghost">Cancel</button><span class="cost">508 writes</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note"><b>Fields</b> live in the contextual rail where the library keeps its own lists — title fields,
+        your fields, and the chapters' language and group — each with how many distinct values it holds.
+        <b>Scope</b> is the library's filter grammar, verbatim; opening the view from the library's select mode
+        replaces it with "37 selected titles". The scope box says how many titles are in reach, and the
+        values list counts only those.</p>
+      <p class="note"><b>The preview is the computation.</b> It is worked out from the index before a single file is
+        opened — which is also why it is instant on a large library. The run then costs one write per title
+        that actually changes (<span class="mono">508 writes</span>), never one per title in scope, and leaves the shelf's
+        "updated" order alone. Values typed by you are counted apart: an operation is your decision, so it
+        changes them — the preview makes sure it is a decision.</p>
+      <p class="note"><b>RULE</b> column: a value a rule already handles says so (<span class="mono">→ romance · rule 1</span>), and
+        <i>No rule</i> narrows the list to the drift nothing catches yet.</p>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">2 · TYPE &amp; MOVE</span><h2>A type is a shelf; a tag that is really a status goes where it belongs</h2></div>
+    <div class="bbody">
+      <div class="duo">
+        <div class="card"><div class="act">
+          <div class="ahead">Rename type<span class="x">✕</span></div>
+          <div class="abody">
+            <div><div class="lbl">FROM</div><div class="from"><span class="chip">manhwa</span></div></div>
+            <div><div class="lbl">INTO</div><input class="in" value="webtoon" readonly></div>
+            <div class="preview">
+              <div class="pv1"><span class="big">1,412</span><span class="s">titles change type</span></div>
+              <div class="pvl"><span class="d i"></span><span>Every title on the <span class="mono">manhwa/</span> shelf goes, and no <span class="mono">webtoon/</span> shelf exists yet — so the shelf itself is renamed: <b>one directory rename</b>, then 1,412 small document writes.</span></div>
+              <div class="pvl"><span class="d"></span><span>No chapter, cover or archive is copied or rewritten.</span></div>
+            </div>
+          </div>
+          <div class="afoot"><button class="btn accent">Rename type</button><button class="btn ghost">Cancel</button><span class="cost">1 shelf rename</span></div>
+        </div></div>
+        <div class="card"><div class="act">
+          <div class="ahead">Move to field<span class="x">✕</span></div>
+          <div class="abody">
+            <div><div class="lbl">FROM · TAGS</div><div class="from"><span class="chip">completed</span><span class="chip">finished</span></div></div>
+            <div><div class="lbl">INTO</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><span class="sel2">Status</span><input class="in" value="completed" readonly></div></div>
+            <div class="preview">
+              <div class="pv1"><span class="big">2,118</span><span class="s">titles change</span></div>
+              <div class="pvl"><span class="d"></span><span><b>1,986</b> had no status — it is filled with <b>completed</b>.</span></div>
+              <div class="pvl"><span class="d w"></span><span><b>132</b> already say <b>ongoing</b>: one slot, two answers. Their status stays; the tag still leaves. <span style="color:var(--accent)">List them</span></span></div>
+            </div>
+            <div class="check"><span class="cb on"></span><div>Also make it a rule</div></div>
+          </div>
+          <div class="afoot"><button class="btn accent">Move in 2,118 titles</button><button class="btn ghost">Cancel</button></div>
+        </div></div>
+      </div>
+      <p class="note"><b>A type change moves files</b>, so its preview says how: a whole shelf renamed into a type that has
+        no shelf yet is <b>one directory rename</b>; a filtered scope, or a merge into a type that already has a shelf,
+        moves each title's directory onto the target shelf (a rename within the vault — no bytes copied) and sweeps a
+        shelf left empty. Type changes run last, after every in-place change of the same run.</p>
+      <p class="note"><b>Moving into a single-value field</b> fills it only where it is empty; where it already holds
+        something else the two answers are listed, never decided silently.</p>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">3 · RULES</span><h2>What enters a title — from capture, from your typing, from a chapter list</h2></div>
+    <div class="bbody">
+      <div class="app">
+        <div class="approw" style="height:560px">
+          <div class="main">
+            <div class="vhead">
+              <span class="t">Rules</span><span class="sub">14 · applied top to bottom, once</span>
+              <div class="right">
+                <div class="seg"><button class="opt">Values</button><button class="opt on">Rules <span class="mono" style="color:var(--tx3)">14</span></button><button class="opt">History</button></div>
+                <button class="btn">+ Rule</button>
+              </div>
+            </div>
+            <div class="work">
+              <div class="rules">
+                <div class="rrow"><span class="grip">⋮⋮</span><span class="toggle on"></span><span class="fld">tags</span>
+                  <span class="rdesc">Romance, романтика, romance (255)<span class="arrow">→</span><b>romance</b></span><span class="rhits">fired 621×<br>last today</span></div>
+                <div class="rrow"><span class="grip">⋮⋮</span><span class="toggle on"></span><span class="fld">authors</span>
+                  <span class="rdesc">Miura Kentarou, 三浦建太郎<span class="arrow">→</span><b>Kentaro Miura</b></span><span class="rhits">fired 14×</span></div>
+                <div class="rrow on"><span class="grip">⋮⋮</span><span class="toggle on"></span><span class="fld">tags</span>
+                  <span class="rdesc">completed, finished<span class="arrow">→</span>move to <b>status: completed</b><span class="cond">only where status is empty</span></span><span class="rhits">fired 2,301×</span></div>
+                <div class="rrow"><span class="grip">⋮⋮</span><span class="toggle on"></span><span class="fld">tags</span>
+                  <span class="rdesc">yaoi<span class="arrow">→</span>keep, and add <b>flag: adult</b></span><span class="rhits">fired 88×</span></div>
+                <div class="rrow"><span class="grip">⋮⋮</span><span class="toggle on"></span><span class="fld">language</span>
+                  <span class="rdesc">English, en, eng<span class="arrow">→</span><b>EN</b><span class="cond">chapter language</span></span><span class="rhits">fired 4,112×</span></div>
+                <div class="rrow"><span class="grip">⋮⋮</span><span class="toggle on"></span><span class="fld">tags</span>
+                  <span class="rdesc">romance subtext, + more<span class="arrow">→</span>remove<span class="cond">only from example-scans.net</span></span><span class="rhits">fired 9×</span></div>
+                <div class="rrow off"><span class="grip">⋮⋮</span><span class="toggle"></span><span class="fld">group</span>
+                  <span class="rdesc">TeamX<span class="arrow">→</span><b>Team X</b><span class="cond">chapter group · disabled</span></span><span class="rhits">fired 40×</span></div>
+              </div>
+              <div class="act">
+                <div class="ahead">Rule 3<span class="x">✕</span></div>
+                <div class="abody">
+                  <div class="editor">
+                    <span class="k">Field</span><span class="sel2">Tags</span>
+                    <span class="k">Is</span><div class="from"><span class="chip">completed</span><span class="chip">finished</span><span class="typing">add…</span></div>
+                    <span class="k">Then</span><span class="sel2">Move to field</span>
+                    <span class="k"></span><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><span class="sel2">Status</span><input class="in" value="completed" readonly></div>
+                    <span class="k">Only when</span><span class="sel2">Any source</span>
+                  </div>
+                  <div class="try">
+                    <div class="lbl" style="margin:0">TRY A VALUE</div>
+                    <input class="in" value="Completed (12)" readonly>
+                    <div class="tryout"><span class="mono" style="color:var(--tx3)">tags:</span><span class="chip">Completed (12)</span>→ cleaned <span class="chip">completed</span>→ <span class="chip ruled">status: completed</span><span class="via">rule 3</span></div>
+                  </div>
+                  <div class="hint">Applies to capture, to what you type in the editor, and to chapter values on their way in. Saving it changes nothing already stored.</div>
+                </div>
+                <div class="afoot"><button class="btn accent">Save rule</button><button class="btn">Apply to 2,118 titles…</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note"><b>Order matters and is yours</b> — drag a rule up or down. Rules run top to bottom in one pass: each sees
+        what the earlier ones made, none re-fires on its own output, so two rules can never loop. A rule is disabled,
+        not deleted, when you want it out of the way. Matching is on the whole value, after the cleanup capture already
+        does (counts stripped, case folded where the field folds it).</p>
+      <p class="note"><b>Apply to existing titles</b> opens the same preview as an operation (block 1): a rule never rewrites
+        what is stored by itself. <b>Fired</b> counts how often the rule changed something, so a rule nothing triggers
+        any more is visible.</p>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">4 · HISTORY</span><h2>Every run is recorded, and every run can be taken back</h2></div>
+    <div class="bbody">
+      <div class="app">
+        <div class="main">
+          <div class="vhead">
+            <span class="t">History</span><span class="sub">last 50 runs · kept in index.db</span>
+            <div class="right"><div class="seg"><button class="opt">Values</button><button class="opt">Rules</button><button class="opt on">History</button></div></div>
+          </div>
+          <div class="hrow hd"><span>WHEN</span><span>WHAT</span><span>TITLES</span><span>TIME</span><span></span></div>
+          <div class="hrow"><span class="when">today 14:02</span><span class="what">Moved tags <b>completed, finished</b> → status <span class="m">· whole library · + rule 3</span></span><span class="num">2,118</span><span class="num">6.2 s</span><button class="btn small">Revert…</button></div>
+          <div class="hrow"><span class="when">today 13:40</span><span class="what">Merged tags <b>Romance, романтика</b> → romance <span class="m">· shelf manga · + rule 1</span></span><span class="num">508</span><span class="num">1.4 s</span><button class="btn small">Revert…</button></div>
+          <div class="hrow"><span class="when">yesterday</span><span class="what">Renamed type <b>manhwa</b> → webtoon <span class="m">· shelf renamed</span></span><span class="num">1,412</span><span class="num">3.9 s</span><button class="btn small">Revert…</button></div>
+          <div class="hrow rev"><span class="when">Oct 21</span><span class="what">Removed tag <b>webtoon</b> <span class="m">· 37 selected titles</span></span><span class="num">37</span><span class="num">0.2 s</span><span class="state">reverted Oct 21</span></div>
+          <div class="vfoot"><span>Revert restores only values that still hold what the run wrote — <b>a later edit is never rolled back</b>, and the preview says how many no longer can be.</span></div>
+        </div>
+      </div>
+      <p class="note"><b>The journal lives in <span class="mono">index.db</span></b>, in a table of its own written in the same
+        transactions as the index rows — no extra files, no extra I/O. A rebuild or an index upgrade leaves it alone;
+        only deleting <span class="mono">index.db</span> loses it, and then what is lost is the ability to undo, never content.</p>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">5 · WAYS IN</span><h2>From a library selection, and from your own typing</h2></div>
+    <div class="bbody" style="display:flex;flex-direction:column;gap:14px">
+      <div class="selbar"><span class="info">37 selected</span><button class="btn small">Select all 1,906</button>
+        <span style="margin-left:auto"></span><button class="btn small acton">Edit in Metadata</button><button class="btn small danger">Delete 37</button><button class="btn small ghost">Done</button></div>
+      <p class="note" style="margin:0"><b>The library's select mode</b> gains <i>Edit in Metadata</i>: the view opens with the
+        selection as its scope ("37 selected titles"), so set, add and remove work on exactly those.</p>
+      <div class="edrow"><span class="k">TAGS</span>
+        <div class="chips"><span class="chip">action</span><span class="chip">dark fantasy</span>
+          <span class="tip"><span class="chip ruled">romance <span class="rmark">RULE</span></span>
+            <span class="bub">You typed <b>Romance</b> — stored as <b>romance</b> by rule 1. <span style="color:var(--accent)">Keep as typed</span></span></span>
+          <span class="typing" style="margin-left:4px">add tag…</span></div></div>
+      <p class="note" style="margin:56px 0 0"><b>Rules apply to your typing too</b>, visibly: the chip shows what the rule made
+        of it, and <i>Keep as typed</i> stores your spelling once, without the rule. The same mark appears in the capture
+        dock for every captured value a rule changed, so a rule is never a surprise.</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>

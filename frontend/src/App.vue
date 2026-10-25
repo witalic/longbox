@@ -20,6 +20,7 @@ import TitleView from './views/TitleView.vue'
 import ReaderView from './views/ReaderView.vue'
 import AuthorsView from './views/AuthorsView.vue'
 import SourcesView from './views/SourcesView.vue'
+import MetadataView from './views/MetadataView.vue'
 import SettingsView from './views/SettingsView.vue'
 import BrowserView from './views/BrowserView.vue'
 
@@ -31,6 +32,7 @@ const nav = [
   { key: 'library', label: 'Library', icon: 'library' },
   { key: 'browse', label: 'Browse', icon: 'browser' },
   { key: 'sources', label: 'Sources', icon: 'sources' },
+  { key: 'metadata', label: 'Metadata', icon: 'meta' },
   { key: 'settings', label: 'Settings', icon: 'settings' },
 ] as const
 
@@ -42,8 +44,11 @@ function navActive(key: string): boolean {
 // Navigation is inert by design: the draft lives outside the views and survives
 // moving around; no guard is needed here (discarding is what asks).
 function navClick(key: string) {
+  // the rail's Metadata works on what the library's filters show; a selection
+  // arrives only from the library's select mode
+  if (key === 'metadata') store.metaSelection = null
   if (key === 'browse') openBrowse()
-  else goView(key as 'library' | 'sources' | 'settings')
+  else goView(key as 'library' | 'sources' | 'metadata' | 'settings')
 }
 
 // ONE browser-styled strip, CONTEXTUAL: in-app views (Library/Title/Authors/
@@ -488,6 +493,7 @@ initSessions()
         <ReaderView v-else-if="store.view === 'reader'" class="reader-host" />
         <AuthorsView v-else-if="store.view === 'authors'" />
         <SourcesView v-else-if="store.view === 'sources'" />
+        <MetadataView v-else-if="store.view === 'metadata'" />
         <SettingsView v-else-if="store.view === 'settings'" />
         <!-- kept mounted so the embedded browser (pages + history) survives leaving Browse -->
         <BrowserView v-show="store.view === 'browser'" class="browser-host" />

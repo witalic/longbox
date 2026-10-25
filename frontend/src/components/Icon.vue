@@ -7,6 +7,7 @@ const P: Record<string, string> = {
   // site. They used to be a globe and a compass — two drawings of the same idea
   // sitting next to each other in the nav, which is a coin toss, not a choice.
   sources: 'M10.5 13.5a4 4 0 0 0 5.7 0l2.8-2.8a4 4 0 0 0-5.7-5.7l-1.6 1.6M13.5 10.5a4 4 0 0 0-5.7 0l-2.8 2.8a4 4 0 0 0 5.7 5.7l1.6-1.6',
+  meta: 'M4 7h9M4 12h16M4 17h6M17 5v4M13 15v4',
   settings: 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.3 1a7 7 0 0 0-1.7-1l-.3-2.6h-4l-.3 2.6a7 7 0 0 0-1.7 1l-2.3-1-2 3.4 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 1.7 1l.3 2.6h4l.3-2.6a7 7 0 0 0 1.7-1l2.3 1 2-3.4-2-1.5c.1-.3.1-.7.1-1z',
   home: 'M4 5h11v14H4zM17 7h3v12h-3',
   plus: 'M12 5v14M5 12h14',

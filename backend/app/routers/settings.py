@@ -107,6 +107,10 @@ def set_homepage(request: Request, body: HomepageIn) -> SettingsOut:
 def set_library_path(request: Request, body: LibraryPathIn) -> SettingsOut:
     """Switch the ACTIVE library (registering the path). Existing content at the
     target is simply indexed — switching never touches files."""
+    if PASS["running"]:
+        # a pass writes into THIS library; switching under it would close the
+        # index it is writing to
+        raise HTTPException(status_code=409, detail=f"{PASS['op']} is running — let it finish first")
     path = Path(_norm(body.path))
     try:
         path.mkdir(parents=True, exist_ok=True)

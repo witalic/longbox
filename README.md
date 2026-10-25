@@ -35,6 +35,15 @@ tags or cover, and longbox learns a reusable per-site recipe.
   the capture dock. A field's type is a promise about its data, so number and date can be left but
   never entered, and a list only folds into text on a separator no value contains. Every filled
   field draws itself on the title page by its type — nothing to wire up per screen.
+- **Metadata** — one view for the library's vocabulary: every field's values (chapters' language
+  and group included) with how many titles hold each, over the whole library, the library's
+  current filters, or the titles picked in its select mode. Rename, merge, remove or move values
+  to another field, set or clear a field, replace text, or rename a type — which renames its
+  shelf on disk. Every change is previewed before anything is written, costs only the titles
+  that actually change, keeps the library's "updated" order, and can be reverted from its
+  history. **Rules** do the same to values on their way in — from capture, from your own typing
+  (visibly, with "keep as typed"), from a new chapter's language and group — in the order you
+  give them, and any rule can be applied to the titles already stored.
 - **Downloads** — arm the next download for a specific chapter, then just download the file in the
   embedded browser; longbox intercepts it and files it into the vault. Archives (zip/cbz/7z/rar)
   are normalized to zip, single images accumulate into the chapter page by page, and a video is
@@ -255,5 +264,6 @@ shell/      Electron: sidecar spawn + auth, embedded browser, download intercept
 design/     design docs (state-model.md is the canonical architecture) + mockups and the GUI canvas
 docs/       the project page published at witalic.github.io/longbox
 packaging/  the frozen-sidecar spec and the macOS ad-hoc signing hook
-tools/      version.py (the one version, everywhere) · screenshots.py (the project page's images)
+tools/      version.py (the one version, everywhere) · screenshots.py (the project page's images) ·
+            bench_metadata.py (what a bulk metadata change costs)
 ```

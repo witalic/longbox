@@ -9,7 +9,8 @@ import { reactive } from 'vue'
 import { api } from './api'
 import {
   blankMeta, chapterRowsOf, metaForWire, metaOf,
-  type ChapterRow, type FieldProvenance, type Flags, type Provenance, type Title, type TitleMeta,
+  type ChapterRow, type FieldProvenance, type FieldValues, type Flags, type Provenance, type Title,
+  type TitleMeta,
 } from './data'
 import { isRecord, readLocal } from './local'
 import { captureValue, type CleanFlags } from './normalize'
@@ -37,6 +38,9 @@ export interface Draft {
   chapters: ChapterRow[]
   cover: DraftCover
   saving: boolean
+  // fields a library rule changed on their way in → which rule(s), for the
+  // mark the editor shows beside them (design/metadata-management.md §4)
+  ruled: Record<string, string>
 }
 
 // An immutable page snapshot, as returned by the preload in one shot. The draft
@@ -98,7 +102,7 @@ export function newDraft() {
   if (last.flags) meta.flags = { ...meta.flags, ...last.flags }
   setDraft({
     targetId: null, targetLabel: '', meta, provenance: {},
-    chapters: [], cover: { kind: 'none', preview: '' }, saving: false,
+    chapters: [], cover: { kind: 'none', preview: '' }, saving: false, ruled: {},
   })
 }
 
@@ -114,6 +118,7 @@ export function draftFromTitle(t: Title) {
     // would lock automatic capture out of a field that is empty.
     cover: { kind: t.ownCovers.length ? 'keep' : 'none', preview: t.ownCovers[0] ?? '' },
     saving: false,
+    ruled: {},
   })
 }
 
@@ -194,15 +199,111 @@ export function noteCaptureSource(domain: string, url: string) {
   if (d && !d.meta.source.url) d.meta.source = { domain, url }
 }
 
-// One captured value (from the pick inspector) → the draft, marked auto.
-export function applyCapture(
-  field: EditableField, raw: string | string[], clean: CleanFlags, prov: Omit<FieldProvenance, 'origin'>,
+// ---- the library's rules (design/metadata-management.md §4) ----
+//
+// Every value on its way INTO the draft — captured or typed — passes the
+// library's rules first, so the draft, and the preview drawn from it, holds
+// exactly what will be stored (I4). The engine is the sidecar's: a second copy
+// here could disagree with the one that applies rules to stored titles.
+
+export interface Ruled { values: FieldValues; changed: Record<string, string> }
+
+const FLAG_NAMES = ['adult', 'ai', 'censored'] as const
+function flagsOf(d: Draft): string[] {
+  return FLAG_NAMES.filter((n) => d.meta.flags[n])
+}
+
+// What the title already holds, for the rules to move or add INTO — a single
+// field is filled only where it is empty, a list gains values — and the fields
+// nothing may write: the owner's own, when automatic capture is asking (I3).
+export function ruleTarget(d: Draft, capture: boolean): { context: FieldValues; locked: string[] } {
+  const context: FieldValues = {}
+  const locked: string[] = []
+  for (const f of store.fields) {
+    if (!f.editable || f.control === 'cover') continue
+    const v = f.id === 'flags' ? flagsOf(d) : fieldValue(d.meta, f.id)
+    if (v === undefined) continue
+    context[f.id] = v
+    if (capture && !(d.provenance[f.id]?.origin === 'auto' || isEmpty(v))) locked.push(f.id)
+  }
+  return { context, locked }
+}
+
+export async function throughRules(values: FieldValues, domain: string,
+                                   target: { context: FieldValues; locked: string[] }): Promise<Ruled> {
+  if (!Object.keys(values).length) return { values, changed: {} }
+  try {
+    const out = await api.applyRules(values, domain, { context: target.context, locked: target.locked })
+    const by = [...new Set(out.fired.map((f) => f.n))].map((n) => `rule ${n}`).join(', ')
+    const changed: Record<string, string> = {}
+    for (const [k, v] of Object.entries(out.values)) {
+      const was = k in values ? values[k] : target.context[k]
+      if (JSON.stringify(v) !== JSON.stringify(was)) changed[k] = by
+    }
+    return { values: out.values, changed }
+  } catch (e) {
+    // a library whose rules cannot be read still captures — and says so
+    store.error = `Rules were not applied: ${e instanceof Error ? e.message : String(e)}`
+    return { values, changed: {} }
+  }
+}
+
+// a rule switches flags ON by name; nothing here switches one off
+export function addFlags(d: Draft, names: string | string[]): boolean {
+  let changed = false
+  for (const n of Array.isArray(names) ? names : [names]) {
+    if ((n === 'adult' || n === 'ai' || n === 'censored') && !d.meta.flags[n]) {
+      d.meta.flags[n] = true
+      changed = true
+    }
+  }
+  return changed
+}
+
+// Final values — cleaned, through the rules — into the draft, where automatic
+// capture may write: `auto` or empty fields only (I3). Nothing here cleans a
+// value again: the rules' output is what is stored.
+function mergeFinal(d: Draft, values: FieldValues, ruled: Ruled,
+                    prov: Omit<FieldProvenance, 'origin'>, skip = ''): string[] {
+  const written: string[] = []
+  for (const [field, v] of Object.entries(values)) {
+    if (field === skip) continue
+    if (field === 'flags') {
+      if (d.provenance.flags?.origin !== 'manual' && addFlags(d, v)) written.push(field)
+      continue
+    }
+    const cur = fieldValue(d.meta, field)
+    if (!(d.provenance[field]?.origin === 'auto' || isEmpty(cur)) || isEmpty(v)) continue
+    setFieldValue(d.meta, field, v)
+    d.provenance[field] = { origin: 'auto', ...prov }
+    written.push(field)
+  }
+  for (const f of written) {
+    if (ruled.changed[f]) d.ruled[f] = ruled.changed[f]
+    else delete d.ruled[f]
+  }
+  return written
+}
+
+// One captured value (from the pick inspector) → the draft, marked auto. The
+// draft it was picked for is carried across the wait: a value never lands in a
+// draft that replaced it meanwhile.
+export async function applyCapture(
+  field: EditableField, raw: string | string[], clean: CleanFlags,
+  prov: Omit<FieldProvenance, 'origin'>, domain = '',
 ) {
   const d = draftState.cur
-  if (!d) return
-  if (field === 'cover') return // cover bytes go through applyCoverCapture
-  setFieldValue(d.meta, field, captureValue(field, raw, clean, isListField(field)))
+  if (!d || field === 'cover') return // cover bytes go through applyCoverCapture
+  const asList = isListField(field)
+  const ruled = await throughRules({ [field]: captureValue(field, raw, clean, asList) }, domain,
+                                   ruleTarget(d, true))
+  if (draftState.cur !== d) return
+  // a pick is the owner pointing at the page: the picked field is written
+  setFieldValue(d.meta, field, ruled.values[field] ?? (asList ? [] : ''))
   d.provenance[field] = { origin: 'auto', ...prov }
+  if (ruled.changed[field]) d.ruled[field] = ruled.changed[field]
+  else delete d.ruled[field]
+  mergeFinal(d, ruled.values, ruled, prov, field)
 }
 
 // ADD this page's values to a list field instead of replacing it. A title that
@@ -212,24 +313,31 @@ export function applyCapture(
 // The result is a value no single page holds, so the field becomes MANUAL: a
 // later automatic capture must not quietly flatten it back to one page's worth.
 // Returns how many values were new.
-export function mergeCapture(
-  field: EditableField, raw: string | string[], clean: CleanFlags, prov: Omit<FieldProvenance, 'origin'>,
-): number {
+export async function mergeCapture(
+  field: EditableField, raw: string | string[], clean: CleanFlags,
+  prov: Omit<FieldProvenance, 'origin'>, domain = '',
+): Promise<number> {
   const d = draftState.cur
   if (!d || !isListField(field)) return 0
+  const ruled = await throughRules({ [field]: captureValue(field, raw, clean, true) }, domain,
+                                   ruleTarget(d, true))
+  if (draftState.cur !== d) return 0
   const have = fieldValue(d.meta, field)
   const kept = Array.isArray(have) ? have : []
   const seen = new Set(kept.map((v) => v.toLowerCase()))
   const added: string[] = []
-  for (const v of captureValue(field, raw, clean, true) as string[]) {
+  const incoming = ruled.values[field]
+  for (const v of Array.isArray(incoming) ? incoming : []) {
     const key = v.toLowerCase()
     if (seen.has(key)) continue
     seen.add(key)
     added.push(v)
   }
+  mergeFinal(d, ruled.values, ruled, prov, field)
   if (!added.length) return 0
   setFieldValue(d.meta, field, [...kept, ...added])
   d.provenance[field] = { origin: 'manual', ...prov }
+  if (ruled.changed[field]) d.ruled[field] = ruled.changed[field]
   return added.length
 }
 
@@ -266,27 +374,26 @@ export function setCoverUrl(url: string, referer = '') {
 
 // ---- the auto merge (I3 lives here) ----
 
-// Fill the draft from a snapshot: write ONLY fields whose provenance is `auto`
-// or which are empty; skip fields the snapshot has no value for. Manual fields
-// are untouchable by construction.
-export function mergeSnapshot(snap: Snapshot): string[] {
+// Fill the draft from a snapshot: every field cleaned ONCE, through the rules
+// together — one that moves a tag into status finds status there — then merged
+// where automatic capture may write (`auto` or empty fields; manual ones are
+// untouchable by construction). The draft it started for is carried across the
+// wait. Returns the fields written.
+export async function mergeSnapshotRuled(snap: Snapshot): Promise<string[]> {
   const d = draftState.cur
   if (!d) return []
-  const written: string[] = []
-  const prov = { url: snap.url, recipeVersion: snap.recipeVersion }
+  const cleaned: FieldValues = {}
   for (const [field, raw] of Object.entries(snap.fields)) {
     if (field === 'cover') continue
-    // the merge invariant: auto may write only into `auto` or empty fields
-    const cur = fieldValue(d.meta, field)
-    if (!(d.provenance[field]?.origin === 'auto' || isEmpty(cur))) continue
-    const cleaned = captureValue(field, raw, snap.flags?.[field], isListField(field))
-    if (isEmpty(cleaned)) continue
     // status/type: known synonyms normalize onto the common vocabulary
     // (captureValue), anything else is stored as the custom value it is
-    setFieldValue(d.meta, field, cleaned)
-    d.provenance[field] = { origin: 'auto', ...prov }
-    written.push(field)
+    const v = captureValue(field, raw, snap.flags?.[field], isListField(field))
+    if (!isEmpty(v)) cleaned[field] = v
   }
+  const ruled = await throughRules(cleaned, snap.domain, ruleTarget(d, true))
+  if (draftState.cur !== d) return []
+  const prov = { url: snap.url, recipeVersion: snap.recipeVersion }
+  const written = mergeFinal(d, ruled.values, ruled, prov)
   if (snap.cover) {
     const coverWritable = d.provenance.cover?.origin === 'auto' || d.cover.kind === 'none'
     if (coverWritable) {

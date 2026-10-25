@@ -8,9 +8,9 @@
 // WHICH fields exist is not decided here. The registry is served by the backend
 // (design/metadata-model.md), so a field the app gains — or the user defines —
 // draws itself without a line of code in this file.
-import { computed, reactive } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import { DEFAULT_STATUSES, type FieldDef } from '../data'
-import { clearField, draftState, setCoverUrl, setManual } from '../draft'
+import { addFlags, clearField, draftState, ruleTarget, setCoverUrl, setManual, throughRules } from '../draft'
 import { store, visibleFields } from '../store'
 import Combo from './Combo.vue'
 import Icon from './Icon.vue'
@@ -110,12 +110,89 @@ function suggestions(f: FieldDef): string[] {
   return f.control === 'chips' ? all.filter((v) => !list(f).includes(v)) : all
 }
 
-function addChip(f: FieldDef, value: string) {
+// What a library rule made of something the owner TYPED — shown under the
+// field, so a rule is never a surprise, with the way to keep the typed spelling
+// this once (design/metadata-management.md §4). Notes belong to the draft they
+// were made in: another draft starts with none.
+interface TypedNote { typed: string; became: string; by: string; added: string[] }
+const notes = reactive<Record<string, TypedNote>>({})
+watch(d, () => { for (const k of Object.keys(notes)) delete notes[k] })
+const labelOf = (id: string) => (store.fields.find((f) => f.id === id)?.label ?? id).toLowerCase()
+
+// What a rule put into OTHER fields than the one typed (a tag moved to status,
+// a flag) goes there too — the owner typed it, so it is theirs. The sidecar saw
+// the draft's values, so a single field it fills was empty and a list it
+// returns already holds what was there.
+function takeOthers(f: FieldDef, values: Record<string, string | string[]>, changed: Record<string, string>) {
+  for (const k of Object.keys(changed)) {
+    if (k === f.id) continue
+    if (k === 'flags') addFlags(d.value!, values[k])
+    else bag()[k] = values[k]
+    setManual(k)
+  }
+}
+function noteFor(f: FieldDef, typed: string, values: Record<string, string | string[]>,
+                 changed: Record<string, string>, added: string[]) {
+  const others = Object.keys(changed).filter((k) => k !== f.id)
+  if (!changed[f.id] && !others.length) {
+    delete notes[f.id]
+    return
+  }
+  const own = values[f.id]
+  const became = [
+    ...(Array.isArray(own) ? own : own ? [own] : []),
+    ...others.map((k) => `${labelOf(k)}: ${[values[k]].flat().join(', ')}`),
+  ].join(' · ') || 'nothing'
+  notes[f.id] = { typed, became, by: changed[f.id] || changed[others[0]], added }
+}
+
+async function addChip(f: FieldDef, value: string) {
   const s = value.trim()
+  const draft = d.value
+  if (!s || !draft) return
+  const ruled = await throughRules({ [f.id]: [s] }, '', ruleTarget(draft, false))
+  if (d.value !== draft) return // the draft was replaced meanwhile
   const b = bag()
   if (!Array.isArray(b[f.id])) b[f.id] = []
   const l = b[f.id] as string[]
-  if (s && !l.includes(s)) { l.push(s); setManual(f.id) }
+  const own = ruled.values[f.id]
+  const added = (Array.isArray(own) ? own : []).filter((v) => !l.includes(v))
+  if (added.length) {
+    l.push(...added)
+    setManual(f.id)
+  }
+  takeOthers(f, ruled.values, ruled.changed)
+  noteFor(f, s, ruled.values, ruled.changed, added)
+}
+// A value committed into a vocabulary (type, status) goes through the rules —
+// the combo is lazy, so this is a pick, an Enter or a blur, never a keystroke.
+async function setVocab(f: FieldDef, value: string) {
+  setText(f, value)
+  const draft = d.value
+  if (!value.trim() || !draft) return
+  const ruled = await throughRules({ [f.id]: value }, '', ruleTarget(draft, false))
+  if (d.value !== draft || text(f) !== value) return
+  const own = ruled.values[f.id]
+  if (ruled.changed[f.id]) setText(f, typeof own === 'string' ? own : '')
+  takeOthers(f, ruled.values, ruled.changed)
+  noteFor(f, value, ruled.values, ruled.changed, [])
+}
+// Store what was typed, this once, instead of what the rule made of it.
+function keepTyped(f: FieldDef) {
+  const n = notes[f.id]
+  if (!n) return
+  if (f.control === 'chips') {
+    const l = list(f)
+    for (const v of n.added) {
+      const i = l.indexOf(v)
+      if (i >= 0) l.splice(i, 1)
+    }
+    if (!l.includes(n.typed)) l.push(n.typed)
+  } else {
+    bag()[f.id] = n.typed
+  }
+  setManual(f.id)
+  delete notes[f.id]
 }
 function removeChip(f: FieldDef, i: number) {
   list(f).splice(i, 1)
@@ -130,7 +207,12 @@ const flagDefs = [
 ] as const
 type FlagKey = (typeof flagDefs)[number]['key']
 function flag(k: FlagKey): boolean { return !!d.value?.meta.flags[k] }
-function toggleFlag(k: FlagKey) { if (d.value) d.value.meta.flags[k] = !d.value.meta.flags[k] }
+// a flag the owner sets or clears is theirs: capture (and a rule) may not undo it
+function toggleFlag(k: FlagKey) {
+  if (!d.value) return
+  d.value.meta.flags[k] = !d.value.meta.flags[k]
+  setManual('flags')
+}
 
 function promptCoverUrl() {
   const url = window.prompt('Cover image URL:', d.value?.cover.sourceUrl || '')
@@ -150,6 +232,7 @@ function coverBg(preview: string) {
       <div class="lblrow">
         <span class="lbl">{{ f.label.toUpperCase() }}<span v-if="f.required" class="req">*</span></span>
         <span v-if="badge(f.id)" class="pbadge" :class="badge(f.id)">{{ badge(f.id) }}</span>
+        <span v-if="d.ruled[f.id]" class="pbadge ruled" :title="`Changed by ${d.ruled[f.id]} on its way in`">rule</span>
         <span v-if="f.control !== 'flags'" class="acts">
           <button v-if="props.capture" class="fact" title="Pick on page" @click="emit('capture', f.id)"><Icon name="pick" :size="12" :sw="1.9" /></button>
           <!-- a list can be gathered across pages; a single value can only be replaced -->
@@ -191,10 +274,10 @@ function coverBg(preview: string) {
              type="date" @input="setText(f, ($event.target as HTMLInputElement).value)" />
 
       <Combo v-else-if="f.control === 'vocab'" :model-value="text(f)" :suggestions="suggestions(f)"
-             wide :placeholder="f.placeholder" @update:model-value="setText(f, $event)" />
+             wide lazy :placeholder="f.placeholder" @update:model-value="setVocab(f, $event)" />
 
       <div v-else-if="f.control === 'chips'" class="chips">
-        <span v-for="(v, i) in list(f)" :key="v" class="chip">{{ v }}<span class="rm" @click="removeChip(f, i)">×</span></span>
+        <span v-for="(v, i) in list(f)" :key="v" class="chip" :class="{ ruled: notes[f.id]?.added.includes(v) }">{{ v }}<span v-if="notes[f.id]?.added.includes(v)" class="rmark">RULE</span><span class="rm" @click="removeChip(f, i)">×</span></span>
         <Combo :suggestions="suggestions(f)" add-mode :placeholder="f.placeholder" @add="addChip(f, $event)" />
       </div>
 
@@ -218,6 +301,12 @@ function coverBg(preview: string) {
           <template v-else-if="d.cover.kind === 'keep'">Keeping the stored cover.</template>
           <template v-else>No cover yet{{ props.capture ? ' — pick it on the page or paste a URL' : '' }}.</template>
         </div>
+      </div>
+
+      <!-- what a rule made of something you typed, and the way to keep your spelling -->
+      <div v-if="notes[f.id]" class="rulenote">
+        You typed <b>{{ notes[f.id].typed }}</b> — stored as <b>{{ notes[f.id].became }}</b> by {{ notes[f.id].by }}.
+        <button class="keep" @click="keepTyped(f)">Keep as typed</button>
       </div>
     </div>
     </div>
@@ -253,6 +342,12 @@ function coverBg(preview: string) {
 .pbadge { font: 700 8px/1 ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; padding: 3px 6px; border-radius: 4px; flex: none; }
 .pbadge.auto { color: var(--accent); background: var(--accentSoft); }
 .pbadge.manual { color: var(--warn); background: rgba(214,164,79,.12); }
+.pbadge.ruled { color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); }
+.chip.ruled { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+.rmark { font: 700 8px/1 ui-monospace, monospace; letter-spacing: .06em; color: var(--accent); }
+.rulenote { margin-top: 6px; font: 400 11.5px/1.45 system-ui; color: var(--tx3); }
+.rulenote b { color: var(--tx2); font-weight: 600; }
+.keep { border: none; background: transparent; padding: 0; margin-left: 4px; color: var(--accent); font: 600 11.5px/1 system-ui; cursor: pointer; }
 
 .in { font: 500 12.5px/1.3 system-ui; color: var(--tx); background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; outline: none; width: 100%; }
 .in:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accentSoft); }

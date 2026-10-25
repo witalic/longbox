@@ -166,6 +166,72 @@ export interface UserPatch {
 export interface AuthorWork { id: string; title: string; cover: string }
 export interface Bookmark { name: string; url: string }
 
+// ---- metadata management (design/metadata-management.md) ----
+
+// Which titles an operation may touch: exactly these ids, or what the library
+// shows under its filters (the same query `api.library` takes).
+export interface MetaScope {
+  ids?: string[] | null
+  search?: string
+  progress?: string
+  fav?: boolean
+  min_rating?: number
+  f?: string[]
+  nf?: string[]
+}
+export type MetaShape = 'list' | 'single' | 'flags' | 'chapter'
+export interface MetaField {
+  id: string; label: string; kind: 'title' | 'chapter'; shape: MetaShape
+  type: string; builtin: boolean; distinct: number
+}
+export interface MetaValue {
+  value: string
+  titles: number
+  typed: number    // how many of those titles hold it because the owner typed it
+  rule: number     // the position of the rule that already handles it (0 = none)
+  ruleText: string // what that rule makes of it
+}
+export type MetaActionKind = 'rename' | 'remove' | 'move' | 'add' | 'set' | 'clear' | 'replace'
+export interface MetaAction {
+  kind: MetaActionKind
+  field: string
+  values?: string[]
+  to?: string
+  toField?: string
+  find?: string
+}
+export interface MetaSample { titleId: string; title: string; field: string; before: string; after: string }
+export interface MetaPreview {
+  inScope: number
+  titles: number        // titles that change
+  manual: number        // changed values the owner typed
+  auto: number          // changed values that came from capture
+  conflicts: number     // titles where a move found its one slot taken
+  shelfMoves: number
+  shelfRename: string[] // [old, new] when a whole shelf is renamed at once
+  chapterTwins: number
+  untouched: number     // titles already holding the rename's target
+  sample: MetaSample[]
+}
+export interface MetaRun {
+  id: number; at: string; summary: string; scope: Record<string, unknown>
+  titles: number; seconds: number; stopped: boolean; revertedAt: string
+}
+export type RuleAction = 'rename' | 'remove' | 'move' | 'add'
+export interface Rule {
+  id: string
+  enabled: boolean
+  field: string
+  match: string[]
+  action: RuleAction
+  to: string
+  toField: string
+  domains: string[]
+}
+export interface RuleStats { fired: number; last: string }
+export type FieldValues = Record<string, string | string[]>
+export interface RuleApply { values: FieldValues; fired: { rule: string; n: number; field: string }[] }
+
 // Titles grouped by ONE value of ONE list field. People are this plus the two
 // things only they have (a role, a favourite mark) — not a separate shape.
 export interface BrowseGroup {

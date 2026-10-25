@@ -14,12 +14,17 @@ content). Full model: `design/state-model.md`; layout: `ARCHITECTURE.md`.
   App-config read-modify-write goes through `config_transaction()` only.
 - **Vault vs app config.** Anything that describes the library (recipes, the source layer,
   fields, per-title prefs) lives IN THE VAULT so it moves with it; the app config keeps only
-  the machine's (library paths, homepage, interrupted transfers, caches). `recipes.json` and
-  `sources.json` go through `Vault.read_doc()` / `Vault.doc_transaction()`: "absent" is the
+  the machine's (library paths, homepage, interrupted transfers, caches). `recipes.json`,
+  `sources.json` and `rules.json` go through `Vault.read_doc()` / `Vault.doc_transaction()`: "absent" is the
   only empty answer — an unparseable file raises (409), a failed read raises as itself, and a
   newer build's document is never written — so ANY change to the shape of either file bumps
   `DOC_SCHEMA` (vault.py), or an older build will silently drop what it does not know.
   (`fields.json` and `authors.json` predate this and still read a broken file as empty.)
+- **Bulk metadata writes go through `library/operations.py`.** One `apply()` decides what an
+  operation does — the preview runs it over index docs, the run over docs read under the lock —
+  and the run writes through `Vault.rewrite_in_place` + batched `LibraryIndex.apply_meta`, never
+  a `save_meta_value` + `_index` loop (that re-reads every chapter sidecar per title). The
+  journal and rule stats in `index.db` are versioned by table name and survive a rebuild.
 - **Zip invariant.** Every stored chapter archive is a plain zip (`chapters/<id>.zip`). Ingest
   converts (cbz → rename, rar/7z → repack, single image → append as next page) and REJECTS what
   it can't read (`UnsupportedArchiveError` → 409/422) — never store opaque files, never let a

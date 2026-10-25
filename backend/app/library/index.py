@@ -50,6 +50,39 @@ CREATE TABLE IF NOT EXISTS titles (
 );
 """
 
+# The journal of bulk metadata runs (design/metadata-management.md §5) — the ONE
+# thing in this file a rebuild cannot recreate, so it is not part of the cache:
+# its tables are versioned by name, a `titles` schema change or a rebuild leaves
+# them alone, and only deleting index.db loses them. What is lost then is the
+# ability to undo, never content — the vault still holds every value.
+_JOURNAL = """
+CREATE TABLE IF NOT EXISTS journal_runs_v1 (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    at          TEXT NOT NULL,
+    summary     TEXT NOT NULL,
+    scope       TEXT NOT NULL,
+    actions     TEXT NOT NULL,
+    titles      INTEGER NOT NULL DEFAULT 0,
+    seconds     REAL NOT NULL DEFAULT 0,
+    stopped     INTEGER NOT NULL DEFAULT 0,
+    reverted_at TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS journal_changes_v1 (
+    run      INTEGER NOT NULL,
+    title_id TEXT NOT NULL,
+    field    TEXT NOT NULL,
+    before   TEXT NOT NULL,
+    after    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS journal_changes_v1_run ON journal_changes_v1 (run);
+CREATE TABLE IF NOT EXISTS rule_stats_v1 (
+    rule  TEXT PRIMARY KEY,
+    fired INTEGER NOT NULL DEFAULT 0,
+    last  TEXT NOT NULL DEFAULT ''
+);
+"""
+JOURNAL_KEEP = 50
+
 _SORTS = {
     # `touched` is the document's own mtime, so "recently updated" survives a
     # rebuild — rowid order would silently become creation (then alphabetical)
@@ -87,6 +120,7 @@ class LibraryIndex:
         if not set(self._COLUMNS) <= have:
             self._db.executescript("DROP TABLE IF EXISTS titles;")
             self._db.executescript(_SCHEMA)
+        self._db.executescript(_JOURNAL)
 
     def close(self) -> None:
         with self._lock:
@@ -191,6 +225,124 @@ class LibraryIndex:
             params.append(row)
         with self._lock, self._db:
             self._db.executemany(guarded, params)
+
+    # ---- the bulk metadata path (operations.py) ----
+
+    _META_COLUMNS = ("title", "people", "type", "status", "rating", "fav", "unread",
+                     "started", "finished", "touched", "doc")
+
+    def apply_meta(self, rows: list[tuple[str, TitleDoc, int, int]], run: int | None = None,
+                   changes: list[tuple[str, str, object, object]] = ()) -> None:
+        """Refresh the document side of many rows in ONE transaction, with the
+        journal's rows for them. Each row is (id, doc, the stamp written, the
+        stamp the document had when it was read).
+
+        A metadata change moves neither chapters nor covers, so the media and
+        cover columns are kept as they are — no chapter directory is read for
+        this. The rows are written after their titles' locks were released, so
+        each is guarded by the stamp it was READ at: a row indexed since from a
+        later write carries a later stamp and is left alone."""
+        params = []
+        for tid, doc, touched, read_at in rows:
+            row = self._row(tid, doc, touched)
+            params.append({**{c: row[c] for c in (*self._META_COLUMNS, "id")}, "read_at": read_at})
+        sets = ", ".join(f"{c} = :{c}" for c in self._META_COLUMNS)
+        with self._lock, self._db:
+            self._db.executemany(
+                f"UPDATE titles SET {sets} WHERE id = :id AND touched <= :read_at", params)
+            if run is not None and changes:
+                self._db.executemany(
+                    "INSERT INTO journal_changes_v1 (run, title_id, field, before, after)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    [(run, tid, f, json.dumps(b, ensure_ascii=False), json.dumps(a, ensure_ascii=False))
+                     for tid, f, b, a in changes])
+
+    def types(self) -> dict[str, str]:
+        """Every title's type — which shelf it sits on — off the indexed column,
+        without parsing a single document."""
+        with self._lock:
+            return {r["id"]: r["type"] for r in self._db.execute("SELECT id, type FROM titles")}
+
+    def docs_for(self, ids: list[str]) -> list[tuple[str, TitleDoc]]:
+        """The indexed documents of these titles, in the order asked."""
+        found: dict[str, TitleDoc] = {}
+        with self._lock:
+            for i in range(0, len(ids), 500):  # under SQLite's variable limit
+                chunk = ids[i:i + 500]
+                rows = self._db.execute(
+                    f"SELECT id, doc FROM titles WHERE id IN ({','.join('?' * len(chunk))})",
+                    chunk).fetchall()
+                found.update({r["id"]: TitleDoc.model_validate_json(r["doc"]) for r in rows})
+        return [(i, found[i]) for i in ids if i in found]
+
+    def journal_open(self, at: str, summary: str, scope: dict, actions: list[dict]) -> int:
+        with self._lock, self._db:
+            cur = self._db.execute(
+                "INSERT INTO journal_runs_v1 (at, summary, scope, actions) VALUES (?, ?, ?, ?)",
+                (at, summary, json.dumps(scope, ensure_ascii=False),
+                 json.dumps(actions, ensure_ascii=False)))
+            return int(cur.lastrowid)
+
+    def journal_close(self, run: int, titles: int, seconds: float, stopped: bool) -> None:
+        """Finish a run's record, and let the oldest runs go past the last
+        JOURNAL_KEEP — with the changes they would have reverted."""
+        with self._lock, self._db:
+            self._db.execute(
+                "UPDATE journal_runs_v1 SET titles = ?, seconds = ?, stopped = ? WHERE id = ?",
+                (titles, round(seconds, 2), int(stopped), run))
+            old = [r[0] for r in self._db.execute(
+                "SELECT id FROM journal_runs_v1 ORDER BY id DESC LIMIT -1 OFFSET ?",
+                (JOURNAL_KEEP,)).fetchall()]
+            if old:
+                marks = ",".join("?" * len(old))
+                self._db.execute(f"DELETE FROM journal_changes_v1 WHERE run IN ({marks})", old)
+                self._db.execute(f"DELETE FROM journal_runs_v1 WHERE id IN ({marks})", old)
+
+    def journal_runs(self) -> list[dict]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM journal_runs_v1 ORDER BY id DESC").fetchall()
+        return [{"id": r["id"], "at": r["at"], "summary": r["summary"],
+                 "scope": json.loads(r["scope"]), "actions": json.loads(r["actions"]),
+                 "titles": r["titles"], "seconds": r["seconds"], "stopped": bool(r["stopped"]),
+                 "revertedAt": r["reverted_at"]} for r in rows]
+
+    def journal_changes(self, run: int) -> list[tuple[str, str, object, object]]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT title_id, field, before, after FROM journal_changes_v1 WHERE run = ?",
+                (run,)).fetchall()
+        return [(r["title_id"], r["field"], json.loads(r["before"]), json.loads(r["after"]))
+                for r in rows]
+
+    def rule_fired(self, rules: list[str], at: str) -> None:
+        """Count a change each of these rules made — so a rule nothing triggers
+        any more is visible."""
+        if not rules:
+            return
+        with self._lock, self._db:
+            self._db.executemany(
+                "INSERT INTO rule_stats_v1 (rule, fired, last) VALUES (?, 1, ?)"
+                " ON CONFLICT(rule) DO UPDATE SET fired = fired + 1, last = excluded.last",
+                [(r, at) for r in rules])
+
+    def rule_stats_keep(self, rules: list[str]) -> None:
+        """Forget the counts of rules that are gone."""
+        with self._lock, self._db:
+            if rules:
+                marks = ",".join("?" * len(rules))
+                self._db.execute(f"DELETE FROM rule_stats_v1 WHERE rule NOT IN ({marks})", rules)
+            else:
+                self._db.execute("DELETE FROM rule_stats_v1")
+
+    def rule_stats(self) -> dict[str, dict]:
+        with self._lock:
+            rows = self._db.execute("SELECT rule, fired, last FROM rule_stats_v1").fetchall()
+        return {r["rule"]: {"fired": r["fired"], "last": r["last"]} for r in rows}
+
+    def journal_reverted(self, run: int, at: str) -> None:
+        with self._lock, self._db:
+            self._db.execute("UPDATE journal_runs_v1 SET reverted_at = ? WHERE id = ?", (at, run))
 
     def remove(self, title_id: str) -> None:
         with self._lock, self._db:

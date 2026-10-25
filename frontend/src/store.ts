@@ -8,7 +8,7 @@ import {
 } from './api'
 import {
   chapterRowsOf, emptyFacets, metaOf, PAGE_FILTER_DEFAULTS, pageFilterOf, readerPrefsOf,
-  sameChapter, type Chapter, type Facets, type FieldDef, type PageFilter, type ReaderPrefs,
+  sameChapter, type Chapter, type Facets, type FieldDef, type MetaScope, type PageFilter, type ReaderPrefs,
   type ReadState, type Source, type Title,
 } from './data'
 import {
@@ -16,7 +16,7 @@ import {
 } from './local'
 import { stopCaptureFor } from './pagecapture'
 
-export type View = 'library' | 'title' | 'reader' | 'authors' | 'sources' | 'settings' | 'browser'
+export type View = 'library' | 'title' | 'reader' | 'authors' | 'sources' | 'metadata' | 'settings' | 'browser'
 export type Density = 'grid' | 'dense' | 'expanded'
 export type ThemePref = 'dark' | 'light' | 'system'
 
@@ -114,6 +114,9 @@ interface State {
   // bumps when the active library changes: what a view caches per library
   // outside this store (recipes, say) watches it and lets go
   libraryGen: number
+  // the titles the Metadata view works on when the library's select mode handed
+  // them over; null = what the library's filters show
+  metaSelection: string[] | null
   browseAxis: string     // which list field the browse view groups by
   facets: Facets // linked counts for the CURRENT selection
   globalFacets: Facets // unfiltered counts — the STABLE row order for the sidebar
@@ -152,6 +155,7 @@ export const store = reactive<State>({
   sourceGroups: [],
   sourcesRead: false,
   libraryGen: 0,
+  metaSelection: null,
   browseAxis: 'authors',
   facets: emptyFacets(),
   globalFacets: emptyFacets(),
@@ -313,6 +317,18 @@ export function buildQuery(): LibraryQuery {
     f: [...pairs(f.include), ...(f.shelf ? [`type:${f.shelf}`] : [])],
     nf: pairs(f.exclude),
   }
+}
+
+// The Metadata view's scope: the selection handed over from the library, or
+// exactly what the library shows under its filters right now.
+export function metaScope(): MetaScope {
+  if (store.metaSelection) return { ids: store.metaSelection }
+  const { sort: _sort, ...filters } = buildQuery()
+  return filters
+}
+export function editInMetadata(ids: string[]) {
+  store.metaSelection = [...ids]
+  goView('metadata')
 }
 
 export async function reloadLibrary() {
@@ -996,6 +1012,7 @@ export async function setLibraryPath(path: string): Promise<string | null> {
     Object.assign(pageFilter, PAGE_FILTER_DEFAULTS)
     stopCaptureFor() // the armed entry belongs to the library we are leaving
     store.byId = {}
+    store.metaSelection = null // a selection names the OLD vault's titles
     store.openTabs = []
     store.pinnedTabs = []
     store.activeTitle = null
