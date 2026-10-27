@@ -1496,7 +1496,10 @@ class Library:
             if url and not row.url:
                 row.url = url  # a supplied source link tops up the existing row
             return row, False
-        row = ChapterRow(id=self.chapter_id_for(num, lang, group), num=num, lang=lang, group=group, url=url)
+        # no row wears this identity, yet a RENUMBERED one may still hold the id
+        # it derives — and the media file named after that id
+        cid = _free_id(self.chapter_id_for(num, lang, group), {safe_id(c.id) for c in doc.chapters})
+        row = ChapterRow(id=cid, num=num, lang=lang, group=group, url=url)
         if doc.meta.chapterOrder == "manual":
             doc.chapters.append(row)  # the user's arrangement is sacred
         else:
