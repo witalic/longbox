@@ -134,6 +134,29 @@ def test_reconcile_restores_row_with_archive_but_no_sidecar(lib, tmp_path):
     assert [c.id for c in out.chapters] == ["ch-1"]
 
 
+def test_a_type_change_never_leaves_a_title_in_two_places(tmp_path, monkeypatch):
+    """Windows refuses to rename a folder while a file in it is open — the
+    episode playing in the window. The move used to fall back to copying the
+    whole title and deleting the original, stopped at the open file, and left
+    the title on two shelves. Now it refuses, and nothing moves."""
+    from app.library import vault as vault_mod
+    lib = Library(tmp_path / "lib")
+    out = lib.create(DraftIn(meta=TitleMeta(title="Ep")))
+
+    def refuse(src, dst):
+        raise PermissionError(13, "Access is denied", str(src))
+
+    with TestClient(create_app(lib)) as c:
+        monkeypatch.setattr(vault_mod.os, "rename", refuse)
+        r = c.put(f"/api/titles/{out.id}", json={"meta": {"title": "Ep", "type": "anime"}})
+        monkeypatch.undo()
+        assert r.status_code == 409 and "open" in r.json()["detail"]
+    assert not (lib.root / "anime").exists()
+    assert [p.parent.parent.name for p in lib.root.glob("*/*/title.json")] == ["other"]
+    assert lib.vault.load(out.id).meta.type == ""
+    lib.close()
+
+
 # ---- page ops refuse to edit what they can't rewrite ----
 
 @pytest.fixture
