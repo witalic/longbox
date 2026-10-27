@@ -763,7 +763,7 @@ export interface ImportProfile {
   entryTitle: string
   dropTags: boolean
   underscores: boolean
-  numbering: 'order' | 'name'
+  numbering: 'order' | 'name' | 'none'
   orderBy: 'name' | 'date'
   numPattern: string
   creatorTo: string[]
