@@ -558,4 +558,6 @@ const WIDTH_PRESETS = [600, 720, 900]
 .rrow:not(.dead) .rpg { color: var(--good); }
 
 .rkeys { flex: none; font-size: 8.5px; color: var(--tx3); text-align: center; padding-top: 8px; border-top: 1px solid var(--line); }
+/* the gap between an entry's number and its name (see TitleView .chnum) */
+.rname > b { margin-right: .5em; }
 </style>
