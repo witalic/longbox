@@ -323,8 +323,12 @@ pages, add two), nor can a file timestamp (a copy carries it over, a share round
 writes share a tick). A chapter is versioned by `revision.size.pages` from its sidecar, where
 the revision is a counter every page operation bumps; a cover by `mtime.size.ext`, and a
 cover write that would land on the previous stamp moves the timestamp itself; an episode's
-stills by a counter of their OWN (`stills`), never the media revision — bumping that would
-re-point the `<video>` of an episode that may be playing right then. ONE version serves the
+stills by a version of their OWN, never the media revision — bumping that would re-point the
+`<video>` of an episode that may be playing right then. That version is `stills.digest`: a
+counter every cut bumps, plus a digest of the stills actually stored (`stillsSha`, one per
+kind). The counter alone repeats — a re-ingest rebuilds the sidecar and a delete takes it
+away, so the next cut is `1` again, and it need not be the same picture even from the same
+file (a tile's poster and a sheet pass's poster are different frames). ONE version serves the
 URL and the server-side cache, so the editor, the reader and the library grid can never
 disagree about what a page is. All three live in `library/versions.py`, whose `cache_key`
 REFUSES a key without a version — a new cached artifact cannot quietly opt out of the rule.

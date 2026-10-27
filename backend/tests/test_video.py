@@ -7,13 +7,14 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.library import media
-from app.library.models import ChapterRow, DraftIn, TitleMeta
+from app.library.models import ChapterOut, ChapterRow, DraftIn, TitleMeta
 from app.library.service import Library
 from app.main import create_app
 from app.settings import get_settings
@@ -538,3 +539,103 @@ def test_episode_stills_are_stored_in_the_vault_and_served_back(tmp_path):
         assert again.chapter_frames(out.id, "c1", "sheet")[0] == sheet
     finally:
         again.close()
+
+
+def _still(color: tuple[int, int, int]) -> bytes:
+    """A still the thumbnailer can decode, so a downscaled copy is actually made
+    and cached on disk — the cache these tests are about."""
+    from io import BytesIO
+
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (64, 64), color).save(buf, "JPEG")
+    return buf.getvalue()
+
+
+def _color(data: bytes) -> tuple[int, int, int]:
+    from io import BytesIO
+
+    from PIL import Image
+
+    with Image.open(BytesIO(data)) as img:
+        r, g, b = img.convert("RGB").getpixel((img.width // 2, img.height // 2))
+    return r, g, b
+
+
+RED, BLUE = (220, 20, 20), (20, 20, 220)
+
+
+def _episode_slot(tmp_path: Path) -> tuple[Library, str, Callable[[str, bytes], None]]:
+    lib = Library(tmp_path / "v")
+    out = lib.create(DraftIn(meta=TitleMeta(title="Ep"), chapters=[ChapterRow(id="c1", num="1")]))
+
+    def attach(name: str, payload: bytes) -> None:
+        lib.attach_chapter_media(out.id, num="1", lang="", group="", chapter_id="c1",
+                                 src=_mp4(tmp_path / name, payload), sidecar={"filename": name})
+    return lib, out.id, attach
+
+
+def _row(lib: Library, title_id: str) -> ChapterOut:
+    return next(c for c in lib.get(title_id).chapters if c.id == "c1")
+
+
+def _served(lib: Library, title_id: str) -> tuple[int, int, int]:
+    got = lib.chapter_frames(title_id, "c1", "poster", 32)
+    assert got is not None
+    return _color(got[0])
+
+
+def test_a_re_ingest_never_repeats_the_stills_version(tmp_path, monkeypatch):
+    """A re-ingest rebuilds the sidecar and sweeps the old stills, and the cut
+    that followed was `1` again: the URL the browser holds the PREVIOUS file's
+    poster under for a day. The disk cache keys by the same version — never by
+    the file's timestamp, which two writes inside one tick can share."""
+    monkeypatch.setenv("LONGBOX_CONFIG_DIR", str(tmp_path / "cfg"))  # thumb cache → tmp
+    lib, tid, attach = _episode_slot(tmp_path)
+    poster = lib.vault.chapter_frames_path(tid, "c1", "poster")
+
+    attach("a.mp4", b"\x00" * 4096)
+    assert lib.save_chapter_frames(tid, "c1", "poster", _still(RED))
+    first = _row(lib, tid).stills
+    assert _served(lib, tid) == pytest.approx(RED, abs=8)
+    stamp = poster.stat().st_mtime_ns
+
+    attach("b.mp4", b"\x01" * 4096)
+    assert _row(lib, tid).poster is False  # the old still went with the old file
+    assert lib.save_chapter_frames(tid, "c1", "poster", _still(BLUE))
+    assert _row(lib, tid).stills != first
+    os.utime(poster, ns=(stamp, stamp))
+    assert _served(lib, tid) == pytest.approx(BLUE, abs=8)
+    lib.close()
+
+
+def test_a_re_download_after_a_delete_never_repeats_the_stills_version(tmp_path, monkeypatch):
+    """A delete takes the sidecar — and its counter — with it, so the cut after
+    a re-download starts over. The SAME file is no excuse: the poster a tile
+    asks for and the one a sheet pass picks are different frames of it."""
+    monkeypatch.setenv("LONGBOX_CONFIG_DIR", str(tmp_path / "cfg"))  # thumb cache → tmp
+    lib, tid, attach = _episode_slot(tmp_path)
+
+    attach("ep.mp4", b"\x00" * 4096)
+    assert lib.save_chapter_frames(tid, "c1", "poster", _still(RED))
+    first = _row(lib, tid).stills
+    assert _served(lib, tid) == pytest.approx(RED, abs=8)
+
+    lib.delete_chapter_media(tid, "c1")
+    attach("ep.mp4", b"\x00" * 4096)
+    assert lib.save_chapter_frames(tid, "c1", "poster", _still(BLUE))
+    assert _row(lib, tid).stills != first
+    assert _served(lib, tid) == pytest.approx(BLUE, abs=8)
+    lib.close()
+
+
+def test_a_sidecar_from_before_the_digests_keeps_a_version_no_new_cut_can_reach():
+    from app.library.versions import stills_version
+
+    assert stills_version(None) == "0"
+    assert stills_version({"stills": 3}) == "3"
+    cut = stills_version({"stills": 3, "stillsSha": {"poster": "ab"}})
+    assert cut.startswith("3.") and cut != "3"
+    assert cut != stills_version({"stills": 3, "stillsSha": {"poster": "cd"}})
+    assert cut != stills_version({"stills": 3, "stillsSha": {"poster": "ab", "sheet": "cd"}})

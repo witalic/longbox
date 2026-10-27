@@ -14,6 +14,8 @@ track, another preview size) cannot quietly opt out of it.
 """
 from __future__ import annotations
 
+import hashlib
+
 
 class UnversionedCacheKey(ValueError):
     """Raised when something asks to be cached without saying which version of
@@ -21,13 +23,28 @@ class UnversionedCacheKey(ValueError):
 
 
 def stills_version(sidecar: dict | None) -> str:
-    """What a chapter's STILLS are cached under.
+    """What a chapter's STILLS are cached under: the counter every cut bumps,
+    plus a digest of the stills actually stored.
 
-    Their own counter, never the media revision: a poster describes the same
+    Their own version, never the media revision: a poster describes the same
     bytes it was cut from, and bumping the media version to refresh a tile
     re-versions the video URL too — which re-points the <video> element of an
-    episode that may be playing at that very moment, and restarts it."""
-    return str(int((sidecar or {}).get("stills") or 0))
+    episode that may be playing at that very moment, and restarts it.
+
+    The counter alone repeats. A re-ingest rebuilds the sidecar and a delete
+    takes it away, so the next cut is `1` again — and not the same picture: the
+    poster a tile asks for and the one a sheet pass picks are different frames
+    of the same video. The digests name the bytes, so a repeated version can
+    only mean the same files. A sidecar written before they were recorded keeps
+    the bare counter, which no digest-bearing version can equal; and the counter
+    stays in the version for a cut that an older build makes without one."""
+    side = sidecar or {}
+    count = int(side.get("stills") or 0)
+    digests = side.get("stillsSha") or {}
+    if not digests:
+        return str(count)
+    named = "|".join(f"{kind}:{digests[kind]}" for kind in sorted(digests))
+    return f"{count}.{hashlib.sha256(named.encode()).hexdigest()[:12]}"
 
 
 def chapter_version(sidecar: dict | None) -> str:
