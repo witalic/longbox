@@ -1350,7 +1350,7 @@ class Library:
                 final.append(c)  # two brand-new rows — trust the draft
                 continue
             fresh = c if anchor is other else other
-            for f in ("url", "title", "date"):
+            for f in ("url", "title", "date", "section"):
                 if not getattr(anchor, f) and getattr(fresh, f):
                     setattr(anchor, f, getattr(fresh, f))
             final[j] = anchor
@@ -1510,7 +1510,7 @@ class Library:
 
     def attach_chapter_media(
         self, title_id: str, *, num: str, lang: str, group: str,
-        src: Path, sidecar: dict, url: str = "", chapter_id: str = "",
+        src: Path, sidecar: dict, url: str = "", chapter_id: str = "", section: str = "",
     ) -> TitleOut | None:
         """Attach downloaded media to a chapter: to the EXACT row when
         `chapter_id` is given (attach/replace on an existing row), else to the
@@ -1549,6 +1549,8 @@ class Library:
                                               url or doc.meta.source.url, fired)
                     self._count_fired(fired)
                 row, _ = self._row_for(doc, num=num, lang=lang, group=group, url=url)
+            if section and not row.section:
+                row.section = section  # a part named with the file fills an entry that has none
             suffix = Path(sidecar.get("filename") or src.name).suffix.lower()
             if suffix in media.IMAGE_EXTS:
                 # unpacked media: the image becomes the chapter zip's next page

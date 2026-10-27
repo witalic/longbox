@@ -35,6 +35,9 @@ export interface ChapterRow {
   lang: string
   group: string
   date: string
+  // the part of the work it belongs to (a volume, a season, a year) — the title
+  // page groups by it; it is never part of the entry's identity
+  section: string
 }
 // The two stills an episode can carry — one frame for a tile, a grid of them
 // for a preview. Both are cut in the same pass and kept in the vault.
@@ -710,7 +713,8 @@ export function nextLabels(chapters: { num: string }[] = [], count = 5): string[
 
 // Strip derived fields (read/dl/pages/…) down to the committable rows.
 export function chapterRowsOf(chapters: ChapterRow[]): ChapterRow[] {
-  return chapters.map(({ id, num, title, url, lang, group, date }) => ({ id, num, title, url, lang, group, date }))
+  return chapters.map(({ id, num, title, url, lang, group, date, section }) =>
+    ({ id, num, title, url, lang, group, date, section }))
 }
 
 // Stable chapter id when the site provides none: derived from the row's

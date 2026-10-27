@@ -59,7 +59,8 @@ tags or cover, and longbox learns a reusable per-site recipe.
 - **Episodes** — video is a kind of content, not an attachment: an episode is an entry like any
   other, with its own language, group, source and reading state. See below for what it does.
 - **Contents editor** — entries with free-form labels, translation groups (language + group per
-  row), numbering that follows the translation it belongs to, drag-to-reorder, attach/replace
+  row), sections (a volume, a season, a year) the title page groups entries by, numbering that
+  follows the translation it belongs to, drag-to-reorder, attach/replace
   archives, add loose images or whole folders, move pages between entries, manual page reordering.
 - **Reader** — page and strip modes, fit controls, a hideable rail of page thumbnails, label-wise
   chapter navigation that keeps your current translation, per-title remembered settings, and

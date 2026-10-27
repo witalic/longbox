@@ -191,6 +191,12 @@ const tree = computed<ChapterNode[]>(() => groupByNum(orderedChapters.value.filt
   (langFilter.value === 'all' || c.lang === langFilter.value)
   && (groupFilter.value === 'all' || c.group === groupFilter.value))))
 const closedNums = reactive<Record<string, boolean>>({}) // tree nodes default to open
+// A section heading opens wherever the part changes — in display order, so a
+// hand-arranged list reads exactly as arranged; an entry with none sits in none.
+function opensSection(i: number): boolean {
+  const here = tree.value[i].rows[0].section
+  return !!here && (i === 0 || tree.value[i - 1].rows[0].section !== here)
+}
 
 // ---- edit mode: reorder (drag num-groups), delete rows/files/pages ----
 const editMode = ref(false)
@@ -214,7 +220,8 @@ function onRowDrop(targetNum: string) {
   if (moved) {
     clearDrag()
     if (!t.value || moved.num === targetNum) return
-    void editChapterRow(t.value, moved.id, { num: targetNum, lang: moved.lang, group: moved.group, url: moved.url })
+    void editChapterRow(t.value, moved.id,
+      { num: targetNum, lang: moved.lang, group: moved.group, url: moved.url, section: moved.section })
     return
   }
   dropOnNum(targetNum)
@@ -226,17 +233,20 @@ const eLabel = ref('')
 const eLang = ref('')
 const eGroup = ref('')
 const eUrl = ref('')
+const eSection = ref('')
 function openEntryEdit(c: Chapter) {
   editRow.value = editRow.value === c.id ? null : c.id
   eLabel.value = [c.num, c.title].filter(Boolean).join(' ')
   eLang.value = c.lang
   eGroup.value = c.group
   eUrl.value = c.url
+  eSection.value = c.section
 }
 async function saveEntryEdit() {
   if (!t.value || !editRow.value || !eLabel.value.trim()) return
   const ok = await editChapterRow(t.value, editRow.value, {
     num: eLabel.value.trim(), lang: eLang.value.trim(), group: eGroup.value.trim(), url: eUrl.value.trim(),
+    section: eSection.value.trim(),
   })
   if (ok) editRow.value = null
 }
@@ -278,7 +288,11 @@ const iNum = ref('') // the single free-text LABEL
 const iLang = ref('')
 const iGroup = ref('')
 const iUrl = ref('')
+const iSection = ref('')
 const importing = ref(false)
+// the parts this title already has, in the order they first appear
+const sectionSuggest = computed(() =>
+  [...new Set((t.value?.chapters ?? []).map((c) => c.section).filter(Boolean))])
 // This title's own entries first, then everything from the site it came from.
 const iLangSuggest = computed(() => langRings(t.value?.chapters ?? [], t.value?.source.domain ?? ''))
 const iGroupSuggest = computed(() => groupRings(t.value?.chapters ?? [], t.value?.source.domain ?? ''))
@@ -298,7 +312,8 @@ async function importEntryArchive(file: File) {
   importing.value = true
   try {
     cache([await api.importChapterArchive(t.value.id,
-      { num: iNum.value.trim(), lang: iLang.value.trim(), group: iGroup.value.trim(), url: iUrl.value.trim() }, file)])
+      { num: iNum.value.trim(), lang: iLang.value.trim(), group: iGroup.value.trim(), url: iUrl.value.trim(),
+        section: iSection.value.trim() }, file)])
     importOpen.value = false
     iNum.value = nextLabel(iNum.value.trim())
     iTouched.value = false
@@ -314,6 +329,7 @@ async function addRowOnly() {
   if (!t.value || !iNum.value.trim()) return
   if (await addChapterRow(t.value, {
     num: iNum.value.trim(), lang: iLang.value.trim(), group: iGroup.value.trim(), url: iUrl.value.trim(),
+    section: iSection.value.trim(),
   })) {
     iNum.value = nextLabel(iNum.value.trim())
     iTouched.value = false
@@ -326,7 +342,8 @@ async function uploadEntryImages(files: File[]) {
   if (!files.length || !t.value || !iNum.value.trim()) return
   importing.value = true
   try {
-    const ch = { num: iNum.value.trim(), lang: iLang.value.trim(), group: iGroup.value.trim(), url: iUrl.value.trim() }
+    const ch = { num: iNum.value.trim(), lang: iLang.value.trim(), group: iGroup.value.trim(), url: iUrl.value.trim(),
+                 section: iSection.value.trim() }
     const same = (c: Chapter) => sameChapter(c, ch)
     let row = t.value.chapters.find(same)
     if (!row) {
@@ -1046,7 +1063,8 @@ async function removeRow(c: Chapter) {
         <div v-if="editMode && importOpen" class="entryform addform" :class="{ drophot: entryDropHot }"
              @dragover.prevent="entryDropHot = true" @dragleave="entryDropHot = false" @drop.prevent="onEntryDrop">
           <EntryFields :label="iNum" @update:label="iNum = $event; iTouched = true"
-                       v-model:lang="iLang" v-model:group="iGroup" v-model:url="iUrl"
+                       v-model:lang="iLang" v-model:group="iGroup" v-model:url="iUrl" v-model:section="iSection"
+                       :section-suggest="sectionSuggest"
                        :lang-suggest="iLangSuggest.near" :group-suggest="iGroupSuggest.near"
                        :lang-more="iLangSuggest.all" :group-more="iGroupSuggest.all"
                        :label-suggest="iLabelSuggest"
@@ -1065,7 +1083,8 @@ async function removeRow(c: Chapter) {
         <input ref="attachEl" type="file" :accept="FILE_ACCEPT" style="display:none" @change="onAttachFile" />
 
         <div v-if="tree.length" class="chlist scroll">
-          <template v-for="node in tree" :key="node.num">
+          <template v-for="(node, i) in tree" :key="node.num">
+            <div v-if="opensSection(i)" class="chsec mono">{{ node.rows[0].section }}</div>
             <!-- GROUP: header row + translations inside a guide-lined block -->
             <template v-if="node.rows.length > 1">
               <div class="chrow node" :class="{ dragging: dragNum === node.num, dropbefore: dropTarget === node.num }"
@@ -1105,6 +1124,7 @@ async function removeRow(c: Chapter) {
                   </div>
                   <div v-if="editMode && editRow === c.id" class="entryform">
                     <EntryFields v-model:label="eLabel" v-model:lang="eLang" v-model:group="eGroup" v-model:url="eUrl"
+                                 v-model:section="eSection" :section-suggest="sectionSuggest"
                                  :lang-suggest="iLangSuggest.near" :group-suggest="iGroupSuggest.near"
                        :lang-more="iLangSuggest.all" :group-more="iGroupSuggest.all"
                        :label-suggest="iLabelSuggest" />
@@ -1144,6 +1164,7 @@ async function removeRow(c: Chapter) {
               </div>
               <div v-if="editMode && editRow === node.rows[0].id" class="entryform">
                 <EntryFields v-model:label="eLabel" v-model:lang="eLang" v-model:group="eGroup" v-model:url="eUrl"
+                                 v-model:section="eSection" :section-suggest="sectionSuggest"
                              :lang-suggest="iLangSuggest.near" :group-suggest="iGroupSuggest.near"
                        :lang-more="iLangSuggest.all" :group-more="iGroupSuggest.all"
                        :label-suggest="iLabelSuggest" />
@@ -1353,6 +1374,8 @@ async function removeRow(c: Chapter) {
 .chhead h2 { margin: 0; font: 600 16px/1 system-ui; color: var(--tx); }
 .chlist { margin-top: 14px; display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .chrow { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; border: 1px solid transparent; }
+.chsec { display: flex; align-items: center; gap: 10px; padding: 12px 12px 4px; font-size: 10px; font-weight: 700; letter-spacing: .12em; color: var(--tx3); text-transform: uppercase; }
+.chsec::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 .chrow:hover { background: var(--panel2); }
 .chrow.node { color: var(--tx2); cursor: pointer; }
 /* ONE 14px lead slot: read dot / chevron / drag handle — the label text starts

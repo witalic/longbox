@@ -104,6 +104,9 @@ class ChapterRow(BaseModel):
     lang: str = ""
     group: str = ""
     date: str = ""
+    # What part of the work the entry belongs to — a volume, a season, a year.
+    # The title page groups by it; it is never part of the entry's identity.
+    section: str = ""
 
 
 class UserLayer(BaseModel):

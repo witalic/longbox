@@ -370,12 +370,13 @@ def reorder_covers(request: Request, title_id: str, body: CoverOrderIn) -> Title
 @router.post("/titles/{title_id}/chapters/import", response_model=TitleOut)
 async def import_chapter_archive(
     request: Request, title_id: str, num: str = "", lang: str = "", group: str = "",
-    filename: str = "", url: str = "", chapter_id: str = "",
+    filename: str = "", url: str = "", chapter_id: str = "", section: str = "",
 ) -> TitleOut:
     """Attach an ALREADY-downloaded archive from disk: the raw file bytes come
     in the body, the chapter identity in the query — either an exact
     `chapter_id` (attach/replace on an existing row) or num/lang/group (matched,
-    created when missing). `url` records the chapter's source link on the row."""
+    created when missing). `url` records the chapter's source link on the row,
+    `section` the part of the work it belongs to."""
     if not num.strip() and not chapter_id:
         raise HTTPException(status_code=422, detail="a chapter number (or chapter_id) is required")
     tmp = tempfile.NamedTemporaryFile(prefix="longbox-import-", suffix=Path(filename).suffix or ".zip", delete=False)
@@ -402,7 +403,7 @@ async def import_chapter_archive(
             result = await run_in_threadpool(
                 _lib(request).attach_chapter_media,
                 title_id, num=num, lang=lang, group=group, src=src, sidecar=sidecar,
-                url=url, chapter_id=chapter_id)
+                url=url, chapter_id=chapter_id, section=section)
         except media.UnsupportedArchiveError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
         if result is None:

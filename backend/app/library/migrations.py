@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 # the shape this build writes
-CURRENT_SCHEMA = 4
+CURRENT_SCHEMA = 5
 
 
 def _v1_to_v2(doc: dict) -> dict:
@@ -43,10 +43,18 @@ def _v3_to_v4(doc: dict) -> dict:
     return {**doc, "user": user}
 
 
+def _v4_to_v5(doc: dict) -> dict:
+    """An entry can belong to a part of its work — a volume, a season, a year."""
+    chapters = [{**c, "section": c.get("section", "")} if isinstance(c, dict) else c
+                for c in doc.get("chapters") or []]
+    return {**doc, "chapters": chapters}
+
+
 _STEPS: dict[int, Callable[[dict], dict]] = {
     1: _v1_to_v2,
     2: _v2_to_v3,
     3: _v3_to_v4,
+    4: _v4_to_v5,
 }
 
 

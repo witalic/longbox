@@ -927,7 +927,7 @@ export async function deleteTitles(ids: string[]): Promise<number> {
 // Edit ONE entry's identity fields in place. The row id NEVER changes here, so
 // the archive, read state and download provenance stay bound (no-orphan rule).
 export async function editChapterRow(t: Title, id: string,
-  fields: { num: string; lang: string; group: string; url: string }): Promise<boolean> {
+  fields: { num: string; lang: string; group: string; url: string; section: string }): Promise<boolean> {
   try {
     const body = commitBodyFrom(t)
     const row = body.chapters.find((c) => c.id === id)
@@ -937,6 +937,7 @@ export async function editChapterRow(t: Title, id: string,
     row.lang = fields.lang
     row.group = fields.group
     row.url = fields.url
+    row.section = fields.section
     cache([await api.commitTitle(t.id, body)])
     return true
   } catch (e) {
@@ -950,14 +951,15 @@ export async function editChapterRow(t: Title, id: string,
 // commit can adopt an existing row's id), so anything addressing the new row's
 // media has to read it back rather than assume what it will be.
 export async function addChapterRow(
-  t: Title, ch: { num: string; lang: string; group: string; url?: string }): Promise<Chapter | null> {
+  t: Title, ch: { num: string; lang: string; group: string; url?: string; section?: string }): Promise<Chapter | null> {
   if (t.chapters.some((c) => sameChapter(c, ch))) {
     store.error = `Chapter ${ch.num}${ch.lang ? ' · ' + ch.lang : ''} already exists`
     return null
   }
   try {
     const body = commitBodyFrom(t)
-    body.chapters.push({ id: '', num: ch.num, title: '', url: ch.url || '', lang: ch.lang, group: ch.group, date: '' })
+    body.chapters.push({ id: '', num: ch.num, title: '', url: ch.url || '', lang: ch.lang, group: ch.group,
+                         date: '', section: ch.section || '' })
     const saved = await api.commitTitle(t.id, body)
     cache([saved])
     const added = saved.chapters.find((c) => sameChapter(c, ch))

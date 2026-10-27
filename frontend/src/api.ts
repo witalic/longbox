@@ -202,8 +202,8 @@ export const api = {
   deleteChapterRow: (tid: string, cid: string) => req<Title>(`/titles/${tid}/chapters/${cid}`, { method: 'DELETE' }),
   // attach an already-downloaded archive from disk (the local twin of arming);
   // chapterId pins it to an exact existing row, url records the source link
-  importChapterArchive: (tid: string, ch: { num: string; lang: string; group: string; url?: string; chapterId?: string }, file: File) =>
-    req<Title>(`/titles/${tid}/chapters/import${qs({ num: ch.num, lang: ch.lang, group: ch.group, filename: file.name, url: ch.url, chapter_id: ch.chapterId })}`,
+  importChapterArchive: (tid: string, ch: { num: string; lang: string; group: string; url?: string; section?: string; chapterId?: string }, file: File) =>
+    req<Title>(`/titles/${tid}/chapters/import${qs({ num: ch.num, lang: ch.lang, group: ch.group, filename: file.name, url: ch.url, section: ch.section, chapter_id: ch.chapterId })}`,
       { method: 'POST', body: file }),
   settings: () => req<AppSettings>('/settings'),
   setLibraryPath: (path: string) => req<AppSettings>('/settings/library-path', jsonBody('PUT', { path })),

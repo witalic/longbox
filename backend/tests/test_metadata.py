@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.library.migrations import CURRENT_SCHEMA, migrate
-from app.library.models import DraftIn, TitleMeta
+from app.library.models import ChapterRow, DraftIn, TitleMeta
 from app.library.service import Library
 from app.main import create_app
 from app.settings import get_settings
@@ -37,6 +37,28 @@ def test_a_studio_already_recorded_survives_the_upgrade(tmp_path):
     raw = {"schema": 2, "meta": {"title": "Akira", "studio": ["Akira Committee"]}}
     upgraded, _ = migrate(dict(raw))
     assert upgraded["meta"]["studio"] == ["Akira Committee"]
+
+
+def test_entries_written_before_sections_existed_still_open():
+    raw = {"schema": 4, "meta": {"title": "Berserk"},
+           "chapters": [{"id": "c1", "num": "1"}], "user": {"read": {"c1": "read"}}}
+    upgraded, changed = migrate(dict(raw))
+    assert changed is True and upgraded["schema"] == CURRENT_SCHEMA
+    assert upgraded["chapters"] == [{"id": "c1", "num": "1", "section": ""}]
+    assert upgraded["user"] == {"read": {"c1": "read"}}  # the user layer is never touched
+
+
+def test_an_entrys_section_is_stored_and_never_part_of_its_identity(tmp_path):
+    """A section groups entries; a re-captured row of the same number is still
+    that entry, and fills a section it did not have."""
+    lib = Library(tmp_path)
+    out = lib.create(DraftIn(meta=TitleMeta(title="Berserk"), chapters=[
+        ChapterRow(id="c1", num="1", lang="en"), ChapterRow(id="c2", num="2", lang="en", section="Vol. 01")]))
+    t = lib.commit(out.id, DraftIn(meta=TitleMeta(title="Berserk"), chapters=[
+        ChapterRow(id="c1", num="1", lang="en"), ChapterRow(id="c2", num="2", lang="en", section="Vol. 01"),
+        ChapterRow(id="fresh", num="1", lang="en", section="Vol. 01")]))
+    assert [(c.id, c.num, c.section) for c in t.chapters] == [("c1", "1", "Vol. 01"), ("c2", "2", "Vol. 01")]
+    lib.close()
 
 
 def test_studio_is_stored_committed_and_read_back(tmp_path):
