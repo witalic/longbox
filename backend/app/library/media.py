@@ -241,8 +241,9 @@ def _copy_range(fh, out, offset: int, length: int) -> None:
         out.write(chunk)
 
 
-def looks_like_video(path: Path) -> bool:
-    """Whether the file's own bytes agree with its video extension.
+def looks_like_video(path: Path, ext: str = "") -> bool:
+    """Whether the file's own bytes agree with its video extension — `ext`, or
+    the path's own when the file sits under a scratch name.
 
     The same rule the zip invariant applies to page media: never store an
     opaque file. A site that answers a download with an HTML error page names
@@ -253,7 +254,7 @@ def looks_like_video(path: Path) -> bool:
             head = fh.read(16)
     except OSError:
         return False
-    ext = path.suffix.lower()
+    ext = (ext or path.suffix).lower()
     if ext in {".mp4", ".m4v", ".mov"}:
         return head[4:8] == b"ftyp"
     if ext in {".webm", ".mkv"}:
@@ -263,6 +264,29 @@ def looks_like_video(path: Path) -> bool:
     if ext == ".ts":
         return head[:1] == bytes((0x47,))  # MPEG-TS sync byte
     return False
+
+
+ARCHIVE_EXTS = {".zip", ".cbz", ".rar", ".cbr", ".7z", ".cb7"}
+
+
+def looks_like_archive(path: Path) -> bool:
+    """Whether the file's own bytes are an archive this app can read — by its
+    header only, so asking costs one small read and never an extraction."""
+    if zipfile.is_zipfile(path):
+        return True
+    try:
+        import py7zr
+        if py7zr.is_7zfile(path):
+            return True
+    except Exception:  # noqa: BLE001 — no reader, or a header nothing can parse
+        pass
+    try:
+        import rarfile
+        return bool(rarfile.is_rarfile(path))
+    except Exception:  # noqa: BLE001 — the same
+        return False
+
+
 CT_BY_EXT = {
     ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
     ".webp": "image/webp", ".gif": "image/gif", ".avif": "image/avif", ".bmp": "image/bmp",
@@ -352,7 +376,7 @@ def content_digest(path: Path) -> str:
             for name in sorted(
                     (n for n in z.namelist()
                      if not n.endswith("/") and Path(n).suffix.lower() in IMAGE_EXTS),
-                    key=_natkey):
+                    key=natural_key):
                 blob = z.read(name)
                 h.update(len(blob).to_bytes(8, "big"))
                 h.update(blob)
@@ -462,9 +486,43 @@ def repack_to_zip(src: Path, dst: Path) -> int:
     return len(image_entries(dst))
 
 
-def _natkey(s: str) -> list:
+def natural_key(s: str) -> list:
     """Natural sort: 'page2' before 'page10'."""
     return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", s)]
+
+
+def pack_images(files: list[Path], dst: Path) -> int:
+    """A folder of loose images as a plain STORED zip at `dst` (atomic), each
+    page under its own name in the order given — the way a folder enters the
+    vault. WebP/AVIF pages convert as they would from any archive. Files are
+    read one at a time: a folder of large scans never sits in memory whole."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    tmp = tmp_path(dst)
+    taken: set[str] = set()
+
+    def unique(name: str) -> str:
+        # `01.webp` converts to `01.jpg` — beside an `01.jpg` of its own, one
+        # name would hide the other page from every reader
+        stem, ext, n = Path(name).stem, Path(name).suffix, 2
+        while name.casefold() in taken:
+            name, n = f"{stem}-{n}{ext}", n + 1
+        taken.add(name.casefold())
+        return name
+
+    try:
+        # a page dated before 1980 is still a page: the zip clamps its stamp
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED, strict_timestamps=False) as z:
+            for f in files:
+                if f.suffix.lower() in _CONVERT_EXTS:
+                    data, ext = normalize_page(f.read_bytes(), f.suffix)
+                    z.writestr(unique(f.with_suffix(ext).name), data)
+                else:
+                    z.write(f, unique(f.name))
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+    replace_atomically(tmp, dst)
+    return len(files)
 
 
 def image_entries(path: Path) -> list[str]:
@@ -476,7 +534,7 @@ def image_entries(path: Path) -> list[str]:
                      if not n.endswith("/") and Path(n).suffix.lower() in IMAGE_EXTS]
     except (zipfile.BadZipFile, OSError):
         return []
-    return sorted(names, key=_natkey)
+    return sorted(names, key=natural_key)
 
 
 def read_entry(path: Path, name: str) -> tuple[bytes, str]:

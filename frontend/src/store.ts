@@ -16,7 +16,8 @@ import {
 } from './local'
 import { stopCaptureFor } from './pagecapture'
 
-export type View = 'library' | 'title' | 'reader' | 'authors' | 'sources' | 'metadata' | 'settings' | 'browser'
+export type View = 'library' | 'title' | 'reader' | 'authors' | 'sources' | 'metadata' | 'import' | 'settings'
+  | 'browser'
 export type Density = 'grid' | 'dense' | 'expanded'
 export type ThemePref = 'dark' | 'light' | 'system'
 
@@ -706,7 +707,7 @@ export async function pollDownloads(force = false): Promise<void> {
 // So nothing here decides what is running: the sidecar says, including WHICH
 // row started it, and every screen reads the same answer.
 export const vaultPass = reactive<PassState & { key: string }>(
-  { running: false, op: '', key: '', done: 0, total: 0 })
+  { running: false, op: '', key: '', done: 0, total: 0, detail: '' })
 let passWatchers = 0
 
 /** Something on screen is showing the pass — keep the poll warm while it is. */

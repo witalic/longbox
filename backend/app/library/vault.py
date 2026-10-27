@@ -26,6 +26,9 @@ from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
+from typing import TypeVar
+
+from pydantic import BaseModel, ValidationError
 
 from . import media
 from .migrations import CURRENT_SCHEMA, migrate
@@ -41,6 +44,8 @@ class UnreadableDocument(RuntimeError):
 class NewerDocument(RuntimeError):
     """A title document a newer build wrote: read, never rewritten in bulk."""
 
+
+_Item = TypeVar("_Item", bound=BaseModel)
 
 # The shape of the vault-level documents this build writes. ANY change to the
 # shape of recipes.json or sources.json bumps it: an older build refuses to write
@@ -249,6 +254,24 @@ class Vault:
         if not isinstance(raw, dict):
             raise UnreadableDocument(f"{name} is not a JSON object — fix or move it aside")
         return raw
+
+    @staticmethod
+    def doc_items(doc: dict, name: str, key: str, model: type[_Item], what: str) -> list[_Item]:
+        """The `key` list of a vault document, each item read as `model` — or
+        UnreadableDocument: a newer build's document, a shape this build cannot
+        read, or ONE item it cannot. Acting on the rest would act on half of
+        what the owner wrote: a rule list missing the rule that was there to
+        catch something lets exactly that through."""
+        schema = doc.get("schema", DOC_SCHEMA)
+        if not isinstance(schema, int) or schema > DOC_SCHEMA:
+            raise UnreadableDocument(f"{name} was written by a newer longbox — this one does not use it")
+        raw = doc.get(key, [])
+        if not isinstance(raw, list):
+            raise UnreadableDocument(f"{name} holds {key} in a shape this build cannot read")
+        try:
+            return [model.model_validate(r) for r in raw]
+        except ValidationError as e:
+            raise UnreadableDocument(f"{name} holds {what} this build cannot read") from e
 
     @contextmanager
     def doc_transaction(self, name: str) -> Iterator[dict]:
@@ -679,6 +702,15 @@ class Vault:
         """Where the title's chapter media lives (may not exist yet)."""
         return self._chapters_dir(title_id)
 
+    def incoming_path(self, title_id: str, suffix: str) -> Path:
+        """A scratch name for media on its way into this title: on the vault's
+        own volume, so the ingest that follows is a rename rather than a second
+        copy, and named `.tmp`, so whatever an interruption leaves behind is
+        what the stray sweep collects."""
+        d = self._chapters_dir(title_id)
+        d.mkdir(parents=True, exist_ok=True)
+        return media.tmp_path(d / f"incoming{suffix}")
+
     def chapters_stamp(self, title_id: str) -> int:
         """When the title's chapter directory last changed. Chapter media is not
         part of `title.json`, so this is the second half of "has anything about
@@ -807,7 +839,7 @@ class Vault:
         arrived_as = Path(filename or src.name).name
         video_ext = Path(arrived_as).suffix.lower()
         as_video = video_ext in media.VIDEO_EXTS
-        if as_video and not media.looks_like_video(src):
+        if as_video and not media.looks_like_video(src, video_ext):
             raise media.UnsupportedArchiveError(
                 f"unsupported video file: {video_ext or 'unknown'} content does not match")
         with self._lock(title_id):

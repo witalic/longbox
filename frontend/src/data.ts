@@ -282,6 +282,34 @@ export interface FieldDef {
   group: string // which block of the editor draws it
 }
 
+// An editor draws fields in BLOCKS, in the registry's order, because a flat run
+// of fifteen fields is unreadable — you cannot tell where "who made it" ends and
+// "what it is about" begins. Which block a field belongs to is the registry's
+// answer (library/fields.py), not a list of names kept here.
+const GROUP_LABEL: Record<string, string> = {
+  identity: 'IDENTITY', about: 'WHAT IT IS', people: 'WHO MADE IT',
+  topics: 'TOPICS', yours: 'YOUR FIELDS',
+}
+export interface FieldBlock { key: string; label: string; rows: FieldDef[] }
+export function fieldBlocks(rows: FieldDef[]): FieldBlock[] {
+  // Bucketed by GROUP, not by adjacency: where a field sits in the registry is
+  // about capture order, and a field whose group differs from its neighbours
+  // would otherwise split its block in two.
+  const out: FieldBlock[] = []
+  const byKey = new Map<string, FieldBlock>()
+  for (const f of rows) {
+    const key = f.group || 'yours'
+    let block = byKey.get(key)
+    if (!block) {
+      block = { key, label: GROUP_LABEL[key] ?? key.toUpperCase(), rows: [] }
+      byKey.set(key, block)
+      out.push(block)
+    }
+    block.rows.push(f)
+  }
+  return out
+}
+
 // Facet counts keyed by field id.
 export type Facets = Record<string, FacetValue[]>
 
@@ -718,3 +746,106 @@ export function chapterRowsOf(chapters: ChapterRow[]): ChapterRow[] {
 }
 
 // Stable chapter id when the site provides none: derived from the row's
+
+// ---- importing a folder the owner already has (design/folder-import.md) ----
+// The shapes the sidecar speaks (library/folder_import.py); the view edits a
+// profile and this run's own choices, and shows the plan the server makes.
+
+export type ImportRole = 'collection' | 'creator' | 'work'
+export interface ImportLevel { role: ImportRole; pattern: string }
+export type ImportValue = string | string[]
+export interface ImportProfile {
+  id: string
+  name: string
+  levels: ImportLevel[]          // L0 (the folder picked) first, down to the work
+  anchor: 'level' | 'media'
+  workTitle: string
+  entryTitle: string
+  dropTags: boolean
+  underscores: boolean
+  numbering: 'order' | 'name'
+  orderBy: 'name' | 'date'
+  numPattern: string
+  creatorTo: string[]
+  meta: Record<string, ImportValue>
+  language: string
+  group: string
+  entryDate: boolean
+  files: 'copy' | 'move'
+  workExists: 'add' | 'separate' | 'skip'
+  entryExists: 'skip' | 'replace'
+  cover: boolean
+}
+export interface ImportOverrides {
+  off: string[]
+  titles: Record<string, string>
+  meta: Record<string, Record<string, ImportValue>>
+}
+export interface ImportScan {
+  scanId: string
+  root: string
+  levels: { depth: number; folders: number; names: string[] }[]
+  counts: Record<string, number>
+  skipped: string[]
+}
+export type ImportEntryState = 'new' | 'exists' | 'replace' | 'conflict' | 'unreadable' | 'off' | 'skip'
+export interface ImportEntry {
+  path: string
+  kind: 'video' | 'archive' | 'images'
+  files: number
+  num: string
+  title: string
+  section: string
+  date: string
+  lang: string
+  group: string
+  size: number
+  state: ImportEntryState
+  reason: string
+}
+export interface ImportWork {
+  key: string
+  folder: string
+  title: string
+  titleId: string
+  action: 'new' | 'add' | 'separate' | 'skip' | 'conflict' | 'off'
+  reason: string
+  meta: Record<string, ImportValue>
+  ruled: string[]
+  own: boolean
+  tokens: Record<string, string>
+  cover: string
+  entries: ImportEntry[]
+  warnings: string[]
+}
+export interface ImportPlan {
+  works: ImportWork[]
+  ignored: { path: string; reason: string }[]
+  ignoredCount: number
+  warnings: string[]
+  entries: number
+  bytes: number
+}
+export interface ImportReport {
+  root: string
+  profile: string
+  at: string
+  files: 'copy' | 'move'
+  imported: number
+  replaced: number
+  skipped: number
+  failed: { path: string; reason: string }[]
+  works: { titleId: string; title: string; created: boolean; added: number }[]
+  kept: number
+  stopped: boolean
+}
+
+export function blankImportProfile(): ImportProfile {
+  return {
+    id: '', name: '', levels: [{ role: 'work', pattern: '' }], anchor: 'level',
+    workTitle: '{folder}', entryTitle: '{file}', dropTags: false, underscores: false,
+    numbering: 'order', orderBy: 'name', numPattern: '', creatorTo: ['authors'], meta: {},
+    language: '', group: '', entryDate: true,
+    files: 'copy', workExists: 'add', entryExists: 'skip', cover: true,
+  }
+}

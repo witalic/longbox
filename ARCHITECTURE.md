@@ -16,7 +16,7 @@ the process shape, transport/auth, the vault layout as implemented, and what eac
 └──────────────┬────────────────────────────────────────────────┘
                │ HTTP (localhost, or remote host)
 ┌──────────────▼─ FastAPI sidecar (Python) ─────────────────────┐
-│  routers/   library · downloads · recipes · settings          │
+│  routers/   library · downloads · recipes · settings · import │
 │  library/   layered vault docs · chapter media (zip/episode)  │
 │             · SQLite index (rebuildable)                      │
 │  scraper/   recipe storage (client extracts; server stores)   │
@@ -62,6 +62,7 @@ library/
   sources.json               the owner's layer over the sites: group order, per-site group,
                              bookmarks, frozen; sites removed from Sources
   rules.json                 what a value becomes on its way into a title (ordered)
+  import-profiles.json       how folders already on disk are read into works (no paths)
   health.json                what was done to this library + the last check report — its
                              own file, so startup never parses it
   <type-shelf>/              one directory per TYPE (manga/, image-set/, …; typeless → other/)
@@ -100,7 +101,8 @@ library/
   newer row). A type renamed for a whole shelf into a new one is one directory rename. Every
   run is journaled in `index.db` and revertible; the rules that change values on their way in
   live in `rules.json` and run in the sidecar, for capture, typing and new chapters alike.
-- **Vault-level documents** (`recipes.json`, `sources.json`, `rules.json`) go through
+- **Vault-level documents** (`recipes.json`, `sources.json`, `rules.json`,
+  `import-profiles.json`) go through
   `Vault.read_doc()` and `Vault.doc_transaction()`: one lock per document PATH (two Vault objects over one directory
   still take turns), atomic write. "There is none" is the only empty answer a read gives: a
   client told "nothing saved" builds its next write on it, and that write replaces what is
@@ -255,6 +257,7 @@ backend/app/
   passes.py (the one vault pass at a time: progress, stop, who is running)
   library/  operations.py (bulk metadata: apply, preview from the index, run, revert) ·
             rules.py (what a value becomes on its way in; rules.json) ·
+            folder_import.py (a folder already on disk: profiles, scan, plan, run) ·
             models.py (layers + flat DTO) · vault.py (shelves, locks, media ingest, covers,
             the vault/fields/authors/health files) · media.py (zip ops, conversion, thumbnails,
             mp4 probe + faststart, digests) · index.py · service.py ·
@@ -263,7 +266,7 @@ backend/app/
             comicinfo.py (the ComicInfo.xml mirror: build, parse, write into an archive)
   scraper/  models.py (recipe v2, page filter) · recipes.py (recipes.json) ·
             sources.py (sources.json) · covers.py (fallback fetch)
-  routers/  library.py · downloads.py · recipes.py · settings.py · metadata.py
+  routers/  library.py · downloads.py · recipes.py · settings.py · metadata.py · imports.py
 frontend/src/
   App.vue (the frame: views, tabs, downloads panel, close guard) · styles.css (the design tokens)
   store.ts (app state, facets, user layer, downloads) · draft.ts (THE draft) · browser.ts (tabs)
@@ -271,8 +274,10 @@ frontend/src/
   sessions.ts (tab-session restore) · keys.ts (physical-key bindings) · normalize.ts
   pagecapture.ts (the page-capture activity) · frames.ts (episode stills, cut in the window)
   views/      LibraryView · AuthorsView (browse by any axis) · TitleView · ReaderView ·
-              BrowserView · SourcesView · MetadataView (values, rules, history) · SettingsView
-  components/ MetadataEditor (the one editor) · CapturePanel (draft + downloads dock) ·
+              BrowserView · SourcesView · MetadataView (values, rules, history) ·
+              ImportView (a folder on disk: structure, metadata, preview, run) · SettingsView
+  components/ MetadataEditor (the one editor) · ImportMeta (its fields over an import's values) ·
+              CapturePanel (draft + downloads dock) ·
               PassButton + ProgressBar (run/progress/stop, one grammar everywhere) ·
               Settings* (one component per settings section) ·
               VideoSurface (preview + player, one per app) · DownloadsPanel · PickInspector ·

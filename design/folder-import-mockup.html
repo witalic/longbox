@@ -1,0 +1,829 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Folder import — mockup</title>
+<style>
+/* ---- the app's own tokens (frontend/src/styles.css), verbatim ---- */
+:root {
+  --bg: #0a0b0d; --bg2: #0f1115; --panel: #15171b; --panel2: #1b1e24;
+  --line: #262a31; --hover: #2a2e36;
+  --tx: #e8eaef; --tx2: #9aa1ad; --tx3: #697080;
+  --accent: #7089e6; --accent-ink: #0d0e11; --accentSoft: rgba(112, 137, 230, .14);
+  --fav: #e0687a; --good: #5fb88a; --warn: #d6a44f; --adult: #e0687a;
+  --ai: #6bb6c4; --cens: #c48fd0; color-scheme: dark;
+}
+html[data-theme="light"] {
+  --bg: #f0eeea; --bg2: #e6e3dd; --panel: #faf9f6; --panel2: #edeae4;
+  --line: #d2cdc2; --hover: #e2ded6;
+  --tx: #2a2c31; --tx2: #575d67; --tx3: #8d95a1;
+  --accent: #5f77d4; --accent-ink: #ffffff; --accentSoft: rgba(95, 119, 212, .15);
+  --fav: #d6516a; --good: #3f9e6f; --warn: #b07d2a; --adult: #d6516a;
+  --ai: #3d8fa0; --cens: #9a5fb0; color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--tx); font: 400 13px/1.45 system-ui; -webkit-font-smoothing: antialiased; }
+.mono { font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; }
+*::-webkit-scrollbar { width: 11px; height: 11px; }
+*::-webkit-scrollbar-thumb { background: var(--hover); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+*::-webkit-scrollbar-track, *::-webkit-scrollbar-corner { background: transparent; }
+
+/* ---- the page around the frames ---- */
+.page { max-width: 1420px; margin: 0 auto; padding: 26px 24px 60px; }
+h1 { font: 700 22px/1.1 system-ui; margin: 0 0 4px; letter-spacing: -.3px; }
+h2 { font: 600 13px/1 system-ui; margin: 0; }
+.lede { color: var(--tx2); max-width: 86ch; margin: 0 0 26px; }
+.block { border: 1px solid var(--line); border-radius: 10px; background: var(--bg2); margin-bottom: 22px; overflow: hidden; }
+.bhead { height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.bhead .n { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
+.bbody { padding: 18px 16px; }
+.note { font: 400 11.5px/1.55 system-ui; color: var(--tx3); margin: 12px 0 0; max-width: 96ch; }
+.note b { color: var(--tx2); font-weight: 600; }
+.themebtn { position: fixed; top: 14px; right: 16px; z-index: 5; }
+
+/* ---- the app's control grammar (controls 30, radius 6, text 11/12/13) ---- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--tx);
+  border-radius: 6px; height: 30px; padding: 0 13px; cursor: pointer;
+  font: 600 12px/1 system-ui; white-space: nowrap;
+}
+.btn:hover { border-color: var(--accent); }
+.btn.accent { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.ghost { background: transparent; color: var(--tx2); }
+.btn.small { height: 26px; padding: 0 10px; font-size: 11px; }
+.seg { display: flex; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 2px; height: 30px; width: fit-content; flex: none; }
+.seg .opt { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; padding: 0 10px; border-radius: 4px; border: none; background: transparent; font: 500 12px/1 system-ui; color: var(--tx2); cursor: pointer; }
+.seg .opt:hover { color: var(--tx); }
+.seg .opt.on { background: var(--accentSoft); color: var(--accent); }
+.seg.text { height: 26px; }
+.seg.text .opt { padding: 0 8px; font-size: 11px; }
+.in { font: 500 12.5px/1.3 system-ui; color: var(--tx); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 0 10px; height: 30px; outline: none; width: 100%; }
+.in.mono { font: 500 12px/1.3 ui-monospace, 'Cascadia Code', Consolas, monospace; }
+.in:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accentSoft); }
+.numbadge { font: 600 9.5px/1 ui-monospace, monospace; color: var(--accent-ink); background: var(--accent); border-radius: 999px; padding: 3px 5px; }
+.chip { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line); font: 500 11.5px/1 system-ui; color: var(--tx); white-space: nowrap; }
+.chip .k { font: 500 9.5px/1 ui-monospace, monospace; color: var(--tx3); }
+.chip.tog { cursor: pointer; color: var(--tx3); }
+.chip.tog.on { background: var(--accentSoft); border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); color: var(--accent); }
+.cb { width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid var(--tx3); flex: none; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.cb.on { background: var(--accent); border-color: var(--accent); }
+.cb.on::after { content: ''; width: 7px; height: 4px; border: 2px solid var(--accent-ink); border-top: 0; border-right: 0; transform: rotate(-45deg) translate(1px, -1px); }
+.ic { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.sel2 { display: inline-flex; align-items: center; justify-content: space-between; gap: 10px; height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); font: 500 12px/1 system-ui; }
+.sel2::after { content: '⌄'; color: var(--tx3); }
+
+/* ---- the app frame: titlebar 40, sidebar 220, work bands 44 ---- */
+.app { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--bg); display: flex; flex-direction: column; }
+.tabbar { height: 40px; flex: none; background: var(--bg2); border-bottom: 1px solid var(--line); display: flex; align-items: center; padding: 0 14px; gap: 9px; }
+.tabbar .logo { width: 22px; height: 22px; border-radius: 6px; background: linear-gradient(#8194f4, #3e4eb2); flex: none; }
+.tabbar .name { font: 700 13.5px/1 system-ui; letter-spacing: -.2px; }
+.tabbar .wc { margin-left: auto; display: flex; gap: 18px; color: var(--tx3); font: 400 13px/1 system-ui; }
+.approw { display: flex; min-height: 0; }
+.side { width: 220px; flex: none; background: var(--bg2); border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+.nav { padding: 12px 10px 6px; display: flex; flex-direction: column; gap: 2px; }
+.navitem { height: 36px; display: flex; align-items: center; gap: 11px; padding: 0 12px; border-radius: 8px; color: var(--tx2); font: 500 13px/1 system-ui; }
+.navitem.on { background: var(--accentSoft); color: var(--accent); }
+.navitem .new { margin-left: auto; font: 700 8.5px/1 ui-monospace, monospace; letter-spacing: .1em; color: var(--accent); }
+.rail { flex: 1; padding: 6px 10px 10px; overflow: hidden; }
+.rlabel { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); padding: 12px 12px 8px; display: flex; }
+.ritem { height: 30px; display: flex; align-items: center; gap: 9px; padding: 0 12px; border-radius: 6px; font: 500 12.5px/1 system-ui; color: var(--tx2); white-space: nowrap; overflow: hidden; }
+.ritem.on { background: var(--hover); color: var(--tx); }
+.ritem .sn { margin-left: auto; font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); }
+.ritem.sub { height: auto; padding: 6px 12px; flex-direction: column; align-items: flex-start; gap: 4px; }
+.ritem.sub .s { font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); }
+.foot { height: 44px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 9px; padding: 0 16px; font: 500 11px/1.3 system-ui; color: var(--tx3); flex: none; }
+.foot .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.vhead { height: 44px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.vhead .t { font: 600 15px/1 system-ui; }
+.vhead .path { font: 500 11.5px/1 ui-monospace, monospace; color: var(--tx2); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; height: 26px; display: inline-flex; align-items: center; gap: 8px; padding: 0 4px 0 10px; }
+.vhead .path .scan { color: var(--tx3); }
+.vhead .right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.vhead .right .k { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
+.work { flex: 1; min-height: 0; display: flex; }
+.vfoot { height: 44px; flex: none; white-space: nowrap; overflow: hidden; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 12px; padding: 0 16px; font: 500 11.5px/1 system-ui; color: var(--tx3); }
+.vfoot b { color: var(--tx2); font-weight: 600; }
+.vfoot .right { margin-left: auto; display: flex; gap: 8px; }
+
+/* ---- the rules column ---- */
+.rcol { width: 392px; flex: none; border-right: 1px solid var(--line); background: var(--bg2); overflow: auto; }
+.rsec { padding: 14px 16px 16px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+.lbl { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); display: flex; align-items: center; gap: 8px; }
+.lbl span { margin-left: auto; letter-spacing: 0; font-weight: 500; }
+.lvl { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; }
+.lvl.dim { background: transparent; border-style: dashed; }
+.lvlhead { display: flex; align-items: center; gap: 9px; min-height: 26px; }
+.lvlhead .d { font: 700 10px/1 ui-monospace, monospace; color: var(--tx3); width: 22px; flex: none; }
+.lvlhead .nm { flex: 1; min-width: 0; font: 500 12.5px/1.2 system-ui; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lvlhead .nm small { color: var(--tx3); font-size: 11px; }
+.lvlhead .fixed { font: 500 11px/1 system-ui; color: var(--tx3); }
+.kv { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 8px; align-items: center; padding-left: 31px; }
+.kv .k { font: 600 11px/1 system-ui; color: var(--tx3); }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.found { font: 500 11.5px/1.5 system-ui; color: var(--tx3); padding-left: 31px; }
+.found b { color: var(--tx2); font-weight: 600; }
+.row2 { display: grid; grid-template-columns: 86px minmax(0, 1fr); gap: 8px 10px; align-items: center; }
+.row2 .k { font: 600 11.5px/1.2 system-ui; color: var(--tx2); }
+.row2 .stack { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.out { font: 500 11.5px/1.3 system-ui; color: var(--tx3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.out b { color: var(--good); font-weight: 600; }
+.out.w b { color: var(--warn); }
+.line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.check { display: flex; gap: 8px; align-items: center; font: 500 12px/1.3 system-ui; color: var(--tx2); cursor: pointer; }
+.hint { font: 400 11.5px/1.45 system-ui; color: var(--tx3); }
+.hint b { color: var(--tx2); font-weight: 600; }
+.fmap { display: grid; grid-template-columns: 86px 14px minmax(0, 1fr); gap: 6px 8px; align-items: center; }
+.fld { font: 600 11px/1 ui-monospace, monospace; color: var(--tx2); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; height: 22px; display: inline-flex; align-items: center; padding: 0 7px; width: fit-content; }
+.arrow { color: var(--tx3); font: 500 12px/1 system-ui; }
+
+/* ---- the preview ---- */
+.prev { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ptool { height: 44px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.ptool .t { font: 600 13px/1 system-ui; }
+.ptool .sum { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); }
+.ptool .right { margin-left: auto; }
+.pbody { flex: 1; overflow: auto; }
+.wrow { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 10px; align-items: center; height: 44px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--bg2); }
+.wrow .tt { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.wrow .tt .name { font: 600 13px/1 system-ui; white-space: nowrap; }
+.wrow .tt .meta { font: 500 11px/1 system-ui; color: var(--tx3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wrow .tt .meta i { font-style: normal; color: var(--tx2); }
+.wrow .cnt { font: 500 11px/1 ui-monospace, monospace; color: var(--tx2); white-space: nowrap; }
+.badge { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .08em; padding: 4px 6px; border-radius: 999px; white-space: nowrap; flex: none; }
+.badge.new { color: var(--accent); background: var(--accentSoft); }
+.badge.add { color: var(--good); background: color-mix(in srgb, var(--good) 15%, transparent); }
+.badge.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 15%, transparent); }
+.badge.skip { color: var(--tx3); background: var(--panel2); }
+.secrow { height: 30px; display: flex; align-items: center; gap: 10px; padding: 0 16px 0 40px; font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
+.secrow::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.secrow b { color: var(--tx2); letter-spacing: .02em; font-weight: 600; font-size: 11px; }
+.erow { display: grid; grid-template-columns: 14px 34px 14px minmax(0, 1fr) 82px 58px 92px; gap: 10px; align-items: center; height: 30px; padding: 0 16px 0 40px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); font: 500 12px/1 system-ui; }
+.erow .num { font: 600 11px/1 ui-monospace, monospace; color: var(--tx2); text-align: right; }
+.erow .kind { color: var(--tx3); }
+.erow .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.erow .dt, .erow .sz { font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); text-align: right; white-space: nowrap; }
+.erow .st { font: 500 10.5px/1 ui-monospace, monospace; display: flex; align-items: center; gap: 6px; justify-content: flex-end; white-space: nowrap; }
+.erow .st::before { content: ''; width: 6px; height: 6px; border-radius: 999px; background: currentColor; }
+.st.new { color: var(--good); }
+.st.inlib, .st.skip, .st.off { color: var(--tx3); }
+.st.rep, .st.warn { color: var(--warn); }
+.st.bad { color: var(--adult); }
+.erow.out .nm, .erow.out .num { color: var(--tx3); text-decoration: line-through; }
+.erow.dim .nm { color: var(--tx3); }
+.pnote { margin: 10px 16px; padding: 9px 12px; border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line)); border-radius: 10px; font: 500 11.5px/1.45 system-ui; color: var(--tx2); }
+.pnote b { color: var(--warn); }
+
+/* ---- side-by-side cards ---- */
+.duo { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.card { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow: hidden; display: flex; flex-direction: column; }
+.card .chead { height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--line); font: 600 12.5px/1 system-ui; }
+.card .chead .s { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); }
+.card .pbody { max-height: 420px; }
+.tree { padding: 12px 16px; font: 500 12px/1.9 ui-monospace, 'Cascadia Code', Consolas, monospace; color: var(--tx2); }
+.tree .r { display: grid; grid-template-columns: minmax(0, 1fr) 88px; gap: 12px; }
+.tree .r span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tree .role { font: 700 9.5px/1.9 ui-monospace, monospace; letter-spacing: .08em; text-align: right; }
+.role.col { color: var(--tx3); } .role.cre { color: var(--fav); } .role.wrk { color: var(--accent); } .role.prt { color: var(--warn); } .role.ent { color: var(--good); } .role.ign { color: var(--tx3); }
+
+/* ---- the run ---- */
+.prog { flex: 1; display: flex; align-items: center; gap: 12px; min-width: 0; }
+.bar { width: 220px; height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; flex: none; }
+.bar span { display: block; height: 100%; background: var(--accent); }
+.prog .cur { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--tx2); }
+.report { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); overflow: hidden; }
+.rp1 { padding: 12px 16px; display: flex; align-items: baseline; gap: 18px; border-bottom: 1px solid var(--line); }
+.rp1 .big { font: 600 22px/1 system-ui; letter-spacing: -.3px; }
+.rp1 .s { font: 500 12px/1 system-ui; color: var(--tx2); }
+.rpl { padding: 9px 16px; display: flex; gap: 9px; align-items: flex-start; font: 400 12px/1.45 system-ui; color: var(--tx2); border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+.rpl .d { width: 7px; height: 7px; border-radius: 999px; margin-top: 5px; flex: none; background: var(--good); }
+.rpl .d.w { background: var(--tx3); }
+.rpl .d.b { background: var(--adult); }
+.rpl b { color: var(--tx); font-weight: 600; }
+.rpfoot { height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 16px; }
+
+/* ---- the rules column's tabs ---- */
+.rtabs { position: sticky; top: 0; z-index: 2; height: 44px; display: flex; align-items: center; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--bg2); }
+.tab { display: none; }
+.tab.on { display: block; }
+
+/* ---- metadata: the app's own editor (MetadataEditor.vue), narrow ---- */
+.scopebar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.scope { display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); font: 500 11.5px/1 system-ui; color: var(--tx2); cursor: pointer; }
+.scope.on { background: var(--accentSoft); border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); color: var(--accent); }
+.scope .n { font: 600 10px/1 ui-monospace, monospace; color: var(--tx3); }
+.scope .x { color: var(--tx3); font-size: 14px; line-height: 1; }
+.me { display: flex; flex-direction: column; gap: 4px; }
+.blocklbl { display: flex; align-items: center; gap: 10px; font: 700 10px/1 ui-monospace, monospace; letter-spacing: .16em; color: var(--tx2); padding: 18px 0 10px; }
+.blocklbl:first-child { padding-top: 2px; }
+.blocklbl .rule { flex: 1; height: 1px; background: var(--line); }
+.blockrows { display: flex; flex-direction: column; gap: 12px; }
+.fieldrow { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.lblrow { display: flex; align-items: center; gap: 7px; min-height: 16px; }
+.flbl { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
+.pbadge { font: 700 8px/1 ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; padding: 3px 6px; border-radius: 4px; color: var(--tx3); background: var(--panel2); }
+.pbadge.own { color: var(--accent); background: var(--accentSoft); }
+.mchips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+.mchip { display: inline-flex; align-items: center; gap: 6px; font: 500 11.5px/1 system-ui; color: var(--tx); background: var(--panel2); border: 1px solid var(--line); padding: 5px 9px; border-radius: 6px; max-width: 100%; }
+.mchip .rm { color: var(--tx3); cursor: pointer; font-size: 13px; line-height: 1; }
+.mchip .rm:hover { color: var(--adult); }
+.mchip.tok { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: 11px; border-style: dashed; border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+.mchip.tok .val { font-family: system-ui; font-size: 11.5px; color: var(--tx2); }
+.mchip.lock .src { font: 700 8px/1 ui-monospace, monospace; letter-spacing: .06em; color: var(--accent); }
+.mchip.inh { background: transparent; color: var(--tx3); }
+.mchip.inh .val { color: var(--tx3); }
+.addin { border: none; background: transparent; outline: none; color: var(--tx); font: 500 11.5px/1 system-ui; width: 96px; padding: 5px 2px; border-bottom: 1px dashed var(--line); }
+.addin:focus { border-bottom-color: var(--accent); }
+.flagrow { display: flex; gap: 7px; flex-wrap: wrap; }
+.flag { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font: 500 10.5px/1 system-ui; border: 1px solid var(--line); color: var(--tx2); padding: 6px 9px; border-radius: 6px; }
+.flag .box { width: 12px; height: 12px; border-radius: 3px; border: 1.5px solid var(--line); }
+.wrow.sel { background: var(--accentSoft); }
+.wrow .name[data-w] { cursor: pointer; }
+.wrow .name[data-w]:hover { color: var(--accent); }
+.badge.own { color: var(--accent); background: transparent; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); padding: 3px 6px; }
+</style>
+</head>
+<body>
+<button class="btn ghost themebtn" onclick="const h=document.documentElement;h.dataset.theme=h.dataset.theme==='dark'?'light':'dark'">Theme</button>
+<div class="page">
+  <h1>Import a folder</h1>
+  <p class="lede">Bring in media you already have, sorted the way you sorted it. You say what each level of the
+    folder tree means — a creator, a work, a part of a work — and how names become titles, entries and fields;
+    the preview shows exactly what will be created before anything is written, and the answer is kept as a
+    profile. Block 1 is live: change a role or a template and the preview re-plans. Model and decisions:
+    <span class="mono">design/folder-import.md</span>.</p>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">1 · THE VIEW</span><h2>A creator's folder, batches of videos inside — try the tabs, the roles and the metadata</h2></div>
+    <div class="bbody">
+      <div class="app">
+        <div class="tabbar"><span class="logo"></span><span class="name">longbox</span><span class="wc">⌄ &nbsp; – &nbsp; ▢ &nbsp; ✕</span></div>
+        <div class="approw" style="height:860px">
+          <aside class="side">
+            <nav class="nav">
+              <div class="navitem"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="6" height="16" rx="1"/><rect x="11" y="4" width="4" height="16" rx="1"/><path d="M17 5l3 14"/></svg>Library</div>
+              <div class="navitem"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/></svg>Browse</div>
+              <div class="navitem"><svg class="ic" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Sources</div>
+              <div class="navitem"><svg class="ic" viewBox="0 0 24 24"><path d="M4 7h10M4 12h16M4 17h7"/><circle cx="18" cy="7" r="2"/><circle cx="15" cy="17" r="2"/></svg>Metadata</div>
+              <div class="navitem on"><svg class="ic" viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M12 10v6M9 13l3 3 3-3"/></svg>Import<span class="new">NEW</span></div>
+              <div class="navitem"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>Settings</div>
+            </nav>
+            <div class="rail">
+              <div class="rlabel">PROFILES</div>
+              <div class="ritem on">Creator video folders</div>
+              <div class="ritem">Manga · series / volume / chapter</div>
+              <div class="ritem">Image sets</div>
+              <div class="ritem" style="color:var(--accent)">+ New profile</div>
+              <div class="rlabel">LAST RUNS</div>
+              <div class="ritem sub">clips<span class="s">today · 2 imported · 0 failed</span></div>
+              <div class="ritem sub">Manga<span class="s">Oct 12 · 412 imported · 3 failed</span></div>
+            </div>
+            <div class="foot"><span class="dot"></span>3,912 titles · library verified</div>
+          </aside>
+
+          <div class="main">
+            <div class="vhead">
+              <span class="t">Import</span>
+              <span class="path">D:\Media\clips <span class="scan">· 3 folders · 12 files</span><button class="btn small ghost" style="height:20px">Change…</button></span>
+              <div class="right">
+                <span class="k">PROFILE</span>
+                <span class="sel2" style="width:200px">Creator video folders</span>
+                <button class="btn">Save profile</button>
+              </div>
+            </div>
+            <div class="work">
+              <!-- the rules -->
+              <div class="rcol" id="rules">
+                <div class="rtabs"><div class="seg" id="tabs"><button class="opt" data-t="structure">Structure</button><button class="opt" data-t="meta">Metadata</button><button class="opt" data-t="files">Files</button></div></div>
+                <div class="tab" data-t="structure">
+                <div class="rsec">
+                  <div class="lbl">STRUCTURE<span>what each level means</span></div>
+                  <div class="lvl dim">
+                    <div class="lvlhead"><span class="d">L0</span><span class="nm">clips <small>· the folder you picked</small></span><span class="fixed">Collection</span></div>
+                  </div>
+                  <div class="lvl">
+                    <div class="lvlhead"><span class="d">L1</span><span class="nm">vidhub @kumo Kumo Works</span></div>
+                    <div class="kv"><span class="k">Role</span><div class="seg text" data-k="l1"><button class="opt" data-v="collection">Collection</button><button class="opt" data-v="creator">Creator</button><button class="opt" data-v="work">Work</button></div></div>
+                    <div class="kv"><span class="k">Pattern</span><input class="in mono" id="pattern" value="{site} @{handle} {creator}" spellcheck="false"></div>
+                    <div class="kv"><span class="k">Reads</span><div class="chips" id="reads"></div></div>
+                    <div class="kv" id="goesto"><span class="k">Goes to</span><div class="chips">
+                      <span class="chip tog" data-to="authors">Authors</span><span class="chip tog" data-to="artists">Artists</span><span class="chip tog" data-to="studio">Studio</span></div></div>
+                  </div>
+                  <div class="lvl">
+                    <div class="lvlhead"><span class="d">L2</span><span class="nm">2025.1 <small>· 2025.2</small></span></div>
+                    <div class="kv"><span class="k">Role</span><div class="seg text" data-k="l2"><button class="opt" data-v="work">Work</button><button class="opt" data-v="part">Part</button></div></div>
+                  </div>
+                  <div class="lvl dim">
+                    <div class="lvlhead"><span class="d">L3+</span><span class="nm">deeper folders <small>· none here</small></span><span class="fixed">Part</span></div>
+                  </div>
+                  <div class="found"><b>12 videos</b> → episodes · 0 archives · 0 image folders · 0 ignored</div>
+                </div>
+
+                <div class="rsec">
+                  <div class="lbl">NAMES</div>
+                  <div class="row2">
+                    <span class="k">Work title</span>
+                    <div class="stack"><input class="in mono" id="workTpl" spellcheck="false"><div class="out" id="workOut"></div></div>
+                    <span class="k">Entry name</span>
+                    <div class="stack"><input class="in mono" id="entryTpl" value="{file}" spellcheck="false">
+                      <div class="line"><span class="check" data-k="dropTags"><span class="cb"></span>drop [tags]</span><span class="check" data-k="underscores"><span class="cb"></span>_ → space</span></div></div>
+                    <span class="k">Number</span>
+                    <div class="stack"><div class="line">
+                      <div class="seg text" data-k="numbering"><button class="opt" data-v="order">In order</button><button class="opt" data-v="name">From the name</button></div>
+                      <div class="seg text" data-k="orderBy" id="orderBy"><button class="opt" data-v="name">by name</button><button class="opt" data-v="date">by file date</button></div></div>
+                      <input class="in mono" id="numPattern" value="E{n}" spellcheck="false" style="display:none">
+                      <div class="out" id="numOut"></div></div>
+                    <span class="k" id="partK">Part becomes</span>
+                    <div class="stack" id="partV"><div class="out">the entry's <b>section</b> — the title page groups by it</div></div>
+                  </div>
+                </div>
+
+                </div>
+                <div class="tab" data-t="meta" id="metaTab"></div>
+                <div class="tab" data-t="files">
+                <div class="rsec">
+                  <div class="lbl">FILES &amp; WHAT EXISTS</div>
+                  <div class="row2">
+                    <span class="k">Files</span>
+                    <div class="seg text" data-k="files"><button class="opt" data-v="copy">Copy</button><button class="opt" data-v="move">Move</button></div>
+                    <span class="k">Work exists</span>
+                    <div class="seg text" data-k="workExists"><button class="opt" data-v="add">Add what's missing</button><button class="opt" data-v="separate">Separate work</button><button class="opt" data-v="skip">Skip</button></div>
+                    <span class="k">Entry exists</span>
+                    <div class="seg text" data-k="entryExists"><button class="opt" data-v="skip">Skip</button><button class="opt" data-v="replace">Replace media</button></div>
+                  </div>
+                  <span class="check" data-k="cover"><span class="cb"></span>an image named cover / folder / poster becomes the cover</span>
+                </div>
+                </div>
+                <datalist id="dl-tags"><option value="mmd"><option value="dance"><option value="3d"><option value="music"><option value="cover"><option value="live"><option value="short"></datalist><datalist id="dl-genres"><option value="music video"><option value="dance"><option value="comedy"><option value="action"></datalist><datalist id="dl-authors"><option value="Kumo Works"></datalist><datalist id="dl-artists"><option value="Kumo Works"></datalist><datalist id="dl-studio"><option value="Kumo Works"></datalist><datalist id="dl-characters"><option value="Aoi"><option value="Hana"><option value="Yuki"><option value="Sora"></datalist>
+              </div>
+
+              <!-- the preview -->
+              <div class="prev">
+                <div class="ptool"><span class="t">Preview</span><span class="sum" id="sum"></span>
+                  <div class="right"><div class="seg text"><button class="opt on">All</button><button class="opt">New</button><button class="opt">Skipped</button><button class="opt">Problems</button></div></div></div>
+                <div class="pbody" id="preview"></div>
+              </div>
+            </div>
+            <div class="vfoot"><span id="footText"></span>
+              <div class="right"><button class="btn ghost">Cancel</button><button class="btn accent" id="goBtn"></button></div></div>
+          </div>
+        </div>
+      </div>
+      <p class="note"><b>Nothing is written until Import.</b> The scan reads the tree once; every change on the left
+        re-plans from that scan and the library's current titles — no disk access per keystroke. Untick a work or an
+        entry to leave it out; that choice belongs to this run, not to the profile. <b>Metadata</b> is the editor a title
+        already has: what you fill in goes to every work, and clicking a work's name scopes it to that one work — its own
+        values show as <i>OWN VALUES</i> in the preview. The library already holds
+        <span class="mono">Kumo Works 2025.1</span> with two of these episodes (an earlier run) — switch <i>Work exists</i>
+        and <i>Entry exists</i> to see what each answer does with them.</p>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">2 · ONE TREE, TWO READINGS</span><h2>Nested folders are not special: they are a role</h2></div>
+    <div class="bbody">
+      <div class="duo">
+        <div class="card"><div class="chead">L1 Creator · L2 Work<span class="s">two works, one creator</span></div><div class="pbody" id="readA"></div></div>
+        <div class="card"><div class="chead">L1 Work · L2 Part<span class="s">one work, two sections</span></div><div class="pbody" id="readB"></div></div>
+      </div>
+      <p class="note"><b>A part is anything that divides a work</b> — a volume, a season, a year, a batch. Levels
+        deeper than the last one with a role are parts too, so a tree where one work holds its videos directly and the
+        next one holds <span class="mono">2025.1/ 2025.2/</span> needs no special case. Numbers run through the whole
+        work and never restart per part: two "episode 1"s in one work would be one entry. A part becomes the entry's
+        <b>section</b> — a field of its own, by which the title page groups entries; the contents editor sets it too.</p>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">3 · THE SAME MODEL, A MANGA TREE</span><h2>Image folders and archives are entries; a name pattern gives the number</h2></div>
+    <div class="bbody">
+      <div class="duo">
+        <div class="card">
+          <div class="chead">Profile · Manga · series / volume / chapter<span class="s">D:\Manga</span></div>
+          <div class="tree">
+            <div class="r"><span>Manga\</span><span class="role col">L0 COLLECTION</span></div>
+            <div class="r"><span>&nbsp;&nbsp;Berserk\</span><span class="role wrk">L1 WORK</span></div>
+            <div class="r"><span>&nbsp;&nbsp;&nbsp;&nbsp;cover.jpg</span><span class="role ent">COVER</span></div>
+            <div class="r"><span>&nbsp;&nbsp;&nbsp;&nbsp;Vol. 01\</span><span class="role prt">L2 PART</span></div>
+            <div class="r"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Ch. 001\ <span style="color:var(--tx3)">24 images</span></span><span class="role ent">ENTRY</span></div>
+            <div class="r"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Ch. 002\ <span style="color:var(--tx3)">22 images</span></span><span class="role ent">ENTRY</span></div>
+            <div class="r"><span>&nbsp;&nbsp;&nbsp;&nbsp;Vol. 02\</span><span class="role prt">L2 PART</span></div>
+            <div class="r"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Berserk Ch. 003 [Scans].cbz</span><span class="role ent">ENTRY</span></div>
+            <div class="r"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Ch. 004.rar</span><span class="role ent">ENTRY</span></div>
+            <div class="r"><span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Ch. 005.7z</span><span class="role ent">ENTRY</span></div>
+            <div class="r"><span>&nbsp;&nbsp;&nbsp;&nbsp;Thumbs.db</span><span class="role ign">IGNORED</span></div>
+            <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px;font-family:system-ui">
+              <div class="fmap"><span class="fld">work title</span><span class="arrow">←</span><span class="mono" style="font-size:12px">{folder}</span>
+                <span class="fld">number</span><span class="arrow">←</span><span class="mono" style="font-size:12px">from the name · Ch. {n}</span>
+                <span class="fld">entry name</span><span class="arrow">←</span><span class="mono" style="font-size:12px">{file} · drop [tags]</span>
+                <span class="fld">language</span><span class="arrow">←</span><span class="mono" style="font-size:12px">en</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="chead">Preview<span class="s">1 work · 4 chapters · 1 unreadable</span></div>
+          <div class="pbody">
+            <div class="wrow"><span class="cb on"></span><div class="tt"><span class="name">Berserk</span><span class="badge new">NEW</span><span class="meta">type <i>manga</i> · cover from <i>cover.jpg</i></span></div><span class="cnt">4 chapters · 182 MB</span></div>
+            <div class="secrow">SECTION <b>Vol. 01</b></div>
+            <div class="erow"><span class="cb on"></span><span class="num">1</span><span class="kind">▤</span><span class="nm">Ch. 001</span><span class="dt">folder</span><span class="sz">38 MB</span><span class="st new">new · zip</span></div>
+            <div class="erow"><span class="cb on"></span><span class="num">2</span><span class="kind">▤</span><span class="nm">Ch. 002</span><span class="dt">folder</span><span class="sz">35 MB</span><span class="st new">new · zip</span></div>
+            <div class="secrow">SECTION <b>Vol. 02</b></div>
+            <div class="erow"><span class="cb on"></span><span class="num">3</span><span class="kind">▤</span><span class="nm">Berserk Ch. 003</span><span class="dt">cbz</span><span class="sz">41 MB</span><span class="st new">new</span></div>
+            <div class="erow"><span class="cb on"></span><span class="num">4</span><span class="kind">▤</span><span class="nm">Ch. 004</span><span class="dt">rar</span><span class="sz">68 MB</span><span class="st new">new · repack</span></div>
+            <div class="erow out"><span class="cb"></span><span class="num">5</span><span class="kind">▤</span><span class="nm">Ch. 005</span><span class="dt">7z</span><span class="sz">52 MB</span><span class="st bad">unreadable</span></div>
+            <div class="pnote"><b>Ch. 005.7z</b> could not be opened — it is listed and left out, never stored as an opaque file.
+              <b style="color:var(--tx3)">Thumbs.db</b> is ignored. Folder pages are packed into a zip; the rar is repacked — the vault keeps
+              one plain zip per chapter, the same as every other way in.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">4 · THE RUN</span><h2>A background job: progress in the footer, Stop between files, a report at the end</h2></div>
+    <div class="bbody" style="display:flex;flex-direction:column;gap:16px">
+      <div class="app">
+        <div class="vfoot" style="border-top:0">
+          <div class="prog"><b>Importing</b><span class="bar"><span style="width:41%"></span></span>
+            <span class="mono" style="font-size:11px">4 of 10 · 2.2 of 5.3 GB</span>
+            <span class="cur">Kumo Works 2025.2 · step.mp4</span></div>
+          <div class="right"><button class="btn">Stop</button></div>
+        </div>
+      </div>
+      <div class="report">
+        <div class="rp1"><span class="big">9</span><span class="s">imported into 2 works</span><span class="big" style="color:var(--tx3)">2</span><span class="s">already in the library</span><span class="big" style="color:var(--adult)">1</span><span class="s">failed</span></div>
+        <div class="rpl"><span class="d"></span><span><b>Kumo Works 2025.1</b> — 3 episodes added beside the 2 it held · <b>Kumo Works 2025.2</b> — new, 6 of its 7 episodes · authors <b>Kumo Works</b> · tags <b>vidhub</b></span></div>
+        <div class="rpl"><span class="d w"></span><span><b>2 skipped</b> — imported by an earlier run (same file, same size): 桜の舞(春).mp4 · 月光 - Moonlight.mp4</span></div>
+        <div class="rpl"><span class="d b"></span><span><b>波の音 - Tide.mp4</b> — the file is open in another program. Nothing was stored for it; run the import again to pick it up.</span></div>
+        <div class="rpfoot"><button class="btn">Open in library</button><button class="btn ghost">Run again</button><span class="hint" style="margin-left:auto">Copy mode — the originals are where they were.</span></div>
+      </div>
+      <p class="note"><b>Works go one at a time, each under its own lock</b>, and every file goes through the same ingest
+        as a download — zip invariant, faststart, ComicInfo, a sidecar stamped from the stored file. Stop lets the file in
+        flight finish: the vault never holds half an entry. Each entry remembers where it came from
+        (<span class="mono">origPath</span>, <span class="mono">origSize</span>), so running the same import again
+        skips what is done — that is also how an interrupted run resumes. In <b>Move</b> mode an original is deleted
+        only after its entry is stored; on the vault's own drive the move is a rename and copies nothing.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+// A creator's folder of batches, sizes in KB and file dates as a scan reads them.
+const CREATOR_DIR = 'vidhub @kumo Kumo Works';
+const PARTS = [
+  { name: '2025.1', files: [
+    ['桜の舞(春).mp4', 691678, '2025-01-30 10:10'],
+    ['月光 - Moonlight.mp4', 586913, '2025-01-30 10:08'],
+    ['雨の日(ver.2) - Rain Walk.mp4', 496326, '2025-01-30 10:13'],
+    ['風の歌 - Wind Song.mp4', 518231, '2025-01-30 10:16'],
+    ['夏祭り(夜).mp4', 569691, '2025-01-30 10:17'],
+  ]},
+  { name: '2025.2', files: [
+    ['step ロングver.mp4', 593306, '2025-03-05 18:30'],
+    ['step.mp4', 592522, '2025-03-05 18:34'],
+    ['星空(冬) - Starlight.mp4', 580392, '2025-03-11 15:10'],
+    ["海辺の午後 - 'Seaside'.mp4", 390679, '2025-03-11 15:10'],
+    ['紅葉 - Autumn.mp4', 554248, '2025-03-11 15:11'],
+    ['波の音 - Tide.mp4', 608979, '2025-03-11 15:12'],
+    ['朝焼け - Dawn.mp4', 702464, '2025-03-11 15:13'],
+  ]},
+];
+// what an earlier run already put in the library
+const IN_LIBRARY = { 'kumo works 2025.1': new Set(['2025.1/桜の舞(春).mp4',
+  '2025.1/月光 - Moonlight.mp4']) };
+
+// what the vault already holds — the pickers offer these, as everywhere in the app
+const VOCAB = {
+  type: ['', 'manga', 'manhwa', 'comic', 'image-set', 'anime', 'mmd'],
+  status: ['', 'ongoing', 'completed', 'hiatus'],
+  language: ['', 'ja', 'en', 'uk', 'ko', 'zh'],
+};
+const LISTS = ['authors', 'artists', 'studio', 'characters', 'genres', 'tags'];
+const SINGLES = ['type', 'status', 'year', 'desc', 'shelf', 'language', 'group'];
+// the editor's own blocks (MetadataEditor), plus the one block only an import has
+const BLOCKS = [
+  ['WHAT IT IS', [['type', 'Type', 'vocab'], ['status', 'Status', 'vocab'], ['year', 'Year', 'line'], ['flags', 'Flags', 'flags']]],
+  ['WHO MADE IT', [['authors', 'Authors', 'chips'], ['artists', 'Artists', 'chips'], ['studio', 'Studio', 'chips']]],
+  ['TOPICS', [['genres', 'Genres', 'chips'], ['tags', 'Tags', 'chips'], ['characters', 'Characters', 'chips'], ['desc', 'Description', 'line']]],
+  ['YOUR FIELDS', [['shelf', 'Shelf code', 'line']]],
+  ['EVERY ENTRY', [['language', 'Language', 'vocab'], ['group', 'Group', 'line'], ['edate', 'Date', 'date']]],
+];
+const FLAGS = [['adult', '18+', 'var(--adult)'], ['ai', 'AI', 'var(--ai)'], ['censored', 'Censored', 'var(--cens)']];
+
+const st = {
+  tab: 'meta',
+  l1: 'creator', l2: 'work', pattern: '{site} @{handle} {creator}',
+  to: { authors: true, artists: false, studio: false },
+  workTpl: '{creator} {folder}', entryTpl: '{file}', dropTags: false, underscores: false,
+  numbering: 'order', orderBy: 'name', numPattern: 'E{n}',
+  // shared metadata: every filled field goes to every work, an empty one is left alone
+  meta: { type: 'mmd', status: '', year: '', desc: '', shelf: '', language: '', group: '',
+          flags: { adult: false, ai: false, censored: false },
+          authors: [], artists: [], studio: [], characters: [], genres: [], tags: ['{site}', 'mmd', 'dance'] },
+  edate: 'file',
+  over: {},     // work key → this run's own values for that work
+  scope: null,  // the work the editor is scoped to, or null = every work
+  files: 'copy', workExists: 'add', entryExists: 'skip', cover: true,
+  out: new Set(),
+};
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const gb = kb => (kb / 1048576).toFixed(1) + ' GB';
+const mb = kb => kb >= 1048576 ? gb(kb) : Math.round(kb / 1024) + ' MB';
+const stem = f => f.replace(/\.[^.]+$/, '');
+const reEsc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const hasTok = v => /\{\w+\}/.test(v);
+
+function natCmp(a, b) {
+  const ax = a.match(/\d+|\D+/g) || [], bx = b.match(/\d+|\D+/g) || [];
+  for (let i = 0; i < Math.min(ax.length, bx.length); i++) {
+    const x = ax[i], y = bx[i];
+    if (/^\d/.test(x) && /^\d/.test(y)) { const d = Number(x) - Number(y); if (d) return d; }
+    else if (x !== y) return x < y ? -1 : 1;
+  }
+  return ax.length - bx.length;
+}
+
+// `{site} @{handle} {creator}` → named groups; literal text must match, the last token takes the rest
+function readName(pattern, name) {
+  const bits = pattern.split(/(\{\w+\})/).filter(Boolean);
+  const toks = bits.filter(b => /^\{\w+\}$/.test(b));
+  let re = '^';
+  bits.forEach(b => {
+    const m = b.match(/^\{(\w+)\}$/);
+    re += m ? `(?<${m[1]}>${b === toks[toks.length - 1] ? '.+' : '.+?'})` : reEsc(b).replace(/\s+/g, '\\s+');
+  });
+  try {
+    const m = new RegExp(re + '$', 'u').exec(name);
+    return m ? { ok: true, groups: { ...m.groups } } : { ok: false, groups: {} };
+  } catch { return { ok: false, groups: {}, bad: true }; }
+}
+
+const fill = (tpl, tok) => tpl.replace(/\{(\w+)\}/g, (m, k) => (k in tok ? tok[k] : m));
+
+// what one work ends up holding: every work's values, then its own on top —
+// a list gains them, a single field is replaced
+function resolve(s, key, tok) {
+  const o = s.over[key] || {};
+  const out = {};
+  for (const f of LISTS) {
+    const locked = s.l1 === 'creator' && s.to[f] ? ['{creator}'] : [];
+    out[f] = [...new Set([...locked, ...s.meta[f], ...(o[f] || [])].map(v => fill(v, tok).trim()).filter(Boolean))];
+  }
+  for (const f of SINGLES) out[f] = fill(o[f] || s.meta[f], tok).trim();
+  out.flags = o.flags || s.meta.flags;
+  return out;
+}
+const ownValues = o => !!o && (LISTS.some(f => o[f]?.length) || SINGLES.some(f => o[f]) || !!o.flags);
+
+function plan(s) {
+  const read = readName(s.pattern, CREATOR_DIR);
+  const g = read.ok ? read.groups : { creator: CREATOR_DIR };
+  const works = s.l2 === 'work'
+    ? PARTS.map(p => ({ key: 'L2:' + p.name, folder: p.name, parts: [{ name: '', files: p.files }] }))
+    : [{ key: 'L1:' + CREATOR_DIR, folder: CREATOR_DIR, parts: PARTS }];
+  const numRe = (() => { try { return new RegExp(s.numPattern.split('{n}').map(reEsc).join('(\\d+(?:\\.\\d+)?)'), 'u'); } catch { return null; } })();
+  let matched = 0, total = 0;
+  const out = works.map(w => {
+    const tok = { L0: 'clips', L1: CREATOR_DIR, folder: w.folder, ...g };
+    const title = fill(s.workTpl, tok).trim();
+    const had = IN_LIBRARY[title.toLowerCase()];
+    let n = 0;
+    const sections = w.parts.map(p => {
+      const files = [...p.files].sort((a, b) => s.orderBy === 'date' ? (a[2] < b[2] ? -1 : a[2] > b[2] ? 1 : natCmp(stem(a[0]), stem(b[0]))) : natCmp(stem(a[0]), stem(b[0])));
+      return { name: p.name, entries: files.map(([f, kb, date]) => {
+        n += 1; total += 1;
+        let num = String(n);
+        if (s.numbering === 'name' && numRe) {
+          const m = numRe.exec(stem(f));
+          if (m) { num = String(Number(m[1])); matched += 1; }
+        }
+        let file = stem(f);
+        if (s.dropTags) file = file.replace(/\s*\[[^\]]*\]\s*/g, ' ').trim();
+        if (s.underscores) file = file.replace(/_/g, ' ');
+        const name = fill(s.entryTpl, { ...tok, file, n: num, part: p.name, date: date.slice(0, 10) });
+        const path = `${p.name || w.folder}/${f}`;
+        let state = 'new';
+        if (had && s.workExists === 'skip') state = 'skip';
+        else if (had && s.workExists === 'add' && had.has(path)) state = s.entryExists === 'replace' ? 'rep' : 'inlib';
+        if (s.out.has(path)) state = 'off';
+        return { num, name, kb, date: s.edate === 'file' ? date.slice(0, 10) : '—', path, state };
+      }) };
+    });
+    const entries = sections.flatMap(x => x.entries);
+    const go = entries.filter(e => e.state === 'new' || e.state === 'rep');
+    return { key: w.key, tok, title, folder: w.folder, had: !!had, sections, entries, go,
+             meta: resolve(s, w.key, tok), own: ownValues(s.over[w.key]) };
+  });
+  return { works: out, read, matched, total };
+}
+
+const STATE = { new: 'new', inlib: 'in library', rep: 'replace', skip: 'skipped', off: 'left out' };
+
+function metaLine(m) {
+  const bits = [];
+  if (m.type) bits.push(`type <i>${esc(m.type)}</i>`);
+  for (const f of ['authors', 'artists', 'studio']) if (m[f].length) bits.push(`${f} <i>${esc(m[f].join(', '))}</i>`);
+  if (m.year) bits.push(`year <i>${esc(m.year)}</i>`);
+  if (m.status) bits.push(`<i>${esc(m.status)}</i>`);
+  for (const f of ['genres', 'tags', 'characters']) if (m[f].length) bits.push(`${f} <i>${esc(m[f].join(', '))}</i>`);
+  FLAGS.forEach(([k, l]) => { if (m.flags[k]) bits.push(`<i>${l}</i>`); });
+  if (m.language) bits.push(`lang <i>${esc(m.language)}</i>`);
+  return bits.join(' · ');
+}
+
+function previewHTML(s, live) {
+  const p = plan(s);
+  let h = '';
+  p.works.forEach(w => {
+    let badge = '<span class="badge new">NEW</span>';
+    if (w.had && s.workExists === 'add') badge = `<span class="badge add">ADDS ${w.go.length}</span>`;
+    if (w.had && s.workExists === 'separate') badge = '<span class="badge warn">NEW · SAME NAME AS A TITLE YOU HAVE</span>';
+    if (w.had && s.workExists === 'skip') badge = '<span class="badge skip">SKIPPED · IN LIBRARY</span>';
+    if (w.own) badge += '<span class="badge own">OWN VALUES</span>';
+    const kb = w.go.reduce((a, e) => a + e.kb, 0);
+    h += `<div class="wrow ${live && s.scope === w.key ? 'sel' : ''}"><span class="cb ${w.go.length ? 'on' : ''}"></span>`
+      + `<div class="tt"><span class="name" ${live ? `data-w="${esc(w.key)}" title="Give this work values of its own"` : ''}>${esc(w.title || '—')}</span>${badge}<span class="meta">${metaLine(w.meta)}</span></div>`
+      + `<span class="cnt">${w.go.length} of ${w.entries.length} episodes · ${gb(kb)}</span></div>`;
+    w.sections.forEach(sec => {
+      if (sec.name) h += `<div class="secrow">SECTION <b>${esc(sec.name)}</b></div>`;
+      sec.entries.forEach(e => {
+        const out = e.state === 'off', dim = e.state === 'inlib' || e.state === 'skip';
+        h += `<div class="erow ${out ? 'out' : ''} ${dim ? 'dim' : ''}">`
+          + `<span class="cb ${out || dim ? '' : 'on'}" ${live ? `data-x="${esc(e.path)}"` : ''}></span>`
+          + `<span class="num">${esc(e.num)}</span><span class="kind">▶</span>`
+          + `<span class="nm" title="${esc(e.name)}">${esc(e.name)}</span>`
+          + `<span class="dt">${esc(e.date)}</span><span class="sz">${mb(e.kb)}</span><span class="st ${e.state}">${STATE[e.state]}</span></div>`;
+      });
+    });
+  });
+  return { html: h, p };
+}
+
+function chip(v, tok, { rm = null, inh = false } = {}) {
+  const t = hasTok(v);
+  return `<span class="mchip ${t ? 'tok' : ''} ${inh ? 'inh' : ''}">${esc(v)}`
+    + (t ? `<span class="val">${esc(fill(v, tok))}</span>` : '')
+    + (rm ? `<span class="rm" data-rm="${rm.f}" data-i="${rm.i}" data-s="${rm.s}" title="Remove">×</span>` : '')
+    + '</span>';
+}
+
+function renderMeta() {
+  const p = plan(st);
+  const w = st.scope ? p.works.find(x => x.key === st.scope) : null;
+  if (st.scope && !w) st.scope = null;
+  const o = w ? (st.over[w.key] || {}) : null;
+  const tok = (w || p.works[0]).tok;
+  let h = '<div class="rsec"><div class="lbl">APPLIES TO</div><div class="scopebar">'
+    + `<span class="scope ${w ? '' : 'on'}" data-all>Every work <span class="n">${p.works.length}</span></span>`
+    + (w ? `<span class="scope on">${esc(w.title)}<span class="x" data-all title="Back to every work">×</span></span>` : '')
+    + '</div><div class="hint">' + (w
+      ? 'Values for <b>every work</b> show dim. What you add here is this work’s own: a list gains it, a single field is replaced.'
+      : 'A filled field goes to <b>every work</b>; an empty one is left alone. Click a work’s name in the preview to give it values of its own.')
+    + '</div></div><div class="rsec"><div class="me">';
+  BLOCKS.forEach(([label, rows]) => {
+    if (w && label === 'EVERY ENTRY') return;
+    h += `<div class="blocklbl"><span>${label}</span><i class="rule"></i></div><div class="blockrows">`;
+    rows.forEach(([f, name, ctl]) => {
+      const own = o && (LISTS.includes(f) ? !!o[f]?.length : f === 'flags' ? !!o.flags : !!o[f]);
+      h += `<div class="fieldrow"><div class="lblrow"><span class="flbl">${name.toUpperCase()}</span>`
+        + (own ? '<span class="pbadge own">this work</span>' : '')
+        + (f === 'type' ? '<span class="pbadge">decides the shelf</span>' : '') + '</div>';
+      if (ctl === 'vocab') {
+        const cur = o ? (o[f] || '') : st.meta[f];
+        const empty = o && st.meta[f] ? `— as every work: ${st.meta[f]}` : '— leave as it is';
+        h += `<select class="in" data-f="${f}">` + VOCAB[f].map(v => `<option value="${v}" ${v === cur ? 'selected' : ''}>${esc(v || empty)}</option>`).join('') + '</select>';
+      } else if (ctl === 'line') {
+        const cur = o ? (o[f] || '') : st.meta[f];
+        const ph = o && st.meta[f] ? `every work: ${st.meta[f]}` : 'leave as it is';
+        h += `<input class="in" data-f="${f}" value="${esc(cur)}" placeholder="${esc(ph)}" spellcheck="false">`;
+      } else if (ctl === 'flags') {
+        const fl = (o && o.flags) || st.meta.flags;
+        h += '<div class="flagrow">' + FLAGS.map(([k, l, c]) => `<span class="flag" data-flag="${k}" style="${fl[k] ? `color:${c};border-color:${c}` : ''}">`
+          + `<span class="box" style="${fl[k] ? `border-color:${c};background:${c}` : ''}"></span>${l}</span>`).join('') + '</div>';
+      } else if (ctl === 'date') {
+        h += `<div class="seg text" data-k="edate"><button class="opt" data-v="file">The file's date</button><button class="opt" data-v="none">None</button></div>`;
+      } else {
+        let chips = '';
+        if (st.l1 === 'creator' && st.to[f]) chips += `<span class="mchip tok lock" title="From the Creator level — change it in Structure">{creator}<span class="val">${esc(tok.creator || CREATOR_DIR)}</span><span class="src">L1</span></span>`;
+        st.meta[f].forEach((v, i) => chips += chip(v, tok, w ? { inh: true } : { rm: { f, i, s: 'all' } }));
+        (o?.[f] || []).forEach((v, i) => chips += chip(v, tok, { rm: { f, i, s: 'own' } }));
+        h += `<div class="mchips">${chips}<input class="addin" data-add="${f}" list="dl-${f}" placeholder="add…" spellcheck="false"></div>`;
+      }
+      h += '</div>';
+    });
+    h += '</div>';
+  });
+  h += '</div><div class="hint" style="margin-top:14px">Any value can hold a token — <span class="mono">{site}</span> '
+    + '<span class="mono">{creator}</span> <span class="mono">{folder}</span> <span class="mono">{part}</span> — filled in per work. '
+    + 'Values arrive as <b>automatic</b> and pass through your <b>rules</b>; for a work you already have, they fill what is empty or '
+    + 'automatic and add to lists — what you typed by hand is never touched.</div></div>';
+  document.getElementById('metaTab').innerHTML = h;
+}
+
+function sync() {
+  document.querySelectorAll('#tabs .opt').forEach(o => o.classList.toggle('on', o.dataset.t === st.tab));
+  document.querySelectorAll('#rules .tab').forEach(t => t.classList.toggle('on', t.dataset.t === st.tab));
+  renderMeta();
+  document.querySelectorAll('#rules .seg[data-k]').forEach(seg => seg.querySelectorAll('.opt').forEach(o =>
+    o.classList.toggle('on', st[seg.dataset.k] === o.dataset.v)));
+  document.querySelectorAll('#rules .check[data-k] .cb').forEach(cb => cb.classList.toggle('on', !!st[cb.parentElement.dataset.k]));
+  document.querySelectorAll('#rules .chip.tog').forEach(c => c.classList.toggle('on', st.to[c.dataset.to]));
+  document.getElementById('goesto').style.display = st.l1 === 'creator' ? '' : 'none';
+  const hasPart = st.l2 === 'part';
+  document.getElementById('partK').style.opacity = hasPart ? 1 : .4;
+  document.getElementById('partV').style.opacity = hasPart ? 1 : .4;
+  document.getElementById('numPattern').style.display = st.numbering === 'name' ? '' : 'none';
+  document.getElementById('workTpl').value = st.workTpl;
+  render();
+}
+
+function render() {
+  const { html, p } = previewHTML(st, true);
+  document.getElementById('preview').innerHTML = html;
+  const r = p.read;
+  document.getElementById('reads').innerHTML = r.ok
+    ? Object.entries(r.groups).map(([k, v]) => `<span class="chip"><span class="k">${esc(k)}</span>${esc(v)}</span>`).join('')
+    : `<span class="out w"><b>${r.bad ? 'not a pattern' : 'no match'}</b> — the whole name is used</span>`;
+  document.getElementById('workOut').innerHTML = '→ ' + p.works.map(w => `<b>${esc(w.title)}</b>`).join(', ');
+  document.getElementById('numOut').innerHTML = st.numbering === 'name'
+    ? (p.matched === p.total ? `<b>${p.matched} of ${p.total}</b> numbered from the name` : `<span class="out w"><b>${p.matched} of ${p.total}</b> matched — the rest numbered in order</span>`)
+    : `1–${p.works[0].entries.length} through each work, ${st.orderBy === 'date' ? 'oldest file first' : 'natural name order'}`;
+  const go = p.works.flatMap(w => w.go), kb = go.reduce((a, e) => a + e.kb, 0);
+  const skipped = p.works.flatMap(w => w.entries).length - go.length;
+  document.getElementById('sum').textContent = `${p.works.length} work${p.works.length === 1 ? '' : 's'} · ${go.length} to import · ${skipped} skipped · ${gb(kb)}`;
+  document.getElementById('footText').innerHTML = st.files === 'copy'
+    ? `<b>Copy</b> ${gb(kb)} into the library · the originals stay where they are`
+    : `<b>Move</b> ${gb(kb)} · same drive as the library — a rename, nothing is copied · each original goes once its entry is stored`;
+  document.getElementById('goBtn').textContent = `Import ${go.length} entries`;
+  const clean = { ...st, over: {}, scope: null, workExists: 'add', out: new Set() };
+  document.getElementById('readA').innerHTML = previewHTML({ ...clean, l1: 'creator', l2: 'work', workTpl: '{creator} {folder}' }, false).html;
+  document.getElementById('readB').innerHTML = previewHTML({ ...clean, l1: 'work', l2: 'part', workTpl: '{creator}' }, false).html;
+}
+
+const own = () => (st.over[st.scope] ||= {});
+function setSingle(f, v) { if (st.scope) own()[f] = v; else st.meta[f] = v; }
+
+document.getElementById('tabs').addEventListener('click', e => {
+  const o = e.target.closest('.opt');
+  if (o) { st.tab = o.dataset.t; sync(); }
+});
+document.getElementById('rules').addEventListener('click', e => {
+  const o = e.target.closest('.seg[data-k] .opt');
+  if (o) {
+    const k = o.closest('.seg').dataset.k, v = o.dataset.v;
+    st[k] = v;
+    if (k === 'l1' && v === 'work') { st.l2 = 'part'; st.workTpl = '{creator}'; }
+    if (k === 'l2' && v === 'work') { if (st.l1 === 'work') st.l1 = 'creator'; st.workTpl = '{creator} {folder}'; }
+    if (k === 'l2' && v === 'part') { st.l1 = 'work'; st.workTpl = '{creator}'; }
+    if (k === 'l1' && v !== 'work' && st.l2 === 'part') { st.l2 = 'work'; st.workTpl = '{creator} {folder}'; }
+    return sync();
+  }
+  const c = e.target.closest('.check[data-k]');
+  if (c) { st[c.dataset.k] = !st[c.dataset.k]; return sync(); }
+  const t = e.target.closest('.chip.tog');
+  if (t) { st.to[t.dataset.to] = !st.to[t.dataset.to]; return sync(); }
+  if (e.target.closest('[data-all]')) { st.scope = null; return sync(); }
+  const r = e.target.closest('[data-rm]');
+  if (r) { (r.dataset.s === 'own' ? own()[r.dataset.rm] : st.meta[r.dataset.rm]).splice(+r.dataset.i, 1); return sync(); }
+  const fl = e.target.closest('[data-flag]');
+  if (fl) {
+    const k = fl.dataset.flag;
+    if (st.scope) { const o2 = own(); o2.flags = { ...(o2.flags || st.meta.flags) }; o2.flags[k] = !o2.flags[k]; }
+    else st.meta.flags[k] = !st.meta.flags[k];
+    return sync();
+  }
+});
+const metaTab = document.getElementById('metaTab');
+// a select commits at once; a typed line re-plans per keystroke and redraws the editor when it is left
+metaTab.addEventListener('change', e => { if (e.target.dataset.f) { setSingle(e.target.dataset.f, e.target.value); sync(); } });
+metaTab.addEventListener('input', e => { if (e.target.dataset.f && e.target.tagName === 'INPUT') { setSingle(e.target.dataset.f, e.target.value); render(); } });
+metaTab.addEventListener('keydown', e => {
+  const f = e.target.dataset.add;
+  if (!f || e.key !== 'Enter') return;
+  const v = e.target.value.trim();
+  if (!v) return;
+  const list = st.scope ? (own()[f] ||= []) : st.meta[f];
+  if (!list.includes(v)) list.push(v);
+  sync();
+  document.querySelector(`#metaTab [data-add="${f}"]`).focus();
+});
+document.getElementById('preview').addEventListener('click', e => {
+  const w = e.target.closest('[data-w]');
+  if (w) { st.scope = st.scope === w.dataset.w ? null : w.dataset.w; st.tab = 'meta'; return sync(); }
+  const x = e.target.closest('[data-x]');
+  if (!x) return;
+  st.out.has(x.dataset.x) ? st.out.delete(x.dataset.x) : st.out.add(x.dataset.x);
+  render();
+});
+[['pattern', 'pattern'], ['workTpl', 'workTpl'], ['entryTpl', 'entryTpl'], ['numPattern', 'numPattern']].forEach(([id, k]) =>
+  document.getElementById(id).addEventListener('input', e => { st[k] = e.target.value; render(); }));
+sync();
+</script>
+</body>
+</html>

@@ -20,11 +20,11 @@ from urllib.parse import urlsplit
 from dataclasses import dataclass
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict
 
 from .models import TitleDoc
 from .operations import FLAG_NAMES, FOLDED, Action, place, shape, values_of
-from .vault import DOC_SCHEMA, UnreadableDocument, Vault
+from .vault import Vault
 
 DOC = "rules.json"
 
@@ -88,18 +88,7 @@ def check(rule: Rule) -> Rule:
 
 
 def _parse(doc: dict) -> list[Rule]:
-    schema = doc.get("schema", DOC_SCHEMA)
-    if not isinstance(schema, int) or schema > DOC_SCHEMA:
-        raise UnreadableDocument(f"{DOC} was written by a newer longbox — this one does not apply it")
-    raw = doc.get("rules", [])
-    if not isinstance(raw, list):
-        raise UnreadableDocument(f"{DOC} holds rules in a shape this build cannot read")
-    try:
-        return [Rule.model_validate(r) for r in raw]
-    except ValidationError as e:
-        # one rule this build cannot read makes the WHOLE list unreadable:
-        # applying the rest would let through what the broken one was there to catch
-        raise UnreadableDocument(f"{DOC} holds a rule this build cannot read") from e
+    return Vault.doc_items(doc, DOC, "rules", Rule, "a rule")
 
 
 class RuleStore:

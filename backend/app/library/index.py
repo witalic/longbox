@@ -370,6 +370,16 @@ class LibraryIndex:
             return None
         return TitleDoc.model_validate_json(row["doc"]), json.loads(row["media"]), row["cover"]
 
+    def ids_by_title(self) -> dict[str, list[str]]:
+        """Title ids keyed by their title as a person would match it — trimmed,
+        case folded. Several titles may share one."""
+        with self._lock:
+            rows = self._db.execute("SELECT id, title FROM titles").fetchall()
+        out: dict[str, list[str]] = {}
+        for r in rows:
+            out.setdefault((r["title"] or "").strip().casefold(), []).append(r["id"])
+        return out
+
     def all_docs(self) -> list[tuple[str, TitleDoc]]:
         """Every document, without the columns a listing needs. Anything that
         has to SHOW a title goes through `query()`, which carries the media and

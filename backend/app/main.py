@@ -18,6 +18,7 @@ from .legacy_config import move_site_data_into
 from .library.service import Library
 from .library.vault import UnreadableDocument
 from .routers import downloads as downloads_router
+from .routers import imports as imports_router
 from .routers import library as library_router
 from .routers import metadata as metadata_router
 from .routers import recipes as recipes_router
@@ -102,6 +103,7 @@ def create_app(library: Library | None = None) -> FastAPI:
     app.include_router(recipes_router.router)
     app.include_router(downloads_router.router)
     app.include_router(metadata_router.router)
+    app.include_router(imports_router.router)
 
     @app.exception_handler(UnreadableDocument)
     def unreadable(_request: Request, exc: UnreadableDocument) -> JSONResponse:
