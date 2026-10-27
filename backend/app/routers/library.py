@@ -256,7 +256,13 @@ def create_title(request: Request, draft: DraftIn) -> TitleOut:
 def commit_title(request: Request, title_id: str, draft: DraftIn) -> TitleOut:
     """Commit a draft into an existing title (meta layers only; the user layer
     is untouchable from this path by construction)."""
-    updated = _lib(request).commit(title_id, draft)
+    try:
+        updated = _lib(request).commit(title_id, draft)
+    except MediaInUseError:
+        # a new type moves the title's folder, and Windows will not move a
+        # folder while one of its files is open — nothing was changed
+        raise HTTPException(409, "a file of this title is open right now — close the player or the "
+                                 "reader on it, then save again")
     if updated is None:
         raise HTTPException(status_code=404, detail="title not found")
     return updated

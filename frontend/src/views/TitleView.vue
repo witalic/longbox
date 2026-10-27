@@ -1386,6 +1386,9 @@ async function removeRow(c: Chapter) {
 /* the WHOLE row drags in edit mode — the grip is the affordance, not the handle */
 .chrow[draggable="true"] { cursor: grab; }
 .chnum { font: 600 13px/1 ui-monospace, monospace; color: var(--tx); }
+/* the number and the name are two things: the template's space between them
+   is whitespace Vue condenses away, so the gap is the number's own */
+.chtitle .chnum { margin-right: .5em; }
 .chright { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; flex: none; }
 .pgerror { padding: 12px 14px; font: 400 12px/1.5 system-ui; color: var(--warn); }
 .chdot { flex: none; width: 10px; height: 10px; border-radius: 50%; cursor: pointer; }

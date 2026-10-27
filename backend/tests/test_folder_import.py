@@ -534,3 +534,32 @@ def test_run_refuses_values_a_field_cannot_hold(tmp_path):
                                             "overrides": {"meta": {"x": {"title": "no"}}}})
         assert r.status_code == 422
     lib.close()
+
+
+# ---- entries with no number at all -------------------------------------------
+
+def test_entries_can_be_their_file_names_with_no_number(lib, tmp_path):
+    """The label of an entry typed by hand is its whole name; an import can do
+    the same, and the work keeps the order the files were found in."""
+    src = creator_tree(tmp_path / "src")
+    p = by_creator().model_copy(update={"numbering": "none"})
+    pl = fi.plan(lib, fi.scan(src), p)
+    assert [(e.num, e.title) for e in pl.works[1].entries] == [("step", ""), ("step ロングver", "")]
+
+    go(lib, src, p)
+    t = titles(lib)["Kumo Works 2025.2"]
+    assert [(c.num, c.title) for c in t.chapters] == [("step", ""), ("step ロングver", "")]
+    assert t.chapterOrder == "manual"
+    again = go(lib, src, p)
+    assert (again.imported, again.skipped) == (0, 4)
+
+
+def test_two_files_of_one_name_in_one_work_are_a_conflict_with_no_numbers(lib, tmp_path):
+    src = tmp_path / "src"
+    mp4(src / "Show" / "Day 1" / "intro.mp4", b"\x01")
+    mp4(src / "Show" / "Day 2" / "intro.mp4", b"\x02")
+    p = fi.Profile(levels=[fi.Level(role="collection"), fi.Level(role="work")], numbering="none")
+    assert [e.state for e in fi.plan(lib, fi.scan(src), p).works[0].entries] == ["conflict", "conflict"]
+    with_part = p.model_copy(update={"entryTitle": "{part} · {file}"})
+    assert [e.num for e in fi.plan(lib, fi.scan(src), with_part).works[0].entries] == [
+        "Day 1 · intro", "Day 2 · intro"]

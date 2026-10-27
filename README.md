@@ -47,7 +47,8 @@ tags or cover, and longbox learns a reusable per-site recipe.
 - **Import** — bring in what is already on disk, sorted the way you sorted it. Say what each level
   of a folder tree means — a collection, a creator, a work — and how names become titles, entries
   and fields: a pattern reads `vidhub @kumo Kumo Works` as site, handle and creator, a template makes
-  `Kumo Works 2025.1` the work's title, and folders below a work become the **sections** its entries
+  `Kumo Works 2025.1` the work's title, entries are numbered in order, from their names, or not at
+  all (the file's name is the label), and folders below a work become the **sections** its entries
   are grouped by. Videos become episodes, archives and folders of images become chapters, and the
   metadata editor fills in every work at once (or one work on its own). The preview shows exactly
   what will be created before anything is written; the run copies or moves, keeps what you typed

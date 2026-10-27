@@ -67,7 +67,9 @@ class Profile(BaseModel):
     entryTitle: str = "{file}"
     dropTags: bool = False       # `[1080p] [Group]` out of entry names
     underscores: bool = False    # `_` read as a space in entry names
-    numbering: Literal["order", "name"] = "order"
+    # `none`: no number at all — the entry's name IS its label, the way an entry
+    # typed by hand carries its whole name, and the work keeps the found order
+    numbering: Literal["order", "name", "none"] = "order"
     orderBy: Literal["name", "date"] = "name"
     numPattern: str = ""         # `Ch. {n}` — required when numbering by name
     creatorTo: list[str] = ["authors"]
@@ -711,6 +713,10 @@ def _entries(w: _Work, p: Profile, numrx: re.Pattern | None, doc: TitleDoc | Non
         else:
             pending.append((e, ep))
 
+    if p.numbering == "none":
+        for e, ep in pending:
+            ep.num = fill(p.entryTitle, {**tok, "file": _clean(e.base, p), "n": "",
+                                         "part": e.section, "date": ep.date}) or e.base
     # numbers: from the name, or by place — after whatever the work already holds
     parsed: dict[int, str] = {}
     if numrx is not None:
@@ -724,7 +730,7 @@ def _entries(w: _Work, p: Profile, numrx: re.Pattern | None, doc: TitleDoc | Non
     whole = [k[1] for k in map(chapter_num_key, [*(r.num for r in rows.values()), *parsed.values()])
              if k[0] == 0]
     nxt = int(max(whole)) + 1 if whole else 1
-    for i, (e, ep) in enumerate(pending):
+    for i, (e, ep) in enumerate(pending if p.numbering != "none" else []):
         if i in parsed:
             ep.num = parsed[i]
         else:
@@ -783,10 +789,13 @@ class Report(BaseModel):
 Progress = Callable[..., None] | None
 
 
-def _new_draft(values: dict, typed: set[str]) -> DraftIn:
+def _new_draft(values: dict, typed: set[str], manual_order: bool) -> DraftIn:
     doc = TitleDoc()
     for fid, v in values.items():
         ops.write(doc, fid, v)
+    if manual_order:
+        # labels with no number sort by their text; the found order is the one
+        doc.meta.chapterOrder = "manual"
     return DraftIn(meta=doc.meta, provenance={
         fid: FieldProvenance(origin="manual" if fid in typed else "auto") for fid in values})
 
@@ -851,7 +860,7 @@ def run(lib: Library, s: Scan, p: Profile, o: Overrides | None = None, *,
                 lib.amend(tid, _top_up(wp.meta))
             else:
                 tid = lib.create(_new_draft({"title": wp.title, **wp.meta},
-                                            {"title"} if wp.typed else set())).id
+                                            {"title"} if wp.typed else set(), p.numbering == "none")).id
         except Exception as e:  # noqa: BLE001 — one work that cannot be written is one work
             report.failed.extend(Failure(path=ep.path, reason=f"the work could not be written: {e}")
                                  for ep in mine)

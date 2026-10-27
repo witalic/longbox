@@ -180,6 +180,9 @@ function toggleCreatorTo(id: string) {
 const numberHint = computed(() => {
   const missed = plan.value?.works.flatMap((w) => w.warnings).find((w) => w.includes('do not read as'))
   if (missed) return missed
+  if (profile.numbering === 'none') {
+    return `no numbers — the entry's name is its label, kept ${profile.orderBy === 'date' ? 'oldest file first' : 'in name order'}`
+  }
   if (profile.numbering === 'name') return 'every entry reads its number from its name'
   return `1, 2, 3 through each work — ${profile.orderBy === 'date' ? 'oldest file first' : 'in natural name order'}`
 })
@@ -384,6 +387,7 @@ onMounted(async () => {
                       <div class="seg text">
                         <button class="opt" :class="{ on: profile.numbering === 'order' }" @click="profile.numbering = 'order'">In order</button>
                         <button class="opt" :class="{ on: profile.numbering === 'name' }" @click="profile.numbering = 'name'">From the name</button>
+                        <button class="opt" :class="{ on: profile.numbering === 'none' }" @click="profile.numbering = 'none'">None</button>
                       </div>
                       <div class="seg text">
                         <button class="opt" :class="{ on: profile.orderBy === 'name' }" @click="profile.orderBy = 'name'">by name</button>
@@ -541,9 +545,9 @@ onMounted(async () => {
                   <button class="box" :disabled="!canToggle(e)" @click="toggleOff(e.path)">
                     <span class="fbox" :class="{ on: e.state === 'new' || e.state === 'replace' }">
                       <Icon v-if="e.state === 'new' || e.state === 'replace'" name="check" :size="9" :sw="3.2" /></span></button>
-                  <span class="num mono">{{ e.num || '—' }}</span>
+                  <span class="num mono">{{ e.title ? e.num : '—' }}</span>
                   <Icon :name="e.kind === 'video' ? 'film' : 'image'" :size="12" class="kind" />
-                  <span class="nm">{{ e.title || e.path }}</span>
+                  <span class="nm">{{ e.title || e.num || e.path }}</span>
                   <span class="dt mono">{{ e.date }}</span>
                   <span class="sz mono">{{ size(e.size) }}</span>
                   <span class="st mono" :class="e.state">{{ STATE_LABEL[e.state] }}</span>

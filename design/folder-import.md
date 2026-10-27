@@ -80,7 +80,9 @@ optional clean-ups: drop `[bracketed tags]`, underscores to spaces. Parentheses 
 **Numbers.** Either **in order** — 1, 2, 3 through the work, parts in their order, files in natural
 order (`2` before `10`; `step` before `step ロングver`) or oldest file first — or
 **from the name** with a pattern (`Ch. {n}`, `E{n}`, `- {n}`), a file the pattern misses falling
-back to its place in order. Numbers run through the whole work and never restart per part: an
+back to its place in order — or **none**: the entry's name is its whole label, the way an entry
+typed by hand carries its name, and a new work keeps the found order by hand (its chapter order is
+`manual`; labels with no number would otherwise sort by their text). Numbers run through the whole work and never restart per part: an
 entry's identity is number + language + group, and two "episode 1"s in one work would be one
 entry. A pattern that yields the same number twice is a conflict in the preview.
 

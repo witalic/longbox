@@ -311,7 +311,7 @@ class Vault:
                     src = self.root / (p.name + ".lb-migrating")
                     p.rename(src)
                 dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(src), str(dest))
+                os.rename(src, dest)  # one volume — and a refused rename leaves it whole
                 self._loc[p.name] = shelf
             except OSError:
                 continue  # a stuck legacy dir must never block startup
@@ -388,7 +388,13 @@ class Vault:
 
     def _relocate_for_type(self, sid: str, type_str: str) -> None:
         """Make the title live on the shelf its TYPE dictates — a type change
-        physically moves the directory (and sweeps the emptied shelf)."""
+        physically moves the directory (and sweeps the emptied shelf).
+
+        A RENAME, never a copy: shelves are folders of one vault, so one volume.
+        Windows refuses to rename a folder while a file in it is open — the
+        episode playing in the window — and a move that then copies everything
+        and deletes the original stops at that file, leaving the title in two
+        places at once. Refused, the title stays exactly where it was."""
         target = type_dir_name(type_str)
         cur = self._find(sid)
         if cur is None:
@@ -403,7 +409,14 @@ class Vault:
             return
         dest.parent.mkdir(parents=True, exist_ok=True)
         old_parent = cur.parent
-        shutil.move(str(cur), str(dest))
+        try:
+            os.rename(cur, dest)
+        except PermissionError as e:
+            try:
+                dest.parent.rmdir()  # a shelf made for this move holds nothing
+            except OSError:
+                pass
+            raise media.MediaInUseError(cur.name) from e
         self._loc[sid] = target
         try:
             if old_parent != self.root and not any(old_parent.iterdir()):
