@@ -50,7 +50,8 @@ content). Full model: `design/state-model.md`; layout: `ARCHITECTURE.md`.
   identity with an empty id and reads the assigned one back from the response.
 - **A cache key must be unable to repeat.** Pages and covers are cached in the browser (by URL)
   and on disk (downscaled previews) under ONE version: `revision.size.pages` for a chapter,
-  `mtime.size.ext` for a cover. Never version by page count (delete two, add two) or by a bare
+  `mtime.size.ext` for a cover, `stills.digest` for an episode's stills (the counter alone
+  restarts with its sidecar). Never version by page count (delete two, add two) or by a bare
   timestamp (copies carry it, shares round it) — a repeated version serves a deleted page back.
 - **Layer separation.** A meta commit merges layers in the vault and never touches the user layer
   (fav/rating/read). `_reconcile_chapters` guards the no-orphan rule: re-captured rows adopt old

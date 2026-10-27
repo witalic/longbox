@@ -1795,6 +1795,8 @@ class Library:
             side[kind] = grid if kind == "sheet" else True
             # the STILLS version, not the media revision: see stills_version()
             side["stills"] = int(side.get("stills") or 0) + 1
+            side["stillsSha"] = {**(side.get("stillsSha") or {}),
+                                 kind: hashlib.sha256(data).hexdigest()[:16]}
             self.vault.write_chapter_sidecar(title_id, chapter_id, side)
             self._sidecar_cache.pop(title_id, None)
             doc = self.vault.load(title_id)
@@ -1812,7 +1814,8 @@ class Library:
         try:
             if not width:
                 return path.read_bytes(), "image/jpeg"
-            key = cache_key(kind, str(path.stat().st_mtime_ns),
+            # the version the URL carries — a file's timestamp is not one
+            key = cache_key(kind, stills_version(self._sidecars(title_id).get(safe_id(chapter_id))),
                             safe_id(title_id), safe_id(chapter_id), width)
             return self._cached_thumb(key, lambda: (path.read_bytes(), "image/jpeg"), width, None)
         except OSError as e:

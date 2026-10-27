@@ -141,8 +141,9 @@ library/
   time, once each: a tile needs only a poster (three spots, the liveliest wins); a preview asks
   for the sheet — nine spots composed 3x3, which has exactly the aspect ratio of one frame, so
   the preview and the player share a box — and that job supplies the poster too if none is
-  stored. Both go to the vault. They carry a version of their OWN (`stills`), never the media
-  revision: bumping that re-points the `<video>` of an episode that may be playing right then.
+  stored. Both go to the vault. They carry a version of their OWN (the `stills` counter plus a
+  digest of the stored stills), never the media revision: bumping that re-points the `<video>`
+  of an episode that may be playing right then.
 - **No-orphan commits.** A meta commit reconciles chapters: a re-captured row adopts the old row's
   id (by URL, else by num+lang+group), and media-backed rows missing from a stale draft are
   restored — downloaded chapters are removed only by the explicit delete endpoints. A row keeps
@@ -210,10 +211,10 @@ Endpoints run sync on FastAPI's threadpool, so races are real and handled struct
 
 ## Media & downloads
 
-- Covers and chapter pages are served with LANCZOS downscales (`?w=`), cached in the app's cache
-  directory under the version from `library/versions.py` (a chapter's `rev.size.pages`, a
-  cover's `mtime.size.ext`) — never by page count or a bare mtime, so an edit misses the cache by
-  construction. Tall webtoon pages crop in previews only, never in the reader.
+- Covers, chapter pages and episode stills are served with LANCZOS downscales (`?w=`), cached in
+  the app's cache directory under the version from `library/versions.py` (a chapter's
+  `rev.size.pages`, a cover's `mtime.size.ext`, an episode's `stills.digest`) — never by page
+  count or a bare mtime, so an edit misses the cache by construction. Tall webtoon pages crop in previews only, never in the reader.
 - Downloads come in two lanes, chosen in the capture dock's Downloads tab:
   - **Archive** — the **armed flow** (`state-model.md` §9): the user arms ONE next download for a
     specific chapter; the shell intercepts `will-download`, streams progress, and hands the
