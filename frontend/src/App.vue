@@ -21,18 +21,20 @@ import ReaderView from './views/ReaderView.vue'
 import AuthorsView from './views/AuthorsView.vue'
 import SourcesView from './views/SourcesView.vue'
 import MetadataView from './views/MetadataView.vue'
+import ImportView from './views/ImportView.vue'
 import SettingsView from './views/SettingsView.vue'
 import BrowserView from './views/BrowserView.vue'
 
-// Four destinations. Browsing BY a field is not a fifth: it is the library seen
-// through an axis, and you enter it by picking that axis in the rail below —
-// which is also where you leave it. A nav item for it duplicated the rail and
+// The destinations. Browsing BY a field is not one of them: it is the library
+// seen through an axis, and you enter it by picking that axis in the rail below
+// — which is also where you leave it. A nav item for it duplicated the rail and
 // read like a second browser.
 const nav = [
   { key: 'library', label: 'Library', icon: 'library' },
   { key: 'browse', label: 'Browse', icon: 'browser' },
   { key: 'sources', label: 'Sources', icon: 'sources' },
   { key: 'metadata', label: 'Metadata', icon: 'meta' },
+  { key: 'import', label: 'Import', icon: 'import' },
   { key: 'settings', label: 'Settings', icon: 'settings' },
 ] as const
 
@@ -48,7 +50,7 @@ function navClick(key: string) {
   // arrives only from the library's select mode
   if (key === 'metadata') store.metaSelection = null
   if (key === 'browse') openBrowse()
-  else goView(key as 'library' | 'sources' | 'metadata' | 'settings')
+  else goView(key as 'library' | 'sources' | 'metadata' | 'import' | 'settings')
 }
 
 // ONE browser-styled strip, CONTEXTUAL: in-app views (Library/Title/Authors/
@@ -494,6 +496,7 @@ initSessions()
         <AuthorsView v-else-if="store.view === 'authors'" />
         <SourcesView v-else-if="store.view === 'sources'" />
         <MetadataView v-else-if="store.view === 'metadata'" />
+        <ImportView v-else-if="store.view === 'import'" />
         <SettingsView v-else-if="store.view === 'settings'" />
         <!-- kept mounted so the embedded browser (pages + history) survives leaving Browse -->
         <BrowserView v-show="store.view === 'browser'" class="browser-host" />

@@ -223,6 +223,13 @@ def test_import_local_archive(client, tmp_path):
     assert client.post("/api/titles/berserk/chapters/import", params={"num": "8"}, content=b"").status_code == 422
 
 
+def test_an_imported_archive_can_name_the_section_it_belongs_to(client, tmp_path):
+    src = make_zip(tmp_path, "v2.zip")
+    r = client.post("/api/titles/berserk/chapters/import",
+                    params={"num": "12", "section": "Vol. 02", "filename": "v2.zip"}, content=src.read_bytes())
+    assert next(c for c in r.json()["chapters"] if c["num"] == "12")["section"] == "Vol. 02"
+
+
 def test_the_name_a_file_arrived_under_is_kept(client, tmp_path):
     """The vault renames every stored file to the chapter's id, so the sidecar is
     the only place the original name can survive — and later features (matching a

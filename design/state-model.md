@@ -178,11 +178,11 @@ library/
         <chapter-id>.sheet.jpg    # the 3x3 contact sheet a preview shows
 ```
 
-`title.json` (schema 4):
+`title.json` (schema 5):
 
 ```jsonc
 {
-  "schema": 4,
+  "schema": 5,
   "meta": {                       // written ONLY via draft → commit
     "title": "…", "alt": "…", "authors": [], "artists": [], "characters": [], "studio": [],
     "type": "manga", "status": "ongoing", "year": "",   // type/status stored lowercase
@@ -199,7 +199,8 @@ library/
   },
   "chapters": [                   // scraped records; one row per translation
     {"id": "ch-93-1a2b3c4d", "num": "93", "title": "…", "url": "…",
-     "lang": "EN", "group": "…", "date": ""}
+     "lang": "EN", "group": "…", "date": "",
+     "section": "Vol. 10"}          // the part of the work it belongs to; never its identity
   ],
   "user": {                       // written ONLY via instant write-through
     "fav": false, "rating": 0,

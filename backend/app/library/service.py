@@ -9,6 +9,7 @@ import hashlib
 import logging
 import os
 import re
+import shutil
 import threading
 import time
 import uuid
@@ -35,7 +36,7 @@ from .versions import cache_key, chapter_version, cover_version, stills_version
 log = logging.getLogger("longbox.library")
 
 
-def _chapter_num_key(num: str) -> tuple:
+def chapter_num_key(num: str) -> tuple:
     """Smart chapter order: numeric ascending ("2" < "10", 5.5 between 5 and 6),
     non-numeric ("Extra") after, alphabetically."""
     m = re.match(r"\s*(\d+(?:[.,]\d+)?)", num)
@@ -47,14 +48,14 @@ def _chapter_num_key(num: str) -> tuple:
 def _missing_numbers(nums: list[str], min_rows: int, numeric: float,
                      density: float) -> list[int]:
     """The integers absent from a run of labels — or nothing at all, if this is
-    not provably a run. `_chapter_num_key` already owns what "a number in a
+    not provably a run. `chapter_num_key` already owns what "a number in a
     label" means; this reads the same leading value and refuses everything else.
 
     Fractions never count as a gap (10.5 is an extra, not a missing 11) but they
     do count as entries held: a scope that is half extras is still a sequence."""
     if len(nums) < min_rows:
         return []
-    values = [key[1] for key in map(_chapter_num_key, nums) if key[0] == 0]
+    values = [key[1] for key in map(chapter_num_key, nums) if key[0] == 0]
     if len(values) < numeric * len(nums):
         return []
     whole = {int(v) for v in values if float(v).is_integer()}
@@ -244,6 +245,23 @@ def _finding(title_id: str, doc: TitleDoc, ch: ChapterRow, kind: str, detail: st
     return {"titleId": title_id, "title": doc.meta.title, "chapterId": ch.id,
             "num": ch.num, "lang": ch.lang, "group": ch.group,
             "kind": kind, "detail": detail}
+
+
+def _place_copy(src: Path, dst: Path, link: bool) -> None:
+    """A copy of `src` at `dst`. With `link`, a hard link wherever the volume
+    allows one: the same bytes under a second name, so a file moved onto the
+    vault's own drive is never copied — and the original still exists until
+    whoever asked for the move deletes it.
+
+    Never a link to a read-only file: a link shares its attributes, and a
+    read-only file in the vault is one no atomic rewrite can replace."""
+    if link and os.access(src, os.W_OK):
+        try:
+            os.link(src, dst)
+            return
+        except OSError:
+            pass
+    shutil.copyfile(src, dst)
 
 
 def _free_id(cid: str, taken: set[str]) -> str:
@@ -1234,9 +1252,10 @@ class Library:
 
     def create(self, draft: DraftIn) -> TitleOut:
         """Commit a NEW draft, assigning a unique filesystem-safe id."""
-        rules, fired = self._chapter_rules(), []
+        rules, fired = self.incoming_rules(), []
         for c in draft.chapters:
-            c.lang, c.group = self._ruled(rules, c.lang, c.group, c.url or draft.meta.source.url, fired)
+            c.lang, c.group = self.ruled_identity(rules, c.lang, c.group,
+                                                  c.url or draft.meta.source.url, fired)
         self._count_fired(fired)
         with self._create_lock:
             base = safe_id(draft.meta.title or "untitled")
@@ -1299,12 +1318,13 @@ class Library:
         held = {c.id: key(c) for c in old.chapters}
         held.update({c.id: key(c) for c in draft.chapters if c.id})
 
-        rules, fired = self._chapter_rules(), []
+        rules, fired = self.incoming_rules(), []
         rows, taken = [], set()
         for c in draft.chapters:
             raw = (c.lang, c.group)
             if not c.id:  # a new row: the rules decide its language and group — and so its id
-                c.lang, c.group = self._ruled(rules, c.lang, c.group, c.url or draft.meta.source.url, fired)
+                c.lang, c.group = self.ruled_identity(rules, c.lang, c.group,
+                                                      c.url or draft.meta.source.url, fired)
             cid = c.id or self.chapter_id_for(c.num, c.lang, c.group)
             adopted = None
             if cid not in old_ids:
@@ -1350,7 +1370,7 @@ class Library:
                 final.append(c)  # two brand-new rows — trust the draft
                 continue
             fresh = c if anchor is other else other
-            for f in ("url", "title", "date"):
+            for f in ("url", "title", "date", "section"):
                 if not getattr(anchor, f) and getattr(fresh, f):
                     setattr(anchor, f, getattr(fresh, f))
             final[j] = anchor
@@ -1368,8 +1388,8 @@ class Library:
             if draft.meta.chapterOrder == "manual":
                 rows.append(c)
             else:
-                k = _chapter_num_key(c.num)
-                idx = next((i for i, r in enumerate(rows) if _chapter_num_key(r.num) > k), len(rows))
+                k = chapter_num_key(c.num)
+                idx = next((i for i, r in enumerate(rows) if chapter_num_key(r.num) > k), len(rows))
                 rows.insert(idx, c)
             kept.add(safe_id(c.id))
         draft.chapters = rows
@@ -1449,7 +1469,7 @@ class Library:
     def _norm(s: str) -> str:
         return s.strip().casefold()
 
-    def _chapter_rules(self) -> list:
+    def incoming_rules(self) -> list:
         """The library's rules, read ONCE for a whole commit or ingest. Rules that
         cannot be read let identities through as typed rather than refuse the
         write — the Rules view says what is wrong with the file."""
@@ -1459,7 +1479,7 @@ class Library:
             return []
 
     @staticmethod
-    def _ruled(rules: list, lang: str, group: str, url: str, fired: list[str]) -> tuple[str, str]:
+    def ruled_identity(rules: list, lang: str, group: str, url: str, fired: list[str]) -> tuple[str, str]:
         """A NEW chapter's language and group as the rules leave them — the
         identity it is then named by. Rows already stored are never rewritten
         here: that is what applying a rule to existing titles is for."""
@@ -1496,18 +1516,21 @@ class Library:
             if url and not row.url:
                 row.url = url  # a supplied source link tops up the existing row
             return row, False
-        row = ChapterRow(id=self.chapter_id_for(num, lang, group), num=num, lang=lang, group=group, url=url)
+        # no row wears this identity, yet a RENUMBERED one may still hold the id
+        # it derives — and the media file named after that id
+        cid = _free_id(self.chapter_id_for(num, lang, group), {safe_id(c.id) for c in doc.chapters})
+        row = ChapterRow(id=cid, num=num, lang=lang, group=group, url=url)
         if doc.meta.chapterOrder == "manual":
             doc.chapters.append(row)  # the user's arrangement is sacred
         else:
-            key = _chapter_num_key(num)
-            idx = next((i for i, c in enumerate(doc.chapters) if _chapter_num_key(c.num) > key), len(doc.chapters))
+            key = chapter_num_key(num)
+            idx = next((i for i, c in enumerate(doc.chapters) if chapter_num_key(c.num) > key), len(doc.chapters))
             doc.chapters.insert(idx, row)
         return row, True
 
     def attach_chapter_media(
         self, title_id: str, *, num: str, lang: str, group: str,
-        src: Path, sidecar: dict, url: str = "", chapter_id: str = "",
+        src: Path, sidecar: dict, url: str = "", chapter_id: str = "", section: str = "",
     ) -> TitleOut | None:
         """Attach downloaded media to a chapter: to the EXACT row when
         `chapter_id` is given (attach/replace on an existing row), else to the
@@ -1542,10 +1565,12 @@ class Library:
                 if not any(n(c.num) == n(num) and n(c.lang) == n(lang) and n(c.group) == n(group)
                            for c in doc.chapters):  # a new row is named by the rules
                     fired: list[str] = []
-                    lang, group = self._ruled(self._chapter_rules(), lang, group,
+                    lang, group = self.ruled_identity(self.incoming_rules(), lang, group,
                                               url or doc.meta.source.url, fired)
                     self._count_fired(fired)
                 row, _ = self._row_for(doc, num=num, lang=lang, group=group, url=url)
+            if section and not row.section:
+                row.section = section  # a part named with the file fills an entry that has none
             suffix = Path(sidecar.get("filename") or src.name).suffix.lower()
             if suffix in media.IMAGE_EXTS:
                 # unpacked media: the image becomes the chapter zip's next page
@@ -1565,6 +1590,79 @@ class Library:
                     filename=str(sidecar.get("filename") or src.name))
                 self._mirror_comicinfo(title_id, doc, row, stored)
             return self._recommit(title_id, doc)
+
+    # ---- a folder the owner already has (library/folder_import.py) ----
+
+    def amend(self, title_id: str, change: Callable[[TitleDoc], bool]) -> TitleOut | None:
+        """Load → change → commit one title as one critical section. `change`
+        says whether it changed anything; nothing is written when it did not."""
+        with self.vault.title_lock(title_id):
+            doc = self.vault.load(title_id)
+            if doc is None:
+                return None
+            if not change(doc):
+                return self._out_now(title_id, doc)
+            return self._recommit(title_id, doc)
+
+    def import_entry(self, title_id: str, sources: list[Path], *, num: str, lang: str,
+                     group: str, title: str, section: str, date: str, sidecar: dict,
+                     filename: str, link: bool, replace: bool) -> tuple[str, str]:
+        """Store one entry of a folder in a title: a video or an archive as the
+        file it is, a folder of images (`sources` are its pages) packed into a
+        zip. The originals are only ever read — copied, or hard-linked with
+        `link` — so a move deletes them after this returns, never before.
+
+        The identity is taken as given: the plan already ran it through the
+        rules, and named a stored entry by the spelling it is stored under.
+        Returns the outcome — "added", "replaced", or "exists" when the entry
+        turned up meanwhile and `replace` is off — and the entry's id."""
+        root = self.vault.root.resolve()
+        for folder in {s.parent for s in sources}:
+            if folder.resolve().is_relative_to(root):
+                # a junction can make the vault look like any folder at all; what
+                # a move would then delete is the library's own media
+                raise ValueError(f"{folder} is inside the library itself")
+        with self.vault.title_lock(title_id):
+            doc = self.vault.load(title_id)
+            if doc is None:
+                raise FileNotFoundError(f"{title_id} is no longer in the library")
+            n = self._norm
+            held = next((c for c in doc.chapters
+                         if n(c.num) == n(num) and n(c.lang) == n(lang) and n(c.group) == n(group)), None)
+            if held is not None and not replace:
+                return "exists", held.id
+            pack = len(sources) != 1 or sources[0].suffix.lower() in media.IMAGE_EXTS
+            incoming = self.vault.incoming_path(title_id, ".zip" if pack else sources[0].suffix.lower())
+            try:
+                if pack:
+                    media.pack_images(sources, incoming)
+                else:
+                    _place_copy(sources[0], incoming, link)
+                row, _ = self._row_for(doc, num=num, lang=lang, group=group)
+                for f, v in (("title", title), ("section", section), ("date", date)):
+                    if v and not getattr(row, f):
+                        setattr(row, f, v)
+                stored = self.vault.ingest_chapter_media(title_id, row.id, incoming, sidecar,
+                                                         filename=filename)
+            except BaseException:
+                incoming.unlink(missing_ok=True)
+                raise
+            self._mirror_comicinfo(title_id, doc, row, stored)
+            self._recommit(title_id, doc)
+            return ("added" if held is None else "replaced"), row.id
+
+    def own_media(self, title_id: str, chapter_id: str) -> None:
+        """Give a chapter's file an inode of its own. A move links the original
+        into the vault and deletes it afterwards; when the delete fails, the two
+        names are still one file — and an edit outside would change the vault
+        behind its digests. Copying it over itself parts them."""
+        with self.vault.title_lock(title_id):
+            path = self.vault.chapter_media_path(title_id, chapter_id)
+            if path is None or path.stat().st_nlink < 2:
+                return
+            tmp = media.tmp_path(path)
+            shutil.copyfile(path, tmp)
+            media.replace_atomically(tmp, path)
 
     def _mirror_comicinfo(self, title_id: str, doc: TitleDoc, row: ChapterRow,
                           path: Path, sidecars: dict[str, dict] | None = None) -> bool:

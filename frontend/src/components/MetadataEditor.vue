@@ -9,7 +9,7 @@
 // (design/metadata-model.md), so a field the app gains — or the user defines —
 // draws itself without a line of code in this file.
 import { computed, reactive, watch } from 'vue'
-import { DEFAULT_STATUSES, type FieldDef } from '../data'
+import { DEFAULT_STATUSES, fieldBlocks, type FieldDef } from '../data'
 import { addFlags, clearField, draftState, ruleTarget, setCoverUrl, setManual, throughRules } from '../draft'
 import { store, visibleFields } from '../store'
 import Combo from './Combo.vue'
@@ -30,32 +30,7 @@ const props = withDefaults(defineProps<{
 const SPAN = new Set(['cover', 'flags', 'multiline'])
 function spans(f: FieldDef): boolean { return props.wide && SPAN.has(f.control) }
 
-// The editor draws BLOCKS, in the registry's order, because a flat run of
-// fifteen fields is unreadable — you cannot tell where "who made it" ends and
-// "what it is about" begins. Which block a field belongs to is the registry's
-// answer (library/fields.py), not a list of names kept here.
-const GROUP_LABEL: Record<string, string> = {
-  identity: 'IDENTITY', about: 'WHAT IT IS', people: 'WHO MADE IT',
-  topics: 'TOPICS', yours: 'YOUR FIELDS',
-}
-const blocks = computed(() => {
-  // Bucketed by GROUP, not by adjacency: where a field sits in the registry is
-  // about capture order, and a field whose group differs from its neighbours
-  // would otherwise split its block in two.
-  const out: { key: string; label: string; rows: FieldDef[] }[] = []
-  const byKey = new Map<string, { key: string; label: string; rows: FieldDef[] }>()
-  for (const f of rows.value) {
-    const key = f.group || 'yours'
-    let block = byKey.get(key)
-    if (!block) {
-      block = { key, label: GROUP_LABEL[key] ?? key.toUpperCase(), rows: [] }
-      byKey.set(key, block)
-      out.push(block)
-    }
-    block.rows.push(f)
-  }
-  return out
-})
+const blocks = computed(() => fieldBlocks(rows.value))
 
 // A one-line field shows one line of a value that may be far longer — a title
 // with a subtitle, a row of alternates joined by bars. Such a row can be OPENED

@@ -89,6 +89,36 @@ def test_a_repeat_of_a_number_that_is_still_that_number_is_still_a_repeat(lib):
     assert [c.num for c in t.chapters] == ["2"]
 
 
+def test_media_for_a_freed_number_does_not_land_on_the_renumbered_chapter(lib, tmp_path):
+    """Download chapter 2, rename it to 3, then import an archive labelled 2.
+
+    The import creates its row from the label, and the id "2" derives is still
+    held by the renamed chapter. Taking it anyway overwrote that chapter's
+    archive with the new file and saved two rows under one id."""
+    def archive(name, pages):
+        src = tmp_path / name
+        with zipfile.ZipFile(src, "w") as z:
+            for p in pages:
+                z.writestr(p, b"img")
+        return src
+
+    out = lib.create(DraftIn(meta=TitleMeta(title="X")))
+    t = _commit(lib, out.id, [ChapterRow(id="", num="2", lang="EN", group="g")])
+    first = t.chapters[0].id
+    lib.attach_chapter_media(out.id, num="2", lang="EN", group="g",
+                             src=archive("old.zip", ["a.jpg", "b.jpg", "c.jpg"]), sidecar={})
+    t = _commit(lib, out.id, [ChapterRow(**{**c.model_dump(), "num": "3"}) for c in t.chapters])
+
+    t = lib.attach_chapter_media(out.id, num="2", lang="EN", group="g",
+                                 src=archive("new.zip", ["x.jpg"]), sidecar={})
+    assert len({c.id for c in t.chapters}) == len(t.chapters) == 2
+    by_num = {c.num: c for c in t.chapters}
+    assert by_num["3"].id == first and by_num["2"].id != first
+    assert by_num["3"].pages == 3 and by_num["2"].pages == 1
+    with zipfile.ZipFile(lib.vault.chapter_media_path(out.id, first)) as z:
+        assert {"a.jpg", "b.jpg", "c.jpg"} <= set(z.namelist())
+
+
 def test_reconcile_restores_row_with_archive_but_no_sidecar(lib, tmp_path):
     """A crash can leave a chapter's zip without its sidecar — a commit from a
     stale draft must still treat that row as media-backed and put it back."""

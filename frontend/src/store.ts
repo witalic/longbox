@@ -16,7 +16,8 @@ import {
 } from './local'
 import { stopCaptureFor } from './pagecapture'
 
-export type View = 'library' | 'title' | 'reader' | 'authors' | 'sources' | 'metadata' | 'settings' | 'browser'
+export type View = 'library' | 'title' | 'reader' | 'authors' | 'sources' | 'metadata' | 'import' | 'settings'
+  | 'browser'
 export type Density = 'grid' | 'dense' | 'expanded'
 export type ThemePref = 'dark' | 'light' | 'system'
 
@@ -706,7 +707,7 @@ export async function pollDownloads(force = false): Promise<void> {
 // So nothing here decides what is running: the sidecar says, including WHICH
 // row started it, and every screen reads the same answer.
 export const vaultPass = reactive<PassState & { key: string }>(
-  { running: false, op: '', key: '', done: 0, total: 0 })
+  { running: false, op: '', key: '', done: 0, total: 0, detail: '' })
 let passWatchers = 0
 
 /** Something on screen is showing the pass — keep the poll warm while it is. */
@@ -927,7 +928,7 @@ export async function deleteTitles(ids: string[]): Promise<number> {
 // Edit ONE entry's identity fields in place. The row id NEVER changes here, so
 // the archive, read state and download provenance stay bound (no-orphan rule).
 export async function editChapterRow(t: Title, id: string,
-  fields: { num: string; lang: string; group: string; url: string }): Promise<boolean> {
+  fields: { num: string; lang: string; group: string; url: string; section: string }): Promise<boolean> {
   try {
     const body = commitBodyFrom(t)
     const row = body.chapters.find((c) => c.id === id)
@@ -937,6 +938,7 @@ export async function editChapterRow(t: Title, id: string,
     row.lang = fields.lang
     row.group = fields.group
     row.url = fields.url
+    row.section = fields.section
     cache([await api.commitTitle(t.id, body)])
     return true
   } catch (e) {
@@ -950,14 +952,15 @@ export async function editChapterRow(t: Title, id: string,
 // commit can adopt an existing row's id), so anything addressing the new row's
 // media has to read it back rather than assume what it will be.
 export async function addChapterRow(
-  t: Title, ch: { num: string; lang: string; group: string; url?: string }): Promise<Chapter | null> {
+  t: Title, ch: { num: string; lang: string; group: string; url?: string; section?: string }): Promise<Chapter | null> {
   if (t.chapters.some((c) => sameChapter(c, ch))) {
     store.error = `Chapter ${ch.num}${ch.lang ? ' · ' + ch.lang : ''} already exists`
     return null
   }
   try {
     const body = commitBodyFrom(t)
-    body.chapters.push({ id: '', num: ch.num, title: '', url: ch.url || '', lang: ch.lang, group: ch.group, date: '' })
+    body.chapters.push({ id: '', num: ch.num, title: '', url: ch.url || '', lang: ch.lang, group: ch.group,
+                         date: '', section: ch.section || '' })
     const saved = await api.commitTitle(t.id, body)
     cache([saved])
     const added = saved.chapters.find((c) => sameChapter(c, ch))

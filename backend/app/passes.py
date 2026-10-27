@@ -27,7 +27,9 @@ _LOCK = threading.Lock()
 # `key` is the row that started it. The client keeps NO state of its own about
 # a running pass: leaving the page (or reloading it) must not lose the progress
 # of something the server is still doing.
-PASS = {"running": False, "op": "", "key": "", "done": 0, "total": 0}
+# `detail` is what the pass is on right now, for one that has something worth
+# naming (the file an import is copying); empty for the rest.
+PASS = {"running": False, "op": "", "key": "", "done": 0, "total": 0, "detail": ""}
 _PASS_STOP = threading.Event()
 
 
@@ -39,11 +41,11 @@ def _pass(op: str, key: str = ""):
         raise HTTPException(status_code=409,
                             detail=f"{PASS['op'] or 'a vault pass'} is already running")
     _PASS_STOP.clear()
-    PASS.update(running=True, op=op, key=key, done=0, total=0)
+    PASS.update(running=True, op=op, key=key, done=0, total=0, detail="")
     try:
-        yield (lambda done, total: PASS.update(done=done, total=total)), _PASS_STOP
+        yield (lambda done, total, detail="": PASS.update(done=done, total=total, detail=detail)), _PASS_STOP
     finally:
-        PASS.update(running=False, op="", key="")
+        PASS.update(running=False, op="", key="", detail="")
         _LOCK.release()
 
 

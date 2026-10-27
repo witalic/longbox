@@ -2,9 +2,9 @@
 // FastAPI sidecar serves this UI at /app/ so /api is same-origin; in dev, Vite
 // proxies /api to the sidecar (see vite.config.ts).
 import type {
-  Bookmark, BrowseGroup, DraftCommit, Facets, FieldDef, FieldValues, FrameKind, MetaAction, MetaField,
-  MetaPreview, MetaRun, MetaScope, MetaValue, PageFilter, Recipe, Rule, RuleApply, RuleStats, Source,
-  Title, UserPatch,
+  Bookmark, BrowseGroup, DraftCommit, Facets, FieldDef, FieldValues, FrameKind, ImportOverrides,
+  ImportPlan, ImportProfile, ImportReport, ImportScan, MetaAction, MetaField, MetaPreview, MetaRun,
+  MetaScope, MetaValue, PageFilter, Recipe, Rule, RuleApply, RuleStats, Source, Title, UserPatch,
 } from './data'
 
 export class ApiError extends Error {
@@ -202,8 +202,8 @@ export const api = {
   deleteChapterRow: (tid: string, cid: string) => req<Title>(`/titles/${tid}/chapters/${cid}`, { method: 'DELETE' }),
   // attach an already-downloaded archive from disk (the local twin of arming);
   // chapterId pins it to an exact existing row, url records the source link
-  importChapterArchive: (tid: string, ch: { num: string; lang: string; group: string; url?: string; chapterId?: string }, file: File) =>
-    req<Title>(`/titles/${tid}/chapters/import${qs({ num: ch.num, lang: ch.lang, group: ch.group, filename: file.name, url: ch.url, chapter_id: ch.chapterId })}`,
+  importChapterArchive: (tid: string, ch: { num: string; lang: string; group: string; url?: string; section?: string; chapterId?: string }, file: File) =>
+    req<Title>(`/titles/${tid}/chapters/import${qs({ num: ch.num, lang: ch.lang, group: ch.group, filename: file.name, url: ch.url, section: ch.section, chapter_id: ch.chapterId })}`,
       { method: 'POST', body: file }),
   settings: () => req<AppSettings>('/settings'),
   setLibraryPath: (path: string) => req<AppSettings>('/settings/library-path', jsonBody('PUT', { path })),
@@ -223,6 +223,16 @@ export const api = {
     req<{ deleted: number; failed: number; bytes: number }>('/settings/leftovers', { method: 'POST' }),
   // one status for every vault pass — the UI polls this while one is working
   passStatus: () => req<PassState>('/settings/pass/status'),
+  // ---- importing a folder (design/folder-import.md) ----
+  importScan: (root: string) => req<ImportScan>('/import/scan', jsonBody('POST', { root })),
+  importPlan: (scanId: string, profile: ImportProfile, overrides: ImportOverrides) =>
+    req<ImportPlan>('/import/plan', jsonBody('POST', { scanId, profile, overrides })),
+  importRun: (scanId: string, profile: ImportProfile, overrides: ImportOverrides) =>
+    req<ImportReport>('/import/run', jsonBody('POST', { scanId, profile, overrides })),
+  importRuns: () => req<ImportReport[]>('/import/runs'),
+  importProfiles: () => req<ImportProfile[]>('/import/profiles'),
+  saveImportProfiles: (profiles: ImportProfile[]) =>
+    req<ImportProfile[]>('/import/profiles', jsonBody('PUT', profiles)),
   stopPass: () => req<PassState>('/settings/pass/stop', { method: 'POST' }),
   refreshComicInfo: () =>
     req<{ written: number; stopped: boolean }>('/settings/comicinfo', { method: 'POST' }),
@@ -253,6 +263,7 @@ export interface PassState {
   op: string
   done: number
   total: number
+  detail: string // what it is on right now — the file an import is storing; '' for most
 }
 
 /** A title with something wrong, named by what happened to the FILE — one row

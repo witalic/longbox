@@ -44,6 +44,15 @@ tags or cover, and longbox learns a reusable per-site recipe.
   history. **Rules** do the same to values on their way in — from capture, from your own typing
   (visibly, with "keep as typed"), from a new chapter's language and group — in the order you
   give them, and any rule can be applied to the titles already stored.
+- **Import** — bring in what is already on disk, sorted the way you sorted it. Say what each level
+  of a folder tree means — a collection, a creator, a work — and how names become titles, entries
+  and fields: a pattern reads `vidhub @kumo Kumo Works` as site, handle and creator, a template makes
+  `Kumo Works 2025.1` the work's title, and folders below a work become the **sections** its entries
+  are grouped by. Videos become episodes, archives and folders of images become chapters, and the
+  metadata editor fills in every work at once (or one work on its own). The preview shows exactly
+  what will be created before anything is written; the run copies or moves, keeps what you typed
+  by hand, and skips what an earlier run already stored. Profiles keep the answer and travel with
+  the library.
 - **Downloads** — arm the next download for a specific chapter, then just download the file in the
   embedded browser; longbox intercepts it and files it into the vault. Archives (zip/cbz/7z/rar)
   are normalized to zip, single images accumulate into the chapter page by page, and a video is
@@ -59,7 +68,8 @@ tags or cover, and longbox learns a reusable per-site recipe.
 - **Episodes** — video is a kind of content, not an attachment: an episode is an entry like any
   other, with its own language, group, source and reading state. See below for what it does.
 - **Contents editor** — entries with free-form labels, translation groups (language + group per
-  row), numbering that follows the translation it belongs to, drag-to-reorder, attach/replace
+  row), sections (a volume, a season, a year) the title page groups entries by, numbering that
+  follows the translation it belongs to, drag-to-reorder, attach/replace
   archives, add loose images or whole folders, move pages between entries, manual page reordering.
 - **Reader** — page and strip modes, fit controls, a hideable rail of page thumbnails, label-wise
   chapter navigation that keeps your current translation, per-title remembered settings, and
