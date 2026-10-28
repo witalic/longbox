@@ -187,7 +187,10 @@ run, not to the profile.
 
 The run is a background job: works one at a time, each under its title lock; every entry goes
 through the same ingest as a download (zip invariant, faststart, ComicInfo, a sidecar stamped from
-the stored file). Progress counts files and bytes. **Stop** lets the file in flight finish — the
+the stored file). Progress counts files and bytes, and shows wherever the owner is: the sidebar's
+corner rings the import's icon with how far it is, and its Activity panel — the downloads panel,
+grown to hold the one library job beside the transfers (`design/activity-mockup.html`) — names the
+file in flight, with Stop and the way back to Import. **Stop** lets the file in flight finish — the
 vault never holds half an entry. A failed file does not stop the run; the report names it with the
 reason. The index is written per work, so the library fills in while the run goes.
 

@@ -707,7 +707,7 @@ export async function pollDownloads(force = false): Promise<void> {
 // So nothing here decides what is running: the sidecar says, including WHICH
 // row started it, and every screen reads the same answer.
 export const vaultPass = reactive<PassState & { key: string }>(
-  { running: false, op: '', key: '', done: 0, total: 0, detail: '' })
+  { running: false, op: '', key: '', done: 0, total: 0, detail: '', doneBytes: 0, totalBytes: 0 })
 let passWatchers = 0
 
 /** Something on screen is showing the pass — keep the poll warm while it is. */
@@ -738,6 +738,23 @@ export async function runVaultPass(fn: () => Promise<unknown>): Promise<void> {
 
 export async function stopVaultPass(): Promise<void> {
   try { Object.assign(vaultPass, await api.stopPass()) } catch { /* already done */ }
+}
+
+// What a pass is and where it was started — one answer for the corner and the
+// activity panel, by the key the row that started it gave the server.
+export function passIcon(key: string): string {
+  if (key === 'import') return 'import'
+  if (['metadata', 'mirror', 'retype', 'clear'].includes(key)) return 'meta'
+  return key === 'check' ? 'check' : 'refresh'
+}
+export function passHome(key: string): 'import' | 'metadata' | 'settings' {
+  return key === 'import' || key === 'metadata' ? key : 'settings'
+}
+/** How far the running pass is, 0–100 — by bytes where it counts them. */
+export function passPercent(): number {
+  const [done, total] = vaultPass.totalBytes
+    ? [vaultPass.doneBytes, vaultPass.totalBytes] : [vaultPass.done, vaultPass.total]
+  return total ? Math.min(100, Math.floor((done / total) * 100)) : 0
 }
 
 export async function refreshTitle(id: string): Promise<void> {

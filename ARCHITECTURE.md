@@ -268,7 +268,7 @@ backend/app/
             sources.py (sources.json) · covers.py (fallback fetch)
   routers/  library.py · downloads.py · recipes.py · settings.py · metadata.py · imports.py
 frontend/src/
-  App.vue (the frame: views, tabs, downloads panel, close guard) · styles.css (the design tokens)
+  App.vue (the frame: views, tabs, activity panel, close guard) · styles.css (the design tokens)
   store.ts (app state, facets, user layer, downloads) · draft.ts (THE draft) · browser.ts (tabs)
   api.ts (the sidecar client) · local.ts (validated localStorage) · data.ts (domain helpers)
   sessions.ts (tab-session restore) · keys.ts (physical-key bindings) · normalize.ts
@@ -280,7 +280,7 @@ frontend/src/
               CapturePanel (draft + downloads dock) ·
               PassButton + ProgressBar (run/progress/stop, one grammar everywhere) ·
               Settings* (one component per settings section) ·
-              VideoSurface (preview + player, one per app) · DownloadsPanel · PickInspector ·
+              VideoSurface (preview + player, one per app) · ActivityPanel · PickInspector ·
               CoverArt (covers, rotating on hover) · EntryFields · FilterBlock · FieldVisibility ·
               MenuButton · RailSection · SearchBox · Pager · Combo · ConfirmModal · Dropdown ·
               Stars · Icon

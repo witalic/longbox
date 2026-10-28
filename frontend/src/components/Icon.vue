@@ -19,6 +19,7 @@ const P: Record<string, string> = {
   forward: 'M9 18l6-6-6-6',
   star: 'M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.8 5.9 20.4l1.4-6.8L2.2 9l6.9-.7z',
   download: 'M12 3v12m0 0l-4-4m4 4l4-4M4 21h16',
+  activity: 'M3 12h4l3-8 4 16 3-8h4',
   edit: 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',
   refresh: 'M21 12a9 9 0 1 1-2.6-6.3M21 4v4h-4',
   lock: 'M6 10V8a6 6 0 0 1 12 0v2M5 10h14v10H5z',

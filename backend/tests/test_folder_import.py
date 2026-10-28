@@ -334,6 +334,18 @@ def test_a_move_deletes_an_original_only_once_its_entry_is_stored(lib, tmp_path)
     assert titles(lib)["Berserk"].chapters[2].pages == 2
 
 
+def test_a_run_reports_its_bytes_as_well_as_its_files(lib, tmp_path):
+    """A run of films would sit on one percent for a whole film: progress also
+    counts the bytes stored, and names the file it is on."""
+    src = creator_tree(tmp_path / "src")
+    size = sum(f.stat().st_size for f in src.rglob("*.mp4"))
+    calls = []
+    go(lib, src, by_creator(), progress=lambda *a: calls.append(a))
+    assert calls[0] == (0, 4, "", 0, size)
+    assert calls[-1][:2] == (4, 4) and calls[-1][3:] == (size, size) and calls[-1][2].endswith(".mp4")
+    assert [c[3] for c in calls] == sorted(c[3] for c in calls)
+
+
 def test_stop_puts_the_run_down_between_entries(lib, tmp_path):
     stop = threading.Event()
     stop.set()

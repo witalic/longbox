@@ -5,7 +5,7 @@ import ConfirmModal from './components/ConfirmModal.vue'
 import RailSection from './components/RailSection.vue'
 import {
   store, goView, openTitle, closeTab, titleById, toggleTitlePin, moveTitleTabBefore, init,
-  shownAxes, runningDownloads, unfinishedDownloads,
+  shownAxes, runningDownloads, unfinishedDownloads, vaultPass, passIcon, passPercent,
 } from './store'
 import {
   browser, openBrowse, activateTab, closeTab as closeBrowserTab, newTab, toggleTabPin,
@@ -15,7 +15,7 @@ import { confirmDiscard, discardDraft, draftState } from './draft'
 import { initSessions, restoreSession, sessionHistory, sessionLabel } from './sessions'
 import { coverAt, hueFor } from './data'
 import LibraryView from './views/LibraryView.vue'
-import DownloadsPanel from './components/DownloadsPanel.vue'
+import ActivityPanel from './components/ActivityPanel.vue'
 import TitleView from './views/TitleView.vue'
 import ReaderView from './views/ReaderView.vue'
 import AuthorsView from './views/AuthorsView.vue'
@@ -67,19 +67,25 @@ const browserTabs = computed(() =>
 const stripMode = computed(() =>
   store.view === 'settings' ? 'none' : ['browser', 'sources'].includes(store.view) ? 'web' : 'app')
 
-// Downloads: the count in the footer, the panel over everything, and the one
-// case where the WINDOW asks first — closing with transfers still running.
-const dlOpen = ref(false)
+// Activity: what the app is doing — the library job and the transfers — in the
+// footer, the panel over everything, and the one case where the WINDOW asks
+// first: closing with transfers still running.
+const actOpen = ref(false)
 const closeWarning = ref('')
 const unfinished = computed(() => unfinishedDownloads())
 const runningCount = computed(() => runningDownloads().length)
+const RING = 2 * Math.PI * 8.5 // the progress ring's circumference
+const activityTitle = computed(() => [
+  vaultPass.running ? `${vaultPass.op} — ${passPercent()}%` : '',
+  runningCount.value ? `${runningCount.value} downloading` : unfinished.value.length ? 'unfinished downloads' : '',
+].filter(Boolean).join(' · '))
 let dropCloseHook: (() => void) | null = null
 onMounted(() => {
   dropCloseHook = window.longbox?.onCloseBlocked((n) => {
     closeWarning.value = n === 1
       ? 'One download is still running.'
       : `${n} downloads are still running.`
-    dlOpen.value = true
+    actOpen.value = true
   }) ?? null
 })
 onBeforeUnmount(() => dropCloseHook?.())
@@ -467,15 +473,22 @@ initSessions()
 
       <div class="foot">
         <span class="dot" :style="{ background: 'var(--good)' }"></span>
-        <span>Local library</span>
+        <span class="lib">Local library</span>
         <div style="flex:1"></div>
-        <!-- what is being fetched right now, and the way into the whole list -->
-        <button v-if="unfinished.length" class="themebtn dlbtn"
-                :class="{ hot: !!runningCount }"
-                :title="runningCount ? `${runningCount} downloading` : 'Unfinished downloads'"
-                @click="dlOpen = true">
-          <Icon name="download" :size="15" :sw="2" />
-          <span class="dlcount mono">{{ unfinished.length }}</span>
+        <!-- what the app is doing right now, and the way into all of it: a library
+             job draws how far it is around its own icon, the transfers their count -->
+        <button v-if="vaultPass.running || unfinished.length" class="themebtn actbtn"
+                :class="{ hot: vaultPass.running || !!runningCount }" :title="activityTitle" @click="actOpen = true">
+          <template v-if="vaultPass.running">
+            <span class="ring"><svg class="rs" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8.5" class="track" />
+              <circle cx="10" cy="10" r="8.5" class="arc" :style="{ strokeDasharray: RING, strokeDashoffset: RING * (1 - passPercent() / 100) }" /></svg>
+              <Icon :name="passIcon(vaultPass.key)" :size="10" :sw="2.2" /></span>
+            <span class="actnum mono">{{ passPercent() }}%<template v-if="unfinished.length"> · {{ unfinished.length }}</template></span>
+          </template>
+          <template v-else>
+            <Icon name="download" :size="15" :sw="2" />
+            <span class="actnum mono">{{ unfinished.length }}</span>
+          </template>
         </button>
         <button class="themebtn" title="Toggle theme" @click="toggleTheme">
           <Icon name="moon" :size="16" />
@@ -484,8 +497,8 @@ initSessions()
     </aside>
 
     <!-- over everything, because it is about what the whole app is doing -->
-    <DownloadsPanel v-if="dlOpen" :warning="closeWarning"
-                    @close="dlOpen = false; closeWarning = ''" @quit="quitNow" />
+    <ActivityPanel v-if="actOpen" :warning="closeWarning"
+                   @close="actOpen = false; closeWarning = ''" @quit="quitNow" />
 
     <!-- main -->
     <main class="main">
@@ -539,8 +552,15 @@ initSessions()
 /* the footer decides the spacing now — a spacer div sits between the label and
    these, so neither button pushes the other around */
 .themebtn { border: none; background: transparent; color: var(--tx2); cursor: pointer; display: flex; align-items: center; gap: 5px; padding: 2px; }
-.dlbtn.hot { color: var(--accent); }
-.dlcount { font-size: 10.5px; }
+.foot .lib { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.actbtn { flex: none; white-space: nowrap; }
+.actbtn.hot { color: var(--accent); }
+.actnum { font-size: 10.5px; }
+.ring { position: relative; width: 20px; height: 20px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+.ring .rs { position: absolute; inset: 0; transform: rotate(-90deg); }
+.ring circle { fill: none; stroke-width: 2; }
+.ring .track { stroke: var(--line); }
+.ring .arc { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset .3s ease; }
 .themebtn:hover { color: var(--tx); }
 
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }

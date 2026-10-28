@@ -264,6 +264,8 @@ export interface PassState {
   done: number
   total: number
   detail: string // what it is on right now — the file an import is storing; '' for most
+  doneBytes: number // bytes, for a pass whose steps differ wildly in size (an import); 0 for the rest
+  totalBytes: number
 }
 
 /** A title with something wrong, named by what happened to the FILE — one row

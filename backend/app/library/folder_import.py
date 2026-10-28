@@ -844,12 +844,13 @@ def run(lib: Library, s: Scan, p: Profile, o: Overrides | None = None, *,
             for wp in pl.works if wp.action in ("new", "add", "separate")]
     work = [(wp, mine) for wp, mine in work if mine or wp.action == "add"]
     total = sum(len(mine) for _, mine in work)
+    total_bytes = sum(ep.size for _, mine in work for ep in mine)
     report.skipped = sum(len(wp.entries) for wp in pl.works) - total
-    done = 0
+    done = done_bytes = 0
     emptied: set[Path] = set()
     fired: list[str] = []
     if progress:
-        progress(0, total)
+        progress(0, total, "", 0, total_bytes)
     for wp, mine in work:
         if stop is not None and stop.is_set():
             report.stopped = True
@@ -865,6 +866,7 @@ def run(lib: Library, s: Scan, p: Profile, o: Overrides | None = None, *,
             report.failed.extend(Failure(path=ep.path, reason=f"the work could not be written: {e}")
                                  for ep in mine)
             done += len(mine)
+            done_bytes += sum(ep.size for ep in mine)
             continue
         fired += wp.fired
         wd = WorkDone(titleId=tid, title=wp.title, created=not wp.titleId)
@@ -876,11 +878,12 @@ def run(lib: Library, s: Scan, p: Profile, o: Overrides | None = None, *,
                 report.stopped = True
                 break
             if progress:
-                progress(done, total, ep.path)
+                progress(done, total, ep.path, done_bytes, total_bytes)
             _store(lib, s, tid, wp, ep, entries[ep.path], move, report, wd, emptied, fired)
             done += 1
+            done_bytes += ep.size
             if progress:
-                progress(done, total, ep.path)
+                progress(done, total, ep.path, done_bytes, total_bytes)
         if report.stopped:
             break
     _sweep(s.root, emptied)
