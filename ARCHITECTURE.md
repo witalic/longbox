@@ -11,7 +11,7 @@ the process shape, transport/auth, the vault layout as implemented, and what eac
 │  • main UI  (Vue, served by the backend at /app/)             │
 │  • embedded browser <webview> — source sites + pick/snapshot  │
 │  • will-download interception → armed-download ingest         │
-│  • browser keys, page context menu, fullscreen for OUR pages  │
+│  • browser keys, page context menu, fullscreen (Esc ends it)  │
 │  • transport: local (loopback) | remote (TLS + token)         │
 └──────────────┬────────────────────────────────────────────────┘
                │ HTTP (localhost, or remote host)

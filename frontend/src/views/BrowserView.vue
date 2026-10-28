@@ -36,6 +36,9 @@ function wvRef(id: string): (el: any) => void {
   return fn
 }
 function wv(): any { return browser.activeId ? wvRefs.get(browser.activeId) : null }
+// A page's player gone fullscreen takes the window with it, but its <webview>
+// would stay the size of the box the page sits in — so it fills the window.
+const fullTab = ref('')
 
 // The strip owns the switch; the element is where it takes effect.
 watch(() => browser.tabs.map((t) => `${t.id}:${t.muted ? 1 : 0}`).join(), () => {
@@ -1009,7 +1012,9 @@ function onReady(tabId: string) {
       <div class="pagearea">
         <webview
           v-for="t in browser.tabs" :key="t.id" :ref="wvRef(t.id)"
-          v-show="t.id === browser.activeId" :src="t.initialUrl" class="wv"
+          v-show="t.id === browser.activeId" :src="t.initialUrl" class="wv" :class="{ full: t.id === fullTab }"
+          @enter-html-full-screen="fullTab = t.id"
+          @leave-html-full-screen="fullTab = ''"
           @ipc-message="onIpc($event, t.id)"
           @did-navigate="onNav($event, t.id)"
           @did-navigate-in-page="onNav($event, t.id)"
@@ -1101,6 +1106,9 @@ function onReady(tabId: string) {
 .split { flex: 1; min-height: 0; display: flex; }
 .pagearea { flex: 1; min-width: 0; position: relative; display: flex; }
 .wv { flex: 1; min-width: 0; border: none; }
+/* over the app's chrome — and out of the tab strip's drag region, which would
+   otherwise swallow clicks on the top of the picture */
+.wv.full { position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; z-index: 1000; -webkit-app-region: no-drag; }
 .pickhint { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: var(--accent); color: var(--accent-ink); font: 600 12px/1 system-ui; padding: 9px 14px; border-radius: 9px; box-shadow: 0 8px 24px rgba(0,0,0,.4); pointer-events: none; }
 .dock { width: 344px; flex: none; display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--line); background: var(--bg2); }
 .dock :deep(.cp) { border-left: none; width: 100%; flex: 1; }

@@ -143,18 +143,22 @@ async function waitForHealth(port, token, timeoutMs = 60000) {
 }
 
 function hardenSession(sess, origin) {
-  // Deny everything — EXCEPT our own pages going fullscreen. Both handlers gate
-  // it: `fullscreen` is asked for through the request handler and re-checked
-  // through the sync one, so denying either leaves the player's fullscreen
-  // button dead with nothing in the console to say why. The origin test is what
-  // keeps it ours: a site in the capture <webview> shares this session, and a
-  // scraped page must never be able to take over the screen.
-  const mayFullscreen = (permission, url) =>
-    permission === 'fullscreen' && String(url || '').startsWith(origin)
+  // Deny everything — EXCEPT going fullscreen. Both handlers gate it:
+  // `fullscreen` is asked for through the request handler and re-checked through
+  // the sync one, so denying either leaves a player's fullscreen button dead
+  // with nothing in the console to say why. Our own pages may, and so may a page
+  // in the capture <webview> (it shares this session): a site's player is
+  // expected to fill the screen. A scraped page never KEEPS it — Escape ends a
+  // guest's fullscreen from the shell, whatever the page does with the key
+  // (EXIT_FULLSCREEN_WORLD). A check with no webContents is a cross-origin frame,
+  // which only a guest page holds: ours frame nothing foreign.
+  const mayFullscreen = (permission, wc, url) =>
+    permission === 'fullscreen' &&
+    (!wc || wc.getType() === 'webview' || String(url || '').startsWith(origin))
   sess.setPermissionRequestHandler((wc, permission, cb, details) =>
-    cb(mayFullscreen(permission, (details && details.requestingUrl) || wc.getURL())))
+    cb(mayFullscreen(permission, wc, (details && details.requestingUrl) || wc.getURL())))
   sess.setPermissionCheckHandler((wc, permission, requestingOrigin) =>
-    mayFullscreen(permission, requestingOrigin || (wc && wc.getURL())))
+    mayFullscreen(permission, wc, requestingOrigin || (wc && wc.getURL())))
   const appCsp =
     "default-src 'self'; " +
     "script-src 'self'; " +
@@ -612,6 +616,9 @@ const GUEST_KEYS = new Set([
   'Minus', 'Equal', 'Digit0', 'Digit1', 'Digit2', 'Digit3', 'Digit4',
   'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9',
 ])
+// Where Escape ends a guest's fullscreen: a world of its own, out of reach of
+// the page's scripts — a page that replaced exitFullscreen would keep the screen.
+const EXIT_FULLSCREEN_WORLD = 1001
 
 app.on('web-contents-created', (_e, contents) => {
   contents.on('will-attach-webview', (_evt, webPreferences) => {
@@ -630,7 +637,17 @@ app.on('web-contents-created', (_e, contents) => {
     // is where they are wanted. Caught here, named, and handed to the window
     // that owns the toolbar. Matched on the PHYSICAL key: on a Ukrainian layout
     // `key` is 'ф' while the key under the finger is still the browser's F.
+    let fullscreen = false
+    contents.on('enter-html-full-screen', () => { fullscreen = true })
+    contents.on('leave-html-full-screen', () => { fullscreen = false })
     contents.on('before-input-event', (evt, input) => {
+      // in fullscreen Escape is the browser's alone, as in any browser
+      if (fullscreen && input.type === 'keyDown' && input.code === 'Escape') {
+        evt.preventDefault()
+        contents.executeJavaScriptInIsolatedWorld(EXIT_FULLSCREEN_WORLD,
+          [{ code: 'document.exitFullscreen().catch(() => {})' }]).catch(() => {})
+        return
+      }
       if (input.type !== 'keyDown' || !GUEST_KEYS.has(input.code)) return
       const mod = input.control || input.meta || input.alt
       // F5 and Escape stand alone; everything else is a chord
