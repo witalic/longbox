@@ -320,6 +320,19 @@ def test_values_arrive_through_the_librarys_rules(lib, tmp_path):
     assert pl.works[0].meta["tags"] == ["vidhub", "3d dance"] and pl.works[0].ruled == ["tags"]
 
 
+def test_a_field_the_profile_hides_is_left_alone(lib, tmp_path):
+    """A hidden row cannot show what it would write: its value — every work's
+    or one work's own — waits in the profile until the field is shown again."""
+    src = creator_tree(tmp_path / "src")
+    p = by_creator().model_copy(update={"hidden": ["tags"]})
+    o = fi.Overrides(meta={"vidhub @kumo Kumo Works/2025.2": {"tags": ["extra"], "year": "2025"}})
+    pl = fi.plan(lib, fi.scan(src), p, o)
+    assert [w.meta.get("tags") for w in pl.works] == [None, None]
+    assert pl.works[1].meta["year"] == "2025" and pl.works[1].meta["authors"] == ["Kumo Works"]
+    go(lib, src, p, o)
+    assert titles(lib)["Kumo Works 2025.2"].tags == []
+
+
 # ---- moving ------------------------------------------------------------------
 
 def test_a_move_deletes_an_original_only_once_its_entry_is_stored(lib, tmp_path):
@@ -356,9 +369,10 @@ def test_stop_puts_the_run_down_between_entries(lib, tmp_path):
 # ---- profiles and the API ----------------------------------------------------
 
 def test_profiles_travel_with_the_library(lib):
-    saved = fi.ProfileStore(lib.vault).save([by_creator()])
+    saved = fi.ProfileStore(lib.vault).save([by_creator().model_copy(update={"hidden": ["studio"]})])
     again = fi.ProfileStore(lib.vault).profiles()
     assert [p.id for p in again] == [saved[0].id] and again[0].workTitle == "{creator} {folder}"
+    assert again[0].hidden == ["studio"]
     assert (lib.root / fi.DOC).is_file()
 
 

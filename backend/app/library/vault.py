@@ -48,9 +48,10 @@ class NewerDocument(RuntimeError):
 _Item = TypeVar("_Item", bound=BaseModel)
 
 # The shape of the vault-level documents this build writes. ANY change to the
-# shape of recipes.json or sources.json bumps it: an older build refuses to write
-# a newer document only because it carries a bigger number.
-DOC_SCHEMA = 1
+# shape of recipes.json, sources.json, rules.json or import-profiles.json bumps
+# it: an older build refuses to write a newer document only because it carries
+# a bigger number. 2: an import profile keeps the fields it hides.
+DOC_SCHEMA = 2
 
 # The least a file stamp can move and still read as moved everywhere a vault
 # may live: FAT keeps two seconds, many shares round to one.

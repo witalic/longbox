@@ -1,6 +1,7 @@
 # longbox — importing a folder you already have
 
-Status: **built** — decisions in §12, the UI from the approved `design/folder-import-mockup.html`. Companion to `design/state-model.md` (§8 the vault, §9 ingest)
+Status: **built** — decisions in §12, the UI from the approved `design/folder-import-mockup.html`;
+its Structure tab redrawn from the approved `design/import-structure-mockup.html` (§9). Companion to `design/state-model.md` (§8 the vault, §9 ingest)
 and `design/metadata-management.md` (§4 rules). Nothing here touches the user layer.
 
 ## 1. The problem
@@ -66,11 +67,14 @@ clips\                           L0  Collection
 work's folder), `{creator}` and `{part}` (nested parts join as `2025 / 1`). An entry adds `{file}`
 (the original name without its extension), `{n}` (its number) and `{date}` (the file's date).
 
-**A level's name pattern** splits a folder name into more tokens: `{site} @{handle} {creator}`
+**A level's name pattern** is optional — without one a level gives its whole name — and splits a
+folder name into more tokens: `{site} @{handle} {creator}`
 reads `vidhub @kumo Kumo Works` as site `vidhub`, handle `kumo`, creator `Kumo Works`. Literal text
 between tokens must match; the last token takes the rest. A folder that does not match keeps its
 whole name in the role's token and is flagged in the preview — never guessed. A regular expression
-with named groups is the escape hatch for names a pattern cannot describe.
+with named groups is the escape hatch for names a pattern cannot describe. Under each pattern the
+view shows the tokens it gives, read off the first work, so what a template can use is in sight
+while it is typed.
 
 **Templates.** A work's title is a template over tokens: `{creator} {folder}` gives
 `Kumo Works 2025.1`, `{folder}` alone gives `2025.1`. An entry's name defaults to `{file}`, with
@@ -91,7 +95,9 @@ entry. A pattern that yields the same number twice is a conflict in the preview.
 The import has a **Metadata** tab, and it is the editor a title already has (`MetadataEditor`):
 the same blocks (what it is, who made it, topics, your own fields), the same controls — the type
 and status pickers offer what the vault holds, chips suggest the vault's values, flags are the
-same three toggles. Every field of the registry is there, built-in or the owner's own.
+same three toggles. Every field of the registry is there, built-in or the owner's own — and, as a
+source in the browser hides what the site never shows, a profile hides the fields it never sets.
+A hidden field is left alone by the import; a value kept for it waits until it is shown again.
 
 - **Every work** (the default scope): a filled field goes to every work the import creates or
   extends; an empty field is left alone. So "all of these are `mmd`, tagged `mmd`, `dance`" is
@@ -181,9 +187,9 @@ The preview lists the works to be created or extended, and each work's entries w
 kind, size and a state: **new**, **in library** (skipped), **replace**, **conflict** (a duplicate
 number or title), **unreadable** (checked cheaply at plan time: a zip's directory, an archive's
 header, a video's first bytes — listed and left out, never stored as an opaque file),
-**ignored**. Each work's row shows the metadata it will receive. The owner can untick a work or an
-entry, retype a work's title, or give a work values of its own (§4); those choices belong to this
-run, not to the profile.
+**ignored**. Each work's row shows the metadata it will receive, and folds its entries away; a work
+left out folds itself. The owner can untick a work or an entry, retype a work's title, or give a
+work values of its own (§4); those choices belong to this run, not to the profile.
 
 The run is a background job: works one at a time, each under its title lock; every entry goes
 through the same ingest as a download (zip invariant, faststart, ComicInfo, a sidecar stamped from
@@ -196,8 +202,8 @@ reason. The index is written per work, so the library fills in while the run goe
 
 ## 8. Profiles
 
-A profile is the roles, patterns, templates, the metadata for every work and the options under a
-name: "Creator video folders", "Manga · series / volume / chapter". Profiles hold no paths — they describe a shape, not
+A profile is the roles, patterns, templates, the metadata for every work, the fields it hides and
+the options under a name: "Creator video folders", "Manga · series / volume / chapter". Profiles hold no paths — they describe a shape, not
 a place — and live in the vault (`import-profiles.json`, beside `rules.json`), so they travel with
 the library. The last root used with each profile is remembered per machine, in the app config.
 
@@ -208,6 +214,18 @@ add menu: the rules on the left in three tabs — **Structure** (levels, roles, 
 **Metadata** (§4), **Files** (§6) — the preview on the right, a footer with the summary and the
 Import button; while a run is going, the footer is its progress. The sidebar rail lists the
 profiles and the last runs with their reports.
+
+**Structure is the folder tree, not a form about it.** One row per level, with the names found at
+it: a **WORK** radio (the Work role), an **AUTHOR** tick (the Creator role, with the fields it fills
+under the table) and a **TITLE** tick — the level's name goes into the work's title, which is
+*text before* plus the ticked names, joined by one *separator*. The last row says what lies inside
+a work: sections, or entries. The ticks write the same `workTitle` template a profile keeps, and
+read it back; a template they cannot draw (`{creator} {folder}`, a pattern's part) is written under
+**Advanced**, with the patterns and the uneven-depth anchor — closed, unless the profile uses them.
+Moving the work keeps the title's names: the old work's own stays in it as a level.
+
+The view's state is a session, not a page: leaving Import for another view and coming back finds
+the folder, the profile being shaped, this run's choices and the preview where they were.
 
 ## 10. Backend
 

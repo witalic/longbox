@@ -768,6 +768,7 @@ export interface ImportProfile {
   numPattern: string
   creatorTo: string[]
   meta: Record<string, ImportValue>
+  hidden: string[]               // fields this profile does not offer — and leaves alone
   language: string
   group: string
   entryDate: boolean
@@ -844,7 +845,7 @@ export function blankImportProfile(): ImportProfile {
   return {
     id: '', name: '', levels: [{ role: 'work', pattern: '' }], anchor: 'level',
     workTitle: '{folder}', entryTitle: '{file}', dropTags: false, underscores: false,
-    numbering: 'order', orderBy: 'name', numPattern: '', creatorTo: ['authors'], meta: {},
+    numbering: 'order', orderBy: 'name', numPattern: '', creatorTo: ['authors'], meta: {}, hidden: [],
     language: '', group: '', entryDate: true,
     files: 'copy', workExists: 'add', entryExists: 'skip', cover: true,
   }

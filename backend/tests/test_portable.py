@@ -19,6 +19,7 @@ from app.legacy_config import move_site_data_into
 from app.library.migrations import CURRENT_SCHEMA, migrate
 from app.library.models import DraftIn, TitleMeta
 from app.library.service import Library
+from app.library.vault import DOC_SCHEMA
 from app.main import create_app
 from app.scraper.models import Candidate, FieldRule, Recipe
 from app.settings import get_settings
@@ -159,7 +160,7 @@ def test_a_read_that_fails_is_not_an_empty_document(tmp_path, monkeypatch):
 
 def test_a_document_from_a_newer_build_is_read_but_never_written(client, tmp_path):
     newer = tmp_path / "lib" / "recipes.json"
-    body = json.dumps({"schema": 2, "recipes": {"example.org": {
+    body = json.dumps({"schema": DOC_SCHEMA + 1, "recipes": {"example.org": {
         "domain": "example.org", "version": 3, "fields": {"title": TITLE_RULE}}}})
     newer.write_text(body, encoding="utf-8")
 

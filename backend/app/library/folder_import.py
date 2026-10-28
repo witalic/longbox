@@ -75,6 +75,9 @@ class Profile(BaseModel):
     creatorTo: list[str] = ["authors"]
     # field id → value for every work; tokens are filled per work
     meta: dict[str, str | list[str]] = {}
+    # fields this profile does not offer: their rows are hidden and the profile
+    # leaves them alone — a value kept for one waits until it is shown again
+    hidden: list[str] = []
     language: str = ""           # every entry's; tokens allowed
     group: str = ""
     entryDate: bool = True       # an entry's date is its file's date
@@ -557,8 +560,10 @@ def _values(p: Profile, own: dict, tok: dict[str, str], creators: list[str],
             return _unique([_filled(x, tok, warnings) for x in v])
         return _filled(v, tok, warnings)
 
-    out: dict[str, str | list[str]] = {fid: filled(v) for fid, v in p.meta.items()}
+    out: dict[str, str | list[str]] = {fid: filled(v) for fid, v in p.meta.items() if fid not in p.hidden}
     for fid, v in own.items():
+        if fid in p.hidden:
+            continue
         v = filled(v)
         if isinstance(v, list):
             out[fid] = _unique([*(out.get(fid) or []), *v])

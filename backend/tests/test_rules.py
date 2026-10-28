@@ -13,7 +13,7 @@ from app.library import rules as R
 from app.library.models import DraftIn, TitleMeta
 from app.library.rules import InvalidRule, Rule
 from app.library.service import Library
-from app.library.vault import UnreadableDocument
+from app.library.vault import DOC_SCHEMA, UnreadableDocument
 
 
 def rule(**kw) -> Rule:
@@ -152,7 +152,7 @@ def test_a_site_is_named_with_or_without_www():
 
 
 def test_a_rule_or_a_list_from_a_newer_build_is_not_applied(lib):
-    for doc in ({"schema": 2, "rules": []},
+    for doc in ({"schema": DOC_SCHEMA + 1, "rules": []},
                 {"schema": 1, "rules": [{"field": "tags", "match": ["a"], "action": "remove",
                                          "onlyOnFridays": True}]}):
         (lib.root / "rules.json").write_text(json.dumps(doc), encoding="utf-8")
