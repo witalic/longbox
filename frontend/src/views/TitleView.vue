@@ -577,7 +577,13 @@ onMounted(() => {
   measureHead()
 })
 onBeforeUnmount(() => headWatch?.disconnect())
-watch(() => [t.value?.id, editing.value, headOpen.value], () => void nextTick(measureHead))
+watch(() => [t.value?.id, editing.value, headOpen.value], () => void nextTick(() => {
+  // A band that scrolled — the editor, an opened head — must not hand its offset
+  // to the slab that replaces it: overflow:hidden keeps scrollTop, and the cover
+  // came back from a save with its top cut off.
+  if (bandEl.value) bandEl.value.scrollTop = 0
+  measureHead()
+}))
 
 function pageSrc(cid: string, index: number, v: string): string {
   // cap 1.5 crops webtoon-length pages to the tiles' 2:3 shape (previews only)
@@ -877,7 +883,7 @@ async function removeRow(c: Chapter) {
     </div>
 
     <div class="viewscroll">
-    <div ref="bandEl" class="band" :class="{ open: headOpen || editing, clipped: headClipped && !headOpen && !editing }">
+    <div ref="bandEl" class="band" :class="{ open: headOpen, edit: editing, clipped: headClipped && !headOpen && !editing }">
       <!-- editing? the cover is a field of the editor like any other -->
       <div v-if="t && !editing" class="coverwrap">
         <div class="cover" :style="coverStyle(t, 480)">
@@ -1036,7 +1042,7 @@ async function removeRow(c: Chapter) {
 
     <!-- CONTENTS: entries with ONE free-text label; a label with several
          translations groups into a guide-lined block (contents-editor-mockup v3) -->
-    <div v-if="t" class="lower">
+    <div v-if="t && !editing" class="lower">
       <div class="chapters">
         <div class="chhead">
           <h2>Contents</h2>
@@ -1287,6 +1293,8 @@ async function removeRow(c: Chapter) {
    about who gives way. */
 .band { position: relative; display: flex; gap: 28px; padding: 26px 30px 24px; align-items: flex-start; flex: 0 1 auto; min-height: 0; max-height: var(--head-cap, 336px); overflow: hidden; }
 .band.open { max-height: max(var(--head-cap, 336px), 62%); overflow-y: auto; }
+/* editing is the whole page: the contents and the pane step aside for it */
+.band.edit { max-height: none; flex: 1 1 auto; overflow-y: auto; }
 .band.clipped::after {
   content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 56px; pointer-events: none;
   background: linear-gradient(to bottom, transparent, var(--bg));
