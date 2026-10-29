@@ -17,6 +17,10 @@ from ..library.vault import UnreadableDocument, Vault
 from .models import domain_key
 
 DOC = "sources.json"
+# the shape this build writes; ANY change to it bumps this (Vault.doc_transaction).
+# 2 is the shape 1 had — development builds stamped every document with one
+# shared number, and the libraries they wrote are read as they are.
+SCHEMA = 2
 
 
 def _section(doc: dict, key: str, kind: type) -> dict | list:
@@ -54,7 +58,7 @@ class SourcePrefs:
             bookmarks: list[dict] | None = None, frozen: bool | None = None) -> None:
         """Partial: only what is supplied changes."""
         key = domain_key(domain)
-        with self.vault.doc_transaction(DOC) as doc:
+        with self.vault.doc_transaction(DOC, schema=SCHEMA) as doc:
             prefs = _section(doc, "sources", dict)
             mine = dict(prefs.get(key) or {})
             if group is not None:
@@ -77,7 +81,7 @@ class SourcePrefs:
             name = g.strip()
             if name and name not in seen:
                 seen.append(name)
-        with self.vault.doc_transaction(DOC) as doc:
+        with self.vault.doc_transaction(DOC, schema=SCHEMA) as doc:
             doc["groups"] = seen
         return seen
 
@@ -85,7 +89,7 @@ class SourcePrefs:
         key = domain_key(domain)
         if (key in self.snapshot().removed) == removed:
             return  # nothing to say — and nothing to write
-        with self.vault.doc_transaction(DOC) as doc:
+        with self.vault.doc_transaction(DOC, schema=SCHEMA) as doc:
             have = {domain_key(d) for d in _strings(_section(doc, "removed", list))}
             if removed:
                 have.add(key)
@@ -99,7 +103,7 @@ class SourcePrefs:
         either side holds, and its group order stays first. Removals are taken only
         by a vault that never recorded any — one that did may have restored a site
         on purpose."""
-        with self.vault.doc_transaction(DOC) as doc:
+        with self.vault.doc_transaction(DOC, schema=SCHEMA) as doc:
             mine = _section(doc, "sources", dict)
             for domain, theirs in prefs.items():
                 if not isinstance(theirs, dict):

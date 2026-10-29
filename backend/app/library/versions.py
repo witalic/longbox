@@ -65,6 +65,13 @@ def cover_version(name: str, mtime: int, size: int) -> str:
     return f"{mtime:x}.{size}.{name.rsplit('.', 1)[-1]}" if name else ""
 
 
+def page_image_version(name: str) -> str:
+    """What a value page's image is cached under: its file name. Every image
+    written gets a name of its own (`PageStore.write_image`), so a name can
+    never come back with other bytes behind it."""
+    return name
+
+
 def cache_key(kind: str, version: str, *parts: object) -> str:
     """A disk-cache key. `version` MUST identify the exact bytes being cached:
     an empty one means the caller has nothing that changes when the file does,

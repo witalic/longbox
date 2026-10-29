@@ -435,7 +435,6 @@ void refreshDerived()
 .field { font: 500 10.5px/1 system-ui; color: var(--tx2); background: var(--panel2); border: 1px solid var(--line); padding: 5px 8px; border-radius: 5px; }
 .acts { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 4px; }
 .btn.sm { height: 26px; padding: 0 10px; font-size: 11.5px; }
-.btn:disabled { opacity: .45; cursor: default; }
 .btn.danger { color: var(--adult); border-color: color-mix(in srgb, var(--adult) 40%, var(--line)); }
 .btn.danger:hover { background: color-mix(in srgb, var(--adult) 12%, transparent); }
 .lfinfo { font-size: 11px; color: var(--tx3); }

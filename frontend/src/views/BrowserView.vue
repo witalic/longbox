@@ -8,7 +8,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { api, ApiError } from '../api'
 import {
   activateTabAt, activeTab, browser, closeTab as closeBrowserTab, newTab, newTabBackground,
-  onTabNavigated, reopenClosedTab, setTabAudible, setTabLoading, setTabTitle, tabById,
+  onTabNavigated, reopenClosedTab, searchUrl, setTabAudible, setTabLoading, setTabTitle, tabById,
 } from '../browser'
 import CapturePanel from '../components/CapturePanel.vue'
 import MenuButton from '../components/MenuButton.vue'
@@ -67,7 +67,7 @@ function go() {
     ? q
     : /^[^\s]+\.[a-z]{2,}([/:?].*)?$/i.test(q)
       ? 'https://' + q
-      : 'https://www.google.com/search?q=' + encodeURIComponent(q)
+      : searchUrl(q)
   loadInActive(url)
 }
 function nav(dir: 'back' | 'forward' | 'reload' | 'reload-hard') {

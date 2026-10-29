@@ -295,6 +295,10 @@ class BrowseGroup(BaseModel):
     topTags: list[str] = []  # most common tags across this group's titles
     role: Role | None = None
     fav: bool = False        # user layer — persisted in the vault's authors.json
+    # what the owner wrote on the value's page (design/value-pages.md)
+    described: bool = False
+    excerpt: str = ""
+    image: str = ""
 
 
 class Bookmark(BaseModel):

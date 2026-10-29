@@ -98,7 +98,9 @@ right place, but a merge invariant.
 
 The library's **rules** (design/metadata-management.md) do not bend it: a captured value
 passes the rules BEFORE it reaches the draft, and what they make of it is still `auto` —
-the next capture makes the same thing. A bulk operation changes values, never their origin.
+the next capture makes the same thing. A bulk operation changes values, never their origin —
+except the library's bulk editor, which is the owner editing those titles: what it changes
+becomes `manual` (design/bulk-edit.md).
 
 Critically, **provenance is persisted in the vault**, inside `title.json`, not only in the
 draft. Otherwise I3 would only hold within one session. The real scenario: the user
@@ -165,6 +167,7 @@ library/
   recipes.json              # what longbox learned per site (§6) + the page-capture filter
   sources.json              # the owner's layer over the sites: groups, bookmarks, frozen, removed
   rules.json                # what a value becomes on its way in (design/metadata-management.md)
+  .pages/<vocabulary>.json  # what the owner wrote about values, + images/ (design/value-pages.md)
   health.json               # what was done to this library + the last check report
   <type-shelf>/             # one per type (manga/, image-set/, …); typeless → other/
     <title-id>/

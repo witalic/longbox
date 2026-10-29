@@ -93,6 +93,12 @@ export function moveBrowserTabBefore(dragId: string, targetId: string) {
   else browser.tabs.splice(to, 0, tab)
 }
 
+// What the address bar does with words that are not an address — and what a
+// value page's "Look it up" opens.
+export function searchUrl(q: string): string {
+  return 'https://www.google.com/search?q=' + encodeURIComponent(q)
+}
+
 export function newTab(url?: string) {
   const t = makeTab(url || store.browseHomepage)
   browser.tabs.push(t)

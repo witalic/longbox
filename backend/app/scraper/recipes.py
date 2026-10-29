@@ -14,6 +14,7 @@ from ..library.vault import UnreadableDocument, Vault
 from .models import PageFilter, Recipe, domain_key
 
 DOC = "recipes.json"
+SCHEMA = 1  # the shape this build writes; ANY change to it bumps this (Vault.doc_transaction)
 
 
 def _parse(domain: str, raw: object) -> Recipe:
@@ -75,7 +76,7 @@ class RecipeStore:
     def save(self, recipe: Recipe) -> Recipe:
         """Persist a recipe, bumping the version past any existing one for that domain."""
         key = domain_key(recipe.domain)
-        with self.vault.doc_transaction(DOC) as doc:
+        with self.vault.doc_transaction(DOC, schema=SCHEMA) as doc:
             recipes = _recipes_of(doc)
             existing = _parse(key, recipes[key]) if key in recipes else None
             usable = existing is not None and _usable(existing)
@@ -90,7 +91,7 @@ class RecipeStore:
         if all(domain_key(r.domain) in have for r in recipes):
             return 0
         taken = 0
-        with self.vault.doc_transaction(DOC) as doc:
+        with self.vault.doc_transaction(DOC, schema=SCHEMA) as doc:
             mine = _recipes_of(doc)
             for recipe in recipes:
                 key = domain_key(recipe.domain)
@@ -104,7 +105,7 @@ class RecipeStore:
         key = domain_key(domain)
         if key not in self._recipes():
             return False
-        with self.vault.doc_transaction(DOC) as doc:
+        with self.vault.doc_transaction(DOC, schema=SCHEMA) as doc:
             return _recipes_of(doc).pop(key, None) is not None
 
     def page_filter(self) -> PageFilter:
@@ -114,6 +115,6 @@ class RecipeStore:
             return PageFilter()
 
     def set_page_filter(self, value: PageFilter) -> PageFilter:
-        with self.vault.doc_transaction(DOC) as doc:
+        with self.vault.doc_transaction(DOC, schema=SCHEMA) as doc:
             doc["pageFilter"] = value.model_dump()
         return value

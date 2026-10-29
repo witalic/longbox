@@ -15,11 +15,13 @@ content). Full model: `design/state-model.md`; layout: `ARCHITECTURE.md`.
 - **Vault vs app config.** Anything that describes the library (recipes, the source layer,
   fields, per-title prefs) lives IN THE VAULT so it moves with it; the app config keeps only
   the machine's (library paths, homepage, interrupted transfers, caches). `recipes.json`,
-  `sources.json`, `rules.json` and `import-profiles.json` go through `Vault.read_doc()` /
-  `Vault.doc_transaction()` (a list in one is read with `Vault.doc_items`): "absent" is the
-  only empty answer — an unparseable file raises (409), a failed read raises as itself, and a
-  newer build's document is never written — so ANY change to the shape of either file bumps
-  `DOC_SCHEMA` (vault.py), or an older build will silently drop what it does not know.
+  `sources.json`, `rules.json`, `import-profiles.json` and `.pages/<vocabulary>.json` go through
+  `Vault.read_doc()` / `Vault.doc_transaction()` (a list in one is read with `Vault.doc_items`):
+  "absent" is the only empty answer — an unparseable file raises (409), a failed read raises as
+  itself, and a newer build's document is never written — so ANY change to the shape of one of
+  them bumps ITS `SCHEMA` (the constant beside its store, passed to `doc_transaction`), or an older
+  build will silently drop what it does not know. One number per document: a change to one never
+  locks an older build out of the others.
   (`fields.json` and `authors.json` predate this and still read a broken file as empty.)
 - **Bulk metadata writes go through `library/operations.py`.** One `apply()` decides what an
   operation does — the preview runs it over index docs, the run over docs read under the lock —

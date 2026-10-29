@@ -329,6 +329,21 @@ def replace_atomically(tmp: Path, final: Path) -> None:
             time.sleep(0.05 * (attempt + 1))
 
 
+def flush(path: Path) -> None:
+    """Put a stored file on the disk itself, not just in the system's memory —
+    before anything that relies on it surviving a power cut, like deleting the
+    only other copy. On POSIX the directory entry that names it is flushed too;
+    NTFS journals names itself, and Windows cannot open a directory to flush."""
+    with open(path, "rb+") as fh:  # Windows flushes only through a handle that may write
+        os.fsync(fh.fileno())
+    if os.name != "nt":
+        fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+
 # ---- integrity ----------------------------------------------------------
 #
 # The vault is the source of truth, and until now a sidecar could say only how

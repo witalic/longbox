@@ -97,7 +97,8 @@ the same blocks (what it is, who made it, topics, your own fields), the same con
 and status pickers offer what the vault holds, chips suggest the vault's values, flags are the
 same three toggles. Every field of the registry is there, built-in or the owner's own — and, as a
 source in the browser hides what the site never shows, a profile hides the fields it never sets.
-A hidden field is left alone by the import; a value kept for it waits until it is shown again.
+A hidden field is left alone by the import — the creators a level names included; a value kept
+for it waits until it is shown again.
 
 - **Every work** (the default scope): a filled field goes to every work the import creates or
   extends; an empty field is left alone. So "all of these are `mmd`, tagged `mmd`, `dance`" is
@@ -148,8 +149,10 @@ part in an entry's identity (number + language + group).
 Options, kept per profile:
 
 - **Files: copy | move.** Copy leaves the originals untouched (disk use doubles until the owner
-  deletes them). Move deletes each original only after its entry is stored and its sidecar
-  written; on the vault's own drive it is a rename and copies nothing. A folder of images packed
+  deletes them). Move deletes each original only after its entry is stored, its sidecar
+  written and the stored file flushed to the disk itself — an original is never deleted while
+  its copy may still sit in the system's memory; on the vault's own drive it is a rename and
+  copies nothing. A folder of images packed
   into a zip is removed only once the zip is in place.
 - **A work that already exists** (same title, case-insensitively): **add what is missing** to it |
   **create a separate work** | **skip it**. Two folders whose templates yield one title in the
@@ -158,17 +161,23 @@ Options, kept per profile:
   state and position — the same replace a manual attach does).
 
 **Running it again is safe.** Each imported entry records where it came from in its sidecar:
-`importedFrom: "folder"`, `origPath` (relative to the WORK's folder, so choosing a parent folder
-next time still recognises it) and `origSize` (the stored file's own size differs after a repack
-or a faststart). A second run over the same tree recognises them and skips — which is also how an
-interrupted import is resumed. A file an earlier run stored is that entry for good: changed since,
-it is that entry changed (replaced only with *replace*), never a second one under a new number;
+`importedFrom: "folder"`, `origDir` (the work's folder, as picked), `origPath` (relative to the
+WORK's folder, so choosing a parent folder next time still recognises it) and `origSize` (the
+stored file's own size differs after a repack or a faststart). A second run over the same tree
+recognises them and skips — which is also how an interrupted import is resumed. A file an earlier
+run stored is that entry for good: changed since, it is that entry changed (replaced only with
+*replace*), never a second one under a new number. Only when it comes from the same folder,
+though: a file of the same name and another size under ANOTHER folder (or one an older run did
+not record) is a conflict and left alone — replacing on a guess would put another file's bytes
+over an entry whose original a move may already have deleted;
 and a newcomer bearing the number of an entry another file of the folder already is, is a
 conflict — two files never take turns at one entry.
 
 Entries a work already holds are found by either spelling of their language and group — as the
 rules leave it, and as typed — exactly as a captured or downloaded chapter is, so a row stored
-before a rule existed is never doubled. A token no folder of a work fills (`{site}` where the
+before a rule existed is never doubled. An entry's section — the part folder it sits in — goes
+through the rules too, and fills only an entry that has none; the entry template's `{part}`
+still reads the folder's own name. A token no folder of a work fills (`{site}` where the
 pattern did not match) is left out of that work's values, never stored as text.
 
 **Moving is never through a link.** The scan does not follow junctions or symbolic links, never
@@ -181,7 +190,9 @@ never one file with something outside.
 
 Nothing is written until the owner presses Import. The plan is a pure function of (scan, profile,
 overrides, the library's titles): a change to a role or a template re-plans from the scan already
-in memory, with no disk access per keystroke.
+in memory, with no disk access per keystroke. The run reads the folder once more before it
+stores anything — what is imported is what is on the disk now, files added since the folder was
+chosen included — and the preview after it starts from that reading.
 
 The preview lists the works to be created or extended, and each work's entries with number, name,
 kind, size and a state: **new**, **in library** (skipped), **replace**, **conflict** (a duplicate

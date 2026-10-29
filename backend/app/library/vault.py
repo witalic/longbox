@@ -45,13 +45,12 @@ class NewerDocument(RuntimeError):
     """A title document a newer build wrote: read, never rewritten in bulk."""
 
 
-_Item = TypeVar("_Item", bound=BaseModel)
+class ShelfMoveError(RuntimeError):
+    """A type change whose folder could not move to its shelf — the title stays
+    where it was, unchanged."""
 
-# The shape of the vault-level documents this build writes. ANY change to the
-# shape of recipes.json, sources.json, rules.json or import-profiles.json bumps
-# it: an older build refuses to write a newer document only because it carries
-# a bigger number. 2: an import profile keeps the fields it hides.
-DOC_SCHEMA = 2
+
+_Item = TypeVar("_Item", bound=BaseModel)
 
 # The least a file stamp can move and still read as moved everywhere a vault
 # may live: FAT keeps two seconds, many shares round to one.
@@ -257,14 +256,15 @@ class Vault:
         return raw
 
     @staticmethod
-    def doc_items(doc: dict, name: str, key: str, model: type[_Item], what: str) -> list[_Item]:
+    def doc_items(doc: dict, name: str, key: str, model: type[_Item], what: str, *,
+                  schema: int) -> list[_Item]:
         """The `key` list of a vault document, each item read as `model` — or
         UnreadableDocument: a newer build's document, a shape this build cannot
         read, or ONE item it cannot. Acting on the rest would act on half of
         what the owner wrote: a rule list missing the rule that was there to
         catch something lets exactly that through."""
-        schema = doc.get("schema", DOC_SCHEMA)
-        if not isinstance(schema, int) or schema > DOC_SCHEMA:
+        got = doc.get("schema", schema)
+        if not isinstance(got, int) or got > schema:
             raise UnreadableDocument(f"{name} was written by a newer longbox — this one does not use it")
         raw = doc.get(key, [])
         if not isinstance(raw, list):
@@ -275,17 +275,23 @@ class Vault:
             raise UnreadableDocument(f"{name} holds {what} this build cannot read") from e
 
     @contextmanager
-    def doc_transaction(self, name: str) -> Iterator[dict]:
-        """Load → mutate → save one root document as a single serialized step."""
+    def doc_transaction(self, name: str, *, schema: int) -> Iterator[dict]:
+        """Load → mutate → save one root document as a single serialized step.
+
+        `schema` is the shape THIS document is written in — each document keeps
+        its own number, beside the store that owns it, and ANY change to its
+        shape bumps it. An older build refuses to write a document only because
+        it carries a bigger number than it knows; one document's change never
+        locks an older build out of the others."""
         path = self.root / name
         with _doc_lock(path):
             doc = self.read_doc(name)
-            schema = doc.get("schema", DOC_SCHEMA)
-            if not isinstance(schema, int) or schema > DOC_SCHEMA:
+            got = doc.get("schema", schema)
+            if not isinstance(got, int) or got > schema:
                 raise UnreadableDocument(f"{name} was written by a newer longbox — "
                                          "this one reads it but does not change it")
             yield doc
-            doc["schema"] = DOC_SCHEMA
+            doc["schema"] = schema
             _atomic_write(path, json.dumps(doc, ensure_ascii=False, indent=2).encode("utf-8"))
 
     # ---- the per-type layout ----
@@ -355,7 +361,9 @@ class Vault:
         except OSError:
             return out
         for shelf in shelves:
-            if not shelf.is_dir():
+            # a dot name is never a shelf (safe_id strips it): the vault's own
+            # folders, like the value pages, sit beside the shelves
+            if not shelf.is_dir() or shelf.name.startswith("."):
                 continue
             legacy = self._scan_one(shelf.path)  # an unmigrated title dir on the root
             if legacy is not None:
@@ -380,7 +388,7 @@ class Vault:
         if shelf and (self.root / shelf / sid / "title.json").is_file():
             return self.root / shelf / sid
         for td in self.root.iterdir():
-            if td.is_dir() and (td / sid / "title.json").is_file():
+            if td.is_dir() and not td.name.startswith(".") and (td / sid / "title.json").is_file():
                 self._loc[sid] = td.name
                 return td / sid
         if (self.root / sid / "title.json").is_file():
@@ -408,16 +416,22 @@ class Vault:
         if dest.exists():
             self._loc[sid] = cur.parent.name if cur.parent != self.root else "other"
             return
+        made = not dest.parent.exists()
         dest.parent.mkdir(parents=True, exist_ok=True)
         old_parent = cur.parent
         try:
             os.rename(cur, dest)
-        except PermissionError as e:
-            try:
-                dest.parent.rmdir()  # a shelf made for this move holds nothing
-            except OSError:
-                pass
-            raise media.MediaInUseError(cur.name) from e
+        except OSError as e:
+            if made:
+                try:
+                    dest.parent.rmdir()  # a shelf made for this move holds nothing
+                except OSError:
+                    pass
+            if isinstance(e, PermissionError):
+                raise media.MediaInUseError(cur.name) from e
+            # another volume under the shelf (a junction, a mount), a name taken
+            # meanwhile: refused, and said so — never half a move
+            raise ShelfMoveError(f"{cur.name} could not move to the {target} shelf: {e.strerror or e}") from e
         self._loc[sid] = target
         try:
             if old_parent != self.root and not any(old_parent.iterdir()):
@@ -436,6 +450,10 @@ class Vault:
         sequences that must be ONE critical section (reentrant, so the locking
         vault methods inside still work)."""
         return self._lock(title_id)
+
+    def title_dir(self, title_id: str) -> Path | None:
+        """Where the title lives on disk now; None when it is not in the vault."""
+        return self._find(safe_id(title_id))
 
     def _dir(self, title_id: str) -> Path:
         sid = safe_id(title_id)
@@ -485,7 +503,7 @@ class Vault:
             return []
         ids: set[str] = set()
         for td in self.root.iterdir():
-            if not td.is_dir():
+            if not td.is_dir() or td.name.startswith("."):
                 continue
             if (td / "title.json").is_file():
                 ids.add(td.name)  # unmigrated legacy leftover

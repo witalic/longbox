@@ -320,6 +320,19 @@ def test_values_arrive_through_the_librarys_rules(lib, tmp_path):
     assert pl.works[0].meta["tags"] == ["vidhub", "3d dance"] and pl.works[0].ruled == ["tags"]
 
 
+def test_parts_arrive_through_the_librarys_rules(lib, tmp_path):
+    lib.rules.save([Rule(field="section", match=["2025.1"], action="rename", to="Spring 2025")])
+    src = creator_tree(tmp_path / "src")
+    p = by_creator().model_copy(update={
+        "levels": [fi.Level(role="collection"), fi.Level(role="work", pattern="{site} @{handle} {creator}")],
+        "workTitle": "{creator}", "creatorTo": []})
+    pl = fi.plan(lib, fi.scan(src), p)
+    assert [e.section for e in pl.works[0].entries] == ["Spring 2025", "Spring 2025", "2025.2", "2025.2"]
+    go(lib, src, p)
+    assert [c.section for c in titles(lib)["Kumo Works"].chapters] == [
+        "Spring 2025", "Spring 2025", "2025.2", "2025.2"]
+
+
 def test_a_field_the_profile_hides_is_left_alone(lib, tmp_path):
     """A hidden row cannot show what it would write: its value — every work's
     or one work's own — waits in the profile until the field is shown again."""
@@ -331,6 +344,10 @@ def test_a_field_the_profile_hides_is_left_alone(lib, tmp_path):
     assert pl.works[1].meta["year"] == "2025" and pl.works[1].meta["authors"] == ["Kumo Works"]
     go(lib, src, p, o)
     assert titles(lib)["Kumo Works 2025.2"].tags == []
+
+    # the creator a level names is a value like any other: hidden, it waits too
+    p = by_creator().model_copy(update={"hidden": ["authors"]})
+    assert [w.meta.get("authors") for w in fi.plan(lib, fi.scan(src), p).works] == [None, None]
 
 
 # ---- moving ------------------------------------------------------------------
@@ -345,6 +362,53 @@ def test_a_move_deletes_an_original_only_once_its_entry_is_stored(lib, tmp_path)
     assert (b / "Vol. 02" / "Ch. 004.7z").is_file()      # never stored, so never deleted
     assert (b / "Thumbs.db").is_file() and src.is_dir()  # not media; and never the root
     assert titles(lib)["Berserk"].chapters[2].pages == 2
+
+
+def test_a_move_flushes_what_it_stored_before_the_original_goes(lib, tmp_path, monkeypatch):
+    src = tmp_path / "src"
+    ep = mp4(src / "Show" / "e1.mp4")
+    cover = image(src / "Show" / "cover.jpg")
+    flushed: list[tuple[str, bool]] = []
+    real = fi.media.flush
+
+    def watch(path):
+        flushed.append((path.suffix, (cover if path.suffix == ".jpg" else ep).exists()))
+        real(path)
+
+    monkeypatch.setattr(fi.media, "flush", watch)
+    report = go(lib, src, fi.Profile(levels=[fi.Level(role="collection"), fi.Level(role="work")],
+                                     files="move"))
+    assert report.imported == 1 and report.kept == 0
+    # the cover, then the episode — each while its original was still there
+    assert flushed == [(".jpg", True), (".mp4", True)]
+    assert not ep.exists() and not cover.exists()
+
+
+def test_flushing_a_cover_flushes_every_cover_the_title_has(lib, monkeypatch):
+    tid = lib.create(fi.DraftIn(meta=fi.TitleDoc().meta.model_copy(update={"title": "T"}))).id
+    lib.set_cover(tid, JPEG, "jpg")
+    lib.set_cover(tid, JPEG, "jpg", append=True)  # one taking a place while a move ran
+    flushed: list[str] = []
+    monkeypatch.setattr(fi.media, "flush", lambda path: flushed.append(path.name))
+    lib.flush_stored(tid)
+    assert len(flushed) == 2
+
+
+def test_a_move_that_cannot_flush_keeps_the_original(lib, tmp_path, monkeypatch):
+    src = tmp_path / "src"
+    ep = mp4(src / "Show" / "e1.mp4")
+
+    def fail(path):
+        raise OSError(5, "the disk said no")
+
+    monkeypatch.setattr(fi.media, "flush", fail)
+    report = go(lib, src, fi.Profile(levels=[fi.Level(role="collection"), fi.Level(role="work")],
+                                     files="move"))
+    t = titles(lib)["Show"]
+    assert report.imported == 1 and report.kept == 1 and ep.is_file()
+    assert "the original is kept" in report.failed[0].reason
+    # the original stays, so the vault's file must not be the same one
+    assert lib.vault.chapter_media_path(t.id, t.chapters[0].id).stat().st_nlink == 1
 
 
 def test_a_run_reports_its_bytes_as_well_as_its_files(lib, tmp_path):
@@ -394,7 +458,37 @@ def test_scan_plan_and_run_through_the_api(tmp_path):
     lib.close()
 
 
+def test_a_run_imports_what_is_in_the_folder_now(tmp_path):
+    """Files added after the folder was chosen are part of the run: it reads the
+    folder again rather than trusting the preview's reading."""
+    lib = Library(tmp_path / "lib")
+    src = creator_tree(tmp_path / "src")
+    with TestClient(create_app(lib)) as c:
+        sc = c.post("/api/import/scan", json={"root": str(src)}).json()
+        body = {"scanId": sc["scanId"], "profile": by_creator().model_dump()}
+        mp4(src / "vidhub @kumo Kumo Works" / "2025.2" / "zzz late.mp4", b"" * 50)
+        assert c.post("/api/import/run", json=body).json()["imported"] == 5
+        assert c.post("/api/import/plan", json=body).json()["entries"] == 0  # the new reading is kept
+    lib.close()
+
+
 # ---- what the review of the first cut found ----------------------------------
+
+def test_the_scan_asks_the_disk_about_a_folder_only_when_it_could_be_the_library(lib, tmp_path, monkeypatch):
+    for i in range(5):
+        mp4(tmp_path / "src" / f"Show {i}" / "e1.mp4")
+    asked: list[str] = []
+    real = os.stat
+
+    def counting(path, *a, **k):
+        asked.append(os.path.basename(str(path)))
+        return real(path, *a, **k)
+
+    monkeypatch.setattr(fi.os, "stat", counting)
+    fi.scan(tmp_path / "src", skip=lib.root)
+    monkeypatch.undo()
+    assert not any(n.startswith("Show") for n in asked)
+
 
 @pytest.mark.skipif(os.name != "nt", reason="a directory junction is a Windows thing")
 def test_a_junction_is_never_followed_into_the_library(lib, tmp_path):
@@ -504,6 +598,27 @@ def test_a_file_that_changed_is_its_entry_changed_not_a_new_one(lib, tmp_path):
     report = go(lib, src, p.model_copy(update={"entryExists": "replace"}))
     assert report.replaced == 1 and report.imported == 0
     assert [c.num for c in titles(lib)["Show"].chapters] == ["1", "2"]
+
+
+def test_a_same_named_file_from_another_folder_never_replaces_an_entry(lib, tmp_path):
+    """Two trees whose works land in one title, each with its own `Ep 1.mp4`:
+    the second is not "the first one changed", whatever the profile says."""
+    p = fi.Profile(levels=[fi.Level(role="collection"), fi.Level(role="work")], entryExists="replace")
+    mp4(tmp_path / "a" / "Show" / "Ep 1.mp4", b"\x01" * 100)
+    go(lib, tmp_path / "a", p)
+    t = titles(lib)["Show"]
+    first = lib.vault.chapter_media_path(t.id, t.chapters[0].id).read_bytes()
+
+    mp4(tmp_path / "b" / "Show" / "Ep 1.mp4", b"\x02" * 300)
+    pl = fi.plan(lib, fi.scan(tmp_path / "b"), p)
+    assert [e.state for e in pl.works[0].entries] == ["conflict"]
+    report = go(lib, tmp_path / "b", p)
+    assert (report.replaced, report.imported) == (0, 0)
+    assert lib.vault.chapter_media_path(t.id, t.chapters[0].id).read_bytes() == first
+
+    # the folder it came from, changed, is still that entry changed
+    mp4(tmp_path / "a" / "Show" / "Ep 1.mp4", b"\x03" * 200)
+    assert go(lib, tmp_path / "a", p).replaced == 1
 
 
 def test_an_entry_stored_before_a_rule_is_not_doubled(lib, tmp_path):

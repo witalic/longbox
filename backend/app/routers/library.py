@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import os
 import re
 import tempfile
 from collections.abc import Iterator
@@ -22,8 +23,9 @@ from ..library.models import (
     Bookmark, BrowseGroup, CustomFieldDef, DraftIn, FacetCounts, Source, TitleOut, UserPatch,
 )
 from ..library.media import MediaInUseError
+from ..library.operations import CHAPTER_FIELDS
 from ..library.service import Library
-from ..library.vault import MAX_COVERS, UnreadableDocument, safe_id
+from ..library.vault import MAX_COVERS, ShelfMoveError, UnreadableDocument, safe_id
 from ..passes import _pass
 from ..scraper.covers import fetch_cover
 from ..scraper.models import domain_key
@@ -131,7 +133,9 @@ def put_field(field_id: str, body: FieldIn, request: Request) -> list[FieldOut]:
     key every stored value hangs on, so it is fixed at creation."""
     if not _FIELD_ID.match(field_id):
         raise HTTPException(400, "a field id is lowercase letters, digits and _")
-    if field_id in {f.id for f in fields.BUILTIN}:
+    # a chapter's language, group and section are fields the Metadata view and
+    # the rules already know by these names
+    if field_id in {f.id for f in fields.BUILTIN} | set(CHAPTER_FIELDS):
         raise HTTPException(409, f"{field_id} is a built-in field")
     if body.type not in _FIELD_TYPES:
         raise HTTPException(400, f"type must be one of {', '.join(_FIELD_TYPES)}")
@@ -244,6 +248,17 @@ def get_title(request: Request, title_id: str) -> TitleOut:
     return title
 
 
+@router.get("/titles/{title_id}/folder")
+def title_folder(request: Request, title_id: str) -> dict:
+    """The folder the title lives in, for the shell to open — the vault's own
+    copy, never the place its files were imported from."""
+    path = _lib(request).vault.title_dir(title_id)
+    if path is None:
+        raise HTTPException(status_code=404, detail="title not found")
+    # as the library was picked — resolving would turn a mapped drive into its share
+    return {"path": os.path.abspath(path)}
+
+
 @router.post("/titles", response_model=TitleOut, status_code=201)
 def create_title(request: Request, draft: DraftIn) -> TitleOut:
     """Commit a NEW draft into the vault."""
@@ -263,6 +278,8 @@ def commit_title(request: Request, title_id: str, draft: DraftIn) -> TitleOut:
         # folder while one of its files is open — nothing was changed
         raise HTTPException(409, "a file of this title is open right now — close the player or the "
                                  "reader on it, then save again")
+    except ShelfMoveError as e:
+        raise HTTPException(409, f"{e} — nothing was changed")
     if updated is None:
         raise HTTPException(status_code=404, detail="title not found")
     return updated

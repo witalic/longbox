@@ -15,13 +15,14 @@ import VideoSurface from '../components/VideoSurface.vue'
 import EntryFields from '../components/EntryFields.vue'
 import Dropdown from '../components/Dropdown.vue'
 import { openInBrowser } from '../browser'
+import { peekOff, peekOn } from '../peek'
 import {
   commitDraft, confirmDiscard, discardDraft, draftFromTitle, draftState, isDirty,
 } from '../draft'
 import { readLocalOne, writeLocalOne } from '../local'
 import { api, type Gap } from '../api'
 import {
-  ARCHIVE_RE, FILE_ACCEPT, IMAGE_RE, MAX_COVERS, MEDIA_ACCEPT, VIDEO_RE, compareChapterNums,
+  ARCHIVE_RE, FILE_ACCEPT, FLAG_DEFS, IMAGE_RE, MAX_COVERS, MEDIA_ACCEPT, VIDEO_RE, compareChapterNums,
   coverAt, coverStyle,
   faviconFor, filterOptions, isReadable, isUnsupported, mediaLabel, mediaTitle, movedBefore,
   orderedChaptersOf,
@@ -92,9 +93,9 @@ const makers = computed(() => {
   const title = t.value
   if (!title) return []
   return [
-    { label: 'STORY', names: title.authors, jump: filterByPerson },
-    { label: 'ART', names: title.artists, jump: filterByPerson },
-    { label: 'STUDIO', names: title.studio, jump: (v: string) => filterByField('studio', v) },
+    { label: 'STORY', field: 'authors', names: title.authors, jump: filterByPerson },
+    { label: 'ART', field: 'artists', names: title.artists, jump: filterByPerson },
+    { label: 'STUDIO', field: 'studio', names: title.studio, jump: (v: string) => filterByField('studio', v) },
   ].filter((r) => r.names.length)
 })
 
@@ -167,12 +168,16 @@ async function removeSourceLink() {
   })
   if (ok) await clearTitleSource(t.value)
 }
-const flagDefs = [
-  { key: 'adult', tag: '18+', color: 'var(--adult)' },
-  { key: 'ai', tag: 'AI', color: 'var(--ai)' },
-  { key: 'censored', tag: 'CENSORED', color: 'var(--cens)' },
-] as const
-const activeFlags = computed(() => flagDefs.filter((f) => t.value?.flags[f.key]))
+// the desktop shell opens folders; a plain browser has no file manager to hand one to
+const canOpenFolder = !!window.longbox?.openFolder
+async function openFolder() {
+  if (!t.value) return
+  try {
+    const { path } = await api.titleFolder(t.value.id)
+    if (!(await window.longbox?.openFolder(path))) store.error = `Could not open ${path}`
+  } catch (e) { store.error = e instanceof Error ? e.message : String(e) }
+}
+const activeFlags = computed(() => FLAG_DEFS.filter((f) => t.value?.flags[f.key]))
 
 // ---- the chapter TREE: one node per number, leaves per translation ----
 // Display order: smart by number ('auto'), or exactly as the user arranged it
@@ -852,6 +857,10 @@ async function removeRow(c: Chapter) {
                 @click="openInBrowser(t.id)">
           <Icon name="browser" :size="14" :sw="1.9" />Capture from web
         </button>
+        <button v-if="t && canOpenFolder" class="btn" title="Open the title's own folder in the library"
+                @click="openFolder">
+          <Icon name="folder" :size="14" :sw="1.9" />Show in folder
+        </button>
         <MenuButton v-if="t" v-slot="{ close }">
           <button :disabled="!t.source.url" @click="close(); openInBrowser(t.id, t.source.url)">
             <Icon name="forward" :size="14" :sw="2" />Open source page
@@ -949,7 +958,7 @@ async function removeRow(c: Chapter) {
           <span class="eyebrow">FLAGS</span>
           <div class="wrap">
             <span v-for="f in activeFlags" :key="f.key" class="flagtag"
-                  :style="{ color: f.color, borderColor: f.color }">{{ f.tag }}</span>
+                  :style="{ color: f.color, borderColor: f.color }">{{ f.label.toUpperCase() }}</span>
           </div>
         </div>
 
@@ -960,7 +969,8 @@ async function removeRow(c: Chapter) {
           <span class="eyebrow">{{ role.label }}</span>
           <div class="wrap">
             <a v-for="name in role.names" :key="name" class="authorlink"
-               :title="`Filter library by ${name}`" @click="role.jump(name)">
+               :title="`Filter library by ${name}`" @click="role.jump(name)"
+               @mouseenter="peekOn($event, role.field, name)" @mouseleave="peekOff">
               <span class="avatar">{{ initials(name) }}</span><span class="pname">{{ name }}</span>
             </a>
           </div>
@@ -980,15 +990,18 @@ async function removeRow(c: Chapter) {
 
         <div v-if="t.characters.length" class="metarow">
           <span class="eyebrow">CAST</span>
-          <div class="wrap"><span v-for="ch in t.characters" :key="ch" class="genre link" :title="`Filter by ${ch}`" @click="filterBy('character', ch)">{{ ch }}</span></div>
+          <div class="wrap"><span v-for="ch in t.characters" :key="ch" class="genre link" :title="`Filter by ${ch}`" @click="filterBy('character', ch)"
+                                  @mouseenter="peekOn($event, 'characters', ch)" @mouseleave="peekOff">{{ ch }}</span></div>
         </div>
         <div v-if="t.genres.length" class="metarow">
           <span class="eyebrow">GENRES</span>
-          <div class="wrap"><span v-for="g in t.genres" :key="g" class="genre link" :title="`Filter by ${g}`" @click="filterBy('genre', g)">{{ g }}</span></div>
+          <div class="wrap"><span v-for="g in t.genres" :key="g" class="genre link" :title="`Filter by ${g}`" @click="filterBy('genre', g)"
+                                  @mouseenter="peekOn($event, 'genres', g)" @mouseleave="peekOff">{{ g }}</span></div>
         </div>
         <div v-if="t.tags.length" class="metarow">
           <span class="eyebrow">TAGS</span>
-          <div class="wrap"><span v-for="tg in t.tags" :key="tg" class="tag link" :title="`Filter by ${tg}`" @click="filterBy('tag', tg)">{{ tg }}</span></div>
+          <div class="wrap"><span v-for="tg in t.tags" :key="tg" class="tag link" :title="`Filter by ${tg}`" @click="filterBy('tag', tg)"
+                                  @mouseenter="peekOn($event, 'tags', tg)" @mouseleave="peekOff">{{ tg }}</span></div>
         </div>
 
         <!-- one row per filled field, drawn by its type -->
@@ -996,7 +1009,8 @@ async function removeRow(c: Chapter) {
           <span class="eyebrow">{{ row.f.label.toUpperCase() }}</span>
           <div v-if="row.f.type === 'list'" class="wrap">
             <span v-for="v in row.list" :key="v" class="genre" :class="{ link: row.f.facet }"
-                  :title="row.f.facet ? `Filter by ${v}` : undefined" @click="jumpTo(row.f, v)">
+                  :title="row.f.facet ? `Filter by ${v}` : undefined" @click="jumpTo(row.f, v)"
+                  @mouseenter="peekOn($event, row.f.id, v)" @mouseleave="peekOff">
               {{ v }}
             </span>
           </div>
@@ -1121,7 +1135,7 @@ async function removeRow(c: Chapter) {
                             :title="isUnsupported(c) ? unsupportedNote(c) : mediaTitle(c)">{{ mediaLabel(c) }}</span>
                       <span v-if="editMode" class="chacts">
                         <button class="chact" title="Edit entry: label · language · group · source link" @click.stop="openEntryEdit(c)"><Icon name="edit" :size="12" :sw="1.9" /></button>
-                        <button class="chact" title="Add images to this entry" @click.stop="pickAddImagesRow(c)"><Icon name="image" :size="12" :sw="1.9" /></button>
+                        <button v-if="c.kind !== 'video'" class="chact" title="Add images to this entry" @click.stop="pickAddImagesRow(c)"><Icon name="image" :size="12" :sw="1.9" /></button>
                         <button class="chact" :title="c.dl ? 'Replace the file on this entry' : 'Attach a file — an archive of pages or a video'" @click.stop="pickAttach(c)"><Icon name="download" :size="12" :sw="2" /></button>
                         <button v-if="c.dl" class="chact" title="Remove the file (keep the entry)" @click.stop="removeDownload(c)"><Icon name="minus" :size="12" :sw="2.4" /></button>
                         <button class="chact danger" title="Remove the entry AND its file" @click.stop="removeRow(c)"><Icon name="x" :size="12" :sw="2.4" /></button>
@@ -1161,7 +1175,7 @@ async function removeRow(c: Chapter) {
                     :title="isUnsupported(node.rows[0]) ? unsupportedNote(node.rows[0]) : mediaTitle(node.rows[0])">{{ mediaLabel(node.rows[0]) }}</span>
                   <span v-if="editMode" class="chacts">
                     <button class="chact" title="Edit entry: label · language · group · source link" @click.stop="openEntryEdit(node.rows[0])"><Icon name="edit" :size="12" :sw="1.9" /></button>
-                    <button class="chact" title="Add images to this entry" @click.stop="pickAddImagesRow(node.rows[0])"><Icon name="image" :size="12" :sw="1.9" /></button>
+                    <button v-if="node.rows[0].kind !== 'video'" class="chact" title="Add images to this entry" @click.stop="pickAddImagesRow(node.rows[0])"><Icon name="image" :size="12" :sw="1.9" /></button>
                     <button class="chact" :title="node.rows[0].dl ? 'Replace the file on this entry' : 'Attach a file — an archive of pages or a video'" @click.stop="pickAttach(node.rows[0])"><Icon name="download" :size="12" :sw="2" /></button>
                     <button v-if="node.rows[0].dl" class="chact" title="Remove the file (keep the entry)" @click.stop="removeDownload(node.rows[0])"><Icon name="minus" :size="12" :sw="2.4" /></button>
                     <button class="chact danger" title="Remove the entry AND its file" @click.stop="removeRow(node.rows[0])"><Icon name="x" :size="12" :sw="2.4" /></button>
@@ -1204,10 +1218,13 @@ async function removeRow(c: Chapter) {
             <Icon name="forward" :size="12" :sw="2" />Open player
           </button>
           <template v-if="editMode && openChapter">
-            <button class="btn ghost small" :disabled="importing" title="Append image files to this entry (its archive is created on first add)" @click="addImgEl?.click()">
-              <Icon name="plus" :size="12" :sw="2.2" />{{ importing ? 'Adding…' : 'Add images' }}
-            </button>
-            <button class="btn ghost small" :disabled="importing" title="Append a whole folder of images" @click="addDirEl?.click()">Folder</button>
+            <!-- pages are added to page media only: an episode is its video file -->
+            <template v-if="openChapter.kind !== 'video'">
+              <button class="btn ghost small" :disabled="importing" title="Append image files to this entry (its archive is created on first add)" @click="addImgEl?.click()">
+                <Icon name="plus" :size="12" :sw="2.2" />{{ importing ? 'Adding…' : 'Add images' }}
+              </button>
+              <button class="btn ghost small" :disabled="importing" title="Pick a folder and append every image in it to this entry" @click="addDirEl?.click()">Add folder…</button>
+            </template>
             <span ref="moveRoot" class="movewrap">
               <button v-if="selPages.length" class="btn small" title="Move the selected pages into another entry" @click="moveOpen = !moveOpen">Move to…</button>
               <div v-if="moveOpen" class="movemenu">

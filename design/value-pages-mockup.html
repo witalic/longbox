@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Value pages — mockup</title>
+<style>
+/* ---- the app's own tokens (frontend/src/styles.css), verbatim ---- */
+:root {
+  --bg: #0a0b0d; --bg2: #0f1115; --panel: #15171b; --panel2: #1b1e24;
+  --line: #262a31; --hover: #2a2e36;
+  --tx: #e8eaef; --tx2: #9aa1ad; --tx3: #697080;
+  --accent: #7089e6; --accent-ink: #0d0e11; --accentSoft: rgba(112, 137, 230, .14);
+  --fav: #e0687a; --good: #5fb88a; --warn: #d6a44f; --adult: #e0687a;
+}
+html[data-theme="light"] {
+  --bg: #f0eeea; --bg2: #e6e3dd; --panel: #faf9f6; --panel2: #edeae4;
+  --line: #d2cdc2; --hover: #e2ded6;
+  --tx: #2a2c31; --tx2: #575d67; --tx3: #8d95a1;
+  --accent: #5f77d4; --accent-ink: #ffffff; --accentSoft: rgba(95, 119, 212, .15);
+  --fav: #d6516a; --good: #3f9e6f; --warn: #b07d2a; --adult: #d6516a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--tx); font: 400 13px/1.45 system-ui; -webkit-font-smoothing: antialiased; }
+.mono { font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; }
+
+/* ---- the page around the frames ---- */
+.page { max-width: 1420px; margin: 0 auto; padding: 26px 24px 60px; }
+h1 { font: 700 22px/1.1 system-ui; margin: 0 0 4px; letter-spacing: -.3px; }
+h2 { font: 600 13px/1 system-ui; margin: 0; }
+.lede { color: var(--tx2); max-width: 86ch; margin: 0 0 26px; }
+.block { border: 1px solid var(--line); border-radius: 10px; background: var(--bg2); margin-bottom: 22px; overflow: hidden; }
+.bhead { height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.bhead .n { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
+.bbody { padding: 18px 16px; }
+.note { font: 400 11.5px/1.55 system-ui; color: var(--tx3); margin: 12px 0 0; max-width: 96ch; }
+.note b { color: var(--tx2); font-weight: 600; }
+.themebtn { position: fixed; top: 14px; right: 16px; z-index: 5; }
+
+/* ---- the app's control grammar (controls 30, radius 6, text 11/12/13) ---- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--tx);
+  border-radius: 6px; height: 30px; padding: 0 12px; cursor: pointer;
+  font: 600 12px/1 system-ui; white-space: nowrap;
+}
+.btn:hover { border-color: var(--accent); }
+.btn.accent { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.ghost { background: transparent; color: var(--tx2); }
+.btn.small { height: 26px; padding: 0 10px; font-size: 11px; }
+.btn.icon { width: 30px; padding: 0; }
+.btn.fav { color: var(--fav); border-color: color-mix(in srgb, var(--fav) 45%, var(--line)); }
+.seg { display: flex; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 2px; height: 30px; width: fit-content; }
+.seg .opt { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; padding: 0 10px; border-radius: 4px; border: none; background: transparent; font: 500 12px/1 system-ui; color: var(--tx2); cursor: pointer; }
+.seg .opt.on { background: var(--accentSoft); color: var(--accent); }
+.seg .opt .c { font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); }
+.seg.text { height: 26px; }
+.seg.text .opt { padding: 0 8px; font-size: 11px; }
+.in { font: 500 12.5px/1.3 system-ui; color: var(--tx); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 0 10px; height: 30px; outline: none; width: 100%; }
+.in.focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accentSoft); }
+.ta { font: 400 13px/1.55 system-ui; color: var(--tx); background: var(--panel); border: 1px solid var(--accent); box-shadow: 0 0 0 2px var(--accentSoft); border-radius: 6px; padding: 9px 11px; width: 100%; min-height: 104px; resize: none; outline: none; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line); font: 500 11.5px/1 system-ui; color: var(--tx); white-space: nowrap; }
+.chip .x { color: var(--tx3); font-size: 13px; line-height: 1; }
+.chip .n { font: 500 10px/1 ui-monospace, monospace; color: var(--tx3); }
+.chip.add { border-style: dashed; color: var(--tx3); background: transparent; }
+.eyebrow { font: 600 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); text-transform: uppercase; }
+.ic { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.ic.s { width: 12px; height: 12px; }
+
+/* ---- the app frame: titlebar 40, sidebar 220, work bands 44 ---- */
+.app { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--bg); display: flex; flex-direction: column; }
+.tabbar { height: 40px; flex: none; background: var(--bg2); border-bottom: 1px solid var(--line); display: flex; align-items: center; padding: 0 14px; gap: 9px; }
+.tabbar .logo { width: 22px; height: 22px; border-radius: 6px; background: linear-gradient(#8194f4, #3e4eb2); flex: none; }
+.tabbar .name { font: 700 13.5px/1 system-ui; letter-spacing: -.2px; }
+.tabbar .wc { margin-left: auto; display: flex; gap: 18px; color: var(--tx3); font: 400 13px/1 system-ui; }
+.approw { display: flex; min-height: 0; }
+.side { width: 220px; flex: none; background: var(--bg2); border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+.nav { padding: 12px 10px 6px; display: flex; flex-direction: column; gap: 2px; }
+.navitem { height: 36px; display: flex; align-items: center; gap: 11px; padding: 0 12px; border-radius: 8px; color: var(--tx2); font: 500 13px/1 system-ui; }
+.navitem.on { background: var(--accentSoft); color: var(--accent); }
+.rail { flex: 1; padding: 6px 10px 10px; overflow: hidden; }
+.rlabel { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); padding: 12px 12px 8px; display: flex; }
+.ritem { height: 30px; display: flex; align-items: center; gap: 9px; padding: 0 12px; border-radius: 6px; font: 500 12.5px/1 system-ui; color: var(--tx2); }
+.ritem.on { background: var(--hover); color: var(--tx); }
+.ritem .sn { margin-left: auto; font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); }
+.foot { height: 44px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 9px; padding: 0 16px; font: 500 11px/1.3 system-ui; color: var(--tx3); flex: none; }
+.foot .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.vhead { height: 44px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.vhead .back { display: inline-flex; align-items: center; gap: 4px; color: var(--tx2); font: 500 12px/1 system-ui; }
+.vhead .crumb { font: 500 12px/1 system-ui; color: var(--tx3); display: flex; align-items: center; gap: 7px; }
+.vhead .crumb b { color: var(--tx); font-weight: 600; }
+.vhead .right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.scrollv { flex: 1; min-height: 0; overflow: hidden; }
+
+/* ---- the page's head band: the title page's grammar ---- */
+.band { display: flex; gap: 24px; padding: 24px 24px 22px; border-bottom: 1px solid var(--line); }
+.face { width: 132px; height: 132px; flex: none; border-radius: 10px; border: 1px solid var(--line); overflow: hidden; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px; background: var(--line); }
+.face.round { border-radius: 50%; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at 30% 25%, #c58f74, #6b4a5a 55%, #2a2433); font: 600 40px/1 system-ui; color: rgba(255,255,255,.88); }
+.face .t { background-size: cover; }
+.info { flex: 1; min-width: 0; }
+.badges { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.typebadge { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; font: 600 10px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--accent); border: 1px solid var(--accent); border-radius: 5px; text-transform: uppercase; }
+.rolebadge { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; font: 600 10px/1 ui-monospace, monospace; letter-spacing: .1em; color: var(--tx3); border: 1px solid var(--line); border-radius: 5px; }
+.pname { margin: 0; font: 600 30px/1.08 system-ui; letter-spacing: -.6px; color: var(--tx); display: flex; align-items: center; gap: 12px; }
+.also { margin-top: 6px; font: 400 13px/1.4 system-ui; color: var(--tx3); }
+.also .sp { color: var(--tx2); }
+.also .rl { font: 500 10.5px/1 ui-monospace, monospace; color: var(--accent); }
+.stats { margin-top: 10px; display: flex; gap: 14px; font: 500 11.5px/1 ui-monospace, monospace; color: var(--tx2); }
+.stats b { color: var(--tx); font-weight: 600; }
+.links { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 6px; }
+.lk { display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 10px 0 4px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); font: 500 11.5px/1 system-ui; color: var(--tx); }
+.lk .g { width: 18px; height: 18px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; font: 700 9.5px/1 system-ui; color: #fff; }
+.lk .d { font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); }
+.desc { margin-top: 14px; max-width: 74ch; font: 400 13px/1.6 system-ui; color: var(--tx2); }
+.desc p { margin: 0 0 8px; }
+.desc a { color: var(--accent); text-decoration: none; }
+
+/* the unknown value: an empty description that says so */
+.empty { margin-top: 14px; max-width: 820px; border: 1px dashed var(--line); border-radius: 10px; padding: 14px 16px; display: flex; align-items: center; gap: 14px; }
+.empty .msg { flex: 1; min-width: 0; }
+.empty .t { font: 600 13px/1.3 system-ui; color: var(--tx); }
+.empty .s { font: 400 12px/1.45 system-ui; color: var(--tx3); margin-top: 3px; }
+.empty .acts { margin-left: auto; display: flex; gap: 8px; }
+
+/* ---- below the band ---- */
+.body { display: grid; grid-template-columns: minmax(0, 1fr) 286px; }
+.colmain { padding: 18px 24px 24px; min-width: 0; }
+.colside { border-left: 1px solid var(--line); padding: 18px 18px 24px; background: var(--bg2); }
+.sec + .sec { margin-top: 22px; }
+.sechead { display: flex; align-items: center; gap: 10px; height: 26px; margin-bottom: 10px; }
+.sechead .eyebrow { font-size: 9.5px; }
+.sechead .cnt { font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); }
+.sechead .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.sechead .lnk { font: 600 11.5px/1 system-ui; color: var(--accent); }
+.covers { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px; }
+.cov { position: relative; aspect-ratio: 2/3; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 5px 14px rgba(0,0,0,.35); }
+.cov .m { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 600 30px/1 Georgia, serif; color: rgba(242,237,230,.16); }
+.cov .w { position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 7px 7px; background: linear-gradient(transparent, rgba(9,10,13,.88)); font: 600 10.5px/1.2 system-ui; color: #f2ede6; }
+.cov .r { position: absolute; top: 6px; left: 6px; font: 700 8px/1 ui-monospace, monospace; letter-spacing: .08em; color: #f2ede6; background: rgba(9,10,13,.6); border-radius: 3px; padding: 3px 4px; }
+.more { display: flex; align-items: center; justify-content: center; aspect-ratio: 2/3; border: 1px dashed var(--line); border-radius: 6px; color: var(--tx3); font: 600 12px/1.3 ui-monospace, monospace; text-align: center; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.person { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px 0 3px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); font: 500 12px/1 system-ui; }
+.person .av { width: 24px; height: 24px; border-radius: 50%; background: linear-gradient(135deg, #4a4f5e, #24262e); display: inline-flex; align-items: center; justify-content: center; font: 600 9.5px/1 system-ui; color: #cfd3dc; }
+.person .n { font: 500 10px/1 ui-monospace, monospace; color: var(--tx3); }
+.kv { display: grid; grid-template-columns: 1fr auto; row-gap: 9px; column-gap: 10px; font: 500 12px/1.2 system-ui; color: var(--tx2); }
+.kv .v { font: 500 11.5px/1.2 ui-monospace, monospace; color: var(--tx); text-align: right; }
+.kv .v.dim { color: var(--tx3); }
+.bar { height: 4px; border-radius: 999px; background: var(--line); overflow: hidden; grid-column: 1 / -1; margin-top: -4px; }
+.bar span { display: block; height: 100%; background: var(--good); }
+.rule { display: flex; gap: 9px; align-items: flex-start; padding: 8px 0; border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); font: 400 12px/1.4 system-ui; color: var(--tx2); }
+.rule:first-of-type { border-top: 0; padding-top: 0; }
+.rule .k { font: 600 9px/1.5 ui-monospace, monospace; letter-spacing: .1em; color: var(--tx3); min-width: 54px; }
+.rule b { color: var(--tx); font-weight: 600; }
+.rule .rn { margin-left: auto; font: 500 10.5px/1.4 ui-monospace, monospace; color: var(--accent); white-space: nowrap; }
+.src { display: flex; align-items: center; gap: 8px; font: 500 12px/1 system-ui; color: var(--tx2); height: 24px; }
+.src .n { margin-left: auto; font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); }
+.src .b { width: 60px; height: 4px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.src .b span { display: block; height: 100%; background: var(--tx3); }
+
+/* ---- edit ---- */
+.drop { width: 132px; height: 132px; flex: none; border-radius: 50%; border: 1.5px dashed var(--accent); background: var(--accentSoft); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--accent); font: 600 11px/1.3 system-ui; text-align: center; padding: 0 14px; }
+.form { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; max-width: 760px; }
+.frow { display: grid; grid-template-columns: 116px minmax(0, 1fr); gap: 12px; align-items: start; }
+.frow > .eyebrow { line-height: 30px; }
+.lrow { display: grid; grid-template-columns: 14px 26px minmax(0, 1fr) 150px 26px; gap: 8px; align-items: center; margin-bottom: 6px; }
+.lrow .grip { color: var(--tx3); font: 700 11px/1 system-ui; letter-spacing: -1px; }
+.lrow .g { width: 22px; height: 22px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; font: 700 10px/1 system-ui; color: #fff; }
+.lrow .rm { color: var(--tx3); text-align: center; }
+.pick { display: flex; gap: 8px; align-items: center; }
+.pick .cov { width: 44px; box-shadow: none; }
+.pick .cov .w, .pick .cov .m { display: none; }
+.pick .cov.sel { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hint { font: 400 11.5px/1.45 system-ui; color: var(--tx3); margin-top: 6px; }
+.hint b { color: var(--tx2); font-weight: 600; }
+.hint .lnk { color: var(--accent); font-weight: 600; }
+
+/* ---- ways in ---- */
+.ways { display: grid; grid-template-columns: 1.05fr 1fr; gap: 16px; align-items: start; }
+.panel { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow: hidden; }
+.panel .ph { height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--line); font: 600 12px/1 system-ui; }
+.panel .ph .s { font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); }
+.panel .pb { padding: 14px; }
+.metarow { display: flex; gap: 10px; align-items: flex-start; margin-top: 12px; }
+.metarow > .eyebrow { min-width: 64px; line-height: 24px; }
+.metarow .wrap { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.genre { display: inline-flex; align-items: center; gap: 6px; font: 500 12px/1 system-ui; color: var(--tx); background: var(--panel2); border: 1px solid var(--line); padding: 5px 10px; border-radius: 6px; }
+.tag { display: inline-flex; align-items: center; gap: 5px; font: 400 11px/1 system-ui; color: var(--tx2); padding: 4px 8px; border-radius: 5px; border: 1px dashed var(--line); }
+.tag.hov { border-color: var(--accent); color: var(--accent); }
+.tag .dot, .genre .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--tx3); }
+.peekwrap { position: relative; display: inline-block; }
+.peek { position: absolute; top: 30px; left: -20px; width: 320px; z-index: 3; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: 0 16px 40px rgba(0,0,0,.5); padding: 14px; }
+.peek .top { display: flex; align-items: center; gap: 8px; }
+.peek .nm { font: 600 15px/1.2 system-ui; color: var(--tx); }
+.peek .ct { margin-left: auto; font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); }
+.peek .tx { margin-top: 8px; font: 400 12px/1.5 system-ui; color: var(--tx2); }
+.peek .mini { display: flex; gap: 6px; margin-top: 10px; }
+.peek .mini .cov { width: 52px; box-shadow: none; }
+.peek .mini .cov .w, .peek .mini .cov .m { display: none; }
+.peek .acts { display: flex; gap: 6px; margin-top: 12px; }
+.brow { display: flex; gap: 14px; padding: 12px 14px; border-bottom: 1px solid var(--line); align-items: center; }
+.brow:last-child { border-bottom: 0; }
+.brow .face { width: 52px; height: 52px; border-radius: 8px; }
+.brow .tx { flex: 1; min-width: 0; }
+.brow .nm { font: 600 13px/1.2 system-ui; color: var(--tx); display: flex; align-items: center; gap: 8px; }
+.brow .nm .c { font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); font-weight: 500; }
+.brow .ex { margin-top: 4px; font: 400 11.5px/1.4 system-ui; color: var(--tx3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brow .ex.none { font-style: italic; }
+.brow .mini { display: flex; gap: 6px; }
+.brow .mini .cov { width: 34px; box-shadow: none; }
+.brow .mini .cov .w, .brow .mini .cov .m { display: none; }
+.vrow { display: grid; grid-template-columns: minmax(0, 1fr) 70px 54px 64px; align-items: center; gap: 10px; height: 34px; padding: 0 14px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); font: 500 12.5px/1 system-ui; }
+.vrow.hd { height: 30px; font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .1em; color: var(--tx3); }
+.vrow .n { font: 500 11px/1 ui-monospace, monospace; color: var(--tx2); }
+.vrow .pg { font: 600 10.5px/1 ui-monospace, monospace; color: var(--good); }
+.vrow .pg.none { color: var(--tx3); font-weight: 500; }
+.vrow .op { font: 600 11px/1 system-ui; color: var(--accent); text-align: right; }
+.toolrow { height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<button class="btn themebtn" onclick="const h=document.documentElement;h.dataset.theme=h.dataset.theme==='dark'?'light':'dark'">Light / dark</button>
+<div class="page">
+  <h1>Value pages</h1>
+  <p class="lede">Every value of a list field — a person, a studio, a character, a genre, a tag, a list of your own — gets a
+    page: what the library already knows about it (its works, its numbers, what it travels with, the rules about it),
+    and a place for what you know (a description, links, an image). Concept: <span class="mono">design/value-pages.md</span>.</p>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">1 · A TAG</span><h2>A described tag, opened from Browse</h2></div>
+    <div class="bbody">
+      <div class="app">
+        <div class="tabbar"><span class="logo"></span><span class="name">longbox</span><span class="wc"><span>—</span><span>☐</span><span>✕</span></span></div>
+        <div class="approw" style="height:880px">
+          <aside class="side">
+            <nav class="nav">
+              <div class="navitem"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="6" height="16" rx="1"/><rect x="11" y="4" width="4" height="16" rx="1"/><path d="M17 5l3 14"/></svg>Library</div>
+              <div class="navitem on"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/></svg>Browse</div>
+              <div class="navitem"><svg class="ic" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Sources</div>
+              <div class="navitem"><svg class="ic" viewBox="0 0 24 24"><path d="M4 7h10M4 12h16M4 17h7"/><circle cx="18" cy="7" r="2"/><circle cx="15" cy="17" r="2"/></svg>Metadata</div>
+              <div class="navitem"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 20h16"/></svg>Import</div>
+              <div class="navitem"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>Settings</div>
+            </nav>
+            <div class="rail">
+              <div class="rlabel">BROWSE BY</div>
+              <div class="ritem">People<span class="sn">812</span></div>
+              <div class="ritem">Studio<span class="sn">37</span></div>
+              <div class="ritem">Characters<span class="sn">2,110</span></div>
+              <div class="ritem">Genres<span class="sn">48</span></div>
+              <div class="ritem on">Tags<span class="sn">1,204</span></div>
+              <div class="ritem">Shelf code<span class="sn">19</span></div>
+            </div>
+            <div class="foot"><span class="dot"></span>3,912 titles · library verified</div>
+          </aside>
+
+          <div class="main">
+            <div class="vhead">
+              <span class="back"><svg class="ic" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></span>
+              <span class="crumb">Tags <span>/</span> <b>time loop</b></span>
+              <div class="right">
+                <button class="btn"><svg class="ic" viewBox="0 0 24 24"><path d="M4 5h16l-6 7v6l-4 2v-8z"/></svg>Show in library</button>
+                <button class="btn"><svg class="ic" viewBox="0 0 24 24"><path d="M4 7h10M4 12h16M4 17h7"/><circle cx="18" cy="7" r="2"/><circle cx="15" cy="17" r="2"/></svg>In Metadata</button>
+                <button class="btn accent"><svg class="ic" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>Edit</button>
+              </div>
+            </div>
+            <div class="scrollv">
+              <div class="band">
+                <div class="face" data-mosaic="Re:Turn|Tomorrow, Again|Clockwork Spring|Eighth Night"></div>
+                <div class="info">
+                  <div class="badges"><span class="typebadge">Tag</span></div>
+                  <h2 class="pname">time loop</h2>
+                  <div class="also">also written <span class="sp">timeloop</span> · <span class="sp">time-loop</span> <span class="rl">rule 3</span> · <span class="sp">ループもの</span> <span class="rl">rule 4</span></div>
+                  <div class="stats"><span><b>42</b> titles</span><span><b>1,318</b> ch.</span><span><b>17</b> read</span><span>your rating <b>4.1</b></span></div>
+                  <div class="links">
+                    <span class="lk"><span class="g" style="background:#5b5f69">W</span>Wikipedia<span class="d">en.wikipedia.org</span></span>
+                    <span class="lk"><span class="g" style="background:#2f6fb6">T</span>TV Tropes<span class="d">tvtropes.org</span></span>
+                  </div>
+                  <div class="desc">
+                    <p>The protagonist lives the same stretch of time over and over — a day, a week, up to a death — keeping their
+                      memories while the world resets. Usually about using each loop to learn something, until the one ending that
+                      breaks the cycle is found.</p>
+                    <p>Not the same as <a>regression</a>: there the hero goes back once, here the reset repeats.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="body">
+                <div class="colmain">
+                  <div class="sec">
+                    <div class="sechead"><span class="eyebrow">Works</span><span class="cnt">42</span>
+                      <div class="right"><div class="seg text"><button class="opt on">Recent</button><button class="opt">Rating</button><button class="opt">A–Z</button></div>
+                        <span class="lnk">Show all in library</span></div></div>
+                    <div class="covers" data-titles="Re:Turn|Tomorrow, Again|Clockwork Spring|Eighth Night|The Last Monday|Loop Diver|Seven Sunsets|Rewind Club|A Thousand Mornings|Hourglass Knight|Night Shift Zero|Second Bell" data-more="30"></div>
+                  </div>
+                  <div class="sec">
+                    <div class="sechead"><span class="eyebrow">Often together</span><span class="cnt">on the same titles</span></div>
+                    <div class="chips">
+                      <span class="chip">mystery <span class="n">18</span></span><span class="chip">drama <span class="n">15</span></span>
+                      <span class="chip">romance <span class="n">11</span></span><span class="chip">regression <span class="n">6</span></span>
+                      <span class="chip">school <span class="n">7</span></span><span class="chip">death game <span class="n">4</span></span>
+                      <span class="chip">sci-fi <span class="n">9 · genre</span></span>
+                    </div>
+                  </div>
+                </div>
+                <div class="colside">
+                  <div class="sec">
+                    <div class="sechead"><span class="eyebrow">In your library</span></div>
+                    <div class="kv">
+                      <span>Titles</span><span class="v">42</span>
+                      <span>Chapters</span><span class="v">1,318</span>
+                      <span>Read</span><span class="v">17 of 42</span>
+                      <div class="bar"><span style="width:40%"></span></div>
+                      <span>Your rating</span><span class="v">4.1 · 23 rated</span>
+                      <span>First added</span><span class="v dim">2024-03-11</span>
+                      <span>Last added</span><span class="v dim">3 days ago</span>
+                    </div>
+                  </div>
+                  <div class="sec">
+                    <div class="sechead"><span class="eyebrow">Came from</span></div>
+                    <div class="src">mangadex.org<span class="n">31</span><span class="b"><span style="width:74%"></span></span></div>
+                    <div class="src">example-scans.net<span class="n">7</span><span class="b"><span style="width:17%"></span></span></div>
+                    <div class="src">typed by you<span class="n">4</span><span class="b"><span style="width:10%"></span></span></div>
+                  </div>
+                  <div class="sec">
+                    <div class="sechead"><span class="eyebrow">Rules</span><div class="right"><span class="sechead" style="margin:0"><span class="lnk" style="font:600 11.5px system-ui;color:var(--accent)">Add a spelling</span></span></div></div>
+                    <div class="rule"><span class="k">SPELLING</span><span><b>timeloop</b>, <b>time-loop</b> → time loop</span><span class="rn">rule 3</span></div>
+                    <div class="rule"><span class="k">SPELLING</span><span><b>ループもの</b> → time loop</span><span class="rn">rule 4</span></div>
+                    <div class="rule"><span class="k">IMPLIES</span><span>adds genre <b>sci-fi</b></span><span class="rn">rule 9</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note"><b>Everything below the description is the library's own answer</b> — works, numbers, where the tag came
+        from, what it travels with — and costs no writing. <b>Other spellings are rules</b> (rename rules that land on this
+        value), not a second alias list: capture, typing and the page can never disagree about them. A link opens in the
+        embedded browser. Without an image the face is a mosaic of the works' covers.</p>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">2 · A PERSON</span><h2>One page whether they wrote, drew, or both</h2></div>
+    <div class="bbody">
+      <div class="app">
+        <div class="main">
+          <div class="vhead">
+            <span class="back"><svg class="ic" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></span>
+            <span class="crumb">People <span>/</span> <b>Mitsuki Arata</b></span>
+            <div class="right">
+              <button class="btn icon fav" title="Favourite"><svg class="ic" viewBox="0 0 24 24" style="fill:var(--fav)"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9L12 17l-5.2 2.7 1-5.9-4.3-4.1 5.9-.8z"/></svg></button>
+              <button class="btn">Show in library</button>
+              <button class="btn">In Metadata</button>
+              <button class="btn accent"><svg class="ic" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>Edit</button>
+            </div>
+          </div>
+          <div class="band">
+            <div class="face round">MA</div>
+            <div class="info">
+              <div class="badges"><span class="typebadge">Person</span><span class="rolebadge">WROTE 9 · DREW 11</span></div>
+              <h2 class="pname">Mitsuki Arata</h2>
+              <div class="also">also written <span class="sp">新田みつき</span> <span class="rl">rule 12</span> · <span class="sp">Arata M.</span> <span class="rl">rule 13</span></div>
+              <div class="stats"><span><b>14</b> titles</span><span><b>402</b> ch.</span><span><b>9</b> read</span><span>your rating <b>4.4</b></span></div>
+              <div class="links">
+                <span class="lk"><span class="g" style="background:#111">X</span>@arata_mitsuki<span class="d">x.com</span></span>
+                <span class="lk"><span class="g" style="background:#0096fa">P</span>pixiv<span class="d">pixiv.net</span></span>
+                <span class="lk"><span class="g" style="background:#2f5ea8">F</span>FANBOX<span class="d">fanbox.cc</span></span>
+                <span class="lk"><span class="g" style="background:#e85b46">P</span>Patreon<span class="d">patreon.com</span></span>
+                <span class="lk"><span class="g" style="background:#5b5f69">⌂</span>Official site<span class="d">arata.example</span></span>
+              </div>
+              <div class="desc"><p>Writes and draws mostly short fantasy series; a doujin artist first, serialised since 2019. Sketches go
+                to X, finished pages to pixiv a week before the scanlations.</p></div>
+            </div>
+          </div>
+          <div class="body">
+            <div class="colmain">
+              <div class="sec">
+                <div class="sechead"><span class="eyebrow">Works</span>
+                  <div class="seg text" style="margin-left:6px"><button class="opt on">All <span class="c">14</span></button><button class="opt">Wrote <span class="c">9</span></button><button class="opt">Drew <span class="c">11</span></button></div>
+                  <div class="right"><span class="lnk">Show all in library</span></div></div>
+                <div class="covers" data-titles="Lantern Witch|Salt and Embers|The Cartographer's Daughter|Moth Kingdom|Paper Dragons|Winter Courier|Hollow Crown|Small Gods of Tide" data-roles="W·D|W·D|D|W·D|W|D|W·D|D" data-more="6"></div>
+              </div>
+              <div class="sec">
+                <div class="sechead"><span class="eyebrow">Worked with</span></div>
+                <div class="chips">
+                  <span class="person"><span class="av">KY</span>Kei Yamada<span class="n">4 · wrote</span></span>
+                  <span class="person"><span class="av">SN</span>Sora Nishi<span class="n">2 · drew</span></span>
+                  <span class="person"><span class="av">LU</span>Studio Lumen<span class="n">3 · studio</span></span>
+                </div>
+              </div>
+              <div class="sec">
+                <div class="sechead"><span class="eyebrow">Their tags</span><span class="cnt">across their titles</span></div>
+                <div class="chips"><span class="chip">fantasy <span class="n">11</span></span><span class="chip">witch <span class="n">5</span></span><span class="chip">adventure <span class="n">8</span></span><span class="chip">slow burn <span class="n">4</span></span><span class="chip">found family <span class="n">4</span></span></div>
+              </div>
+            </div>
+            <div class="colside">
+              <div class="sec">
+                <div class="sechead"><span class="eyebrow">In your library</span></div>
+                <div class="kv">
+                  <span>Titles</span><span class="v">14</span>
+                  <span>Chapters</span><span class="v">402</span>
+                  <span>Read</span><span class="v">9 of 14</span>
+                  <div class="bar"><span style="width:64%"></span></div>
+                  <span>Your rating</span><span class="v">4.4 · 10 rated</span>
+                  <span>Newest</span><span class="v dim">Small Gods of Tide</span>
+                </div>
+              </div>
+              <div class="sec">
+                <div class="sechead"><span class="eyebrow">Rules</span></div>
+                <div class="rule"><span class="k">SPELLING</span><span><b>新田みつき</b> → Mitsuki Arata</span><span class="rn">rule 12</span></div>
+                <div class="rule"><span class="k">SPELLING</span><span><b>Arata M.</b> → Mitsuki Arata</span><span class="rn">rule 13</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note"><b>Authors and artists share one vocabulary</b>, so a person has one page; the role badge and the Works
+        switch say who did what. <b>The favourite star is the one people already have</b> (<span class="mono">authors.json</span>),
+        shown here unchanged. The links are where to follow them — X, pixiv, FANBOX, Patreon, a site — each one opening in the
+        embedded browser, so a new chapter found there can be captured straight away.</p>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">3 · AN UNKNOWN TAG</span><h2>Nothing written yet — and still an answer</h2></div>
+    <div class="bbody">
+      <div class="app">
+        <div class="main">
+          <div class="vhead">
+            <span class="back"><svg class="ic" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></span>
+            <span class="crumb">Tags <span>/</span> <b>iyashikei</b></span>
+            <div class="right"><button class="btn">Show in library</button><button class="btn">In Metadata</button><button class="btn">Edit</button></div>
+          </div>
+          <div class="band">
+            <div class="face" data-mosaic="Teapot Afternoons|Little Seaside Café|Fields of Clover|Slow Train North"></div>
+            <div class="info">
+              <div class="badges"><span class="typebadge">Tag</span></div>
+              <h2 class="pname">iyashikei</h2>
+              <div class="stats"><span><b>8</b> titles</span><span><b>214</b> ch.</span><span><b>2</b> read</span></div>
+              <div class="empty">
+                <svg class="ic" viewBox="0 0 24 24" style="width:22px;height:22px;color:var(--tx3)"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 114 2c-.9.6-1.5 1.1-1.5 2.2M12 17h.01"/></svg>
+                <div class="msg"><div class="t">Nothing written about “iyashikei” yet</div>
+                  <div class="s">The works below are the library's answer. Add what it means — or look it up first.</div></div>
+                <div class="acts"><button class="btn">Look it up <svg class="ic s" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5H5V6h5"/></svg></button><button class="btn accent">Write what it means</button></div>
+              </div>
+            </div>
+          </div>
+          <div class="body">
+            <div class="colmain">
+              <div class="sec">
+                <div class="sechead"><span class="eyebrow">Works</span><span class="cnt">8</span><div class="right"><span class="lnk">Show all in library</span></div></div>
+                <div class="covers" data-titles="Teapot Afternoons|Little Seaside Café|Fields of Clover|Slow Train North|Lighthouse Keeper's Year|Mountain Hut Recipes|The Quiet Bookshop|Fireflies at Grandma's"></div>
+              </div>
+              <div class="sec">
+                <div class="sechead"><span class="eyebrow">Often together</span><span class="cnt">on the same titles</span></div>
+                <div class="chips"><span class="chip">slice of life <span class="n">7</span></span><span class="chip">comedy <span class="n">5</span></span><span class="chip">countryside <span class="n">3</span></span><span class="chip">food <span class="n">3</span></span><span class="chip">cute girls <span class="n">2</span></span></div>
+              </div>
+            </div>
+            <div class="colside">
+              <div class="sec">
+                <div class="sechead"><span class="eyebrow">Came from</span></div>
+                <div class="src">mangadex.org<span class="n">6</span><span class="b"><span style="width:75%"></span></span></div>
+                <div class="src">typed by you<span class="n">2</span><span class="b"><span style="width:25%"></span></span></div>
+              </div>
+              <div class="sec">
+                <div class="sechead"><span class="eyebrow">Rules</span></div>
+                <div style="font:400 12px/1.45 system-ui;color:var(--tx3)">No rule mentions it. <span style="color:var(--accent);font-weight:600">Add a spelling</span> or make it imply a genre.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note"><b>The question “what is this tag?” has a first answer before anyone writes a word</b>: eight works to look
+        at, the tags it travels with (slice of life, comedy — a mood, not a plot), and the site that brought it in.
+        <b>Look it up</b> opens a web search for the value in the embedded browser — a button, never automatic.</p>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">4 · EDIT</span><h2>Explicit, like a title — Save or Cancel</h2></div>
+    <div class="bbody">
+      <div class="app">
+        <div class="main">
+          <div class="vhead">
+            <span class="crumb">People <span>/</span> <b>Mitsuki Arata</b> <span style="color:var(--warn);font:600 10px ui-monospace,monospace;letter-spacing:.1em;margin-left:6px">EDITING</span></span>
+            <div class="right"><button class="btn ghost">Cancel</button><button class="btn accent">Save</button></div>
+          </div>
+          <div class="band" style="align-items:flex-start">
+            <div style="display:flex;flex-direction:column;gap:12px;align-items:center">
+              <div class="drop"><svg class="ic" viewBox="0 0 24 24" style="width:20px;height:20px"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>Drop or paste an image</div>
+              <span style="font:500 11px system-ui;color:var(--tx3)">or a cover of theirs:</span>
+              <div class="pick" data-pick="Lantern Witch|Salt and Embers|Moth Kingdom"></div>
+            </div>
+            <div class="form">
+              <div class="frow"><span class="eyebrow">Description</span>
+                <div><textarea class="ta" readonly>Writes and draws mostly short fantasy series; a doujin artist first, serialised since 2019. Sketches go to X, finished pages to pixiv a week before the scanlations.</textarea>
+                  <div class="hint">Plain text; a pasted address becomes a link.</div></div></div>
+              <div class="frow"><span class="eyebrow">Links</span>
+                <div>
+                  <div class="lrow"><span class="grip">⋮⋮</span><span class="g" style="background:#111">X</span><input class="in" value="https://x.com/arata_mitsuki" readonly><input class="in" value="@arata_mitsuki" readonly><span class="rm">✕</span></div>
+                  <div class="lrow"><span class="grip">⋮⋮</span><span class="g" style="background:#0096fa">P</span><input class="in" value="https://www.pixiv.net/users/0000000" readonly><input class="in" value="pixiv" readonly><span class="rm">✕</span></div>
+                  <div class="lrow"><span class="grip">⋮⋮</span><span class="g" style="background:#2f5ea8">F</span><input class="in" value="https://arata.fanbox.cc" readonly><input class="in" value="FANBOX" readonly><span class="rm">✕</span></div>
+                  <div class="lrow"><span class="grip"></span><span class="g" style="background:var(--line);color:var(--tx3)">+</span><input class="in focus" value="" placeholder="Paste a link — the site names itself" readonly><span></span><span></span></div>
+                </div></div>
+              <div class="frow"><span class="eyebrow">Also written</span>
+                <div><div class="chips"><span class="chip">新田みつき <span class="x">×</span></span><span class="chip">Arata M. <span class="x">×</span></span><span class="chip" style="border-color:var(--accent)">Mitsuki A. <span class="x">×</span></span><span class="chip add">add a spelling…</span></div>
+                  <div class="hint">Each spelling is a <b>rename rule</b> (it shows in Metadata › Rules) — so capture and your typing turn it
+                    into “Mitsuki Arata” from now on. <b>2 titles</b> still hold “Mitsuki A.” — <span class="lnk">apply to them after saving</span>.</div></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note"><b>The image is a copy</b> — dropped, pasted, or one of their covers — so it outlives the title it came from.
+        <b>Links</b> drag to order; a known site gives itself a name and a mark. <b>Spellings are saved as rules</b> together
+        with the page; applying one to the titles that already hold it is a Metadata operation with its usual preview.</p>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">5 · WAYS IN</span><h2>A peek on any chip, Browse cards, the Metadata values list</h2></div>
+    <div class="bbody">
+      <div class="ways">
+        <div class="panel" style="overflow:visible">
+          <div class="ph">Title page <span class="s">a value's chip, hovered for a beat</span></div>
+          <div class="pb" style="padding-bottom:256px">
+            <div class="metarow"><span class="eyebrow">Genres</span><div class="wrap"><span class="genre">mystery</span><span class="genre">sci-fi</span></div></div>
+            <div class="metarow"><span class="eyebrow">Tags</span><div class="wrap">
+              <span class="tag">regression</span>
+              <span class="peekwrap"><span class="tag hov">time loop</span>
+                <div class="peek">
+                  <div class="top"><span class="typebadge">Tag</span><span class="nm">time loop</span><span class="ct">42 titles</span></div>
+                  <div class="tx">The protagonist lives the same stretch of time over and over — a day, a week, up to a death — keeping their memories while the world resets…</div>
+                  <div class="mini" data-mini="Re:Turn|Tomorrow, Again|Clockwork Spring|Eighth Night|The Last Monday"></div>
+                  <div class="acts"><button class="btn small accent">Open page</button><button class="btn small">Show in library</button></div>
+                </div></span>
+              <span class="tag">school</span><span class="tag">iyashikei</span></div></div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:16px">
+          <div class="panel">
+            <div class="ph">Browse · Tags <span class="s">1,204</span><span style="margin-left:auto"></span><div class="seg text"><button class="opt">All</button><button class="opt on">Not described <span class="c">1,131</span></button></div></div>
+            <div class="brow"><div class="face" data-mosaic="Teapot Afternoons|Little Seaside Café|Fields of Clover|Slow Train North"></div>
+              <div class="tx"><div class="nm">iyashikei <span class="c">8 titles</span></div><div class="ex none">Nothing written yet</div></div>
+              <div class="mini" data-mini="Teapot Afternoons|Little Seaside Café|Fields of Clover"></div></div>
+            <div class="brow"><div class="face" data-mosaic="Lantern Witch|Hollow Crown|Moth Kingdom|Paper Dragons"></div>
+              <div class="tx"><div class="nm">found family <span class="c">27 titles</span></div><div class="ex none">Nothing written yet</div></div>
+              <div class="mini" data-mini="Lantern Witch|Hollow Crown|Moth Kingdom"></div></div>
+            <div class="brow"><div class="face" data-mosaic="Re:Turn|Tomorrow, Again|Clockwork Spring|Eighth Night"></div>
+              <div class="tx"><div class="nm">time loop <span class="c">42 titles</span></div><div class="ex">The protagonist lives the same stretch of time over and over…</div></div>
+              <div class="mini" data-mini="Re:Turn|Tomorrow, Again|Clockwork Spring"></div></div>
+          </div>
+          <div class="panel">
+            <div class="ph">Metadata · Tags <span class="s">values</span><span style="margin-left:auto"></span><div class="seg text"><button class="opt">All</button><button class="opt">No rule</button><button class="opt on">Not described</button><button class="opt">Pages without titles <span class="c">3</span></button></div></div>
+            <div class="vrow hd"><span>VALUE</span><span>TITLES</span><span>PAGE</span><span></span></div>
+            <div class="vrow"><span>found family</span><span class="n">27</span><span class="pg none">—</span><span class="op">Open page</span></div>
+            <div class="vrow"><span>iyashikei</span><span class="n">8</span><span class="pg none">—</span><span class="op">Open page</span></div>
+            <div class="vrow" style="border-bottom:0"><span>time loop</span><span class="n">42</span><span class="pg">● written</span><span class="op">Open page</span></div>
+          </div>
+        </div>
+      </div>
+      <p class="note"><b>A click on a chip keeps doing what it does today</b> (filter the library); hovering it for a beat shows
+        the peek — the description's first lines or “nothing written yet”, the count, a few covers, and <i>Open page</i>.
+        <b>Not described</b> is the queue for filling pages in, most-used first. <b>Pages without titles</b> are pages whose
+        value no title holds any more: kept, because they are your writing, and deleted only from here, with a confirm.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+// covers stand in as hued tiles: the mockup carries no images
+function hue(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 360 }
+function tile(title, role) {
+  const h = hue(title)
+  const bg = `linear-gradient(160deg, hsl(${h} 38% 42%), hsl(${(h + 40) % 360} 34% 18%))`
+  return `<div class="cov" style="background:${bg}"><span class="m">${title[0]}</span>${role ? `<span class="r">${role}</span>` : ''}<span class="w">${title}</span></div>`
+}
+document.querySelectorAll('[data-titles]').forEach((el) => {
+  const roles = (el.dataset.roles || '').split('|')
+  el.innerHTML = el.dataset.titles.split('|').map((t, i) => tile(t, roles[i])).join('')
+    + (el.dataset.more ? `<div class="more">+${el.dataset.more}<br>more</div>` : '')
+})
+document.querySelectorAll('[data-mini]').forEach((el) => { el.innerHTML = el.dataset.mini.split('|').map((t) => tile(t)).join('') })
+document.querySelectorAll('[data-pick]').forEach((el) => {
+  el.innerHTML = el.dataset.pick.split('|').map((t, i) => tile(t).replace('class="cov"', `class="cov${i === 0 ? ' sel' : ''}"`)).join('')
+})
+document.querySelectorAll('[data-mosaic]').forEach((el) => {
+  el.innerHTML = el.dataset.mosaic.split('|').map((t) => {
+    const h = hue(t)
+    return `<div class="t" style="background:linear-gradient(160deg, hsl(${h} 38% 42%), hsl(${(h + 40) % 360} 34% 18%))"></div>`
+  }).join('')
+})
+</script>
+</body>
+</html>

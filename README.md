@@ -9,8 +9,11 @@ tags or cover, and longbox learns a reusable per-site recipe.
 
 - **Library** — cover grid, dense list and expanded views with linked faceted filters (type,
   status, genres, tags, languages, flags, authors, artists, characters, studio), full-text search
-  over titles and alternate names, favorites, ratings, reading progress, bulk select/delete, and
-  footer pagination. Shelves narrow the library by type; **Browse by** groups it along any list
+  over titles and alternate names, favorites, ratings, reading progress, and footer pagination.
+  **Select titles** to delete them, or to **edit them at once**: a panel shows every value the
+  picked titles hold with how many hold it — add a tag to all, take a character from all, give a
+  value some have to the rest, set a status — and one Apply writes it, undoable. What you change
+  there becomes yours: capture will not overwrite it. Shelves narrow the library by type; **Browse by** groups it along any list
   field, and each shelf keeps its own list of axes. A title may wear **several covers** — the
   grid fades through them while you hover it — and one you never gave a cover shows what it
   actually holds: the first page of each downloaded chapter, or an episode's own preview frame.
@@ -42,8 +45,14 @@ tags or cover, and longbox learns a reusable per-site recipe.
   shelf on disk. Every change is previewed before anything is written, costs only the titles
   that actually change, keeps the library's "updated" order, and can be reverted from its
   history. **Rules** do the same to values on their way in — from capture, from your own typing
-  (visibly, with "keep as typed"), from a new chapter's language and group — in the order you
+  (visibly, with "keep as typed"), from a new chapter's language, group and section — in the order you
   give them, and any rule can be applied to the titles already stored.
+- **Value pages** — every person, studio, character, genre, tag and list value of your own has a
+  page: its works, how many you have read and how you rated them, the sites it came from, the
+  values it travels with, and the rules about it — before you write a word. Add a description,
+  links (X, pixiv, Patreon, Wikipedia… open in the embedded browser) and an image; a person's
+  other names are kept as rules, so every spelling lands as one. Hovering a chip on a title
+  page shows its page in brief; a rename in Metadata takes the page along.
 - **Import** — bring in what is already on disk, sorted the way you sorted it. Say what each level
   of a folder tree means — a collection, a creator, a work — and how names become titles, entries
   and fields: a pattern reads `vidhub @kumo Kumo Works` as site, handle and creator, a template makes

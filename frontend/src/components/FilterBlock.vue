@@ -14,7 +14,7 @@ import {
   setFieldHidden, store, toggleFacet, visibleFields, type FacetKey,
 } from '../store'
 import { isBoolMap, isNumMap, readLocal, writeLocal } from '../local'
-import type { FacetValue } from '../data'
+import { FLAG_DEFS, type FacetValue } from '../data'
 
 const emit = defineEmits<{ (e: 'close'): void }>()
 const lib = store.library
@@ -25,7 +25,7 @@ const progRows = [
   { v: 'reading', label: 'Reading' }, { v: 'completed', label: 'Completed' },
 ] as const
 
-const FLAG_LABELS: Record<string, string> = { adult: '18+', ai: 'AI', censored: 'Censored' }
+const FLAG_LABELS: Record<string, string> = Object.fromEntries(FLAG_DEFS.map((f) => [f.key, f.label]))
 // The sidebar's reading ORDER is a view preference, not a field list: the set of
 // sections comes from the served registry, and anything it gains — a custom
 // field — simply appends after the ones spelled out here.

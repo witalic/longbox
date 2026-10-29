@@ -15,7 +15,8 @@ existing titles is an operation (`as_actions`), with a preview.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from urllib.parse import urlsplit
 from dataclasses import dataclass
 from typing import Literal
@@ -27,6 +28,10 @@ from .operations import FLAG_NAMES, FOLDED, Action, place, shape, values_of
 from .vault import Vault
 
 DOC = "rules.json"
+# the shape this build writes; ANY change to it bumps this (Vault.doc_transaction).
+# 2 is the shape 1 had — development builds stamped every document with one
+# shared number, and the libraries they wrote are read as they are.
+SCHEMA = 2
 
 RuleAction = Literal["rename", "remove", "move", "add"]
 
@@ -88,7 +93,7 @@ def check(rule: Rule) -> Rule:
 
 
 def _parse(doc: dict) -> list[Rule]:
-    return Vault.doc_items(doc, DOC, "rules", Rule, "a rule")
+    return Vault.doc_items(doc, DOC, "rules", Rule, "a rule", schema=SCHEMA)
 
 
 class RuleStore:
@@ -101,15 +106,28 @@ class RuleStore:
     def save(self, rules: list[Rule]) -> list[Rule]:
         """Replace the list — order and all — with every rule checked."""
         checked = [check(r) for r in rules]
-        with self.vault.doc_transaction(DOC) as doc:
+        with self.vault.doc_transaction(DOC, schema=SCHEMA) as doc:
             doc["rules"] = [r.model_dump() for r in checked]
         return checked
+
+    @contextmanager
+    def edit(self) -> Iterator[list[Rule]]:
+        """Load → change → save the list as one step — a list saved meanwhile is
+        not lost. The rules the caller added or changed are checked, and one
+        that cannot stand refuses the whole write; the others are kept as they
+        are, even one that no longer could be made (a deleted field's)."""
+        with self.vault.doc_transaction(DOC, schema=SCHEMA) as doc:
+            rules = _parse(doc)
+            before = {id(r): r.model_dump() for r in rules}
+            yield rules
+            doc["rules"] = [r.model_dump() if before.get(id(r)) == r.model_dump() else check(r).model_dump()
+                            for r in rules]
 
     def add(self, rules: list[Rule]) -> list[Rule]:
         """Append rules (an operation remembered as one) after the existing ones,
         in one step with reading them — a list saved meanwhile is not lost."""
         checked = [check(r) for r in rules]
-        with self.vault.doc_transaction(DOC) as doc:
+        with self.vault.doc_transaction(DOC, schema=SCHEMA) as doc:
             doc["rules"] = [r.model_dump() for r in [*_parse(doc), *checked]]
         return checked
 
@@ -134,7 +152,7 @@ def apply(rules: list[Rule], values: dict[str, object], domain: str = "",
 
     `values` maps a field to what is ARRIVING in it — a list for a list field, a
     string for a single value: the fields a capture produced, the one value the
-    owner typed, a chapter's language and group. `context` is what the title
+    owner typed, a chapter's language, group or section. `context` is what the title
     already holds in fields a rule may move or add into — a single field is
     filled only where it is empty, a list gains values — and `locked` names
     fields nothing may write (the owner's own, when capture is asking). The

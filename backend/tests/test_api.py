@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 
 import pytest
 from fastapi.testclient import TestClient
@@ -92,6 +93,16 @@ def test_create_slugs_and_uniquifies(client):
     a = client.post("/api/titles", json=draft(title="Dup")).json()
     b = client.post("/api/titles", json=draft(title="Dup")).json()
     assert a["id"] == "dup" and b["id"] == "dup-2"
+
+
+def test_a_titles_folder_is_its_place_in_the_vault(client, tmp_path):
+    """"Show in folder" opens the vault's own copy — after a type change too,
+    never the place the title's files were imported from."""
+    got = client.get("/api/titles/berserk/folder").json()["path"]
+    assert got == os.path.abspath(tmp_path / "manga" / "berserk")
+    client.put("/api/titles/berserk", json=draft(title="Berserk", type="manhwa"))
+    assert client.get("/api/titles/berserk/folder").json()["path"] == os.path.abspath(tmp_path / "manhwa" / "berserk")
+    assert client.get("/api/titles/nope/folder").status_code == 404
 
 
 def test_create_requires_a_title(client):

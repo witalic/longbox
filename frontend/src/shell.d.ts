@@ -5,6 +5,8 @@ declare global {
   interface Window {
     longbox?: {
       pickFolder: (title?: string) => Promise<string | null>
+      // a folder in the system's file manager; false when it is not one
+      openFolder: (dir: string) => Promise<boolean>
       clearBrowsing: (what: 'cookies' | 'cache') => Promise<boolean>
       setTitleBar: (opts: { color: string; symbolColor: string }) => void
       // stop a download in flight; false when the shell no longer holds it

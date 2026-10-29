@@ -9,7 +9,7 @@
 // (design/metadata-model.md), so a field the app gains — or the user defines —
 // draws itself without a line of code in this file.
 import { computed, reactive, watch } from 'vue'
-import { DEFAULT_STATUSES, fieldBlocks, type FieldDef } from '../data'
+import { DEFAULT_STATUSES, FLAG_DEFS, fieldBlocks, type FieldDef, type FlagKey } from '../data'
 import { addFlags, clearField, draftState, ruleTarget, setCoverUrl, setManual, throughRules } from '../draft'
 import { store, visibleFields } from '../store'
 import Combo from './Combo.vue'
@@ -174,13 +174,6 @@ function removeChip(f: FieldDef, i: number) {
   setManual(f.id)
 }
 
-// `flags` is the one field whose values are named switches rather than text.
-const flagDefs = [
-  { key: 'adult', label: '18+', color: 'var(--adult)' },
-  { key: 'ai', label: 'AI', color: 'var(--ai)' },
-  { key: 'censored', label: 'Censored', color: 'var(--cens)' },
-] as const
-type FlagKey = (typeof flagDefs)[number]['key']
 function flag(k: FlagKey): boolean { return !!d.value?.meta.flags[k] }
 // a flag the owner sets or clears is theirs: capture (and a rule) may not undo it
 function toggleFlag(k: FlagKey) {
@@ -257,7 +250,7 @@ function coverBg(preview: string) {
       </div>
 
       <div v-else-if="f.control === 'flags'" class="flagrow">
-        <label v-for="fl in flagDefs" :key="fl.key" class="flag"
+        <label v-for="fl in FLAG_DEFS" :key="fl.key" class="flag"
                :style="{ color: flag(fl.key) ? fl.color : 'var(--tx2)', borderColor: flag(fl.key) ? fl.color : 'var(--line)' }"
                @click="toggleFlag(fl.key)">
           <span class="box" :style="{ borderColor: flag(fl.key) ? fl.color : 'var(--line)', background: flag(fl.key) ? fl.color : 'transparent' }">

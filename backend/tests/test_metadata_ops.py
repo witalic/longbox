@@ -4,6 +4,7 @@ kept, applied to what arrives, counted, and applied to titles already stored."""
 from __future__ import annotations
 
 import json
+import zipfile
 
 import pytest
 from fastapi.testclient import TestClient
@@ -151,6 +152,38 @@ def test_chapter_rules_name_new_chapters_and_leave_stored_ones(client):
         ("1", "English", "Team X"), ("2", "EN", "TeamX")]  # the site rule held for its site only
 
 
+def test_a_section_rule_names_the_parts_of_new_entries_only(client, tmp_path):
+    client.put("/api/metadata/rules", json={"rules": [
+        {"field": "section", "match": ["vol 1", "Vol. 01"], "action": "rename", "to": "Volume 1"}]})
+    fields = {f["id"]: f for f in client.post("/api/metadata/fields", json={}).json()["fields"]}
+    assert (fields["section"]["kind"], fields["section"]["label"]) == ("chapter", "Section")
+
+    made = client.post("/api/titles", json={"meta": {"title": "B", "type": "manga"}, "provenance": {},
+                                            "chapters": [{"id": "", "num": "1", "section": "vol 1"}]}).json()
+    assert [c["section"] for c in made["chapters"]] == ["Volume 1"]
+
+    # a chapter added the way the app adds one: a row with no id, committed
+    tid = title(client, "A")
+    meta = {"title": "A", "type": "manga"}
+    t = client.put(f"/api/titles/{tid}", json={"meta": meta, "provenance": {}, "chapters": [
+        {"id": "", "num": "1", "section": "vol 1"}]}).json()
+    assert t["chapters"][0]["id"] and t["chapters"][0]["section"] == "Volume 1"
+
+    # a later commit: the stored row keeps what the owner gave it, a new row is ruled
+    rows = [{**t["chapters"][0], "section": "Vol. 01"}, {"id": "", "num": "2", "section": "Vol. 01"}]
+    after = client.put(f"/api/titles/{tid}", json={"meta": meta, "provenance": {}, "chapters": rows}).json()
+    assert [(c["num"], c["section"]) for c in after["chapters"]] == [("1", "Vol. 01"), ("2", "Volume 1")]
+
+    # an archive imported onto the title page with a part named
+    buf = tmp_path / "c3.zip"
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("01.jpg", b"\xff\xd8\xff\xe0" + b"\x00" * 64)
+    out = client.post(f"/api/titles/{tid}/chapters/import?num=3&section=vol%201&filename=c3.zip",
+                      content=buf.read_bytes()).json()
+    assert [(c["num"], c["section"]) for c in out["chapters"]][-1] == ("3", "Volume 1")
+    assert client.get("/api/metadata/rules").json()["stats"]  # each one counted
+
+
 def test_type_rename_through_the_api_renames_the_shelf(client, tmp_path):
     ids = [title(client, f"W{i}", type_="manhwa") for i in range(2)]
     pv = client.post("/api/metadata/preview", json={"actions": [
@@ -220,3 +253,25 @@ def test_a_broken_rules_file_does_not_take_the_values_down(client, tmp_path):
     (tmp_path / "lib" / "rules.json").write_text("{", encoding="utf-8")
     values = client.post("/api/metadata/values", json={"field": "tags"})
     assert values.status_code == 200 and values.json()[0]["rule"] == 0
+
+
+def test_what_a_selection_holds_and_the_owners_edit_of_it(client):
+    a = title(client, "A", tags=["witch", "school"], status="ongoing", prov={"tags": "auto"})
+    b = title(client, "B", tags=["witch"], status="completed")
+    title(client, "C", tags=["elsewhere"])
+    held = client.post("/api/metadata/held", json={
+        "scope": {"ids": [a, b]}, "fields": ["tags", "status", "flags", "group", "cover", "tags"]}).json()
+    assert held["inScope"] == 2
+    assert set(held["fields"]) == {"tags", "status", "flags"}  # chapter and spine fields hold no title values
+    assert held["fields"]["tags"] == {
+        "titles": 2, "values": [{"value": "witch", "titles": 2}, {"value": "school", "titles": 1}]}
+    assert held["fields"]["flags"] == {"titles": 0, "values": []}
+
+    out = client.post("/api/metadata/run", json={"scope": {"ids": [a, b]}, "own": True, "actions": [
+        {"kind": "add", "field": "tags", "values": ["isekai"]},
+        {"kind": "remove", "field": "tags", "values": ["school"]},
+        {"kind": "add", "field": "flags", "values": ["adult"]}]}).json()
+    assert out["changed"] == 2
+    assert tags_of(client, a) == ["witch", "isekai"]
+    got = client.get(f"/api/titles/{a}").json()
+    assert got["flags"]["adult"] and got["provenance"]["tags"]["origin"] == "manual"

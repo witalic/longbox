@@ -4,7 +4,7 @@ import Icon from './components/Icon.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
 import RailSection from './components/RailSection.vue'
 import {
-  store, goView, openTitle, closeTab, titleById, toggleTitlePin, moveTitleTabBefore, init,
+  store, goView, openTitle, closeTab, titleById, toggleTitlePin, moveTitleTabBefore, init, closeValuePage,
   shownAxes, runningDownloads, unfinishedDownloads, vaultPass, passIcon, passPercent,
 } from './store'
 import {
@@ -19,6 +19,7 @@ import ActivityPanel from './components/ActivityPanel.vue'
 import TitleView from './views/TitleView.vue'
 import ReaderView from './views/ReaderView.vue'
 import AuthorsView from './views/AuthorsView.vue'
+import ValuePeek from './components/ValuePeek.vue'
 import SourcesView from './views/SourcesView.vue'
 import MetadataView from './views/MetadataView.vue'
 import ImportView from './views/ImportView.vue'
@@ -156,11 +157,14 @@ function pickShelf(v: string) {
 const axisFields = computed(() => shownAxes())
 function goBrowse(id: string) {
   // clicking the OPEN axis goes back to the plain library — the same grammar the
-  // shelves have, so the rail has one way in and the same way out
+  // shelves have, so the rail has one way in and the same way out. From a value
+  // page it is one step: back to that axis's list.
   if (store.view === 'authors' && store.browseAxis === id) {
-    goView('library')
+    if (store.valuePage) closeValuePage()
+    else goView('library')
     return
   }
+  closeValuePage()
   store.browseAxis = id
   goView('authors')
 }
@@ -524,6 +528,7 @@ initSessions()
       <span class="errmsg">{{ store.error }}</span>
     </div>
     <ConfirmModal />
+    <ValuePeek />
   </div>
 </template>
 

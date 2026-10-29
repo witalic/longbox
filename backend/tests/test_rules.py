@@ -11,9 +11,9 @@ import pytest
 from app.library import operations as ops
 from app.library import rules as R
 from app.library.models import DraftIn, TitleMeta
-from app.library.rules import InvalidRule, Rule
+from app.library.rules import SCHEMA as RULES_SCHEMA, InvalidRule, Rule
 from app.library.service import Library
-from app.library.vault import DOC_SCHEMA, UnreadableDocument
+from app.library.vault import UnreadableDocument
 
 
 def rule(**kw) -> Rule:
@@ -152,9 +152,21 @@ def test_a_site_is_named_with_or_without_www():
 
 
 def test_a_rule_or_a_list_from_a_newer_build_is_not_applied(lib):
-    for doc in ({"schema": DOC_SCHEMA + 1, "rules": []},
+    for doc in ({"schema": RULES_SCHEMA + 1, "rules": []},
                 {"schema": 1, "rules": [{"field": "tags", "match": ["a"], "action": "remove",
                                          "onlyOnFridays": True}]}):
         (lib.root / "rules.json").write_text(json.dumps(doc), encoding="utf-8")
         with pytest.raises(UnreadableDocument):
             lib.rules.rules()
+
+
+def test_each_vault_document_keeps_its_own_schema(lib, tmp_path):
+    """One document's shape change never locks an older build out of the
+    others: a recipe written next to a rule keeps the schema recipes have."""
+    from app.scraper.recipes import SCHEMA as RECIPES_SCHEMA
+    from app.scraper.models import Recipe
+    lib.rules.save([Rule(field="tags", match=["a"], action="rename", to="b")])
+    lib.recipes.save(Recipe(domain="example.org"))
+    root = tmp_path / "lib"
+    assert json.loads((root / "rules.json").read_text("utf-8"))["schema"] == RULES_SCHEMA
+    assert json.loads((root / "recipes.json").read_text("utf-8"))["schema"] == RECIPES_SCHEMA == 1

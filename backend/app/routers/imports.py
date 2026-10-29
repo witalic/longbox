@@ -1,8 +1,10 @@
 """Importing a folder the owner already has (design/folder-import.md §10).
 
 The scan is held in memory by id: the preview re-plans from it on every change
-of a rule, so a keystroke never walks the disk again. Running takes the one
-vault-pass slot, and reports through the same status the other passes do."""
+of a rule, so a keystroke never walks the disk again. Running reads the folder
+once more — what is stored is what is on the disk NOW, not what was there when
+it was chosen — takes the one vault-pass slot, and reports through the same
+status the other passes do."""
 from __future__ import annotations
 
 import os
@@ -108,8 +110,16 @@ def run(request: Request, body: PlanIn) -> fi.Report:
         fi.check_overrides(body.overrides)
     except fi.InvalidProfile as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
+    lib = _lib(request)
     with _pass(f"importing {s.root.name}", "import") as (progress, stop):
-        report = fi.run(_lib(request), s, body.profile, body.overrides, progress=progress, stop=stop)
+        try:
+            s = fi.scan(s.root, skip=lib.root.resolve())
+        except OSError as e:
+            raise HTTPException(status_code=422, detail=f"the folder cannot be read: {e.strerror or e}")
+        scans = _scans(request)  # takes the scans' lock itself
+        with _SCANS_LOCK:
+            scans[body.scanId] = s  # the next preview starts from this reading too
+        report = fi.run(lib, s, body.profile, body.overrides, progress=progress, stop=stop)
     with config_transaction() as cfg:
         cfg[_RUNS] = [report.model_dump(), *(cfg.get(_RUNS) or [])][:KEEP_RUNS]
     if body.profile.files == "move":

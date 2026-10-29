@@ -310,7 +310,7 @@ class LibraryIndex:
     def journal_changes(self, run: int) -> list[tuple[str, str, object, object]]:
         with self._lock:
             rows = self._db.execute(
-                "SELECT title_id, field, before, after FROM journal_changes_v1 WHERE run = ?",
+                "SELECT title_id, field, before, after FROM journal_changes_v1 WHERE run = ? ORDER BY rowid",
                 (run,)).fetchall()
         return [(r["title_id"], r["field"], json.loads(r["before"]), json.loads(r["after"]))
                 for r in rows]

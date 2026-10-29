@@ -13,10 +13,11 @@ import MenuButton from '../components/MenuButton.vue'
 import Stars from '../components/Stars.vue'
 import Dropdown from '../components/Dropdown.vue'
 import Pager from '../components/Pager.vue'
+import BulkEdit from '../components/BulkEdit.vue'
 import {
   store, openTitle, openTitleBackground, openReader, toggleFav, resetFilters,
-  activeFilterCount, askConfirm, deleteTitles, editInMetadata, goAuthorsFor, setRating,
-  opening,
+  activeFilterCount, askConfirm, deleteTitles, goAuthorsFor, setRating, refreshLibrary,
+  runVaultPass, opening,
 } from '../store'
 import { startNewTitle } from '../browser'
 import { api } from '../api'
@@ -96,12 +97,15 @@ function pagesOf(t: Title): number {
   return t.chapters.reduce((n, c) => n + (c.pages || 0), 0)
 }
 
-// ---- select mode: bulk delete, "all" = everything matching the filters ----
+// ---- select mode: edit or delete many, "all" = everything matching the filters ----
 const selMode = ref(false)
 const selIds = ref<string[]>([])
+// the bulk editor docks where the filters are (design/bulk-edit.md)
+const bulkOpen = ref(false)
 function toggleSelMode() {
   selMode.value = !selMode.value
   selIds.value = []
+  bulkOpen.value = false
 }
 function isSel(id: string): boolean {
   return selIds.value.includes(id)
@@ -130,6 +134,31 @@ async function deleteSelected() {
   await deleteTitles([...selIds.value])
   selIds.value = []
   selMode.value = false
+  bulkOpen.value = false
+}
+
+// What an Apply did, with the way to take it back while it is fresh — the run
+// stays in Metadata › History either way.
+const applied = ref<{ id: number; text: string } | null>(null)
+let appliedTimer: number | undefined
+function onApplied(run: { id: number; text: string }) {
+  applied.value = run
+  window.clearTimeout(appliedTimer)
+  appliedTimer = window.setTimeout(() => { applied.value = null }, 12000)
+}
+async function undoApplied() {
+  const run = applied.value
+  if (!run) return
+  applied.value = null
+  await runVaultPass(async () => {
+    const out = await api.metaRevert(run.id)
+    const left = [
+      out.kept ? `${out.kept} changed since, kept as they are now` : '',
+      out.failed ? `${out.failed} could not be written (unreadable or in use)` : '',
+    ].filter(Boolean).join('; ')
+    if (left) store.error = `Undone in ${out.reverted}; ${left}.`
+  })
+  await refreshLibrary()
 }
 </script>
 
@@ -143,8 +172,10 @@ async function deleteSelected() {
           <template v-if="selMode">
             <span class="selinfo mono">{{ selIds.length }} selected</span>
             <button class="btn ghost" :disabled="selIds.length === results.length" title="Select everything matching the current filters" @click="selectAllFiltered">All {{ results.length }}</button>
-            <button class="btn" :disabled="!selIds.length" title="Change the metadata of exactly these titles"
-                    @click="editInMetadata(selIds)"><Icon name="meta" :size="13" :sw="1.9" />Edit in Metadata</button>
+            <button class="btn" :class="bulkOpen ? 'acton' : 'accent'" :disabled="!selIds.length && !bulkOpen"
+                    title="See what these titles hold and change it on all of them" @click="bulkOpen = !bulkOpen">
+              <Icon name="edit" :size="13" :sw="1.9" />Edit fields
+            </button>
             <button class="btn dangerbtn" :disabled="!selIds.length" @click="deleteSelected"><Icon name="x" :size="12" :sw="2.2" />Delete</button>
             <button class="btn ghost" @click="toggleSelMode">Cancel</button>
           </template>
@@ -338,7 +369,14 @@ async function deleteSelected() {
     </div>
     </div>
 
-    <FilterBlock v-if="fsideOpen" @close="fsideOpen = false" />
+    <BulkEdit v-if="selMode && bulkOpen" :ids="selIds" @close="bulkOpen = false" @applied="onApplied" />
+    <FilterBlock v-else-if="fsideOpen" @close="fsideOpen = false" />
+
+    <div v-if="applied" class="donetoast">
+      <span class="ok"></span>{{ applied.text }}
+      <button class="undo" @click="undoApplied">Undo</button>
+      <button class="iconbtn plain dx" title="Dismiss" @click="applied = null"><Icon name="x" :size="11" :sw="2.4" /></button>
+    </div>
   </div>
 </template>
 
@@ -419,6 +457,14 @@ async function deleteSelected() {
 .gcard.selon .cover, .ecard.selon { outline: 2px solid var(--accent); outline-offset: 1px; }
 .drow.selon { background: var(--accentSoft); }
 .ecounts { font-size: 11px; color: var(--tx3); }
+.donetoast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 190;
+  display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 14px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--panel); box-shadow: 0 12px 30px rgba(0, 0, 0, .4);
+  font: 500 12px/1 system-ui; color: var(--tx); white-space: nowrap; }
+.donetoast .ok { width: 8px; height: 8px; border-radius: 50%; background: var(--good); flex: none; }
+.donetoast .undo { border: none; background: none; cursor: pointer; font: 600 12px/1 system-ui; color: var(--accent); padding: 4px; }
+.donetoast .undo:hover { text-decoration: underline; }
+.donetoast .dx { width: 24px; height: 24px; color: var(--tx3); }
 .tagchip { font: 400 10.5px/1 system-ui; color: var(--tx3); border: 1px dashed var(--line); padding: 4px 7px; border-radius: 5px; }
 .tagchip.more { border-style: solid; }
 

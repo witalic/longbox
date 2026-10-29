@@ -55,9 +55,10 @@ it moves files:
 - anything else (a filtered scope, a merge into a type that already has a shelf) moves each
   title's directory onto the target shelf, and sweeps a shelf left empty.
 
-**Chapter values** — a chapter row's **language** and **translation group** are fields too
-(`EN` / `en` / `English`; `Team X` / `TeamX`): rename / merge, set or clear for a scope, and
-rules. A chapter's id never changes with them (it is the stem of its files, state-model §8).
+**Chapter values** — a chapter row's **language**, **translation group** and **section** are
+fields too (`EN` / `en` / `English`; `Team X` / `TeamX`; `Vol. 1` / `vol 1`): rename / merge,
+set or clear for a scope, and rules. A chapter's id never changes with them (it is the stem of
+its files, state-model §8); a section is not part of the identity at all.
 Two rows that end up sharing number + language + group stay two rows — each may hold its
 own downloaded file — and the preview says how many will.
 
@@ -103,7 +104,7 @@ A rule is `field + match + action [+ conditions]`, kept in an ordered list.
   server-side entry points (arm, import) call it directly. No second copy of the logic in
   TypeScript that could disagree with the pass that applies rules to titles already stored.
 - **Where they live** — the vault (`rules.json`, through `Vault.doc_transaction`, versioned
-  by `DOC_SCHEMA`): they describe this library's vocabulary and travel with it, like its
+  by its own `SCHEMA`): they describe this library's vocabulary and travel with it, like its
   recipes.
 - **Retroactive only on request** — saving a rule changes nothing already stored. The rule
   editor offers "apply to the N titles that hold it now", which is an operation (§5) with a
@@ -146,6 +147,9 @@ A rule is `field + match + action [+ conditions]`, kept in an ordered list.
 - An operation **does** change `manual` fields. The provenance rule protects the owner's
   typing from AUTOMATIC capture, not from the owner's own bulk decision. The preview counts
   them separately so it is a decision, not an accident.
+- The one exception is the library's bulk editor (design/bulk-edit.md): editing the picked
+  titles is the owner editing each of them, so a run with `own` makes the fields it changes
+  `manual`, and its revert puts their origin back with their value.
 
 ## 7. Where it lives in the app (to be mocked up)
 
@@ -153,8 +157,8 @@ One view of its own, **Metadata**, beside Sources in the rail — values, rules 
 history in one place, with the scope always in sight:
 
 - **Scope** — the library's filter sidebar (the same `FilterBlock`), plus "selected titles"
-  when the view is opened from the library's select mode (*Edit N titles* hands the selection
-  over).
+  when the view is opened from the library's select mode (the bulk editor's *In Metadata* hands
+  the selection over).
 - **Fields** — every field of the registry, title fields and chapter fields, each with its
   number of distinct values in the scope.
 - **Values** — the chosen field's values with their title counts, searchable and
@@ -227,8 +231,11 @@ request body — a selection can be thousands of ids.
 ```
 POST  /api/metadata/fields                 {scope} → {inScope, fields: [{id, label, kind, shape, distinct}]}
 POST  /api/metadata/values                 {scope, field} → [{value, titles, typed, rule, ruleText}]
+POST  /api/metadata/held                   {scope, fields[]} → {inScope, fields: {id: {titles,
+                                           values: [{value, titles}]}}} — the bulk editor's view
 POST  /api/metadata/preview                {scope, actions[]} → the preview (§5)
-POST  /api/metadata/run                    {scope, actions[], remember} → runs as a vault pass
+POST  /api/metadata/run                    {scope, actions[], remember, own} → runs as a vault
+                                           pass; `own` makes the changed fields manual
 GET   /api/metadata/runs                   the journal's runs, newest first
 POST  /api/metadata/runs/{id}/revert       undo from the journal
 GET   /api/metadata/rules · PUT …/rules    the ordered rule list (rules.json) + fired counts
@@ -249,6 +256,6 @@ POST  /api/metadata/rules/{id}/preview|run {scope} → a rule applied to stored 
 2. **Match modes:** whole value only in this pass; patterns later.
 3. **Undo:** a per-run journal, kept in `index.db` (§5).
 4. **Shelf order:** bulk changes keep the "updated" order (§8).
-5. **Scope of fields:** everything — title fields, chapter language and group, and the type,
+5. **Scope of fields:** everything — title fields, chapter language, group and section, and the type,
    with its shelf directory renamed or its titles moved (§2).
 6. **Placement:** one dedicated **Metadata** view (§7).

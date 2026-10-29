@@ -63,6 +63,9 @@ library/
                              bookmarks, frozen; sites removed from Sources
   rules.json                 what a value becomes on its way into a title (ordered)
   import-profiles.json       how folders already on disk are read into works (no paths)
+  .pages/                    what the owner wrote about values (design/value-pages.md): one
+    <vocabulary>.json        document per vocabulary (authors.json covers artists too) + images/;
+                             a dot name, so no type shelf can ever take it
   health.json                what was done to this library + the last check report — its
                              own file, so startup never parses it
   <type-shelf>/              one directory per TYPE (manga/, image-set/, …; typeless → other/)
@@ -102,7 +105,7 @@ library/
   run is journaled in `index.db` and revertible; the rules that change values on their way in
   live in `rules.json` and run in the sidecar, for capture, typing and new chapters alike.
 - **Vault-level documents** (`recipes.json`, `sources.json`, `rules.json`,
-  `import-profiles.json`) go through
+  `import-profiles.json`, `.pages/<vocabulary>.json`) go through
   `Vault.read_doc()` and `Vault.doc_transaction()`: one lock per document PATH (two Vault objects over one directory
   still take turns), atomic write. "There is none" is the only empty answer a read gives: a
   client told "nothing saved" builds its next write on it, and that write replaces what is
@@ -257,6 +260,8 @@ backend/app/
   passes.py (the one vault pass at a time: progress, stop, who is running)
   library/  operations.py (bulk metadata: apply, preview from the index, run, revert) ·
             rules.py (what a value becomes on its way in; rules.json) ·
+            pages.py (value pages: what is written about a person, a tag…, worked out
+            alongside the library's own answer; follows a rename) ·
             folder_import.py (a folder already on disk: profiles, scan, plan, run) ·
             models.py (layers + flat DTO) · vault.py (shelves, locks, media ingest, covers,
             the vault/fields/authors/health files) · media.py (zip ops, conversion, thumbnails,
@@ -277,6 +282,8 @@ frontend/src/
               BrowserView · SourcesView · MetadataView (values, rules, history) ·
               ImportView (a folder on disk: structure, metadata, preview, run) · SettingsView
   components/ MetadataEditor (the one editor) · ImportMeta (its fields over an import's values) ·
+              BulkEdit (the library's editor for many picked titles) ·
+              ValuePage + ValuePeek (a value's page, and its hover card) ·
               CapturePanel (draft + downloads dock) ·
               PassButton + ProgressBar (run/progress/stop, one grammar everywhere) ·
               Settings* (one component per settings section) ·

@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from ..library import fields
 from ..library import operations as ops
+from ..library import pages as P
 from ..library import rules as R
 from ..library.operations import Action, InvalidAction, Preview
 from ..library.rules import InvalidRule, Rule
@@ -83,7 +84,7 @@ def field_stats(body: ScopeIn, request: Request) -> FieldsOut:
         if sh is not None and sh != "chapter":
             out.append(FieldStat(id=f.id, label=f.label, kind="title", shape=sh, type=f.type,
                                  builtin=f.builtin, distinct=counts.get(f.id, 0)))
-    labels = {"language": "Language", "group": "Group"}
+    labels = {"language": "Language", "group": "Group", "section": "Section"}
     out += [FieldStat(id=fid, label=labels[fid], kind="chapter", shape="chapter", type="text",
                       builtin=True, distinct=counts.get(fid, 0)) for fid in ops.CHAPTER_FIELDS]
     return FieldsOut(inScope=len(docs), fields=out)
@@ -100,6 +101,7 @@ class ValueOut(BaseModel):
     typed: int
     rule: int = 0        # the position of the enabled rule that already handles it
     ruleText: str = ""   # what that rule makes of it
+    page: bool = False   # something is written on its page (design/value-pages.md)
 
 
 def _rule_text(r: Rule) -> str:
@@ -122,12 +124,53 @@ def field_values(body: ValuesIn, request: Request) -> list[ValueOut]:
         cover = R.covering(lib.rules.rules(), body.field)
     except UnreadableDocument:
         cover = {}  # the Rules tab says what is wrong with the file
+    vocab = P.vocab_of(body.field)
+    try:
+        written = lib.pages.pages(vocab) if vocab else {}
+    except UnreadableDocument:
+        written = {}
     out = []
     for row in ops.field_values(docs, body.field):
-        hit = cover.get(row["value"].strip().casefold())
+        k = P.key(row["value"])
+        hit = cover.get(k)
         out.append(ValueOut(**row, rule=hit[0] if hit else 0,
-                            ruleText=_rule_text(hit[1]) if hit else ""))
+                            ruleText=_rule_text(hit[1]) if hit else "", page=k in written))
     return out
+
+
+class HeldIn(BaseModel):
+    scope: Scope = Scope()
+    fields: list[str]
+
+
+class HeldValue(BaseModel):
+    value: str
+    titles: int
+
+
+class HeldField(BaseModel):
+    titles: int  # how many hold anything in it at all
+    values: list[HeldValue]
+
+
+class HeldOut(BaseModel):
+    inScope: int
+    fields: dict[str, HeldField]
+
+
+@router.post("/held", response_model=HeldOut)
+def held(body: HeldIn, request: Request) -> HeldOut:
+    """What a selection holds in each of these fields, with how many of its
+    titles hold each value — what the library's bulk editor draws."""
+    docs, _ = _docs(_lib(request), body.scope)
+    out: dict[str, HeldField] = {}
+    for fid in dict.fromkeys(body.fields):
+        if ops.shape(fid) not in ("list", "single", "flags"):
+            continue
+        out[fid] = HeldField(
+            titles=sum(1 for _tid, doc in docs if ops.values_of(doc, fid)),
+            values=[HeldValue(value=r["value"], titles=r["titles"]) for r in ops.field_values(docs, fid)])
+    return HeldOut(inScope=len(docs), fields=out)
 
 
 # ---- operations ---------------------------------------------------------------------
@@ -136,6 +179,7 @@ class OperationIn(BaseModel):
     scope: Scope = Scope()
     actions: list[Action]
     remember: bool = False  # also keep rename / merge / remove / move as rules
+    own: bool = False       # the owner's edit of these titles: what it changes becomes manual
 
 
 @router.post("/preview", response_model=Preview)
@@ -155,10 +199,11 @@ class RunOut(BaseModel):
     rules: list[Rule] = []
 
 
-def _run(lib: Library, docs, scope: dict, acts: list[Action]) -> dict:
+def _run(lib: Library, docs, scope: dict, acts: list[Action], own: bool = False) -> dict:
     summary = ops.describe(acts)
     with _pass(f"metadata: {summary}", "metadata") as (progress, stop):
-        return ops.run(lib, docs, acts, summary=summary, scope=scope, progress=progress, stop=stop)
+        return ops.run(lib, docs, acts, summary=summary, scope=scope, own=own,
+                       progress=progress, stop=stop)
 
 
 @router.post("/run", response_model=RunOut)
@@ -169,7 +214,7 @@ def run_operation(body: OperationIn, request: Request) -> RunOut:
     if remembered:
         lib.rules.rules()  # a rules.json that cannot take them refuses BEFORE anything is written
     docs, sel = _docs(lib, body.scope)
-    out = _run(lib, docs, ops.scope_json(body.scope.ids, sel), acts)
+    out = _run(lib, docs, ops.scope_json(body.scope.ids, sel), acts, body.own)
     return RunOut(**out, rules=lib.rules.add(remembered) if remembered else [])
 
 

@@ -6,6 +6,8 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('longbox', {
   pickFolder: (title) => ipcRenderer.invoke('lb-pick-folder', String(title || '')),
+  // a folder (never a file) opened in the system's file manager
+  openFolder: (dir) => ipcRenderer.invoke('lb-open-folder', String(dir || '')),
   // global embedded-browser hygiene: 'cookies' (site cookies; the app's own
   // auth cookie survives) or 'cache' (HTTP cache)
   clearBrowsing: (what) => ipcRenderer.invoke('lb-clear-browsing', String(what || '')),

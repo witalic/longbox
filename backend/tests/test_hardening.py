@@ -1078,3 +1078,29 @@ def test_a_listing_never_touches_a_file():
 
     for listing in ("query", "get", "browse", "facets", "count"):
         assert reaches(listing) == set(), f"{listing}() reads from disk"
+
+
+def test_a_type_change_that_cannot_move_its_folder_changes_nothing(tmp_path, monkeypatch):
+    """Not only an open file: a shelf on another volume (a junction) refuses the
+    rename too. The title stays as it was, and no empty shelf is left behind."""
+    import errno
+    from app.library import vault as vault_mod
+    lib = Library(tmp_path / "lib")
+    try:
+        with TestClient(create_app(lib)) as c:
+            tid = c.post("/api/titles", json={"meta": {"title": "A", "type": "manga"},
+                                              "provenance": {}, "chapters": []}).json()["id"]
+
+            def cross_device(_src, _dst):
+                raise OSError(errno.EXDEV, "Invalid cross-device link")
+
+            monkeypatch.setattr(vault_mod.os, "rename", cross_device)
+            r = c.put(f"/api/titles/{tid}", json={"meta": {"title": "A", "type": "manhwa"},
+                                                  "provenance": {}, "chapters": []})
+            monkeypatch.undo()
+            assert r.status_code == 409 and "nothing was changed" in r.json()["detail"]
+            assert c.get(f"/api/titles/{tid}").json()["type"] == "manga"
+            assert (tmp_path / "lib" / "manga" / tid / "title.json").is_file()
+            assert not (tmp_path / "lib" / "manhwa").exists()
+    finally:
+        lib.close()

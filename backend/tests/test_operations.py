@@ -163,6 +163,27 @@ def test_chapter_values_change_without_touching_chapter_ids(lib):
     assert {(c.lang, c.group) for c in doc.chapters} == {("EN", "Team X")}
 
 
+def test_sections_are_renamed_across_titles_and_reverted(lib):
+    a = make(lib, "A", chapters=[("1", "", ""), ("2", "", "")])
+    b = make(lib, "B", chapters=[("1", "", "")])
+    for tid, parts in ((a, ["Vol. 1", "Vol. 2"]), (b, ["vol 1"])):
+        draft = DraftIn(meta=lib.vault.load(tid).meta, chapters=[
+            c.model_copy(update={"section": s}) for c, s in zip(lib.vault.load(tid).chapters, parts)])
+        lib.commit(tid, draft)
+    assert {v["value"]: v["titles"] for v in ops.field_values(everything(lib), "section")} == {
+        "Vol. 1": 1, "Vol. 2": 1, "vol 1": 1}
+
+    acts = ops.check([Action(kind="rename", field="section", values=["Vol. 1", "vol 1"], to="Volume 1")])
+    p = ops.plan(lib, everything(lib), acts).preview
+    assert (p.titles, p.chapterTwins) == (2, 0)  # a section names no entry
+    out = run(lib, acts)
+    assert [c.section for c in lib.vault.load(a).chapters] == ["Volume 1", "Vol. 2"]
+    assert [c.section for c in lib.vault.load(b).chapters] == ["Volume 1"]
+
+    ops.revert(lib, out["run"])
+    assert [c.section for c in lib.vault.load(b).chapters] == ["vol 1"]
+
+
 def test_a_run_is_journaled_and_reverted_without_undoing_later_edits(lib):
     a = make(lib, "A", tags=["Romance"])
     b = make(lib, "B", tags=["Romance"])
@@ -338,3 +359,60 @@ def test_nothing_to_change_is_not_a_run(lib):
     make(lib, "T", tags=["x"])
     assert run(lib, [Action(kind="rename", field="tags", values=["nope"], to="y")])["run"] == 0
     assert lib.index.journal_runs() == []
+
+
+def test_a_revert_that_breaks_off_is_not_a_revert(lib, monkeypatch):
+    """An index write that fails mid-revert must leave the run revertible —
+    marking it reverted would make the second, real attempt impossible."""
+    make(lib, "A", tags=["x"])
+    out = run(lib, [Action(kind="rename", field="tags", values=["x"], to="y")])
+
+    def broken(*_a, **_k):
+        raise RuntimeError("the index said no")
+
+    monkeypatch.setattr(lib.index, "apply_meta", broken)
+    with pytest.raises(RuntimeError):
+        ops.revert(lib, out["run"])
+    monkeypatch.undo()
+    assert lib.index.journal_runs()[0]["revertedAt"] == ""
+    ops.revert(lib, out["run"])
+    assert lib.index.journal_runs()[0]["revertedAt"]
+
+
+def test_the_owners_own_edit_makes_the_fields_it_changes_manual_and_a_revert_puts_them_back(lib):
+    """The library's bulk editor (design/bulk-edit.md §5): what it changes is the
+    owner's — capture leaves it alone — and the run still reverts in full."""
+    a = make(lib, "A", tags=["x"], status="ongoing", prov={"tags": "auto", "status": "auto"})
+    b = make(lib, "B", tags=["isekai"], prov={"tags": "auto"})
+    acts = ops.check([Action(kind="add", field="tags", values=["isekai"]),
+                      Action(kind="set", field="status", to="completed")])
+    out = ops.run(lib, ops.in_scope(lib, [a, b], {}), acts, summary=ops.describe(acts),
+                  scope={"ids": 2}, own=True)
+    assert out["changed"] == 2
+    da, db = lib.vault.load(a), lib.vault.load(b)
+    assert (da.meta.tags, da.meta.status) == (["x", "isekai"], "completed")
+    assert da.provenance["tags"].origin == da.provenance["status"].origin == "manual"
+    assert db.provenance["tags"].origin == "auto"  # B already held the tag: its tags were not touched
+    assert db.provenance["status"].origin == "manual"
+
+    ops.revert(lib, out["run"])
+    da, db = lib.vault.load(a), lib.vault.load(b)
+    assert (da.meta.tags, da.meta.status) == (["x"], "ongoing")
+    assert da.provenance["tags"].origin == da.provenance["status"].origin == "auto"
+    assert "status" not in db.provenance  # it had no origin before the edit
+
+
+def test_a_revert_keeps_the_manual_mark_of_a_value_typed_since(lib):
+    a = make(lib, "A", tags=["x"], prov={"tags": "auto"})
+    acts = ops.check([Action(kind="add", field="tags", values=["y"])])
+    out = ops.run(lib, everything(lib), acts, summary=ops.describe(acts), scope={}, own=True)
+    lib.vault.save_meta_value(a, lambda d: setattr(d.meta, "tags", ["x", "y", "z"]))
+    ops.revert(lib, out["run"])
+    doc = lib.vault.load(a)
+    assert doc.meta.tags == ["x", "y", "z"] and doc.provenance["tags"].origin == "manual"
+
+
+def test_a_metadata_operation_keeps_the_origin(lib):
+    a = make(lib, "A", tags=["x"], prov={"tags": "auto"})
+    run(lib, [Action(kind="add", field="tags", values=["y"])])
+    assert lib.vault.load(a).provenance["tags"].origin == "auto"

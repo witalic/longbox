@@ -119,6 +119,10 @@ interface State {
   // them over; null = what the library's filters show
   metaSelection: string[] | null
   browseAxis: string     // which list field the browse view groups by
+  // the value page the browse view shows instead of its list, and the pages
+  // that led to it — Back walks them before it returns to the list
+  valuePage: ValueRef | null
+  valueTrail: ValueRef[]
   facets: Facets // linked counts for the CURRENT selection
   globalFacets: Facets // unfiltered counts — the STABLE row order for the sidebar
   // Counts under the SHELF alone: what an axis would actually find if you
@@ -158,6 +162,8 @@ export const store = reactive<State>({
   libraryGen: 0,
   metaSelection: null,
   browseAxis: 'authors',
+  valuePage: null,
+  valueTrail: [],
   facets: emptyFacets(),
   globalFacets: emptyFacets(),
   shelfFacets: emptyFacets(),
@@ -330,6 +336,45 @@ export function metaScope(): MetaScope {
 export function editInMetadata(ids: string[]) {
   store.metaSelection = [...ids]
   goView('metadata')
+}
+
+// ---- value pages (design/value-pages.md) ----
+// A page lives inside the browse view, on the axis of the field it was opened
+// by, so the rail says where you are and its Back returns to that list.
+export interface ValueRef { field: string; value: string }
+export function openValuePage(field: string, value: string) {
+  const cur = store.valuePage
+  if (cur && store.view === 'authors') {
+    if (cur.field === field && cur.value === value) return
+    store.valueTrail.push(cur)
+  } else {
+    store.valueTrail = []
+  }
+  store.valuePage = { field, value }
+  store.browseAxis = field
+  store.view = 'authors'
+}
+// One-shot handoff to the Metadata view: the field, with the value searched
+// and selected — what a page's "In Metadata" means (rename, merge).
+let pendingMetaFocus: ValueRef | null = null
+export function editValueInMetadata(field: string, value: string) {
+  pendingMetaFocus = { field, value }
+  store.metaSelection = null
+  goView('metadata')
+}
+export function takeMetaFocus(): ValueRef | null {
+  const v = pendingMetaFocus
+  pendingMetaFocus = null
+  return v
+}
+export function valuePageBack() {
+  const prev = store.valueTrail.pop() ?? null
+  store.valuePage = prev
+  if (prev) store.browseAxis = prev.field // the rail says where Back went
+}
+export function closeValuePage() {
+  store.valuePage = null
+  store.valueTrail = []
 }
 
 export async function reloadLibrary() {
@@ -647,6 +692,7 @@ export function filterByPerson(name: string) {
 let pendingAuthorFocus = ''
 export function goAuthorsFor(name: string) {
   pendingAuthorFocus = name
+  closeValuePage()
   store.browseAxis = 'authors' // the browse view may have been left on another axis
   goView('authors')
 }
@@ -1033,6 +1079,7 @@ export async function setLibraryPath(path: string): Promise<string | null> {
     stopCaptureFor() // the armed entry belongs to the library we are leaving
     store.byId = {}
     store.metaSelection = null // a selection names the OLD vault's titles
+    closeValuePage()
     store.openTabs = []
     store.pinnedTabs = []
     store.activeTitle = null

@@ -5,7 +5,7 @@
 // then loads the UI the sidecar serves at /app/. Locks down navigation,
 // window-open, and permissions.
 
-const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, net: electronNet, session } =
+const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, net: electronNet, session, shell } =
   require('electron')
 const { spawn } = require('node:child_process')
 const crypto = require('node:crypto')
@@ -433,6 +433,17 @@ async function main() {
       properties: ['openDirectory', 'createDirectory'],
     })
     return res.canceled || !res.filePaths.length ? null : res.filePaths[0]
+  })
+
+  // Show a title's folder in the system's file manager. A FOLDER only: opening
+  // a file this way would run it, and the path comes from the renderer.
+  ipcMain.handle('lb-open-folder', async (e, dir) => {
+    if (e.sender !== win.webContents) return false
+    const target = String(dir || '')
+    try {
+      if (!path.isAbsolute(target) || !fs.statSync(target).isDirectory()) return false
+    } catch { return false }
+    return (await shell.openPath(target)) === ''
   })
 
   // Page capture: fetch ONE image with the browser session's cookies and the

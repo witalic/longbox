@@ -16,6 +16,13 @@ export type ReadState = 'read' | 'reading' | 'unread'
 export type Origin = 'auto' | 'manual'
 
 export interface Flags { adult: boolean; ai: boolean; censored: boolean }
+// `flags` is the one field whose values are named switches rather than text.
+export const FLAG_DEFS = [
+  { key: 'adult', label: '18+', color: 'var(--adult)' },
+  { key: 'ai', label: 'AI', color: 'var(--ai)' },
+  { key: 'censored', label: 'Censored', color: 'var(--cens)' },
+] as const
+export type FlagKey = (typeof FLAG_DEFS)[number]['key']
 export interface SourceRef { domain: string; url: string }
 
 export interface FieldProvenance {
@@ -167,6 +174,92 @@ export interface UserPatch {
 }
 
 export interface AuthorWork { id: string; title: string; cover: string }
+
+// ---- value pages (design/value-pages.md) ----
+
+export interface PageLink { url: string; label: string }
+export interface PageWork { id: string; title: string; cover: string; rating: number; roles: string[] }
+export interface PageNeighbour { field: string; value: string; n: number }
+export interface PageRuleNote {
+  id: string
+  n: number
+  kind: 'spelling' | 'renames' | 'removes' | 'moves' | 'implies' | 'impliedBy'
+  field: string
+  values: string[]
+  target: string
+  targetField: string
+  domains: string[]
+  enabled: boolean
+}
+export interface ValuePage {
+  field: string
+  vocab: string
+  kind: string
+  value: string
+  key: string
+  stored: boolean
+  desc: string
+  links: PageLink[]
+  image: string
+  titles: number
+  chapters: number
+  read: number
+  rated: number
+  rating: number
+  roles: Record<string, number>
+  works: PageWork[]
+  groups: { label: string; items: PageNeighbour[] }[]
+  sources: { source: string; typed: boolean; n: number }[]
+  rules: PageRuleNote[]
+  rulesError: string
+  spellings: string[]
+  held: Record<string, number>
+  fav: boolean | null
+  personId: string
+}
+export interface ValuePeek { field: string; kind: string; value: string; excerpt: string; titles: number; covers: string[] }
+export interface StoredPage { key: string; value: string; excerpt: string; image: string; held: boolean }
+
+// The sites a link names itself after: what a person is followed on, and where
+// a word is looked up. Anything else shows its host.
+const SITES: Record<string, { name: string; mark: string; color: string }> = {
+  'x.com': { name: 'X', mark: 'X', color: '#111' },
+  'twitter.com': { name: 'X', mark: 'X', color: '#111' },
+  'pixiv.net': { name: 'pixiv', mark: 'P', color: '#0096fa' },
+  'fanbox.cc': { name: 'FANBOX', mark: 'F', color: '#2f5ea8' },
+  'patreon.com': { name: 'Patreon', mark: 'P', color: '#e85b46' },
+  'ko-fi.com': { name: 'Ko-fi', mark: 'K', color: '#29abe0' },
+  'booth.pm': { name: 'BOOTH', mark: 'B', color: '#fc4d50' },
+  'skeb.jp': { name: 'Skeb', mark: 'S', color: '#28837f' },
+  'instagram.com': { name: 'Instagram', mark: 'I', color: '#c13584' },
+  'bsky.app': { name: 'Bluesky', mark: 'B', color: '#1185fe' },
+  'tumblr.com': { name: 'Tumblr', mark: 't', color: '#36465d' },
+  'deviantart.com': { name: 'DeviantArt', mark: 'D', color: '#05cc47' },
+  'artstation.com': { name: 'ArtStation', mark: 'A', color: '#13aff0' },
+  'youtube.com': { name: 'YouTube', mark: '▶', color: '#e62117' },
+  'wikipedia.org': { name: 'Wikipedia', mark: 'W', color: '#5b5f69' },
+  'tvtropes.org': { name: 'TV Tropes', mark: 'T', color: '#2f6fb6' },
+  'mangaupdates.com': { name: 'MangaUpdates', mark: 'M', color: '#f78f1e' },
+  'anilist.co': { name: 'AniList', mark: 'A', color: '#02a9ff' },
+  'myanimelist.net': { name: 'MyAnimeList', mark: 'M', color: '#2e51a2' },
+}
+export function siteOf(url: string): { host: string; name: string; mark: string; color: string } {
+  const host = hostOf(url)
+  const known = Object.entries(SITES).find(([h]) => host === h || host.endsWith('.' + h))?.[1]
+  return { host, name: known?.name ?? host, mark: known?.mark ?? (host[0] ?? '?').toUpperCase(),
+           color: known?.color ?? '#5b5f69' }
+}
+// The label a pasted link starts with: an X account reads as its handle.
+export function linkLabel(url: string): string {
+  const s = siteOf(url)
+  if (s.name === 'X') {
+    try {
+      const handle = new URL(url).pathname.split('/').filter(Boolean)[0]
+      if (handle) return '@' + handle
+    } catch { /* not a URL */ }
+  }
+  return s.name
+}
 export interface Bookmark { name: string; url: string }
 
 // ---- metadata management (design/metadata-management.md) ----
@@ -193,6 +286,13 @@ export interface MetaValue {
   typed: number    // how many of those titles hold it because the owner typed it
   rule: number     // the position of the rule that already handles it (0 = none)
   ruleText: string // what that rule makes of it
+  page: boolean    // something is written on its page
+}
+// What a selection holds, field by field: how many titles hold anything in the
+// field, and each value with how many hold it.
+export interface MetaHeld {
+  inScope: number
+  fields: Record<string, { titles: number; values: { value: string; titles: number }[] }>
 }
 export type MetaActionKind = 'rename' | 'remove' | 'move' | 'add' | 'set' | 'clear' | 'replace'
 export interface MetaAction {
@@ -247,6 +347,10 @@ export interface BrowseGroup {
   topTags: string[]
   role: 'author' | 'artist' | 'both' | null
   fav: boolean
+  // what the owner wrote on the value's page (design/value-pages.md)
+  described: boolean
+  excerpt: string
+  image: string
 }
 
 export interface Source {

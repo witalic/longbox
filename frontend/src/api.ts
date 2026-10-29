@@ -3,8 +3,9 @@
 // proxies /api to the sidecar (see vite.config.ts).
 import type {
   Bookmark, BrowseGroup, DraftCommit, Facets, FieldDef, FieldValues, FrameKind, ImportOverrides,
-  ImportPlan, ImportProfile, ImportReport, ImportScan, MetaAction, MetaField, MetaPreview, MetaRun,
-  MetaScope, MetaValue, PageFilter, Recipe, Rule, RuleApply, RuleStats, Source, Title, UserPatch,
+  ImportPlan, ImportProfile, ImportReport, ImportScan, MetaAction, MetaField, MetaHeld, MetaPreview, MetaRun,
+  MetaScope, MetaValue, PageFilter, PageLink, Recipe, Rule, RuleApply, RuleStats, Source,
+  StoredPage, Title, UserPatch, ValuePage, ValuePeek,
 } from './data'
 
 export class ApiError extends Error {
@@ -85,10 +86,30 @@ export const api = {
   libraryCount: () => req<{ total: number }>('/library/count'),
   facets: (q: LibraryQuery = {}) => req<Facets>(`/library/facets${qs({ ...q })}`),
   title: (id: string) => req<Title>(`/titles/${id}`),
+  titleFolder: (id: string) => req<{ path: string }>(`/titles/${id}/folder`),
   setAuthorFav: (id: string, value: boolean) =>
     req<BrowseGroup[]>(`/authors/${id}/favorite?value=${value}`, { method: 'POST' }),
   browse: (field: string, q: LibraryQuery = {}) =>
     req<BrowseGroup[]>(`/browse/${field}${qs({ ...q })}`),
+  // value pages (design/value-pages.md): the value travels as a query parameter
+  page: (field: string, value: string) =>
+    req<ValuePage>(`/pages/${field}/page?value=${encodeURIComponent(value)}`),
+  peek: (field: string, value: string) =>
+    req<ValuePeek>(`/pages/${field}/peek?value=${encodeURIComponent(value)}`),
+  savePage: (field: string, value: string,
+             body: { desc: string; links: PageLink[]; spellings?: string[] }) =>
+    req<ValuePage>(`/pages/${field}/page?value=${encodeURIComponent(value)}`, jsonBody('PUT', body)),
+  deletePage: (field: string, value: string) =>
+    reqVoid(`/pages/${field}/page?value=${encodeURIComponent(value)}`, { method: 'DELETE' }),
+  storedPages: (field: string) => req<StoredPage[]>(`/pages/${field}`),
+  pageImage: (field: string, value: string, file: Blob) =>
+    req<ValuePage>(`/pages/${field}/image?value=${encodeURIComponent(value)}`,
+                   { method: 'PUT', headers: { 'Content-Type': file.type }, body: file }),
+  pageImageFromTitle: (field: string, value: string, titleId: string, slot = 0) =>
+    req<ValuePage>(`/pages/${field}/image/from-title?value=${encodeURIComponent(value)}`,
+                   jsonBody('POST', { titleId, slot })),
+  dropPageImage: (field: string, value: string) =>
+    req<ValuePage>(`/pages/${field}/image?value=${encodeURIComponent(value)}`, { method: 'DELETE' }),
   sources: () => req<Source[]>('/sources'),
   putSourcePrefs: (domain: string,
                    body: { group?: string; bookmarks?: Bookmark[]; frozen?: boolean }) =>
@@ -126,11 +147,14 @@ export const api = {
     req<{ inScope: number; fields: MetaField[] }>('/metadata/fields', jsonBody('POST', { scope })),
   metaValues: (field: string, scope: MetaScope) =>
     req<MetaValue[]>('/metadata/values', jsonBody('POST', { field, scope })),
+  metaHeld: (fields: string[], scope: MetaScope) =>
+    req<MetaHeld>('/metadata/held', jsonBody('POST', { fields, scope })),
   metaPreview: (actions: MetaAction[], scope: MetaScope) =>
     req<MetaPreview>('/metadata/preview', jsonBody('POST', { actions, scope })),
-  metaRun: (actions: MetaAction[], scope: MetaScope, remember: boolean) =>
+  // own: the owner's edit of these titles — what it changes becomes manual
+  metaRun: (actions: MetaAction[], scope: MetaScope, remember: boolean, own = false) =>
     req<{ run: number; changed: number; failed: number; stopped: boolean; rules: Rule[] }>(
-      '/metadata/run', jsonBody('POST', { actions, scope, remember })),
+      '/metadata/run', jsonBody('POST', { actions, scope, remember, own })),
   metaRuns: () => req<MetaRun[]>('/metadata/runs'),
   metaRevert: (run: number) =>
     req<{ reverted: number; kept: number; failed: number; stopped: boolean }>(`/metadata/runs/${run}/revert`, { method: 'POST' }),

@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel
 
 from . import fields
-from .models import TitleDoc
+from .models import FieldProvenance, TitleDoc
 from .vault import safe_id, type_dir_name
 
 if TYPE_CHECKING:
@@ -43,10 +43,10 @@ Progress = Callable[[int, int], None] | None
 # list    → list[str]                     genres, tags, people, your list fields
 # single  → str                           title, type, status, year, your text fields
 # flags   → list[str] of the flags set    adult / ai / censored
-# chapter → {chapter id: str}             a chapter row's language or group
+# chapter → {chapter id: str}             a chapter row's language, group or section
 
 Shape = Literal["list", "single", "flags", "chapter"]
-CHAPTER_FIELDS = {"language": "lang", "group": "group"}
+CHAPTER_FIELDS = {"language": "lang", "group": "group", "section": "section"}
 FLAG_NAMES = ("adult", "ai", "censored")
 _LIST = {"authors", "artists", "characters", "studio", "genres", "tags"}
 _SINGLE = {"title", "alt", "type", "status", "year", "desc"}
@@ -224,6 +224,7 @@ def check(actions: list[Action]) -> list[Action]:
 class Effect:
     changes: dict[str, tuple[object, object]] = dataclass_field(default_factory=dict)
     conflicts: set[str] = dataclass_field(default_factory=set)
+    origins: dict[str, tuple[object, object]] = dataclass_field(default_factory=dict)  # by `claim`
 
     def __bool__(self) -> bool:
         return bool(self.changes)
@@ -332,6 +333,23 @@ def apply(doc: TitleDoc, actions: list[Action]) -> Effect:
         elif a != b:
             changes[f] = (b, a)
     return Effect(changes, conflicts)
+
+
+PROV_NOTE = "provenance:"  # a journal row holding a field's origin from before the owner's edit
+
+
+def claim(doc: TitleDoc, eff: Effect) -> None:
+    """The owner editing many titles at once is the owner editing each of them:
+    every field the change touched becomes manual, so capture leaves it alone
+    (state-model §5). What each origin was rides along, for a revert."""
+    mine = FieldProvenance(origin="manual")
+    for f in eff.changes:
+        if shape(f) == "chapter":
+            continue
+        was = doc.provenance.get(f)
+        if was != mine:
+            doc.provenance[f] = mine.model_copy()
+            eff.origins[f] = (was.model_dump() if was else None, mine.model_dump())
 
 
 # ---- scope -----------------------------------------------------------------------
@@ -526,7 +544,11 @@ def _carry_favourites(lib: Library, actions: list[Action]) -> None:
 
 
 def run(lib: Library, docs: list[tuple[str, TitleDoc]], actions: list[Action], *,
-        summary: str, scope: dict, progress: Progress = None, stop: Event | None = None) -> dict:
+        summary: str, scope: dict, own: bool = False, progress: Progress = None,
+        stop: Event | None = None) -> dict:
+    """`own`: the owner's edit of these titles (the library's bulk editor), not
+    the tidying of a vocabulary — the fields it changes become theirs."""
+    from . import pages  # pages builds on this module
     started = time.monotonic()
     p = plan(lib, docs, actions, sample=0)
     if not p.ids:
@@ -540,13 +562,18 @@ def run(lib: Library, docs: list[tuple[str, TitleDoc]], actions: list[Action], *
             stop = None
 
         def change(doc: TitleDoc) -> Effect:
-            return apply(doc, actions)
+            eff = apply(doc, actions)
+            if own and eff:
+                claim(doc, eff)
+            return eff
 
         def journal(tid: str, eff: Effect) -> list[tuple[str, str, object, object]]:
-            return [(tid, f, b, a) for f, (b, a) in eff.changes.items()]
+            return ([(tid, f, b, a) for f, (b, a) in eff.changes.items()]
+                    + [(tid, PROV_NOTE + f, b, a) for f, (b, a) in eff.origins.items()])
 
         out = _rewrite_all(lib, p.ids, lambda _tid: change, progress, stop, run_id, journal)
         _carry_favourites(lib, actions)
+        pages.follow(lib, actions, lambda note: lib.index.apply_meta([], run_id, [note]))
     finally:
         seconds = time.monotonic() - started
         lib.index.journal_close(run_id, out.changed, seconds, out.stopped)
@@ -562,17 +589,23 @@ def revert(lib: Library, run_id: int, *, progress: Progress = None,
            stop: Event | None = None) -> dict:
     """Put back what a run changed — only where a field still holds what the
     run wrote, so a later edit is never rolled back."""
+    from . import pages  # pages builds on this module
     started = time.monotonic()
     by_title: dict[str, list[tuple[str, object, object]]] = defaultdict(list)
+    moved: list[tuple[str, object, object]] = []  # value pages the run carried to a new spelling
     for tid, f, b, a in lib.index.journal_changes(run_id):
-        by_title[tid].append((f, b, a))
+        if not tid and f.startswith(pages.PAGE_NOTE):
+            moved.append((f, b, a))
+        else:
+            by_title[tid].append((f, b, a))
     kept: list[int] = []  # one entry per value changed since the run — workers append
 
     def undo_for(tid: str) -> Callable[[TitleDoc], bool]:
         def undo(doc: TitleDoc) -> bool:
             changed = False
+            back: set[str] = set()  # fields put back as they were
             for f, b, a in by_title[tid]:
-                if shape(f) is None:
+                if f.startswith(PROV_NOTE) or shape(f) is None:
                     continue
                 cur = read(doc, f)
                 if isinstance(a, dict):
@@ -588,22 +621,43 @@ def revert(lib: Library, run_id: int, *, progress: Progress = None,
                 elif cur == a:
                     write(doc, f, b)
                     changed = True
+                    back.add(f)
                 else:
                     kept.append(1)
+            # an origin goes back only with its value: a value typed since keeps
+            # the manual mark that protects it
+            for f, b, a in by_title[tid]:
+                fid = f.removeprefix(PROV_NOTE)
+                if fid == f or fid not in back:
+                    continue
+                cur = doc.provenance.get(fid)
+                if (cur.model_dump() if cur else None) == a:
+                    if b is None:
+                        doc.provenance.pop(fid, None)
+                    else:
+                        doc.provenance[fid] = FieldProvenance.model_validate(b)
             return changed
         return undo
 
     out = Outcome()
+    pages_left = 0  # moved pages that could not be put back: the run is not reverted yet
+    finished = False  # the rewrite came back at all — an exception out of it reverted nothing provable
     try:
         out = _rewrite_all(lib, list(by_title), undo_for, progress, stop)
+        if not out.stopped:
+            pages_kept, pages_left = pages.unfollow(lib, moved)
+            kept.extend([1] * pages_kept)
+        finished = True
     finally:
-        if not out.stopped and not out.failed:
+        if finished and not out.stopped and not out.failed and not pages_left:
             lib.index.journal_reverted(run_id, _now())
         outcome = f"{out.changed} title(s) reverted"
         if kept:
             outcome += f", {len(kept)} value(s) changed since and kept"
         if out.failed:
             outcome += f", {out.failed} left as they were"
+        if pages_left:
+            outcome += f", {pages_left} value page(s) not put back"
         lib.record_op(f"revert run {run_id}", started, outcome, stopped=out.stopped)
     return {"reverted": out.changed, "kept": len(kept), "failed": out.failed, "stopped": out.stopped}
 

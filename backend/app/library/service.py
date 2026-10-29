@@ -25,12 +25,14 @@ from ..scraper.sources import SourcePrefs
 from . import comicinfo, fields, media
 from . import rules as rules_mod
 from .index import LibraryIndex
+from .pages import PageStore, excerpt_of, image_url, vocab_of
+from .pages import key as page_key
 from .rules import RuleStore
 from .models import (
     AuthorWork, BrowseGroup, ChapterRow, DraftIn, Source, TitleDoc, TitleOut, UserPatch,
 )
 from .vault import FRAME_KINDS, UnreadableDocument, Vault, safe_id
-from .versions import cache_key, chapter_version, cover_version, stills_version
+from .versions import cache_key, chapter_version, cover_version, page_image_version, stills_version
 
 
 log = logging.getLogger("longbox.library")
@@ -290,6 +292,7 @@ class Library:
         self.recipes = RecipeStore(self.vault)
         self.source_prefs = SourcePrefs(self.vault)
         self.rules = RuleStore(self.vault)
+        self.pages = PageStore(self.vault)
         self.index = LibraryIndex(root / "index.db")
         # two concurrent creates may derive the same fresh id — serialize the
         # pick-unique-id → first-commit step
@@ -1005,6 +1008,10 @@ class Library:
                                  own or self._stand_ins(title_id, doc, sidecars),
                                  media_map, own=own)
 
+    def shown_covers(self, title_id: str, doc: TitleDoc, sidecars: dict[str, dict], covers: str) -> list[str]:
+        """What a listing shows for one index row: its own covers, or stand-ins."""
+        return covers.split() or self._stand_ins(title_id, doc, sidecars)
+
     @staticmethod
     def _stand_ins(title_id: str, doc: TitleDoc, sidecars: dict[str, dict]) -> list[str]:
         """What a title with no cover of its own can show instead: the first page
@@ -1212,22 +1219,30 @@ class Library:
                     g["author"] = g["author"] or name in m.authors
                     g["artist"] = g["artist"] or name in m.artists
                 if tid not in g["works"]:
-                    shown = covers.split() or self._stand_ins(tid, doc, media)
+                    shown = self.shown_covers(tid, doc, media, covers)
                     g["works"][tid] = AuthorWork(id=tid, title=m.title,
                                                  cover=shown[0] if shown else "")
                     g["chapters"] += len(doc.chapters)
                     g["tags"].update(m.tags)
         favs = self.vault.author_favorites() if people else set()
+        vocab = vocab_of(field_id)
+        try:
+            written = self.pages.pages(vocab) if vocab else {}
+        except UnreadableDocument:
+            written = {}  # the page itself says what is wrong with the file
         out: list[BrowseGroup] = []
         for name, g in sorted(agg.items()):
             gid = safe_id(name)
+            page = written.get(page_key(name))
             role = None
             if people:
                 role = "both" if g["author"] and g["artist"] else ("artist" if g["artist"] else "author")
             out.append(BrowseGroup(
                 id=gid, field=field_id, value=name, role=role, fav=people and gid in favs,
                 works=list(g["works"].values()), titles=len(g["works"]),
-                chapters=g["chapters"], topTags=[t for t, _ in g["tags"].most_common(5)]))
+                chapters=g["chapters"], topTags=[t for t, _ in g["tags"].most_common(5)],
+                described=page is not None, excerpt=excerpt_of(page.desc) if page else "",
+                image=image_url(field_id, name, page.image) if page else ""))
         return out
 
     def set_author_favorite(self, author_id: str, value: bool) -> bool:
@@ -1256,6 +1271,7 @@ class Library:
         for c in draft.chapters:
             c.lang, c.group = self.ruled_identity(rules, c.lang, c.group,
                                                   c.url or draft.meta.source.url, fired)
+            c.section = self.ruled_section(rules, c.section, c.url or draft.meta.source.url, fired)
         self._count_fired(fired)
         with self._create_lock:
             base = safe_id(draft.meta.title or "untitled")
@@ -1325,6 +1341,7 @@ class Library:
             if not c.id:  # a new row: the rules decide its language and group — and so its id
                 c.lang, c.group = self.ruled_identity(rules, c.lang, c.group,
                                                       c.url or draft.meta.source.url, fired)
+                c.section = self.ruled_section(rules, c.section, c.url or draft.meta.source.url, fired)
             cid = c.id or self.chapter_id_for(c.num, c.lang, c.group)
             adopted = None
             if cid not in old_ids:
@@ -1490,6 +1507,17 @@ class Library:
         fired += [f.rule for f in hits]
         return str(out["language"]), str(out["group"])
 
+    @staticmethod
+    def ruled_section(rules: list, section: str, url: str, fired: list[str]) -> str:
+        """An arriving section as the rules leave it. It names no entry, so it is
+        ruled wherever it lands — a new row, or a row that had none — and a row
+        already holding one is never rewritten here."""
+        if not rules or not section:
+            return section
+        out, hits = rules_mod.apply(rules, {"section": section}, rules_mod.host_of(url))
+        fired += [f.rule for f in hits]
+        return str(out["section"])
+
     def _count_fired(self, fired: list[str]) -> None:
         if fired:
             self.index.rule_fired(fired, datetime.now(timezone.utc).isoformat(timespec="seconds"))
@@ -1570,7 +1598,11 @@ class Library:
                     self._count_fired(fired)
                 row, _ = self._row_for(doc, num=num, lang=lang, group=group, url=url)
             if section and not row.section:
-                row.section = section  # a part named with the file fills an entry that has none
+                # a part named with the file fills an entry that has none
+                fired = []
+                row.section = self.ruled_section(self.incoming_rules(), section,
+                                                 url or doc.meta.source.url, fired)
+                self._count_fired(fired)
             suffix = Path(sidecar.get("filename") or src.name).suffix.lower()
             if suffix in media.IMAGE_EXTS:
                 # unpacked media: the image becomes the chapter zip's next page
@@ -1650,6 +1682,21 @@ class Library:
             self._mirror_comicinfo(title_id, doc, row, stored)
             self._recommit(title_id, doc)
             return ("added" if held is None else "replaced"), row.id
+
+    def flush_stored(self, title_id: str, chapter_id: str = "") -> None:
+        """Put what a move stored on the disk itself — a chapter's media, or with
+        no `chapter_id` the title's covers — before the original goes: a copy
+        still in the system's memory dies with a power cut, and the original
+        would be gone with it. Every cover, not the first: a cover added
+        meanwhile can take the first place, and flushing one already on the
+        disk costs next to nothing."""
+        with self.vault.title_lock(title_id):
+            paths = ([self.vault.chapter_media_path(title_id, chapter_id)] if chapter_id
+                     else self.vault.cover_paths(title_id))
+            if not paths or None in paths:
+                raise FileNotFoundError(f"{title_id}: nothing stored to flush")
+            for path in paths:
+                media.flush(path)
 
     def own_media(self, title_id: str, chapter_id: str) -> None:
         """Give a chapter's file an inode of its own. A move links the original
@@ -1812,6 +1859,17 @@ class Library:
         except OSError:
             tmp.unlink(missing_ok=True)
         return thumb, "image/jpeg"
+
+    def page_image(self, vocab: str, name: str, width: int) -> tuple[bytes, str] | None:
+        """A value page's image — downscaled and cached when `width` is given."""
+        path = self.pages.image_dir(vocab) / Path(name).name
+        if not name or not path.is_file():
+            return None
+        ct = media.CT_BY_EXT.get(path.suffix.lower(), "application/octet-stream")
+        if not width:
+            return path.read_bytes(), ct
+        key = cache_key("page", page_image_version(path.name), safe_id(vocab), width)
+        return self._cached_thumb(key, lambda: (path.read_bytes(), ct), width)
 
     def cover_thumb(self, title_id: str, width: int, slot: int = 0) -> tuple[bytes, str] | None:
         """A cached downscaled cover — grids and lists never load the original."""

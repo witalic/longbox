@@ -14,13 +14,14 @@ import FilterBlock from '../components/FilterBlock.vue'
 import PassButton from '../components/PassButton.vue'
 import { api } from '../api'
 import {
-  activeFilterCount, askConfirm, metaScope, refreshLibrary, runVaultPass, stopVaultPass, store,
-  vaultPass, watchVaultPass,
+  activeFilterCount, askConfirm, metaScope, openValuePage, refreshLibrary, runVaultPass, stopVaultPass,
+  store, takeMetaFocus, vaultPass, watchVaultPass,
 } from '../store'
+import { hasValuePage } from '../peek'
 import {
   movedBefore,
   type MetaAction, type MetaActionKind, type MetaField, type MetaPreview, type MetaRun,
-  type MetaShape, type MetaValue, type Rule, type RuleApply, type RuleStats,
+  type MetaShape, type MetaValue, type Rule, type RuleApply, type RuleStats, type StoredPage,
 } from '../data'
 import { readLocal, readLocalOne, writeLocal, writeLocalOne } from '../local'
 
@@ -43,6 +44,13 @@ const fields = ref<MetaField[]>([])
 const inScope = ref(0)
 const fieldId = ref(readLocal('lb.metaField', (v): v is string => typeof v === 'string', 'tags'))
 watch(fieldId, (v) => writeLocal('lb.metaField', v))
+// a value page's "In Metadata": its field, the value searched and selected
+const focus = takeMetaFocus()
+let focusValue = focus?.value ?? ''
+if (focus) {
+  fieldId.value = focus.field
+  tab.value = 'values'
+}
 const field = computed(() => fields.value.find((f) => f.id === fieldId.value)
   ?? fields.value.find((f) => f.id === 'tags') ?? fields.value[0])
 const shape = computed<MetaShape | undefined>(() => field.value?.shape)
@@ -56,9 +64,12 @@ function useFilters() { store.metaSelection = null }
 // ---- the values ----
 const values = ref<MetaValue[]>([])
 const loading = ref(false)
-const search = ref('')
+const search = ref(focusValue)
 const sort = ref<'count' | 'az'>('count')
-const onlyFree = ref(false) // values no rule handles yet: the drift nothing catches
+// `free`: values no rule handles yet — the drift nothing catches; `undescribed`:
+// values with nothing on their page; `orphans`: pages whose value no title holds
+const show = ref<'all' | 'free' | 'undescribed' | 'orphans'>('all')
+const withPages = computed(() => !!field.value && hasValuePage(field.value.id))
 const selected = reactive(new Set<string>())
 let anchor = -1
 
@@ -73,7 +84,39 @@ async function loadValues() {
     values.value = got
     const held = new Set(got.map((v) => v.value))
     for (const v of [...selected]) if (!held.has(v)) selected.delete(v)
+    if (focusValue && held.has(focusValue)) selected.add(focusValue)
+    focusValue = ''
+    if (show.value === 'orphans') void loadOrphans()
   } catch (e) { store.error = failed(e) }
+}
+const orphans = ref<StoredPage[]>([])
+async function loadOrphans() {
+  const f = field.value
+  if (!f || !hasValuePage(f.id)) {
+    orphans.value = []
+    return
+  }
+  try {
+    const got = await api.storedPages(f.id)
+    if (field.value?.id === f.id) orphans.value = got.filter((s) => !s.held)
+  } catch { orphans.value = [] }
+}
+// Pages without titles cost the sidecar a pass over the library: counted when
+// the field changes and whenever the list is open — not on every reload.
+watch(() => field.value?.id, () => void loadOrphans())
+watch(show, (v) => { if (v === 'orphans') void loadOrphans() })
+async function deleteOrphan(s: StoredPage) {
+  const f = field.value
+  if (!f) return
+  const ok = await askConfirm({
+    title: 'Delete the page', danger: true, okLabel: 'Delete',
+    message: `Delete what is written about “${s.value}”? No title holds the value any more; the page cannot be brought back.`,
+  })
+  if (!ok) return
+  try {
+    await api.deletePage(f.id, s.value)
+  } catch (e) { store.error = failed(e) }
+  await loadOrphans()
 }
 let reloadSeq = 0
 async function reload() {
@@ -95,6 +138,7 @@ watch(() => field.value?.id, (now, was) => {
   selected.clear()
   closeAction()
   page.value = 1
+  if (!withPages.value && (show.value === 'undescribed' || show.value === 'orphans')) show.value = 'all'
   void loadValues()
 })
 
@@ -102,7 +146,8 @@ const shown = computed(() => {
   let list = values.value
   const q = search.value.trim().toLowerCase()
   if (q) list = list.filter((v) => v.value.toLowerCase().includes(q))
-  if (onlyFree.value) list = list.filter((v) => !v.rule)
+  if (show.value === 'free') list = list.filter((v) => !v.rule)
+  else if (show.value === 'undescribed') list = list.filter((v) => !v.page)
   if (sort.value === 'az') list = [...list].sort((a, b) => a.value.localeCompare(b.value))
   return list
 })
@@ -111,7 +156,7 @@ const page = ref(1)
 const pages = computed(() => Math.max(1, Math.ceil(shown.value.length / PAGE)))
 const curPage = computed(() => Math.min(page.value, pages.value))
 const pageRows = computed(() => shown.value.slice((curPage.value - 1) * PAGE, curPage.value * PAGE))
-watch([search, sort, onlyFree], () => { page.value = 1 })
+watch([search, sort, show], () => { page.value = 1 })
 const most = computed(() => values.value.reduce((n, v) => Math.max(n, v.titles), 1))
 
 function clickRow(v: MetaValue, e: MouseEvent) {
@@ -127,6 +172,11 @@ function clickRow(v: MetaValue, e: MouseEvent) {
   anchor = i
 }
 const selectedList = computed(() => values.value.filter((v) => selected.has(v.value)).map((v) => v.value))
+// every value the search and the filter leave — on every page, not just this one
+const allShownSelected = computed(() => shown.value.every((v) => selected.has(v.value)))
+function selectShown() {
+  for (const v of shown.value) selected.add(v.value)
+}
 
 // ---- the action: what will happen, before it happens ----
 type Mode = MetaActionKind
@@ -512,10 +562,20 @@ async function applyRule() {
               <button class="opt" :class="{ on: sort === 'az' }" @click="sort = 'az'">A–Z</button>
             </div>
             <div class="seg text">
-              <button class="opt" :class="{ on: !onlyFree }" @click="onlyFree = false">All</button>
-              <button class="opt" :class="{ on: onlyFree }" title="Values no rule handles yet" @click="onlyFree = true">No rule</button>
+              <button class="opt" :class="{ on: show === 'all' }" @click="show = 'all'">All</button>
+              <button class="opt" :class="{ on: show === 'free' }" title="Values no rule handles yet" @click="show = 'free'">No rule</button>
+              <template v-if="withPages">
+                <button class="opt" :class="{ on: show === 'undescribed' }" title="Values with nothing written on their page"
+                        @click="show = 'undescribed'">Not described</button>
+                <button v-if="orphans.length || show === 'orphans'" class="opt" :class="{ on: show === 'orphans' }"
+                        title="Pages whose value no title holds any more" @click="show = 'orphans'">
+                  Pages without titles <span class="mono" style="color:var(--tx3)">{{ orphans.length }}</span></button>
+              </template>
             </div>
             <div style="flex:1"></div>
+            <button v-if="show !== 'orphans' && shown.length > 1 && !allShownSelected" class="btn small ghost"
+                    :title="search.trim() || show !== 'all' ? 'Every value the search and the filter leave' : 'Every value of this field in scope'"
+                    @click="selectShown">Select all {{ shown.length.toLocaleString() }}</button>
             <span v-if="selected.size" class="selc mono">{{ selected.size }} selected</span>
             <template v-if="selected.size">
               <button v-for="m in valueModes" :key="m.k" class="btn small" :class="{ acton: mode === m.k }"
@@ -527,7 +587,18 @@ async function applyRule() {
                       @click="openMode(m.k)">{{ m.label }}</button>
             </template>
           </div>
-          <div class="vrow hd"><span></span><span>VALUE</span><span>TITLES</span><span>TYPED</span><span>RULE</span></div>
+          <!-- pages whose value is gone: kept, because they are the owner's writing -->
+          <div v-if="show === 'orphans'" class="vlist scroll">
+            <div v-if="!orphans.length" class="emptyv"><div class="et">Every page belongs to a value titles hold</div></div>
+            <div v-for="o in orphans" :key="o.key" class="orow">
+              <span class="v">{{ o.value }}</span>
+              <span class="ex">{{ o.excerpt || '—' }}</span>
+              <button class="lnk" @click="field && openValuePage(field.id, o.value)">Open page</button>
+              <button class="lnk danger" @click="deleteOrphan(o)">Delete</button>
+            </div>
+          </div>
+          <template v-else>
+          <div class="vrow hd"><span></span><span>VALUE</span><span>TITLES</span><span>TYPED</span><span>RULE</span><span>{{ withPages ? 'PAGE' : '' }}</span></div>
           <div class="vlist scroll">
             <div v-if="!loading && !shown.length" class="emptyv">
               <div class="et">{{ values.length ? 'Nothing matches' : `No ${(field?.label ?? 'values').toLowerCase()} in scope` }}</div>
@@ -540,8 +611,14 @@ async function applyRule() {
               <span class="mono typed" :class="{ w: v.typed }">{{ v.typed || '' }}</span>
               <span class="mono rb" :title="v.rule ? `Rule ${v.rule}` : 'No rule handles this value'">
                 {{ v.rule ? `${v.ruleText} · rule ${v.rule}` : '—' }}</span>
+              <span class="pg">
+                <button v-if="withPages && field" class="lnk" :class="{ written: v.page }"
+                        :title="v.page ? 'Something is written on its page' : 'Nothing written yet'"
+                        @click.stop="openValuePage(field.id, v.value)">{{ v.page ? '● page' : 'page' }}</button>
+              </span>
             </div>
           </div>
+          </template>
           <div class="lfoot">
             <template v-if="lastRun">
               <span class="lfinfo">Last run: <b>{{ lastRun.summary }}</b> · {{ lastRun.titles.toLocaleString() }} titles · {{ lastRun.seconds }} s</span>
@@ -689,7 +766,7 @@ async function applyRule() {
                 <span class="dim mono">{{ tryOut.fired.length ? 'changed by this rule' : 'this rule leaves it alone' }}</span>
               </div>
             </div>
-            <div class="hint">Applies to capture, to what you type in the editor, and to new chapters' language and group. Saving it changes nothing already stored.</div>
+            <div class="hint">Applies to capture, to what you type in the editor, and to new chapters' language, group and section. Saving it changes nothing already stored.</div>
           </div>
           <div class="afoot">
             <button class="btn accent" :disabled="busy" @click="saveRule()">Save rule</button>
@@ -747,7 +824,15 @@ async function applyRule() {
 .vtool { height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px 0 24px; border-bottom: 1px solid var(--line); }
 .selc { font-size: 11px; color: var(--accent); margin-right: 4px; }
 .vlist { flex: 1; min-height: 0; overflow-y: auto; }
-.vrow { display: grid; grid-template-columns: 22px minmax(0, 1fr) 150px 56px minmax(0, 190px); align-items: center; gap: 10px; height: 34px; padding: 0 16px 0 24px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); font: 500 12.5px/1 system-ui; color: var(--tx); cursor: pointer; user-select: none; }
+.vrow .pg { text-align: right; }
+.vrow .pg .lnk { color: var(--tx3); font-weight: 500; }
+.vrow .pg .lnk.written { color: var(--good); font-weight: 600; }
+.vrow:hover .pg .lnk { color: var(--accent); }
+.orow { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr) auto auto; align-items: center; gap: 14px; height: 40px; padding: 0 16px 0 24px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); font: 500 12.5px/1 system-ui; color: var(--tx); }
+.orow .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.orow .ex { font: 400 12px/1.3 system-ui; color: var(--tx3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lnk.danger { color: var(--adult); }
+.vrow { display: grid; grid-template-columns: 22px minmax(0, 1fr) 150px 56px minmax(0, 190px) 64px; align-items: center; gap: 10px; height: 34px; padding: 0 16px 0 24px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); font: 500 12.5px/1 system-ui; color: var(--tx); cursor: pointer; user-select: none; }
 .vrow:hover { background: var(--hover); }
 .vrow.hd { height: 30px; flex: none; font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .1em; color: var(--tx3); cursor: default; }
 .vrow.hd:hover { background: transparent; }

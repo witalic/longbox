@@ -3,7 +3,8 @@
 // characters, or a field the user defined. The registry decides what can be an
 // axis (only lists have anything to group by), so this view gains an axis the
 // moment a field exists. People are not a special case, only the axis that
-// carries a role and a favourite mark.
+// carries a role and a favourite mark. A group's name opens its value page
+// (design/value-pages.md), which this view shows in place of the list.
 // Middle-click on a work opens its tab in the background.
 import { computed, ref, watch } from 'vue'
 import Icon from '../components/Icon.vue'
@@ -11,11 +12,13 @@ import SearchBox from '../components/SearchBox.vue'
 import Pager from '../components/Pager.vue'
 import {
   activeFilterCount, axisSurface, buildQuery, filterBy, filterByField, hiddenAxes, openTitle,
-  openTitleBackground, setFieldHidden, shownAxes, store, takeAuthorFocus,
+  openTitleBackground, openValuePage, setFieldHidden, shownAxes, store, takeAuthorFocus,
 } from '../store'
 import FilterBlock from '../components/FilterBlock.vue'
 import MenuButton from '../components/MenuButton.vue'
 import FieldVisibility from '../components/FieldVisibility.vue'
+import ValuePage from '../components/ValuePage.vue'
+import { peekOff, peekOn } from '../peek'
 import { api } from '../api'
 import { readLocalOne, writeLocalOne } from '../local'
 import { coverAt, hueFor, initials as initialsOf, type BrowseGroup } from '../data'
@@ -68,6 +71,9 @@ const fsideOpen = ref(readLocalOne('lb.fside', ['0', '1'] as const, '1') === '1'
 watch(fsideOpen, (v) => writeLocalOne('lb.fside', v ? '1' : '0'))
 
 const favOnly = ref(false)
+// the values nothing is written about yet: the queue for filling pages in,
+// most-used first
+const undescribed = ref(false)
 
 // A tiny stable hash: the order looks shuffled but does not jump around between
 // reloads, which a real random would (and a reshuffle on every refetch reads as
@@ -91,8 +97,13 @@ const bySearch = computed(() =>
 function matchesFav(a: BrowseGroup): boolean {
   return !favOnly.value || a.fav
 }
-const list = computed(() => bySearch.value.filter((a) =>
-  (!isPeople.value || role.value === 'all' || a.role === role.value) && matchesFav(a)))
+const list = computed(() => {
+  const out = bySearch.value.filter((a) =>
+    (!isPeople.value || role.value === 'all' || a.role === role.value) && matchesFav(a)
+    && (!undescribed.value || !a.described))
+  return undescribed.value ? [...out].sort((a, b) => b.titles - a.titles) : out
+})
+const undescribedCount = computed(() => bySearch.value.filter((a) => !a.described).length)
 const AUTHORS_PAGE = 24
 const totalPages = computed(() => Math.max(1, Math.ceil(list.value.length / AUTHORS_PAGE)))
 const curPage = computed(() => Math.min(Math.max(1, store.ui.auPage), totalPages.value))
@@ -141,7 +152,7 @@ const favCount = computed(() =>
 
 // ---- pagination ----
 const amainEl = ref<HTMLElement | null>(null)
-watch(() => JSON.stringify([search.value, role.value, favOnly.value]), () => goPage(1))
+watch(() => JSON.stringify([search.value, role.value, favOnly.value, undescribed.value]), () => goPage(1))
 
 const roleLabel: Record<string, string> = { author: 'AUTHOR', artist: 'ARTIST', both: 'AUTHOR · ARTIST' }
 const initials = initialsOf
@@ -150,11 +161,18 @@ const initials = initialsOf
 
 <template>
   <div class="au">
+    <ValuePage v-if="store.valuePage" />
+    <template v-else>
     <div class="lmaincol">
     <div class="head">
         <h1 class="h1">{{ curAxis?.label ?? 'Browse' }}</h1>
         <span class="count">{{ list.length }} of {{ groups.length }}</span>
         <div style="flex:1"></div>
+        <div class="seg text" title="Values with nothing written on their page, most-used first">
+          <button class="opt" :class="{ on: !undescribed }" @click="undescribed = false">All</button>
+          <button class="opt" :class="{ on: undescribed }" @click="undescribed = true">Not described
+            <span class="mono" style="color:var(--tx3);font-size:10px">{{ undescribedCount }}</span></button>
+        </div>
         <SearchBox v-model="search" :width="280"
                    :placeholder="`Search ${(curAxis?.label ?? '').toLowerCase()}…`" />
         <div class="seg">
@@ -185,14 +203,16 @@ const initials = initialsOf
         <template v-if="mode === 'cards'">
           <div v-for="a in shown" :key="a.id" class="gcard">
             <div class="ghead2">
-              <span class="gname" :title="`Show ${a.value} in the library`"
-                    @click="filterByField(a.field, a.value)">{{ a.value }}</span>
+              <span v-if="a.image" class="gface" :style="{ background: `#181a1f url(${coverAt(a.image, 64)}) center/cover no-repeat` }"></span>
+              <span class="gname" :title="`${a.value} — its page`"
+                    @click="openValuePage(a.field, a.value)">{{ a.value }}</span>
               <button v-if="isPeople" class="iconbtn plain" :title="a.fav ? 'Unfavorite' : 'Favorite'"
                       :style="{ color: a.fav ? 'var(--fav)' : 'var(--tx3)' }" @click="toggleAuthorFav(a)">
                 <Icon name="star" :size="14" :sw="1.8" :fill="a.fav ? 'var(--fav)' : 'none'" />
               </button>
             </div>
             <div class="gsub mono">{{ a.titles }} title{{ a.titles === 1 ? '' : 's' }} · {{ a.chapters }} ch.</div>
+            <div class="gex" :class="{ none: !a.excerpt }">{{ a.excerpt || 'Nothing written yet' }}</div>
             <div class="gworks">
               <div v-for="w in a.works.slice(0, 3)" :key="w.id" class="gwork" @click="openTitle(w.id)"
                    @mousedown.middle.prevent="openTitleBackground(w.id)">
@@ -208,16 +228,20 @@ const initials = initialsOf
           <div v-for="a in shown" :key="a.id" class="acard">
             <div class="identity">
               <div style="display:flex;align-items:center;gap:13px">
-                <span class="avatar">{{ initials(a.value) }}</span>
+                <span v-if="a.image" class="avatar img" :class="{ sq: !isPeople }"
+                      :style="{ background: `#181a1f url(${coverAt(a.image, 112)}) center/cover no-repeat` }"></span>
+                <span v-else class="avatar">{{ initials(a.value) }}</span>
                 <div style="min-width:0">
-                  <div class="aname" :title="`Show ${a.value} in the library`"
-                       @click="filterByField(a.field, a.value)">{{ a.value }}</div>
+                  <div class="aname" :title="`${a.value} — its page`"
+                       @click="openValuePage(a.field, a.value)">{{ a.value }}</div>
                   <div v-if="a.role" class="arole mono">{{ roleLabel[a.role] }}</div>
                 </div>
               </div>
+              <div v-if="a.excerpt" class="aex">{{ a.excerpt }}</div>
               <div v-if="a.topTags.length" class="atags">
                 <span class="tlabel">TOP TAGS</span>
-                <span v-for="tg in a.topTags" :key="tg" class="atag" :title="`Filter library by ${tg}`" @click="filterBy('tag', tg)">{{ tg }}</span>
+                <span v-for="tg in a.topTags" :key="tg" class="atag" :title="`Filter library by ${tg}`" @click="filterBy('tag', tg)"
+                      @mouseenter="peekOn($event, 'tags', tg)" @mouseleave="peekOff">{{ tg }}</span>
               </div>
               <div class="afoot">
                 <button v-if="isPeople" class="iconbtn plain" :title="a.fav ? 'Unfavorite' : 'Favorite this author'"
@@ -269,6 +293,7 @@ const initials = initialsOf
         </template>
       </template>
     </FilterBlock>
+    </template>
   </div>
 </template>
 
@@ -291,6 +316,11 @@ const initials = initialsOf
 .gname { flex: 1; min-width: 0; font: 600 14px/1.2 system-ui; color: var(--tx); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gname:hover { color: var(--accent); text-decoration: underline; }
 .gsub { font-size: 10.5px; color: var(--tx3); }
+.gface { width: 22px; height: 22px; flex: none; border-radius: 5px; border: 1px solid var(--line); }
+.gex { font: 400 11.5px/1.4 system-ui; color: var(--tx2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 32px; }
+.gex.none { color: var(--tx3); font-style: italic; }
+.aex { margin-top: 10px; font: 400 12px/1.45 system-ui; color: var(--tx2); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.avatar.sq { border-radius: 10px; }
 .gworks { display: flex; gap: 8px; margin-top: 8px; }
 .gwork { width: 95px; flex: none; cursor: pointer; }
 .gcov { display: block; width: 95px; height: 143px; border-radius: 6px; border: 1px solid var(--line); }

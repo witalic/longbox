@@ -31,6 +31,7 @@ from .service import Library, chapter_num_key
 from .vault import Vault, safe_id
 
 DOC = "import-profiles.json"
+SCHEMA = 2  # the shape this build writes (Vault.doc_transaction); 2: a profile keeps the fields it hides
 
 # an image under one of these names, in a work's own folder, is its cover
 COVER_NAMES = {"cover", "folder", "poster"}
@@ -190,11 +191,11 @@ class ProfileStore:
         self.vault = vault
 
     def profiles(self) -> list[Profile]:
-        return Vault.doc_items(self.vault.read_doc(DOC), DOC, "profiles", Profile, "a profile")
+        return Vault.doc_items(self.vault.read_doc(DOC), DOC, "profiles", Profile, "a profile", schema=SCHEMA)
 
     def save(self, profiles: list[Profile]) -> list[Profile]:
         checked = [check(p) for p in profiles]
-        with self.vault.doc_transaction(DOC) as doc:
+        with self.vault.doc_transaction(DOC, schema=SCHEMA) as doc:
             doc["profiles"] = [p.model_dump() for p in checked]
         return checked
 
@@ -263,7 +264,7 @@ def scan(root: Path, *, skip: Path | None = None) -> Scan:
     skipped: list[str] = []
     # kept as picked: a mapped drive must not turn into the share it maps
     root = Path(os.path.abspath(root))
-    skip_at, skip_id = "", (0, 0)
+    skip_at, skip_id, skip_name = "", (0, 0), ""
     if skip is not None:
         try:
             rel = Path(os.path.relpath(skip.resolve(), root.resolve())).as_posix()
@@ -272,13 +273,20 @@ def scan(root: Path, *, skip: Path | None = None) -> Scan:
         skip_at = "" if rel.startswith("..") else os.path.normcase(rel)
         st = os.stat(skip)
         skip_id = (st.st_dev, st.st_ino)
+        skip_name = os.path.normcase(skip.name)
 
     def is_library(path: str, sub: str) -> bool:
         if skip_at and os.path.normcase(sub) == skip_at:
             return True
         if not skip_id[1]:
             return False  # a filesystem with no inode numbers: the path check is all there is
-        st = os.stat(path)  # directory entries carry no identity on Windows
+        # The same folder reached another way (a mapped drive and its share) still
+        # bears its name; a junction under another name is never entered at all.
+        # So only a folder of that name pays a stat — directory entries carry no
+        # identity on Windows, and on a network drive every stat is a round trip.
+        if os.path.normcase(os.path.basename(path)) != skip_name:
+            return False
+        st = os.stat(path)
         return (st.st_dev, st.st_ino) == skip_id
 
     def walk(path: Path, rel: str, mtime: float) -> Node:
@@ -355,6 +363,8 @@ class EntryPlan(BaseModel):
     size: int = 0
     state: EntryState = "new"
     reason: str = ""
+    # for the run alone: the rule ids that shaped its section
+    sectionFired: list[str] = Field(default_factory=list, exclude=True)
 
 
 class WorkPlan(BaseModel):
@@ -426,6 +436,12 @@ def _unique(values: list[str]) -> list[str]:
 def _num_text(raw: str) -> str:
     v = float(raw.replace(",", "."))
     return str(int(v)) if v.is_integer() else f"{v:g}"
+
+
+def _where(s: Scan, work_key: str) -> str:
+    """The work's folder as a re-run recognises it: the path as picked (a mapped
+    drive stays itself), case-folded where the filesystem folds case."""
+    return os.path.normcase(os.path.abspath(s.root if work_key == "." else s.root / work_key))
 
 
 def _date(mtime: float) -> str:
@@ -570,7 +586,8 @@ def _values(p: Profile, own: dict, tok: dict[str, str], creators: list[str],
         elif v:
             out[fid] = v
     for fid in p.creatorTo:
-        out[fid] = _unique([*creators, *(out.get(fid) or [])])
+        if fid not in p.hidden:  # a hidden field is left alone, creators included
+            out[fid] = _unique([*creators, *(out.get(fid) or [])])
     return {k: v for k, v in out.items() if v}
 
 
@@ -649,7 +666,7 @@ def _plan(lib: Library, s: Scan, p: Profile, o: Overrides | None) -> tuple[Plan,
         wp.meta = {k: v for k, v in ruled.items() if v and k not in locked}
 
         spellings = _identity(rules, p, tok, wp.identityFired, wp.warnings)
-        wp.entries = _entries(w, p, numrx, doc, sidecars, spellings, tok, off, wp)
+        wp.entries = _entries(w, p, numrx, doc, sidecars, spellings, tok, off, wp, rules, _where(s, key))
         entries.update((e.path, e) for e in w.entries)
         plans.append(wp)
 
@@ -671,7 +688,7 @@ def _plan(lib: Library, s: Scan, p: Profile, o: Overrides | None) -> tuple[Plan,
 
 def _entries(w: _Work, p: Profile, numrx: re.Pattern | None, doc: TitleDoc | None,
              sidecars: dict[str, dict], spellings: list[tuple[str, str]], tok: dict[str, str],
-             off: set[str], wp: WorkPlan) -> list[EntryPlan]:
+             off: set[str], wp: WorkPlan, rules: list, where: str) -> list[EntryPlan]:
     """Numbers, names and states for one work's entries.
 
     A file an earlier run stored is that entry for good — its number, its
@@ -680,7 +697,7 @@ def _entries(w: _Work, p: Profile, numrx: re.Pattern | None, doc: TitleDoc | Non
     highest number it holds, and an entry that will not be stored takes no
     number, so leaving one out never leaves a gap."""
     rows = {safe_id(c.id): c for c in doc.chapters} if doc is not None else {}
-    before = {side["origPath"]: (side.get("origSize"), rows[cid])
+    before = {side["origPath"]: (side.get("origSize"), rows[cid], side.get("origDir"))
               for cid, side in sidecars.items()
               if side.get("importedFrom") == IMPORTED_FROM and side.get("origPath") and cid in rows}
     lang, group = spellings[0]
@@ -693,8 +710,9 @@ def _entries(w: _Work, p: Profile, numrx: re.Pattern | None, doc: TitleDoc | Non
     claimed: set[tuple[str, str, str]] = set()  # entries this folder's own files already are
     for e in w.entries:
         ep = EntryPlan(path=e.path, kind=e.kind, files=len(e.sources), size=e.size,
-                       section=e.section, lang=lang, group=group,
-                       date=_date(e.mtime) if p.entryDate else "")
+                       lang=lang, group=group, date=_date(e.mtime) if p.entryDate else "")
+        # the part as the rules leave it; templates still read the folder's own name
+        ep.section = Library.ruled_section(rules, e.section, "", ep.sectionFired)
         out.append(ep)
         known = before.get(e.rel)
         if known is not None:
@@ -705,6 +723,12 @@ def _entries(w: _Work, p: Profile, numrx: re.Pattern | None, doc: TitleDoc | Non
                 ep.state, ep.reason = "exists", "imported before"
             elif not e.readable:
                 ep.state, ep.reason = "unreadable", "the file's own bytes are not what its name says"
+            elif known[2] != where:
+                # The same name under another folder — or under one an older run
+                # did not record — is not provably this file changed: replacing on
+                # a guess would put another file's bytes over an entry whose
+                # original a move may already have deleted.
+                ep.state, ep.reason = "conflict", "a file of this name was imported from another folder — left alone"
             elif e.path in off:
                 ep.state = "off"
             elif p.entryExists == "replace":
@@ -837,7 +861,8 @@ def run(lib: Library, s: Scan, p: Profile, o: Overrides | None = None, *,
     Works go one at a time and entries one at a time, each a critical section of
     its own, so the library fills in while the run goes and Stop puts it down
     between two entries, never inside one. A move deletes an original only once
-    its entry is stored; a file that fails is reported and the run goes on."""
+    its entry is stored and on the disk; a file that fails is reported and the
+    run goes on."""
     p = check(p)
     pl, entries = _plan(lib, s, p, o)
     move = p.files == "move"
@@ -903,7 +928,7 @@ def _store(lib: Library, s: Scan, tid: str, wp: WorkPlan, ep: EntryPlan, e: _Ent
     name = Path(e.path).name if e.path != "." else s.root.name
     # what the entry ARRIVED as — a folder's name must not read as a video
     filename = f"{name}.zip" if e.kind == "images" and _kind(name) == "video" else name
-    sidecar = {"importedFrom": IMPORTED_FROM, "origPath": e.rel, "origSize": e.size,
+    sidecar = {"importedFrom": IMPORTED_FROM, "origDir": _where(s, wp.key), "origPath": e.rel, "origSize": e.size,
                "downloadedAt": report.at}
     try:
         outcome, cid = lib.import_entry(tid, sources, num=ep.num, lang=ep.lang, group=ep.group,
@@ -922,9 +947,17 @@ def _store(lib: Library, s: Scan, tid: str, wp: WorkPlan, ep: EntryPlan, e: _Ent
     else:
         report.imported += 1
         fired.extend(wp.identityFired)
+        fired.extend(ep.sectionFired)
     if not move:
         return
-    kept = sum(not _drop(f) for f in sources)
+    try:
+        lib.flush_stored(tid, cid)
+        kept = sum(not _drop(f) for f in sources)
+    except OSError as err:
+        # not provably on the disk yet: the original is still the copy to trust
+        kept = len(sources)
+        report.failed.append(Failure(path=ep.path, reason=f"stored, but the original is kept — "
+                                                          f"the copy could not be flushed: {err}"))
     emptied.update(f.parent for f in sources)
     if kept:
         report.kept += kept
@@ -950,6 +983,12 @@ def _cover(lib: Library, tid: str, path: Path, move: bool, report: Report, empti
         report.failed.append(Failure(path=path.name, reason=f"cover: {e}"))
         return
     if move:
+        try:
+            lib.flush_stored(tid)
+        except OSError as e:
+            report.kept += 1
+            report.failed.append(Failure(path=path.name, reason=f"cover: stored, but the original is kept — {e}"))
+            return
         report.kept += not _drop(path)
         emptied.add(path.parent)
 
