@@ -12,6 +12,9 @@
     "pack": "electron-builder --publish never",
     "pack:dir": "electron-builder --dir --publish never"
   },
+  "dependencies": {
+    "@ghostery/adblocker-electron": "^2.20.3"
+  },
   "devDependencies": {
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8"
@@ -24,7 +27,7 @@
       "output": "../dist-app",
       "buildResources": "."
     },
-    "files": ["main.js", "app-preload.js", "pick-preload.js", "icon.*", "package.json"],
+    "files": ["main.js", "adblock.js", "app-preload.js", "pick-preload.js", "icon.*", "package.json"],
     "extraResources": [
       { "from": "../dist-sidecar/longbox-sidecar", "to": "sidecar" },
       { "from": "../app-meta.json", "to": "app-meta.json" }

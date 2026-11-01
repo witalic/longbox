@@ -36,6 +36,10 @@ function wvRef(id: string): (el: any) => void {
   return fn
 }
 function wv(): any { return browser.activeId ? wvRefs.get(browser.activeId) : null }
+// the tab whose page the shell names by its webContents id
+function tabOfGuest(guestId: number): string | undefined {
+  return [...wvRefs].find(([, el]) => el.getWebContentsId?.() === guestId)?.[0]
+}
 // A page's player gone fullscreen takes the window with it, but Electron lifts a
 // page over the app only when its own document asks: a site's player embedded in
 // a frame would stay the size of the box the page sits in. So the <webview> takes
@@ -52,7 +56,7 @@ onBeforeUnmount(() => document.documentElement.classList.remove('pagefull'))
 const screenSized = () => innerWidth === screen.width && innerHeight === screen.height
 function screenBox() { return { width: `${screen.width}px`, height: `${screen.height}px` } }
 async function makeRoom(guestId: number) {
-  const id = [...wvRefs].find(([, el]) => el.getWebContentsId?.() === guestId)?.[0]
+  const id = tabOfGuest(guestId)
   if (!id) return
   screenSizedBefore = screenSized()
   fullTab.value = id
@@ -76,6 +80,47 @@ watch(() => browser.tabs.map((t) => `${t.id}:${t.muted ? 1 : 0}`).join(), () => 
 const active = computed(() => activeTab())
 const domain = computed(() => hostOf(active.value?.url || ''))
 const isHttps = computed(() => (active.value?.url || '').startsWith('https://'))
+
+// ---- ad blocking (shell/adblock.js): the shield says what it does on this page,
+// and the ⋯ menu holds its switches — everywhere, and on this site ----
+const adblock = ref<AdblockState | null>(null)
+const blockedBy = reactive(new Map<string, number>()) // tab id → requests blocked on its page
+watch(() => browser.tabs.map((t) => t.id).join(), () => {
+  for (const id of [...blockedBy.keys()]) if (!wvRefs.has(id)) blockedBy.delete(id)
+})
+// a pause covers the site's subdomains too, so resuming lifts the entry that covers it
+const pausedEntry = computed(() => {
+  const host = domain.value
+  return host ? adblock.value?.paused.find((d) => host === d || host.endsWith(`.${d}`)) ?? '' : ''
+})
+const shieldOn = computed(() => !!adblock.value?.on && adblock.value.ready && !pausedEntry.value)
+const blockedHere = computed(() => (active.value ? blockedBy.get(active.value.id) ?? 0 : 0))
+const shieldTitle = computed(() => {
+  const a = adblock.value
+  if (!a?.on) return 'Ad blocking is off'
+  if (!a.ready) return a.updating ? 'Ad blocking — getting its lists' : 'Ad blocking — its lists could not be fetched'
+  if (pausedEntry.value) return `Ad blocking is paused on ${pausedEntry.value}`
+  return `Blocking ads and trackers — ${blockedHere.value} on this page`
+})
+function listsAge(at: number): string {
+  const days = Math.floor((Date.now() - at) / 86400000)
+  return days < 1 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`
+}
+const listsDate = (at: number) => new Date(at).toLocaleDateString([], { day: 'numeric', month: 'short' })
+// a page is blocked for as it loads: the one in front loads again when it changes
+async function setAdblock(change: { on?: boolean; annoyances?: boolean; site?: string; paused?: boolean }) {
+  const host = domain.value
+  const here = change.on !== undefined || change.annoyances !== undefined
+    || (!!change.site && (host === change.site || host.endsWith(`.${change.site}`)))
+  const s = await window.longbox?.setAdblock(change)
+  if (!s) return
+  adblock.value = s
+  if (here) wv()?.reload?.()
+}
+async function updateLists() {
+  const s = await window.longbox?.updateAdblock()
+  if (s) adblock.value = s
+}
 
 // ---- toolbar ----
 const addr = ref('')
@@ -202,16 +247,26 @@ function onKey(e: KeyboardEvent) {
 }
 let dropPageKeys: (() => void) | null = null
 let dropPageFullscreen: (() => void) | null = null
+let dropAdblock: (() => void) | null = null
+let dropBlocked: (() => void) | null = null
 onMounted(() => {
   document.addEventListener('keydown', onKey)
   // the same shortcuts, arriving from the shell when the PAGE had focus
   dropPageKeys = window.longbox?.onPageKey((k) => { pageKey(k) }) ?? null
   dropPageFullscreen = window.longbox?.onPageFullscreen(makeRoom) ?? null
+  void window.longbox?.adblockState().then((s) => { if (s) adblock.value = s })
+  dropAdblock = window.longbox?.onAdblock((s) => { adblock.value = s }) ?? null
+  dropBlocked = window.longbox?.onAdblockBlocked((guestId, n) => {
+    const id = tabOfGuest(guestId)
+    if (id) blockedBy.set(id, n)
+  }) ?? null
 })
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onKey)
   dropPageKeys?.()
   dropPageFullscreen?.()
+  dropAdblock?.()
+  dropBlocked?.()
 })
 
 function closeFind() {
@@ -983,12 +1038,58 @@ function onReady(tabId: string) {
             @click="toggleBookmark">
         <Icon name="star" :size="15" :sw="1.9" :fill="bookmarked ? 'currentColor' : 'none'" />
       </span>
+      <!-- what ad blocking does on this page — a sign, not a control: its
+           switches are in the ⋯ menu -->
+      <span v-if="adblock" class="abind" :class="{ on: shieldOn }" :title="shieldTitle">
+        <Icon name="shield" :size="15" :sw="1.9" />
+        <span v-if="shieldOn && blockedHere" class="abn mono">{{ blockedHere > 999 ? '999+' : blockedHere }}</span>
+      </span>
       <span class="bsep"></span>
       <span class="nb" :class="{ act: browser.panelOpen }" title="Toggle capture panel" @click="browser.panelOpen = !browser.panelOpen"><Icon name="panel" :size="14" :sw="1.9" /></span>
       <!-- what is not worth a permanent slot: zoom (three of them), find (it is
            on Ctrl+F anyway) and devtools -->
-      <MenuButton class="ovbtn" title="More" :width="240">
+      <MenuButton class="ovbtn" title="More" :width="260">
         <template #default="{ close }">
+          <template v-if="adblock">
+            <button :title="adblock.on ? 'Stop blocking everywhere' : 'Block ads and trackers on every site'"
+                    @click="setAdblock({ on: !adblock.on })">
+              <Icon name="shield" :size="14" :sw="2" />Block ads and trackers
+              <span class="abstate" :class="{ on: adblock.on }">{{ adblock.on ? 'On' : 'Off' }}</span>
+            </button>
+            <template v-if="adblock.on">
+              <button title="Cookie banners and other pop-ups — a page that waits for a consent it never got may not load"
+                      @click="setAdblock({ annoyances: !adblock.annoyances })">
+                <Icon name="eyeoff" :size="14" :sw="2" /><span class="ablbl">Hide cookie banners, pop-ups</span>
+                <span class="abstate" :class="{ on: adblock.annoyances }">{{ adblock.annoyances ? 'On' : 'Off' }}</span>
+              </button>
+              <button v-if="pausedEntry" @click="setAdblock({ site: pausedEntry, paused: false })">
+                <Icon name="play" :size="13" :sw="2" /><span class="ablbl">Resume on {{ pausedEntry }}</span>
+              </button>
+              <button v-else-if="domain" @click="setAdblock({ site: domain, paused: true })">
+                <Icon name="pause" :size="14" :sw="2" /><span class="ablbl">Pause on {{ domain }}</span>
+                <span v-if="blockedHere" class="abstate">{{ blockedHere }} blocked</span>
+              </button>
+              <div class="abinfo">
+                <template v-if="adblock.updating">Getting the lists…</template>
+                <template v-else>
+                  <span :title="adblock.ready ? `Fetched ${listsAge(adblock.updatedAt)}` : adblock.failed">
+                    {{ !adblock.ready ? 'The lists could not be fetched'
+                      : adblock.listsAt ? `EasyList from ${listsDate(adblock.listsAt)}`
+                      : `Lists from ${listsAge(adblock.updatedAt)}` }}</span>
+                  · <a :title="adblock.failed || 'Fetch the lists again now'" @click="updateLists">
+                    {{ adblock.ready ? 'Update' : 'Try again' }}</a>
+                </template>
+              </div>
+              <template v-if="adblock.paused.length">
+                <div class="ablist">PAUSED ON</div>
+                <button v-for="d in adblock.paused" :key="d" :title="`Block ads on ${d} again`"
+                        @click="setAdblock({ site: d, paused: false })">
+                  <span class="ablbl mono">{{ d }}</span><Icon name="x" :size="11" :sw="2.2" class="abx" />
+                </button>
+              </template>
+            </template>
+            <hr />
+          </template>
           <div class="zrow">
             <span class="zlbl">Zoom</span>
             <div style="flex:1"></div>
@@ -1119,6 +1220,18 @@ function onReady(tabId: string) {
 .zrow { display: flex; align-items: center; gap: 4px; height: 34px; padding: 0 9px; color: var(--tx2); }
 .zlbl { font: 500 12.5px/1 system-ui; }
 .kbd { margin-left: auto; font: 500 10px/1 ui-monospace, monospace; color: var(--tx3); border: 1px solid var(--line); border-radius: 4px; padding: 3px 5px; }
+/* ad blocking: the shield is green while it blocks on this page, with its count */
+.abind { height: 28px; min-width: 28px; padding: 0 5px; flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 3px; color: var(--tx3); }
+.abind.on { color: var(--good); }
+.abn { font-size: 10px; color: var(--tx2); }
+/* …and its rows at the top of the ⋯ menu */
+.abstate { margin-left: auto; font: 600 10px/1 ui-monospace, monospace; color: var(--tx3); }
+.abstate.on { color: var(--good); }
+.ablbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.abinfo { padding: 4px 9px 6px 33px; font: 400 11px/1.4 system-ui; color: var(--tx3); }
+.abinfo a { color: var(--accent); cursor: pointer; }
+.ablist { padding: 8px 9px 4px; font: 600 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
+.abx { flex: none; color: var(--tx3); }
 .zlevel { font-size: 10px; color: var(--tx3); width: 38px; text-align: center; cursor: pointer; }
 .zlevel:hover { color: var(--tx); }
 

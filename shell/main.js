@@ -12,6 +12,7 @@ const crypto = require('node:crypto')
 const fs = require('node:fs')
 const net = require('node:net')
 const path = require('node:path')
+const adblock = require('./adblock')
 
 const ROOT = path.join(__dirname, '..')
 const IS_WIN = process.platform === 'win32'
@@ -191,9 +192,10 @@ function hardenSession(sess, origin) {
     `connect-src 'self' ${origin.replace('http', 'ws')}`
   sess.webRequest.onHeadersReceived((details, cb) => {
     // Only harden OUR app's pages. External sites in the <webview> keep their own
-    // headers, or their API calls (e.g. MangaDex → api.mangadex.org) would be blocked.
+    // headers, or their API calls (e.g. MangaDex → api.mangadex.org) would be blocked;
+    // the ad blocker may add a policy a list asks for to theirs.
     if (!details.url.startsWith(origin)) {
-      cb({})
+      adblock.onHeadersReceived(details, cb)
       return
     }
     cb({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': [appCsp] } })
@@ -427,6 +429,7 @@ async function main() {
   })
 
   appWindow = win // guest-page handlers pop their menus over this one
+  adblock.wire(sess, win.webContents)
 
   // DevTools, on the app window only. The one class of problem that cannot be
   // diagnosed from outside — playback stalls, a decode fallback, request timing
@@ -718,7 +721,10 @@ async function main() {
   // the OS window carries the app name ONCE — page titles never override it
   win.webContents.on('page-title-updated', (e) => e.preventDefault())
 
-  win.once('ready-to-show', () => win.show())
+  win.once('ready-to-show', () => {
+    win.show()
+    void adblock.load() // a stale list is fetched and read here, not before the window is up
+  })
   // A launch-unique query so a rebuilt UI always reaches the window: the entry
   // document carries no content hash, and a cached copy of it pins the window to
   // the bundle it referenced (the assets under it ARE hashed, so they cache hard).

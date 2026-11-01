@@ -60,6 +60,29 @@ page's fullscreen request until the app has given the view the screen's size in 
 then grows around a view that keeps its size. On the way back the window shrinks first, and the
 view returns to its box after that, so the page is resized once each way.
 
+**Ad blocking.** Adblock Plus itself cannot run here: its extension blocks through
+`declarativeNetRequest`, which Electron does not implement. Its lists can, read by Ghostery's
+engine in the shell (`shell/adblock.js`). Requests from a guest page are matched and blocked or
+redirected to a stub; a preload asks for the page's element-hiding rules. The engine's own way in
+is not taken: Electron keeps one listener per `webRequest` event and session, so it would replace
+the shell's (the CSP of the app's own pages); the shell calls the engine from its own listeners,
+for guest pages only.
+
+- *The lists* come from where they are made, never a mirror (the engine's own stopped in August
+  2026): EasyList and EasyPrivacy from easylist.to; uBlock Origin's filters, badware, privacy,
+  quick fixes and unbreak lists from its assets, with what they `!#include` (its yearly files, so
+  next year's arrives by itself); Peter Lowe's servers. `!#if` blocks are read for desktop
+  Chromium. Only the scriptlets and stubs filters name come from the engine's mirror: they are
+  in its own format and change rarely. Cookie banners and other pop-ups (EasyList Cookie, uBO
+  annoyances) only when switched on — a page waiting for a consent it never got may not load.
+- *Freshness*: fetched again when four days old (EasyList's own update frequency), looked at on
+  launch and every six hours while the app runs; a failed fetch keeps the engine in use. The ⋯
+  menu shows when EasyList itself last changed and can fetch now.
+- *Control*: on by default; the ⋯ menu switches it off everywhere, pauses it on one site
+  (subdomains included) and lists the paused ones; the page in front reloads for a change. The
+  toolbar's shield is only a sign: green while it blocks on the page, with a count.
+- The prefs and the built engine live in the shell's own data, not the vault.
+
 Electron surface used (for reference, not part of approval): `webview.setZoomFactor`,
 `findInPage`/`stopFindInPage`, `openDevTools`, `goBack/goForward/reload`, main-process
 `session.on('will-download')`, `setWindowOpenHandler`.

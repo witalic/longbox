@@ -313,7 +313,11 @@ shell/
   main.js (sidecar spawn on a stable port + /health handshake, auth cookie, frameless chrome,
            will-download + resume, page-image fetches, browser keys, page context menu,
            close guard, browsing data, session hardening)
+  adblock.js (ad blocking in guest pages: the lists fetched from their makers, the engine
+              called from the shell's own webRequest listeners, cosmetic filters, per-site
+              pause; prefs in userData/adblock.json, the built engine cached in
+              userData/adblock-engine.bin with what it was built from beside it)
   app-preload.js (folder picker, titlebar, browsing data, download control, close guard,
-                  page-image fetch, page keys)
+                  page-image fetch, page keys, ad blocking)
   pick-preload.js (pick/snapshot, page scan, page-context fetch fallback, background-tab links)
 ```

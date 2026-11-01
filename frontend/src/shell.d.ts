@@ -2,6 +2,20 @@
 export {}
 
 declare global {
+  // `annoyances`: cookie banners and pop-ups hidden too; `paused`: the sites
+  // blocking is paused on, named as data.ts `hostOf` names them; `updatedAt`: when
+  // the lists in use were fetched, `listsAt`: when EasyList itself last changed
+  // (ms, 0 when unknown)
+  interface AdblockState {
+    on: boolean
+    annoyances: boolean
+    ready: boolean
+    updating: boolean
+    updatedAt: number
+    listsAt: number
+    failed: string
+    paused: string[]
+  }
   interface Window {
     longbox?: {
       pickFolder: (title?: string) => Promise<string | null>
@@ -24,6 +38,14 @@ declare global {
       // a shortcut pressed inside a guest page; returns an unsubscribe
       onPageKey: (fn: (k: { code: string; ctrl: boolean; shift: boolean; alt: boolean }) => void)
         => () => void
+      // ad blocking in the browser's pages (shell/adblock.js)
+      adblockState: () => Promise<AdblockState | null>
+      setAdblock: (change: { on?: boolean; annoyances?: boolean; site?: string; paused?: boolean })
+        => Promise<AdblockState | null>
+      updateAdblock: () => Promise<AdblockState | null>
+      onAdblock: (fn: (s: AdblockState) => void) => () => void
+      // requests blocked on a guest's page so far (by the guest's webContents id)
+      onAdblockBlocked: (fn: (guestId: number, count: number) => void) => () => void
       // a guest page asks for fullscreen; it is granted once `fn` has made room
       // for the <webview> (by the guest's webContents id); returns an unsubscribe
       onPageFullscreen: (fn: (guestId: number) => Promise<void>) => () => void

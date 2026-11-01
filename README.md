@@ -22,6 +22,12 @@ tags or cover, and longbox learns a reusable per-site recipe.
   open a link in a background tab), and the shortcuts a browser is expected to have — `F5`,
   `Ctrl+R` (`Shift` bypasses the cache), `Ctrl+F`, `Ctrl+L`, `Ctrl+T`/`W`/`Shift+T`, `Alt+←/→`,
   `Ctrl+0/±`, `Ctrl+1…9` — working over the page itself, not only over the app's own chrome.
+  **Ad blocking** with Adblock Plus's lists (EasyList, EasyPrivacy) and uBlock Origin's filters,
+  fetched from where they are made and refreshed every four days: ads, trackers, badware and
+  miners are blocked and ad slots hidden. The toolbar's shield turns green with a count of what
+  it blocked on the page; the ⋯ menu switches it off everywhere, pauses it on one site
+  (subdomains included), hides cookie banners and pop-ups too if asked, and says how fresh
+  EasyList is.
 - **Visual capture** — pages are captured into an explicit **draft**: auto-fill from a learned
   recipe, or pick any element and refine the selector in the inspector (scope, position, cleanup,
   and the separator a list picked into a one-value field is joined with). Per-field provenance

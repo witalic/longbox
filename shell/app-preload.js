@@ -32,6 +32,28 @@ contextBridge.exposeInMainWorld('longbox', {
     ipcRenderer.on('lb-page-fullscreen', h)
     return () => ipcRenderer.removeListener('lb-page-fullscreen', h)
   },
+  // ad blocking in the browser's pages: its state, switched everywhere ({ on }),
+  // for cookie banners and pop-ups too ({ annoyances }) or paused on one site
+  // ({ site, paused }), and the lists fetched again now
+  adblockState: () => ipcRenderer.invoke('lb-adblock-state'),
+  setAdblock: (change) => ipcRenderer.invoke('lb-adblock-set', {
+    ...(typeof change?.on === 'boolean' ? { on: change.on } : {}),
+    ...(typeof change?.annoyances === 'boolean' ? { annoyances: change.annoyances } : {}),
+    ...(typeof change?.site === 'string' ? { site: change.site, paused: !!change.paused } : {}),
+  }),
+  updateAdblock: () => ipcRenderer.invoke('lb-adblock-update'),
+  // the state changed (a switch, a pause, lists fetched); returns unsubscribe
+  onAdblock: (fn) => {
+    const h = (_e, s) => fn(s)
+    ipcRenderer.on('lb-adblock-changed', h)
+    return () => ipcRenderer.removeListener('lb-adblock-changed', h)
+  },
+  // how many requests were blocked on a guest's page so far; returns unsubscribe
+  onAdblockBlocked: (fn) => {
+    const h = (_e, b) => fn(Number(b?.guestId) || 0, Number(b?.count) || 0)
+    ipcRenderer.on('lb-adblock-blocked', h)
+    return () => ipcRenderer.removeListener('lb-adblock-blocked', h)
+  },
   // a download began or ended — armed or not; returns unsubscribe
   onDownloadsChanged: (fn) => {
     const h = () => fn()

@@ -18,6 +18,7 @@ Run everything that can be verified without launching the app (live testing is t
 3. **Shell scripts** — only if `shell/*.js` changed:
    ```bash
    node --check shell/main.js
+   node --check shell/adblock.js
    node --check shell/app-preload.js
    node --check shell/pick-preload.js
    ```
