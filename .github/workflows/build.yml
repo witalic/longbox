@@ -35,7 +35,8 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          # the one the app is developed on (Node 20 left support in April 2026)
+          node-version: "24"
           cache: npm
           cache-dependency-path: |
             frontend/package-lock.json
