@@ -343,3 +343,16 @@ def test_editing_a_written_page_does_not_walk_the_library_for_its_spelling(clien
     assert calls == [] and page(client, "tags", "x")["desc"] == "Second."
     save(client, "tags", "x", desc="Third.", spellings=["ex"])  # rules land on the spelling titles use
     assert calls == ["walk"]
+
+
+def test_pages_a_development_build_stamped_2_are_read_and_kept(client, tmp_path):
+    """Development builds stamped every vault document with one shared schema
+    number; a page they wrote is read as it is, and saving keeps its stamp."""
+    title(client, "A", authors=["Mitsuki Arata"])
+    pages_dir = tmp_path / "lib" / ".pages"
+    pages_dir.mkdir(exist_ok=True)
+    (pages_dir / "authors.json").write_text(json.dumps({"schema": 2, "pages": [
+        {"value": "Mitsuki Arata", "desc": "Written by hand.", "links": [], "image": "", "updated": ""}]}), "utf-8")
+    assert page(client, "authors", "Mitsuki Arata")["desc"] == "Written by hand."
+    save(client, "authors", "Mitsuki Arata", desc="Edited.")
+    assert json.loads((pages_dir / "authors.json").read_text("utf-8"))["schema"] == 2

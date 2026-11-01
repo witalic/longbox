@@ -36,7 +36,10 @@ if TYPE_CHECKING:
 log = logging.getLogger("longbox")
 
 DIR = ".pages"  # a name no shelf can take: safe_id never yields a leading dot
-SCHEMA = 1      # the shape a .pages/<vocabulary>.json is written in (Vault.doc_transaction)
+# the shape a .pages/<vocabulary>.json is written in (Vault.doc_transaction).
+# 2 is the shape 1 had — development builds stamped every document with one
+# shared number, and the pages they wrote are read as they are.
+SCHEMA = 2
 MAX_DESC = 20_000
 MAX_LINKS = 40
 EXCERPT = 280
