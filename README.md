@@ -68,9 +68,9 @@ tags or cover, and longbox learns a reusable per-site recipe.
   are normalized to zip, single images accumulate into the chapter page by page, and a video is
   stored as itself. The vault renames every stored file to the chapter's id, so the name it
   arrived under is recorded with it and shown on the entry. A panel over the app shows every
-  transfer with its title, chapter and progress — and closing the window with transfers running
-  warns first: each one keeps its place (partial file, byte offset, validators) and can be picked
-  up later or started over.
+  transfer with its title, chapter and progress. Any one can be paused, and closing the window
+  with transfers running warns first: each keeps its place (partial file, byte offset, validators)
+  and is picked up later in its own row — after a restart too — or started over.
 - **Page capture** — for sources that never serve a file: teach which images on a reader page are
   the pages (once per site), arm a chapter, and read. Every page you open is fetched with the
   browser's own session and filed into that chapter; pages already stored are never fetched again,

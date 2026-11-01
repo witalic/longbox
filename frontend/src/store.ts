@@ -10,8 +10,8 @@ import {
 } from './api'
 import {
   chapterRowsOf, emptyFacets, metaOf, PAGE_FILTER_DEFAULTS, pageFilterOf, readerPrefsOf,
-  sameChapter, type Chapter, type Facets, type FieldDef, type MetaScope, type PageFilter, type ReaderPrefs,
-  type ReadState, type Source, type Title,
+  sameChapter, type Chapter, type Facets, type FieldDef, type MetaScope, type PageFilter, type PausedImport,
+  type ReaderPrefs, type ReadState, type Source, type Title,
 } from './data'
 import {
   isBoolMap, isRecord, localKeys, readLocal, readLocalOne, removeLocal, writeLocal, writeLocalOne,
@@ -439,6 +439,7 @@ export async function init() {
   void refreshDerived()
   void loadPageFilter()
   void refreshLoose()
+  void refreshPausedImports()
   // …and the vault check runs behind the window, refreshing it if disk moved on
   watchLibrarySync()
   // what a previous run left unfinished is already on the sidecar's list
@@ -985,7 +986,8 @@ export async function pollDownloads(force = false): Promise<void> {
   try {
     const s = await api.downloadsState()
     for (const it of s.items) {
-      if (it.state === 'done' && !seenDone.has(it.id)) {
+      if (it.state === 'downloading') seenDone.delete(it.id) // picked up again: its end is news
+      else if (it.state === 'done' && !seenDone.has(it.id)) {
         seenDone.add(it.id)
         if (it.loose) {
           store.notice = `Saved to the library's downloads — ${it.filename}`
@@ -1002,6 +1004,33 @@ export async function pollDownloads(force = false): Promise<void> {
     downloads.armed = s.armed
     downloads.items = s.items
   } catch { /* the sidecar is busy or gone — keep what we have */ }
+}
+
+// One transfer's controls, for the activity panel and the capture dock alike.
+// The transfer is the SHELL's (it owns the Electron item), the record the
+// sidecar's — both are told, in that order.
+export async function stopDownload(id: string): Promise<void> {
+  const file = downloads.items.find((i) => i.id === id)?.resume?.path
+  await window.longbox?.cancelDownload(id)
+  try { await api.forgetDownload(id) } catch { /* already gone */ }
+  // a paused one's bytes were kept to be picked up; forgotten, they go
+  if (file) await window.longbox?.forgetPartial(file)
+  await pollDownloads(true)
+}
+export async function pauseDownload(id: string): Promise<void> {
+  if (!(await window.longbox?.pauseDownload(id))) store.error = 'that download is no longer running'
+  await pollDownloads(true)
+}
+// Picked up where it stopped, in its own row. A server that will not honour the
+// range answers from zero — Electron reports that as a failure, and the row is
+// cleared to be started over from the source page.
+export async function resumeDownload(id: string): Promise<void> {
+  const rec = downloads.items.find((i) => i.id === id)
+  if (!rec?.resume) return
+  // plain data across the bridge: a reactive row is a proxy it cannot copy
+  const ok = await window.longbox?.resumeDownload(JSON.parse(JSON.stringify({ id, resume: rec.resume })))
+  if (!ok) store.error = 'this transfer cannot be picked up — start it over from the source page'
+  await pollDownloads(true)
 }
 
 // ---- the vault pass: ONE poller, and no client-side copy of the truth -------
@@ -1023,7 +1052,10 @@ export function watchVaultPass(on: boolean) {
 export async function pollVaultPass(force = false): Promise<void> {
   if (!force && !passWatchers && !vaultPass.running) return
   try {
+    const was = vaultPass.running
     Object.assign(vaultPass, await api.passStatus())
+    // an import put down lands on the paused list as its run ends
+    if (was && !vaultPass.running) void refreshPausedImports()
   } catch { /* the sidecar is busy or gone — keep what we have */ }
 }
 
@@ -1043,6 +1075,26 @@ export async function runVaultPass(fn: () => Promise<unknown>): Promise<void> {
 
 export async function stopVaultPass(): Promise<void> {
   try { Object.assign(vaultPass, await api.stopPass()) } catch { /* already done */ }
+}
+
+// ---- imports put down to be carried on: this library's, kept across restarts ----
+export const pausedImports = ref<PausedImport[]>([])
+export async function refreshPausedImports(): Promise<void> {
+  try { pausedImports.value = await api.pausedImports() } catch { /* keep the previous list */ }
+}
+/** Put the running import down between two entries; the run that is going
+ *  returns once it has, and is then on the paused list. */
+export async function pauseImport(): Promise<void> {
+  try { Object.assign(vaultPass, await api.pauseImport()) } catch (e) { store.error = String(e) }
+}
+export async function resumeImport(id: string): Promise<void> {
+  await runVaultPass(() => api.resumeImport(id))
+  await refreshPausedImports()
+  void refreshLibrary()
+}
+export async function forgetPausedImport(id: string): Promise<void> {
+  try { await api.forgetPausedImport(id) } catch (e) { store.error = String(e) }
+  await refreshPausedImports()
 }
 
 // What a pass is and where it was started — one answer for the corner and the
@@ -1354,6 +1406,7 @@ export async function setLibraryPath(path: string): Promise<string | null> {
     store.titles = all.map((t) => store.byId[t.id])
     await refreshDerived() // authors + sources + vocab all belong to the NEW vault
     void refreshLoose() // and so does its downloads folder
+    void refreshPausedImports() // …and the imports waiting to go into it
     void loadPageFilter() // …and so does what it knows about pages
     store.facets = await api.facets()
     watchLibrarySync() // the new library verifies itself behind us

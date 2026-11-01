@@ -813,6 +813,7 @@ class Report(BaseModel):
     works: list[WorkDone] = []
     kept: int = 0                 # originals a move could not delete
     stopped: bool = False
+    paused: bool = False          # stopped to be carried on (routers/imports.py)
 
 
 Progress = Callable[..., None] | None

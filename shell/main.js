@@ -212,6 +212,40 @@ let appWindow = null
 // is KEPT and their end is reported as interrupted, not as a failure.
 const interrupting = new Set()
 let dlApi = null // the sidecar's downloads API, once the origin and token exist
+// Transfers the app asked to pick up, by their partial file → the record they
+// carry on in. A picked-up transfer belongs to no page, so this is how it is
+// told from a new one at `will-download`.
+const resuming = new Map()
+
+// Where a transfer writes until it is done: the app's own data, not the system
+// temp folder, which may be cleared while one waits to be picked up.
+function partialDir() {
+  const dir = path.join(app.getPath('userData'), 'partial-downloads')
+  fs.mkdirSync(dir, { recursive: true })
+  return dir
+}
+const inPartialDir = (file) => path.resolve(String(file || '')).startsWith(partialDir() + path.sep)
+
+// A partial file nobody will pick up again — its record was forgotten, or a
+// crash left it — goes at the next launch. One that arrived after the launch
+// belongs to a transfer running now.
+async function sweepPartials(origin, token) {
+  const since = Date.now()
+  let keep
+  try {
+    const res = await fetch(`${origin}/api/downloads`, { headers: { Authorization: `Bearer ${token}` } })
+    keep = new Set((await res.json()).items.filter((i) => i.resume && i.resume.path)
+      .map((i) => path.resolve(i.resume.path)))
+  } catch { return } // without the list nothing is provably unused
+  const dir = partialDir()
+  for (const name of await fs.promises.readdir(dir).catch(() => [])) {
+    const file = path.join(dir, name)
+    const st = await fs.promises.stat(file).catch(() => null)
+    if (st && st.isFile() && st.mtimeMs < since && !keep.has(path.resolve(file))) {
+      await fs.promises.unlink(file).catch(() => {})
+    }
+  }
+}
 
 // The app polls the sidecar's download list only while it knows something is
 // on its way — a download nobody armed would start and land unseen. The shell
@@ -245,12 +279,11 @@ function wireDownloads(sess, origin, token) {
       return
     }
     if (!resumed) {
-      item.setSavePath(path.join(
-        app.getPath('temp'),
-        `longbox-dl-${Date.now()}-${item.getFilename() || 'chapter.zip'}`,
-      ))
+      item.setSavePath(path.join(partialDir(), `${Date.now()}-${item.getFilename() || 'chapter.zip'}`))
     }
     const tempFile = item.getSavePath()
+    const carried = resumed ? resuming.get(path.resolve(tempFile)) : undefined
+    resuming.delete(path.resolve(tempFile))
 
     // The page it came from — never the file's own address. A tab opened onto
     // the file has none of its own: then it is the page whose link opened it.
@@ -260,12 +293,12 @@ function wireDownloads(sess, origin, token) {
     openedFrom.delete(chain[0] || item.getURL())
     const pageUrl = opener ?? (/^https?:/.test(tabUrl) && !chain.includes(tabUrl) ? tabUrl : '')
 
-    // claim the binding NOW — the arm is consumed at download START
-    const claim = api('/start', {
-      filename: item.getFilename() || '',
-      fileUrl: item.getURL(),
-      pageUrl,
-    }).then(async (res) => {
+    // Claim the binding NOW — the arm is consumed at download START. A transfer
+    // picked up carries on in the record it began in, which claimed it already.
+    const request = resumed
+      ? api(`/${carried || 'unknown'}/resumed`, {})
+      : api('/start', { filename: item.getFilename() || '', fileUrl: item.getURL(), pageUrl })
+    const claim = request.then(async (res) => {
       if (!res.ok) {
         // 409 = nothing armed — this download was not asked for; drop it
         try { item.cancel() } catch { /* already done */ }
@@ -340,6 +373,7 @@ async function main() {
   const sess = session.defaultSession
   hardenSession(sess, origin)
   wireDownloads(sess, origin, token)
+  void sweepPartials(origin, token)
   // Deliver the secret as an HttpOnly, SameSite=Strict cookie the backend guard requires.
   await sess.cookies.set({
     url: origin, name: 'lb_auth', value: token,
@@ -382,27 +416,45 @@ async function main() {
     }
   })
 
-  // Everything still streaming, stopped WITH its place kept: the partial file
-  // stays on disk and the sidecar records what it takes to carry on — the URL
-  // chain, the byte offset and the validators the server will be asked to match.
+  // A transfer stopped WITH its place kept: the partial file stays on disk and
+  // the sidecar records what it takes to carry on — the URL chain, the byte
+  // offset and the validators the server will be asked to match.
+  async function interrupt(id, item, reason) {
+    liveDownloads.delete(id)
+    interrupting.add(id)
+    const resume = {
+      path: item.getSavePath() || '',
+      urlChain: item.getURLChain() || [],
+      offset: item.getReceivedBytes() || 0,
+      total: item.getTotalBytes() || 0,
+      eTag: item.getETag() || '',
+      lastModified: item.getLastModifiedTime() || '',
+    }
+    try { item.cancel() } catch { /* already finished */ }
+    try { await dlApi?.(`/${id}/interrupted`, { reason, resume }) } catch { /* the sidecar may be gone */ }
+  }
   async function interruptAll(reason) {
     const jobs = [...liveDownloads.entries()]
-    liveDownloads.clear()
-    for (const [id, item] of jobs) {
-      interrupting.add(id)
-      const resume = {
-        path: item.getSavePath() || '',
-        urlChain: item.getURLChain() || [],
-        offset: item.getReceivedBytes() || 0,
-        total: item.getTotalBytes() || 0,
-        eTag: item.getETag() || '',
-        lastModified: item.getLastModifiedTime() || '',
-      }
-      try { item.cancel() } catch { /* already finished */ }
-      try { await dlApi?.(`/${id}/interrupted`, { reason, resume }) } catch { /* the sidecar may be gone */ }
-    }
+    for (const [id, item] of jobs) await interrupt(id, item, reason)
     return jobs.length
   }
+
+  // Pause: one transfer stopped with its place kept, as quitting stops them all.
+  ipcMain.handle('lb-pause-download', async (e, id) => {
+    if (e.sender !== win.webContents) return false
+    const item = liveDownloads.get(String(id || ''))
+    if (!item) return false
+    await interrupt(String(id), item, 'paused')
+    return true
+  })
+
+  // A paused transfer forgotten: its partial file goes with it. Only ever a
+  // file in the partial folder — the path comes from the renderer.
+  ipcMain.handle('lb-forget-partial', async (e, file) => {
+    if (e.sender !== win.webContents || !inPartialDir(file)) return false
+    await fs.promises.unlink(path.resolve(file)).catch(() => {})
+    return true
+  })
 
   // The window asks before it takes unfinished transfers down with it. The app
   // decides what to show; the shell only refuses to close until it is told to.
@@ -427,7 +479,8 @@ async function main() {
   ipcMain.handle('lb-resume-download', (e, rec) => {
     if (e.sender !== win.webContents) return false
     const r = (rec && rec.resume) || {}
-    if (!r.path || !Array.isArray(r.urlChain) || !r.urlChain.length) return false
+    if (!rec || !rec.id || !r.path || !Array.isArray(r.urlChain) || !r.urlChain.length) return false
+    resuming.set(path.resolve(r.path), String(rec.id))
     try {
       session.defaultSession.createInterruptedDownload({
         path: r.path,
@@ -439,6 +492,7 @@ async function main() {
       })
       return true
     } catch (err) {
+      resuming.delete(path.resolve(r.path))
       console.error('resume failed:', err)
       return false
     }

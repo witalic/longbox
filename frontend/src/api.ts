@@ -4,7 +4,7 @@
 import type {
   Bookmark, BrowseGroup, DraftCommit, Facets, FieldDef, FieldValues, FrameKind, ImportOverrides,
   ImportPlan, ImportProfile, ImportReport, ImportScan, LooseFile, MetaAction, MetaField, MetaHeld, MetaPreview,
-  MetaRun, MetaScope, MetaValue, PageFilter, PageLink, Recipe, Rule, RuleApply, RuleStats, Source,
+  MetaRun, MetaScope, MetaValue, PageFilter, PageLink, PausedImport, Recipe, Rule, RuleApply, RuleStats, Source,
   StoredPage, Subtitle, Title, UserPatch, ValuePage, ValuePeek,
 } from './data'
 
@@ -182,9 +182,6 @@ export const api = {
   // failed one). Stopping the transfer itself is the shell's — it owns it.
   forgetDownload: (id: string) => req<void>(`/downloads/${id}`, { method: 'DELETE' }),
   downloadsState: () => req<DownloadsState>('/downloads'),
-  // arm the chapter an interrupted transfer was bound to, so restarting it
-  // claims the same entry it was claiming before
-  rearmDownload: (id: string) => req<DownloadsState>(`/downloads/${id}/rearm`, { method: 'POST' }),
   disarmDownload: () => reqVoid('/downloads/arm', { method: 'DELETE' }),
   // the library's downloads folder: what came with nothing armed
   looseFiles: () => req<LooseFile[]>('/downloads/files'),
@@ -276,6 +273,11 @@ export const api = {
   importRun: (scanId: string, profile: ImportProfile, overrides: ImportOverrides) =>
     req<ImportReport>('/import/run', jsonBody('POST', { scanId, profile, overrides })),
   importRuns: () => req<ImportReport[]>('/import/runs'),
+  // an import put down to be carried on — this library's, kept across restarts
+  pauseImport: () => req<PassState>('/import/pause', { method: 'POST' }),
+  pausedImports: () => req<PausedImport[]>('/import/paused'),
+  resumeImport: (id: string) => req<ImportReport>(`/import/paused/${id}/resume`, { method: 'POST' }),
+  forgetPausedImport: (id: string) => reqVoid(`/import/paused/${id}`, { method: 'DELETE' }),
   importProfiles: () => req<ImportProfile[]>('/import/profiles'),
   saveImportProfiles: (profiles: ImportProfile[]) =>
     req<ImportProfile[]>('/import/profiles', jsonBody('PUT', profiles)),

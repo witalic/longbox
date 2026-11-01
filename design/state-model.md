@@ -273,9 +273,10 @@ fetches chapters itself):
    when the library can use it, and refused otherwise (design/subtitles.md). Arms expire
    (15 minutes). The arm is consumed when the transfer STARTS, so the next chapter can be
    armed while one still streams.
-5. A transfer interrupted by a quit is remembered in the app config — the chapter it was
-   claiming, its byte offset, URL chain and `ETag`/`Last-Modified` — and a later launch can
-   re-arm and resume it; whether the range is honoured is the source's call.
+5. A transfer paused, or interrupted by a quit, is remembered in the app config — the chapter
+   it was claiming, its byte offset, URL chain and `ETag`/`Last-Modified` — and is resumed in its
+   own record, which claimed its chapter when it first started; whether the range is honoured
+   is the source's call.
 
 Storage: page media is a **plain zip** (`chapters/<chapter-id>.zip` — CBZ is the same
 thing, so any third-party reader opens it), converted at ingest when the site served
@@ -407,7 +408,7 @@ GET/PUT /api/page-filter          what page capture accepts as a page
                                   revert) and rules — design/metadata-management.md §9
 
 /api/downloads                    GET list · POST/DELETE /arm · POST /start ·
-                                  POST /{id}/progress|complete|failed|interrupted|rearm · DELETE /{id}
+                                  POST /{id}/progress|complete|failed|interrupted|resumed · DELETE /{id}
 
 GET    /api/settings · PUT /api/settings/homepage|library-path · DELETE /api/settings/libraries
 GET    /api/settings/pass/status · POST /api/settings/pass/stop · GET /api/settings/library/status

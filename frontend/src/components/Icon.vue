@@ -44,6 +44,7 @@ const P: Record<string, string> = {
   filter: 'M4 5h16l-6.2 7.4V19l-3.6 2v-8.6z',
   // a closed triangle — pass fill to make it solid, as a play button wants
   play: 'M8 5l11 7-11 7z',
+  pause: 'M9 5v14M15 5v14',
   sound: 'M4 9h4l5-4v14l-5-4H4zM17 9a4 4 0 0 1 0 6',
   muted: 'M4 9h4l5-4v14l-5-4H4zM17 10l4 4M21 10l-4 4',
   eyeoff: 'M3 3l18 18M10.6 6.3A9.6 9.6 0 0 1 12 6.2c5 0 8.5 5.8 8.5 5.8a17 17 0 0 1-2.9 3.6M6.4 8.2A17 17 0 0 0 3.5 12s3.5 5.8 8.5 5.8c1 0 2-.2 2.8-.5',

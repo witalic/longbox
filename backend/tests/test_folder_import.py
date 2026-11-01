@@ -458,6 +458,53 @@ def test_scan_plan_and_run_through_the_api(tmp_path):
     lib.close()
 
 
+def test_a_paused_import_is_carried_on_where_it_stopped(tmp_path, monkeypatch):
+    """Pause puts the run down between two entries and remembers it on this
+    machine, so it outlives a restart; carrying it on stores the rest, counts on
+    from where it stopped, and stores nothing twice."""
+    from app.routers import imports
+
+    lib = Library(tmp_path / "lib")
+    src = creator_tree(tmp_path / "src")
+    real, stored = fi._store, []
+    monkeypatch.setattr(fi, "_store", lambda *a, **kw: (real(*a, **kw), stored.append(1),
+                                                        len(stored) == 1 and imports.pause()))
+    with TestClient(create_app(lib)) as c:
+        sc = c.post("/api/import/scan", json={"root": str(src)}).json()
+        report = c.post("/api/import/run", json={"scanId": sc["scanId"], "profile": by_creator().model_dump()}).json()
+        assert report["paused"] and report["stopped"] and report["imported"] == 1
+        held = c.get("/api/import/paused").json()
+        assert [(p["root"], p["done"], p["total"]) for p in held] == [(str(src), 1, 4)]
+        assert c.post("/api/import/pause").status_code == 409  # nothing is running
+    with TestClient(create_app(lib)) as c2:
+        held = c2.get("/api/import/paused").json()
+        report = c2.post(f"/api/import/paused/{held[0]['id']}/resume").json()
+        assert (report["imported"], report["skipped"], report["paused"]) == (3, 1, False)
+        assert (imports.PASS["done"], imports.PASS["total"]) == (4, 4)  # counted on from 1 of 4
+        assert c2.get("/api/import/paused").json() == []
+    assert [len(t.chapters) for t in lib.query()] == [2, 2]
+    lib.close()
+
+
+def test_a_paused_import_waits_for_its_own_library_and_can_be_forgotten(tmp_path):
+    from app.routers import imports
+
+    lib = Library(tmp_path / "lib")
+    src = creator_tree(tmp_path / "src")
+    imports._keep_paused(lambda rows: [
+        imports.PausedImport(id="elsewhere", library=str(tmp_path / "other"), root=str(src), profile=by_creator()),
+        imports.PausedImport(id="here", library=str(lib.root), root=str(src), profile=by_creator())])
+    with TestClient(create_app(lib)) as c:
+        assert [p["id"] for p in c.get("/api/import/paused").json()] == ["here"]
+        assert c.post("/api/import/paused/elsewhere/resume").status_code == 404
+        assert c.delete("/api/import/paused/here").status_code == 204
+        assert c.get("/api/import/paused").json() == []
+    # the other library's is still kept for when it is open again
+    assert [p.id for p in (imports.PausedImport.model_validate(r) for r in
+                           imports.load_config()[imports._PAUSED])] == ["elsewhere"]
+    lib.close()
+
+
 def test_a_run_imports_what_is_in_the_folder_now(tmp_path):
     """Files added after the folder was chosen are part of the run: it reads the
     folder again rather than trusting the preview's reading."""

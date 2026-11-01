@@ -215,19 +215,20 @@ def interrupted(request: Request, download_id: str, body: InterruptIn) -> Downlo
     return item
 
 
-@router.post("/{download_id}/rearm", response_model=DownloadsOut)
-def rearm(request: Request, download_id: str) -> DownloadsOut:
-    """Arm the chapter an interrupted download was bound to, so the transfer the
-    shell is about to restart claims the same entry it was claiming before."""
+@router.post("/{download_id}/resumed", response_model=DownloadItem)
+def resumed(request: Request, download_id: str) -> DownloadItem:
+    """A paused or interrupted transfer picked up again by the shell. The SAME
+    record carries on: the entry it claims was claimed when it first started,
+    so nothing is armed for it."""
     item = _item_or_404(request, download_id)
-    if _lib(request).get(item.titleId) is None:
+    if item.state != "interrupted":
+        raise HTTPException(status_code=409, detail="that download is not waiting to be picked up")
+    if not item.loose and _lib(request).get(item.titleId) is None:
         raise HTTPException(status_code=404, detail="that title is gone")
-    with _DL_LOCK:
-        request.app.state.armed_download = {
-            "arm": ArmIn(titleId=item.titleId, num=item.num, lang=item.lang, group=item.group),
-            "at": time.monotonic(),
-        }
-    return state_out(request)
+    item.state = "downloading"
+    item.error = ""
+    _save_interrupted([i for i in _items(request).values() if i.state == "interrupted"])
+    return item
 
 
 @router.delete("/{download_id}", status_code=204)

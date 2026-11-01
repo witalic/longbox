@@ -164,7 +164,10 @@ Options, kept per profile:
 `importedFrom: "folder"`, `origDir` (the work's folder, as picked), `origPath` (relative to the
 WORK's folder, so choosing a parent folder next time still recognises it) and `origSize` (the
 stored file's own size differs after a repack or a faststart). A second run over the same tree
-recognises them and skips — which is also how an interrupted import is resumed. A file an earlier
+recognises them and skips — which is also how an interrupted import is resumed, and what **Pause**
+builds on: a paused run is kept in the app config (folder, profile, the run's own choices, the
+library it was going into, how far it got) and carried on from Activity — after a restart too — by
+running that plan again, counted on from where it stopped. A file an earlier
 run stored is that entry for good: changed since, it is that entry changed (replaced only with
 *replace*), never a second one under a new number. Only when it comes from the same folder,
 though: a file of the same name and another size under ANOTHER folder (or one an older run did

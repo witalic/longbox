@@ -97,12 +97,37 @@ def test_an_interrupted_download_survives_a_restart(tmp_path, monkeypatch):
         assert row["resume"]["offset"] == 500
         assert (row["titleId"], row["num"]) == (tid, "1")
 
-        # picking it up re-arms the same chapter, so the transfer claims it back
-        armed = c2.post(f"/api/downloads/{started['id']}/rearm").json()["armed"]
-        assert (armed["titleId"], armed["num"]) == (tid, "1")
-
         c2.delete(f"/api/downloads/{started['id']}")
         assert not c2.get("/api/downloads").json()["items"]
+    lib.close()
+
+
+def test_a_paused_download_carries_on_in_its_own_record(tmp_path, monkeypatch):
+    """Picked up — after a pause, or after a restart — the transfer is the same
+    row: no arm is consumed, it still claims its entry, and it lands there."""
+    from app import config_store
+
+    monkeypatch.setattr(config_store, "config_dir", lambda: tmp_path / "cfg")
+    lib = Library(tmp_path / "v")
+    with TestClient(create_app(lib)) as c:
+        tid = c.post("/api/titles", json={
+            "meta": {"title": "Ep"},
+            "chapters": [{"id": "c1", "num": "1", "lang": "", "group": ""}],
+        }).json()["id"]
+        c.post("/api/downloads/arm", json={"titleId": tid, "num": "1"})
+        started = c.post("/api/downloads/start", json={"filename": "a.zip", "fileUrl": "https://cdn/a.zip"}).json()
+        c.post(f"/api/downloads/{started['id']}/interrupted", json={
+            "reason": "paused", "resume": {"path": "p", "urlChain": ["https://cdn/a.zip"], "offset": 9}})
+
+    with TestClient(create_app(lib)) as c2:
+        assert c2.post(f"/api/downloads/{started['id']}/resumed").json()["state"] == "downloading"
+        assert c2.get("/api/downloads").json()["armed"] is None
+        # nothing interrupted is left to carry over into a third run
+        assert c2.post(f"/api/downloads/{started['id']}/resumed").status_code == 409
+        t = c2.post(f"/api/downloads/{started['id']}/complete", json={"path": str(make_zip(tmp_path))}).json()
+        assert next(ch for ch in t["chapters"] if ch["id"] == "c1")["dl"] is True
+    with TestClient(create_app(lib)) as c3:
+        assert c3.get("/api/downloads").json()["items"] == []
     lib.close()
 
 

@@ -27,8 +27,10 @@ const props = defineProps<{
   accent?: boolean
   // the caller's own reason to refuse — a Save with nothing valid to save
   disabled?: boolean
+  // a pass that can be put down to be carried on (an import) offers that beside Stop
+  pausable?: boolean
 }>()
-const emit = defineEmits<{ (e: 'run'): void; (e: 'stop'): void }>()
+const emit = defineEmits<{ (e: 'run'): void; (e: 'stop'): void; (e: 'pause'): void }>()
 
 const mine = () => props.active === props.op
 </script>
@@ -38,6 +40,11 @@ const mine = () => props.active === props.op
     <span v-if="props.running" class="pwhat">{{ props.running }}</span>
     <ProgressBar :done="props.done" :total="props.total" />
     <span class="pcount">{{ props.total ? `${props.done} / ${props.total}` : 'starting…' }}</span>
+    <button v-if="props.pausable" class="btn ghost" :class="{ small: props.small }"
+            title="Stop at the next entry and keep its place — carry it on from Activity, after a restart too"
+            @click="emit('pause')">
+      Pause
+    </button>
     <button class="btn ghost" :class="{ small: props.small }"
             title="Put the pass down at the next title" @click="emit('stop')">
       Stop

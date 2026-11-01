@@ -35,10 +35,14 @@ contextBridge.exposeInMainWorld('longbox', {
   },
   // stop everything still streaming (keeping its place) and quit
   closeNow: () => ipcRenderer.invoke('lb-close-now'),
-  // pick an interrupted transfer up from its stored offset
+  // pick an interrupted transfer up from its stored offset, in its own record
   resumeDownload: (rec) => ipcRenderer.invoke('lb-resume-download', rec),
   // stop a download that is streaming (the id the sidecar gave it)
   cancelDownload: (id) => ipcRenderer.invoke('lb-cancel-download', String(id || '')),
+  // stop one with its place kept, to be picked up later
+  pauseDownload: (id) => ipcRenderer.invoke('lb-pause-download', String(id || '')),
+  // drop the partial file of a paused transfer that is forgotten
+  forgetPartial: (file) => ipcRenderer.invoke('lb-forget-partial', String(file || '')),
   // page capture: pull one image with the browser session's cookies + referer
   // (the main process is not bound by the site's CORS)
   fetchImage: (url, referer) => ipcRenderer.invoke('lb-fetch-image', {

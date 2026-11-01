@@ -247,11 +247,18 @@ Endpoints run sync on FastAPI's threadpool, so races are real and handled struct
   fragments against 0.97x with 8). Deleting or replacing a file something still streams is a
   Windows `PermissionError`, so the media goes first and a refusal leaves the chapter untouched,
   answered as 409 with what to close.
-- **Interrupted transfers outlive the run.** Stopping everything for a quit keeps each transfer's
-  partial file and records — in the app config, not in memory — the chapter it was claiming, the
-  byte offset, the URL chain and the `ETag`/`Last-Modified` it would have to match. A later launch
-  lists them, re-arms the chapter and asks the session to re-open the file at that offset; whether
-  the range is honoured is the source's call, and the app offers to start over when it is not.
+- **Interrupted transfers outlive the run.** Pausing one, or stopping everything for a quit, keeps
+  each transfer's partial file (in the app's own data, `partial-downloads/` — never the system
+  temp folder) and records — in the app config, not in memory — the chapter it was claiming, the
+  byte offset, the URL chain and the `ETag`/`Last-Modified` it would have to match. Resuming asks
+  the session to re-open the file at that offset, and the transfer carries on in its OWN record
+  (`/{id}/resumed`, no arm consumed); whether the range is honoured is the source's call, and the
+  row is cleared to start over when it is not. A forgotten one's partial file goes with it; a
+  launch sweeps those no record names.
+- **A paused import outlives the run too.** Pause stops an import between two entries, as Stop
+  does, and keeps the folder, the profile and the run's own choices in the app config, with the
+  library it was going into. Carrying it on reads the folder again and runs the same plan: what
+  is stored already is skipped, so nothing is imported twice.
 - **The app never handles passwords.** The user signs in on the site inside the embedded browser;
   only the resulting session cookies persist (Electron session), per domain, revocable from the UI.
 - Remote/S3/WebDAV storage stays a roadmap item; the seam would be a storage adapter behind `Vault`.

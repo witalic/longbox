@@ -14,7 +14,7 @@ content). Full model: `design/state-model.md`; layout: `ARCHITECTURE.md`.
   App-config read-modify-write goes through `config_transaction()` only.
 - **Vault vs app config.** Anything that describes the library (recipes, the source layer,
   fields, per-title prefs) lives IN THE VAULT so it moves with it; the app config keeps only
-  the machine's (library paths, homepage, interrupted transfers, caches). `recipes.json`,
+  the machine's (library paths, homepage, interrupted transfers, paused imports, caches). `recipes.json`,
   `sources.json`, `rules.json`, `import-profiles.json`, `.pages/<vocabulary>.json` and
   `downloads/index.json` go through
   `Vault.read_doc()` / `Vault.doc_transaction()` (a list in one is read with `Vault.doc_items`):

@@ -6,15 +6,17 @@
 // A download is bound to a CHAPTER of a TITLE, so that is what a row says —
 // not a file name off a CDN; one nobody armed goes to the library's downloads
 // folder and says its file's name (design/subtitles.md), and that folder is
-// listed here too. Rows survive a quit: a transfer stopped by closing the window
-// is remembered with its byte offset, and can be picked up from there or started
-// over, depending on what the server still honours.
+// listed here too. Rows survive a quit: a transfer paused, or stopped by
+// closing the window, is remembered with its byte offset, and can be picked up
+// from there or started over, depending on what the server still honours — and
+// an import paused waits here to be carried on.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import ProgressBar from './ProgressBar.vue'
 import { api } from '../api'
 import {
-  askConfirm, downloads, openSection, passHome, passIcon, passPercent, pollDownloads, stopVaultPass, store,
+  askConfirm, downloads, forgetPausedImport, openSection, passHome, passIcon, passPercent, pauseDownload,
+  pauseImport, pausedImports, pollDownloads, resumeDownload, resumeImport, stopDownload, stopVaultPass, store,
   titleById, vaultPass, watchDownloads, watchVaultPass,
 } from '../store'
 import { hostOf, type LooseFile } from '../data'
@@ -45,20 +47,15 @@ function size(n: number): string {
   return n >= 2 ** 30 ? `${(n / 2 ** 30).toFixed(1)} GB` : mb(n)
 }
 // only an import counts bytes, and its steps are files
-const passAmount = computed(() => {
-  const p = vaultPass
+type Counted = { done: number; total: number; doneBytes: number; totalBytes: number }
+function jobAmount(p: Counted): string {
   if (p.totalBytes) return `${p.done} of ${p.total} files · ${size(p.doneBytes)} of ${size(p.totalBytes)}`
   return p.total ? `${p.done} of ${p.total}` : ''
-})
+}
+const folderName = (root: string) => root.split(/[\\/]/).filter(Boolean).pop() || root
 function openHome() {
   openSection(passHome(vaultPass.key))
   emit('close')
-}
-
-async function stop(id: string) {
-  await window.longbox?.cancelDownload(id)
-  try { await api.forgetDownload(id) } catch { /* already gone */ }
-  await pollDownloads(true)
 }
 
 // ---- the library's downloads folder: what came with nothing armed ----
@@ -67,20 +64,6 @@ async function loadLoose() {
   try { loose.value = await api.looseFiles() } catch { loose.value = [] }
   store.loose = loose.value.length
 }
-
-// Picking one up: the chapter is armed again FIRST (so the transfer claims the
-// same entry), then the shell re-opens the file at the offset it reached. A
-// server that will not honour the range answers from zero — Electron reports
-// that as a failure, and the row offers to start over.
-async function resume(id: string) {
-  const rec = downloads.items.find((i) => i.id === id)
-  if (!rec) return
-  try { await api.rearmDownload(id) } catch (e) { store.error = String(e); return }
-  const ok = await window.longbox?.resumeDownload(rec)
-  if (!ok) store.error = 'this transfer cannot be picked up — start it over from the source page'
-  await pollDownloads(true)
-}
-
 onMounted(loadLoose)
 // a download landing there shows up while the panel is open
 watch(() => downloads.items.filter((i) => i.loose && i.state === 'done').length, loadLoose)
@@ -150,15 +133,37 @@ function sizeOf(n: number): string {
           <ProgressBar :done="vaultPass.totalBytes ? vaultPass.doneBytes : vaultPass.done"
                        :total="vaultPass.totalBytes || vaultPass.total" wide class="dlbar" />
           <div class="dlfoot">
-            <span class="dlamt mono">{{ passAmount }}</span>
+            <span class="dlamt mono">{{ jobAmount(vaultPass) }}</span>
             <span class="dlpct mono">{{ passPercent() }}%</span>
             <div style="flex:1"></div>
             <button class="btn ghost small" @click="openHome">Open {{ HOME[passHome(vaultPass.key)] }}</button>
+            <button v-if="vaultPass.key === 'import'" class="btn ghost small"
+                    title="Stop between two entries and keep its place — carry it on any time, after a restart too"
+                    @click="pauseImport()">Pause</button>
             <button class="btn ghost small" @click="stopVaultPass()">Stop</button>
           </div>
           <div v-if="vaultPass.detail" class="dlcur mono" :title="vaultPass.detail"><span>now</span> {{ vaultPass.detail }}</div>
         </div>
-        <div v-else class="dlnone">Nothing is running.</div>
+        <div v-for="p in pausedImports" :key="p.id" class="dlrow interrupted">
+          <div class="dlmain">
+            <Icon name="import" :size="14" :sw="2" class="pic" />
+            <span class="dlname" :title="p.root">Import {{ folderName(p.root) }}</span>
+            <span v-if="p.profile.name" class="dlch">{{ p.profile.name }}</span>
+          </div>
+          <ProgressBar :done="p.totalBytes ? p.doneBytes : p.done" :total="p.totalBytes || p.total" wide class="dlbar" />
+          <div class="dlfoot">
+            <span class="dlamt mono">{{ jobAmount(p) }}</span>
+            <span class="dlerr">paused</span>
+            <div style="flex:1"></div>
+            <!-- carried on, it reads the folder again: what is stored already is skipped -->
+            <button class="btn ghost small" :disabled="vaultPass.running"
+                    :title="vaultPass.running ? 'another library job is running' : 'Carry on from where it stopped'"
+                    @click="resumeImport(p.id)">Resume</button>
+            <button class="btn ghost small" title="Forget it — what it stored stays in the library"
+                    @click="forgetPausedImport(p.id)">Forget</button>
+          </div>
+        </div>
+        <div v-if="!vaultPass.running && !pausedImports.length" class="dlnone">Nothing is running.</div>
 
         <div class="sec">DOWNLOADS</div>
         <div v-if="!rows.length" class="dlnone">Nothing is downloading.</div>
@@ -181,10 +186,13 @@ function sizeOf(n: number): string {
             <span v-if="i.state === 'downloading'" class="dlpct mono">{{ pct(i) }}%</span>
             <span v-else class="dlerr">{{ i.error || i.state }}</span>
             <div style="flex:1"></div>
-            <button v-if="i.state === 'interrupted'" class="btn ghost small" @click="resume(i.id)">
-              Pick up
-            </button>
-            <button class="btn ghost small" @click="stop(i.id)">
+            <button v-if="i.state === 'downloading'" class="btn ghost small"
+                    title="Stop and keep what came — carry it on any time, after a restart too"
+                    @click="pauseDownload(i.id)">Pause</button>
+            <button v-if="i.state === 'interrupted'" class="btn ghost small"
+                    title="Carry on from where it stopped — if the source still honours it"
+                    @click="resumeDownload(i.id)">Resume</button>
+            <button class="btn ghost small" @click="stopDownload(i.id)">
               {{ i.state === 'downloading' ? 'Stop' : 'Forget' }}
             </button>
           </div>

@@ -15,8 +15,12 @@ declare global {
       onDownloadsChanged: (fn: () => void) => () => void
       onCloseBlocked: (fn: (running: number) => void) => () => void
       closeNow: () => Promise<boolean>
-      // pick an interrupted transfer up from where it stopped
+      // pick an interrupted transfer up from where it stopped, in its own record
       resumeDownload: (rec: unknown) => Promise<boolean>
+      // stop one in flight with its place kept; false when the shell no longer holds it
+      pauseDownload: (id: string) => Promise<boolean>
+      // drop a forgotten transfer's partial file (only ever one in the shell's own folder)
+      forgetPartial: (file: string) => Promise<boolean>
       // a shortcut pressed inside a guest page; returns an unsubscribe
       onPageKey: (fn: (k: { code: string; ctrl: boolean; shift: boolean; alt: boolean }) => void)
         => () => void

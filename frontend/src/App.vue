@@ -8,7 +8,7 @@ import ConfirmModal from './components/ConfirmModal.vue'
 import RailSection from './components/RailSection.vue'
 import {
   store, closeTab, toggleTabPin, moveTabBefore, init, shownAxes, runningDownloads,
-  unfinishedDownloads, vaultPass, passIcon, passPercent, activeAppTab, tabById, showTab, showDraft,
+  unfinishedDownloads, vaultPass, passIcon, passPercent, pausedImports, activeAppTab, tabById, showTab, showDraft,
   leaveDraft, goLibrary, goBrowse, newLibraryTab, openSection, showSources, placeLabel, goBack, goForward,
   DRAFT, HOME, type AppTab, type LibraryPlace, type Section,
 } from './store'
@@ -139,6 +139,7 @@ const RING = 2 * Math.PI * 8.5 // the progress ring's circumference
 const activityTitle = computed(() => [
   vaultPass.running ? `${vaultPass.op} — ${passPercent()}%` : '',
   runningCount.value ? `${runningCount.value} downloading` : unfinished.value.length ? 'unfinished downloads' : '',
+  pausedImports.value.length ? `${pausedImports.value.length} import${pausedImports.value.length === 1 ? '' : 's'} paused` : '',
   store.loose ? `${store.loose} in the library's downloads` : '',
 ].filter(Boolean).join(' · '))
 let dropCloseHook: (() => void) | null = null
@@ -538,7 +539,7 @@ initSessions()
         <div style="flex:1"></div>
         <!-- what the app is doing right now, and the way into all of it: a library
              job draws how far it is around its own icon, the transfers their count -->
-        <button v-if="vaultPass.running || unfinished.length || store.loose" class="themebtn actbtn"
+        <button v-if="vaultPass.running || unfinished.length || pausedImports.length || store.loose" class="themebtn actbtn"
                 :class="{ hot: vaultPass.running || !!runningCount }" :title="activityTitle" @click="actOpen = true">
           <template v-if="vaultPass.running">
             <span class="ring"><svg class="rs" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8.5" class="track" />
@@ -549,6 +550,10 @@ initSessions()
           <template v-else-if="unfinished.length">
             <Icon name="download" :size="15" :sw="2" />
             <span class="actnum mono">{{ unfinished.length }}</span>
+          </template>
+          <template v-else-if="pausedImports.length">
+            <Icon name="import" :size="15" :sw="2" />
+            <span class="actnum mono">{{ pausedImports.length }}</span>
           </template>
           <!-- nothing moving: the files waiting in the library's downloads -->
           <template v-else>

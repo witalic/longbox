@@ -63,7 +63,7 @@ and an episode has nowhere to keep subtitles: the player has none.
   where it came from), `take()` (a finished download moved in, a clashing name numbered),
   `remove()`. `/api/downloads/start` with nothing armed opens a loose item — or records a refused
   one and answers 409, which the shell takes as "drop it" as before; `/complete` moves a loose
-  item into the folder.
+  item into the folder. A loose item resumed carries on in its own record: it lands there again.
 - `library/subtitles.py` reads SRT, VTT and ASS/SSA (UTF-8, UTF-16 or a Windows Cyrillic code
   page) into WebVTT and a language off a name. `Library.add_subtitle` / `update_subtitle` /
   `remove_subtitle` work under the title lock; the tracks ride in the episode's sidecar and come

@@ -8,8 +8,8 @@ import {
 } from '../draft'
 import {
   addChapterRow, askConfirm, cache, downloads, groupRings, langRings, openTitle, pageFilter,
-  pollDownloads, refreshTitle as refreshTitleOf, resetPageFilter, savePageFilter, store,
-  titleById, watchDownloads,
+  pauseDownload, refreshTitle as refreshTitleOf, resetPageFilter, resumeDownload, savePageFilter,
+  stopDownload, store, titleById, watchDownloads,
 } from '../store'
 import { browser, newTab } from '../browser'
 import { api, type DownloadItem } from '../api'
@@ -97,21 +97,18 @@ watch(() => downloads.items.map((i) => `${i.id}:${i.state}`).join(), () => {
     if (it.state === 'done' && !told.has(it.id)) {
       told.add(it.id)
       showFlash(`✓ ch. ${it.num} saved`)
-    } else if (it.state !== 'downloading') told.add(it.id)
+    } else if (it.state === 'downloading') told.delete(it.id) // picked up again: its end is news
+    else told.add(it.id)
   }
 })
 // the Contents tab is a live view of them: keep the poll warm while it is open
 watch(tab, (v) => watchDownloads(v === 'downloads'), { immediate: true })
 onBeforeUnmount(() => { if (tab.value === 'downloads') watchDownloads(false) })
 
-// Stop a download, or clear one that failed. The transfer belongs to the SHELL
-// (it owns the Electron item), the record belongs to the sidecar — so both are
-// told, in that order, and the row is gone by the next poll.
-async function stopDownload(id: string, running: boolean) {
-  if (running) await window.longbox?.cancelDownload(id)
-  try { await api.forgetDownload(id) } catch { /* already gone */ }
+// Stop a download, forget a paused one, or clear one that failed.
+async function dropDownload(id: string) {
   told.add(id) // its 'failed' report is expected, and is not news
-  await pollDownloads(true)
+  await stopDownload(id)
 }
 
 // An entry the human no longer wants: the row AND whatever was downloaded into
@@ -257,6 +254,7 @@ function stateOf(r: PanelRow): 'ok' | 'run' | 'fail' | '' {
 function amountOf(r: PanelRow): string {
   if (r.item) {
     if (r.item.state === 'failed') return 'failed'
+    if (r.item.state === 'interrupted') return 'paused'
     return r.item.total ? `${pct(r.item)}%` : mb(r.item.received)
   }
   if (!r.chapter?.dl) return ''
@@ -681,11 +679,20 @@ async function save(asNew: boolean) {
                             @click="armRow(r)">
                       <Icon name="download" :size="11" :sw="2" />
                     </button>
-                    <!-- one X, two jobs: stop what is running, clear what failed -->
+                    <button v-if="r.item?.state === 'downloading'" class="eact"
+                            title="Pause — keep what came, carry it on any time"
+                            @click="pauseDownload(r.item.id)">
+                      <Icon name="pause" :size="11" :sw="2.4" />
+                    </button>
+                    <button v-else-if="r.item?.state === 'interrupted'" class="eact"
+                            title="Carry on from where it stopped" @click="resumeDownload(r.item.id)">
+                      <Icon name="play" :size="10" :sw="2" fill="currentColor" />
+                    </button>
+                    <!-- one X, three jobs: stop what is running, forget what is paused, clear what failed -->
                     <button v-if="r.item" class="eact danger"
                             :title="r.item.state === 'failed' ? 'Clear this failed download'
-                              : 'Stop this download'"
-                            @click="stopDownload(r.item.id, r.item.state !== 'failed')">
+                              : r.item.state === 'interrupted' ? 'Forget this paused download' : 'Stop this download'"
+                            @click="dropDownload(r.item.id)">
                       <Icon name="x" :size="11" :sw="2.4" />
                     </button>
                     <button v-else-if="r.chapter" class="eact danger"

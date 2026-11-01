@@ -48,7 +48,7 @@ import RailSection from '../components/RailSection.vue'
 import HistoryNav from '../components/HistoryNav.vue'
 import { api } from '../api'
 import {
-  goLibrary, refreshLibrary, runVaultPass, stopVaultPass, store, useShown, vaultPass, watchVaultPass,
+  goLibrary, pauseImport, refreshLibrary, runVaultPass, stopVaultPass, store, useShown, vaultPass, watchVaultPass,
 } from '../store'
 import type { ImportEntry, ImportRole, ImportWork } from '../data'
 import { readLocal, readLocalOne, writeLocal, writeLocalOne } from '../local'
@@ -687,7 +687,8 @@ onMounted(async () => {
                 <span class="big">{{ report.imported + report.replaced }}</span><span class="s">stored in {{ report.works.length }} work{{ report.works.length === 1 ? '' : 's' }}</span>
                 <span class="big dim">{{ report.skipped }}</span><span class="s">skipped</span>
                 <span class="big" :class="{ bad: report.failed.length }">{{ report.failed.length }}</span><span class="s">failed</span>
-                <span v-if="report.stopped" class="s warn">stopped before the end</span>
+                <span v-if="report.stopped" class="s warn">{{ report.paused
+                  ? 'paused — carry it on from Activity' : 'stopped before the end' }}</span>
                 <button class="x" title="Close the report" @click="report = null">×</button>
               </div>
               <div v-for="w in report.works" :key="w.titleId" class="rpl"><span class="dot"></span>
@@ -769,8 +770,9 @@ onMounted(async () => {
         </span>
         <div style="flex:1"></div>
         <PassButton :op="PASS" :active="vaultPass.key" :done="vaultPass.done" :total="vaultPass.total"
-                    :running="vaultPass.op" :label="runLabel" icon="import" accent
-                    :disabled="!runnable || !!planErr" @run="runImport()" @stop="stopVaultPass()" />
+                    :running="vaultPass.op" :label="runLabel" icon="import" accent pausable
+                    :disabled="!runnable || !!planErr" @run="runImport()" @stop="stopVaultPass()"
+                    @pause="pauseImport()" />
       </div>
     </div>
   </div>

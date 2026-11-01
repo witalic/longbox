@@ -987,6 +987,19 @@ export interface ImportReport {
   works: { titleId: string; title: string; created: boolean; added: number }[]
   kept: number
   stopped: boolean
+  paused: boolean // stopped to be carried on — it waits in Activity
+}
+
+// An import put down to be carried on (backend: routers/imports.py PausedImport).
+export interface PausedImport {
+  id: string
+  root: string
+  profile: ImportProfile
+  at: string
+  done: number
+  total: number
+  doneBytes: number
+  totalBytes: number
 }
 
 export function blankImportProfile(): ImportProfile {
