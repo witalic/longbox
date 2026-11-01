@@ -142,6 +142,26 @@ async function waitForHealth(port, token, timeoutMs = 60000) {
   throw new Error('sidecar did not become healthy in time')
 }
 
+// A guest page's fullscreen is granted only once the app has given its <webview>
+// the screen's size, so the window then grows around a view that keeps it. A
+// <webview> resized twice in a row (stretched while the window grows) leaves the
+// frames inside its page taking clicks only over the size in between — the
+// right and bottom edge of a site's embedded player go dead until the page is
+// resized again (design/browser-refactor.md, "Fullscreen").
+const roomWaits = new Map() // token → resolve
+function makeRoomForFullscreen(guest) {
+  const host = guest.hostWebContents
+  if (!host || host.isDestroyed()) return Promise.resolve()
+  const token = crypto.randomUUID()
+  return new Promise((resolve) => {
+    const done = () => { roomWaits.delete(token); resolve() }
+    roomWaits.set(token, done)
+    // a host that never answers must not leave the page's request hanging
+    setTimeout(done, 1000)
+    host.send('lb-page-fullscreen', { guestId: guest.id, token })
+  })
+}
+
 function hardenSession(sess, origin) {
   // Deny everything — EXCEPT going fullscreen. Both handlers gate it:
   // `fullscreen` is asked for through the request handler and re-checked through
@@ -155,8 +175,11 @@ function hardenSession(sess, origin) {
   const mayFullscreen = (permission, wc, url) =>
     permission === 'fullscreen' &&
     (!wc || wc.getType() === 'webview' || String(url || '').startsWith(origin))
-  sess.setPermissionRequestHandler((wc, permission, cb, details) =>
-    cb(mayFullscreen(permission, wc, (details && details.requestingUrl) || wc.getURL())))
+  sess.setPermissionRequestHandler((wc, permission, cb, details) => {
+    const ok = mayFullscreen(permission, wc, (details && details.requestingUrl) || wc.getURL())
+    if (ok && wc.getType() === 'webview') void makeRoomForFullscreen(wc).then(() => cb(true))
+    else cb(ok)
+  })
   sess.setPermissionCheckHandler((wc, permission, requestingOrigin) =>
     mayFullscreen(permission, wc, requestingOrigin || (wc && wc.getURL())))
   const appCsp =
@@ -438,6 +461,12 @@ async function main() {
     for (const [id, item] of jobs) await interrupt(id, item, reason)
     return jobs.length
   }
+
+  // the app has made room for a guest page's fullscreen: grant it now
+  ipcMain.on('lb-page-fullscreen-ready', (e, token) => {
+    if (e.sender !== win.webContents) return
+    roomWaits.get(String(token || ''))?.()
+  })
 
   // Pause: one transfer stopped with its place kept, as quitting stops them all.
   ipcMain.handle('lb-pause-download', async (e, id) => {

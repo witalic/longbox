@@ -50,6 +50,16 @@ Tabs: new (`+`) / close / activate; middle-click & `target=_blank` open a new **
 an OS window). A page opens one only off a fresh user gesture, one tab per gesture — Electron has
 no popup blocker, so the guest preload is one. Each tab keeps its own page, history and zoom.
 
+**Fullscreen.** A site's player takes the whole screen, and Escape always ends it. Electron lifts a
+page over the app only when the page's own document asks; a player embedded in a frame (most video
+sites) would stay inside the page's box, so the app stretches that tab's `<webview>` over the
+window. The order matters: a `<webview>` resized twice in a row (stretched while the window goes
+fullscreen) leaves the frames inside its page taking clicks only over the size in between, and the
+player's right and bottom edges go dead until the page is resized again. So the shell holds the
+page's fullscreen request until the app has given the view the screen's size in pixels. The window
+then grows around a view that keeps its size. On the way back the window shrinks first, and the
+view returns to its box after that, so the page is resized once each way.
+
 Electron surface used (for reference, not part of approval): `webview.setZoomFactor`,
 `findInPage`/`stopFindInPage`, `openDevTools`, `goBack/goForward/reload`, main-process
 `session.on('will-download')`, `setWindowOpenHandler`.

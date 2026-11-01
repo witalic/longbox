@@ -36,9 +36,37 @@ function wvRef(id: string): (el: any) => void {
   return fn
 }
 function wv(): any { return browser.activeId ? wvRefs.get(browser.activeId) : null }
-// A page's player gone fullscreen takes the window with it, but its <webview>
-// would stay the size of the box the page sits in — so it fills the window.
+// A page's player gone fullscreen takes the window with it, but Electron lifts a
+// page over the app only when its own document asks: a site's player embedded in
+// a frame would stay the size of the box the page sits in. So the <webview> takes
+// the screen's size, in pixels, BEFORE the request is granted (the shell holds it
+// until `makeRoom` is done), and the window then grows around a view that keeps
+// its size. A <webview> resized twice in a row (stretched while the window grows)
+// leaves the frames inside its page taking clicks only over the size in between.
+// While one is fullscreen the tab strip is no drag handle, or it would swallow
+// clicks on the top of the picture.
 const fullTab = ref('')
+let screenSizedBefore = false
+watch(fullTab, (id) => document.documentElement.classList.toggle('pagefull', !!id))
+onBeforeUnmount(() => document.documentElement.classList.remove('pagefull'))
+const screenSized = () => innerWidth === screen.width && innerHeight === screen.height
+function screenBox() { return { width: `${screen.width}px`, height: `${screen.height}px` } }
+async function makeRoom(guestId: number) {
+  const id = [...wvRefs].find(([, el]) => el.getWebContentsId?.() === guestId)?.[0]
+  if (!id) return
+  screenSizedBefore = screenSized()
+  fullTab.value = id
+  await nextTick()
+  // drawn at the new size before the window moves
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+}
+// Back, the window shrinks first and the view keeps the screen's size until it
+// has: the page is resized once, into its box.
+function leaveFull() {
+  const back = () => { fullTab.value = '' }
+  if (screenSizedBefore || !screenSized()) back()
+  else window.addEventListener('resize', back, { once: true })
+}
 
 // The strip owns the switch; the element is where it takes effect.
 watch(() => browser.tabs.map((t) => `${t.id}:${t.muted ? 1 : 0}`).join(), () => {
@@ -173,14 +201,17 @@ function onKey(e: KeyboardEvent) {
   if (e.code !== 'Escape') e.preventDefault()
 }
 let dropPageKeys: (() => void) | null = null
+let dropPageFullscreen: (() => void) | null = null
 onMounted(() => {
   document.addEventListener('keydown', onKey)
   // the same shortcuts, arriving from the shell when the PAGE had focus
   dropPageKeys = window.longbox?.onPageKey((k) => { pageKey(k) }) ?? null
+  dropPageFullscreen = window.longbox?.onPageFullscreen(makeRoom) ?? null
 })
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onKey)
   dropPageKeys?.()
+  dropPageFullscreen?.()
 })
 
 function closeFind() {
@@ -1013,9 +1044,10 @@ function onReady(tabId: string) {
         <!-- allowpopups: a page's new-tab link reaches the shell, which makes it a tab -->
         <webview
           v-for="t in browser.tabs" :key="t.id" :ref="wvRef(t.id)" allowpopups
-          v-show="t.id === browser.activeId" :src="t.initialUrl" class="wv" :class="{ full: t.id === fullTab }"
+          v-show="t.id === browser.activeId" :src="t.initialUrl" class="wv"
+          :class="{ full: t.id === fullTab }" :style="t.id === fullTab ? screenBox() : undefined"
           @enter-html-full-screen="fullTab = t.id"
-          @leave-html-full-screen="fullTab = ''"
+          @leave-html-full-screen="leaveFull"
           @ipc-message="onIpc($event, t.id)"
           @did-navigate="onNav($event, t.id)"
           @did-navigate-in-page="onNav($event, t.id)"
@@ -1107,9 +1139,7 @@ function onReady(tabId: string) {
 .split { flex: 1; min-height: 0; display: flex; }
 .pagearea { flex: 1; min-width: 0; position: relative; display: flex; }
 .wv { flex: 1; min-width: 0; border: none; }
-/* over the app's chrome — and out of the tab strip's drag region, which would
-   otherwise swallow clicks on the top of the picture */
-.wv.full { position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; z-index: 1000; -webkit-app-region: no-drag; }
+.wv.full { position: fixed; left: 0; top: 0; z-index: 1000; }
 .pickhint { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: var(--accent); color: var(--accent-ink); font: 600 12px/1 system-ui; padding: 9px 14px; border-radius: 9px; box-shadow: 0 8px 24px rgba(0,0,0,.4); pointer-events: none; }
 .dock { width: 344px; flex: none; display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--line); background: var(--bg2); }
 .dock :deep(.cp) { border-left: none; width: 100%; flex: 1; }

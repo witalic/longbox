@@ -166,6 +166,8 @@ html.frameless .tabbar .tact,
 html.frameless .tabbar .stripbtn,
 html.frameless .tabbar .alltabs,
 html.frameless .tabbar .tabsmenu { -webkit-app-region: no-drag; }
+/* a browser page gone fullscreen covers the strip, which would still drag */
+html.frameless.pagefull .tabbar { -webkit-app-region: no-drag; }
 
 .h1 { margin: 0; font: 600 22px/1 system-ui; letter-spacing: -.4px; color: var(--tx); }
 .count { font: 500 13px/1 ui-monospace, monospace; color: var(--tx3); white-space: nowrap; flex: none; }

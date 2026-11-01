@@ -21,6 +21,17 @@ contextBridge.exposeInMainWorld('longbox', {
     ipcRenderer.on('lb-page-key', h)
     return () => ipcRenderer.removeListener('lb-page-key', h)
   },
+  // a guest page asks for fullscreen: `fn` makes room for it (the guest's
+  // webContents id), and the request is granted once it has; returns unsubscribe
+  onPageFullscreen: (fn) => {
+    const h = async (_e, req) => {
+      try { await fn(Number(req?.guestId) || 0) } finally {
+        ipcRenderer.send('lb-page-fullscreen-ready', String(req?.token || ''))
+      }
+    }
+    ipcRenderer.on('lb-page-fullscreen', h)
+    return () => ipcRenderer.removeListener('lb-page-fullscreen', h)
+  },
   // a download began or ended — armed or not; returns unsubscribe
   onDownloadsChanged: (fn) => {
     const h = () => fn()

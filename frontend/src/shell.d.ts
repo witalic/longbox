@@ -24,6 +24,9 @@ declare global {
       // a shortcut pressed inside a guest page; returns an unsubscribe
       onPageKey: (fn: (k: { code: string; ctrl: boolean; shift: boolean; alt: boolean }) => void)
         => () => void
+      // a guest page asks for fullscreen; it is granted once `fn` has made room
+      // for the <webview> (by the guest's webContents id); returns an unsubscribe
+      onPageFullscreen: (fn: (guestId: number) => Promise<void>) => () => void
       // page capture: the main process fetches with session cookies + referer,
       // free of the site's CORS (which blocks an in-page fetch of its own CDN)
       fetchImage: (url: string, referer?: string)
