@@ -90,9 +90,10 @@ video::-webkit-media-controls-fullscreen-button { outline: none; }
   background: var(--panel); border-radius: 6px; cursor: pointer;
   display: flex; align-items: center; justify-content: center; color: var(--tx2);
 }
-.iconbtn:hover { border-color: var(--accent); color: var(--accent); }
+.iconbtn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.iconbtn:disabled { opacity: .35; cursor: default; }
 .iconbtn.plain { border-color: transparent; background: transparent; }
-.iconbtn.plain:hover { background: var(--hover); border-color: transparent; color: var(--tx); }
+.iconbtn.plain:hover:not(:disabled) { background: var(--hover); border-color: transparent; color: var(--tx); }
 
 /* pill-style dropdown / filter control */
 .pill {

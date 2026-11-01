@@ -23,8 +23,10 @@ paths:
   back off reactive state across awaits — a Finish mid-flight would otherwise file results
   into the wrong entry. Queued page images each hold their own title/chapter, so the queue
   survives finishing a chapter and drains into the one it was scanned for.
-- Cleanup discipline for per-title state: forget `openTabs` / `pinnedTabs` / `readerTabs`
-  together (`forgetTab`), and reset them all when the library path switches.
+- Navigation is the app tabs in `store.ts` (design/navigation.md): every place is a tab with
+  its own Back / Forward. A view drawn in a tab reads its place through `useTab()`, never off
+  global state, and a view kept alive behind another tab gates its loads with `useShown()`. A
+  title's tabs go with it (`forgetTitleTabs`); a library switch resets them all (`resetTabs`).
 - Covers/pages in grids load through `coverAt(...)` / the `?w=` endpoints — never decode
   full-size originals in a grid.
 - Scoped-CSS note: shared form-row grammar rendered by child components (e.g. `EntryFields`) is

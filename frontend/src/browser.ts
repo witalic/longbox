@@ -4,7 +4,7 @@
 // capture from right now".
 import { reactive } from 'vue'
 import { confirmDiscard, draftFromTitle, draftState, newDraft } from './draft'
-import { store, titleById } from './store'
+import { showApp, showDraft, store, titleById } from './store'
 
 export interface BrowserTab {
   id: string
@@ -129,7 +129,7 @@ export function closeTab(id: string) {
   if (browser.activeId === id) {
     const next = browser.tabs[i] ?? browser.tabs[i - 1] ?? null
     browser.activeId = next?.id ?? null
-    if (!next) store.view = store.activeTitle ? 'title' : 'library'
+    if (!next) showApp()
   }
 }
 
@@ -148,7 +148,7 @@ export function activateTabAt(n: number) {
   if (tab) activateTab(tab.id)
 }
 
-// Plain "Browse" nav: show the tabs, or open a fresh one if none.
+// The rail's Web: show the tabs, or open a fresh one if none.
 export function openBrowse() {
   if (browser.tabs.length) store.view = 'browser'
   else newTab()
@@ -180,6 +180,5 @@ export async function startNewTitle(url?: string) {
     newTab(url)
     return
   }
-  store.activeTitle = null // no record yet: the page renders the draft alone
-  store.view = 'title'
+  showDraft() // no record yet: the page renders the draft alone
 }

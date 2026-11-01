@@ -1,15 +1,18 @@
 // Browser-style session restore: the app continuously snapshots the open tabs
-// (title tabs + browser tabs); on the next launch the previous run's snapshot
-// becomes a history entry. The all-tabs menu offers the last 3 sessions — one
-// click reopens their tabs in the background.
+// (every app tab's place + the browser's pages); on the next launch the
+// previous run's snapshot becomes a history entry. The all-tabs menu offers the
+// last 3 sessions — one click reopens their tabs in the background.
 import { reactive, watch } from 'vue'
 import { browser, newTabBackground } from './browser'
 import { isRecord, readLocal } from './local'
-import { openTitleBackground, store } from './store'
+import {
+  editInMetadata, editValueInMetadata, HOME, newLibraryTab, openSection, openTitleBackground, openValuePage,
+  store, type Place,
+} from './store'
 
 export interface SessionSnap {
   at: string // ISO — when the snapshot was last updated
-  titles: string[] // open title-tab ids
+  places: Place[] // the app tabs but the home tab, which is always there
   web: { url: string; title: string }[]
 }
 
@@ -23,6 +26,7 @@ export const sessionHistory = reactive<SessionSnap[]>([])
 // inside app startup, which runs this synchronously
 const isSnap = (v: unknown): v is SessionSnap => isRecord(v)
 const isSnapList = (v: unknown): v is SessionSnap[] => Array.isArray(v) && v.every(isSnap)
+const listOf = (v: unknown): unknown[] => (Array.isArray(v) ? v : [])
 
 function readSnap(key: string): SessionSnap | null {
   return readLocal<SessionSnap | null>(key, (v): v is SessionSnap | null => v === null || isSnap(v), null)
@@ -32,23 +36,73 @@ export function initSessions() {
   // whatever the LAST run left open becomes history — exactly like a browser
   const prev = readSnap(CUR)
   const hist = readLocal<SessionSnap[]>(HIST, isSnapList, [])
-  if (prev && (prev.titles?.length || prev.web?.length)) hist.unshift(prev)
+  if (prev && (listOf(prev.places).length || listOf(prev.web).length)) hist.unshift(prev)
   sessionHistory.splice(0, sessionHistory.length, ...hist.slice(0, MAX))
   try { localStorage.setItem(HIST, JSON.stringify([...sessionHistory])) } catch { /* ignore */ }
   try { localStorage.removeItem(CUR) } catch { /* ignore */ }
 
   // live snapshot of THIS session
   watch(
-    () => JSON.stringify([store.openTabs, browser.tabs.map((t) => t.url)]),
+    () => JSON.stringify([store.tabs.map((t) => t.place), browser.tabs.map((t) => t.url)]),
     () => {
       const snap: SessionSnap = {
         at: new Date().toISOString(),
-        titles: [...store.openTabs],
+        places: store.tabs.filter((t) => t.id !== HOME).map((t) => t.place),
         web: browser.tabs.filter((t) => t.url).map((t) => ({ url: t.url, title: t.title || t.label })),
       }
       try { localStorage.setItem(CUR, JSON.stringify(snap)) } catch { /* ignore */ }
     },
   )
+}
+
+const str = (v: unknown): string => (typeof v === 'string' ? v : '')
+const PROGRESS = ['all', 'unread', 'reading', 'completed'] as const
+const strings = (v: unknown): string[] | null =>
+  (Array.isArray(v) && v.every((x) => typeof x === 'string') ? v : null)
+function bagOf(v: unknown): Record<string, string[]> {
+  if (!isRecord(v)) return {}
+  return Object.fromEntries(Object.entries(v).flatMap(([k, l]) => (strings(l) ? [[k, strings(l)!]] : [])))
+}
+
+// One saved place opened again behind the tab in front — or nothing, for a
+// record the library no longer has or a shape this build does not know.
+function reopen(raw: unknown): boolean {
+  if (!isRecord(raw)) return false
+  switch (raw.kind) {
+    case 'title': case 'reader': {
+      const id = str(raw.id)
+      if (!store.byId[id]) return false
+      openTitleBackground(id)
+      return true
+    }
+    case 'page':
+      if (!str(raw.field) || !str(raw.value)) return false
+      openValuePage(str(raw.field), str(raw.value), true)
+      return true
+    case 'library': {
+      const sel = isRecord(raw.sel) ? raw.sel : {}
+      const progress = PROGRESS.find((v) => v === sel.progress) ?? 'all'
+      const minRating = typeof sel.minRating === 'number' ? Math.min(5, Math.max(0, Math.round(sel.minRating))) : 0
+      newLibraryTab({
+        shelf: str(sel.shelf), search: str(sel.search), sort: str(sel.sort) || 'updated',
+        favOnly: sel.favOnly === true, progress, minRating,
+        include: bagOf(sel.include), exclude: bagOf(sel.exclude), axis: str(raw.axis),
+      }, true)
+      return true
+    }
+    case 'metadata': {
+      const ids = strings(raw.ids)
+      const focus = isRecord(raw.focus) ? raw.focus : null
+      if (ids) editInMetadata(ids, true)
+      else if (focus && str(focus.field)) editValueInMetadata(str(focus.field), str(focus.value), true)
+      else openSection('metadata', true)
+      return true
+    }
+    case 'import': case 'settings':
+      openSection(raw.kind, true)
+      return true
+  }
+  return false
 }
 
 // Reopen a past session's tabs IN THE BACKGROUND — the current view stays put;
@@ -57,15 +111,11 @@ export function restoreSession(index: number): number {
   const s = sessionHistory[index]
   if (!s) return 0
   let opened = 0
-  for (const id of s.titles) {
-    if (store.byId[id] && !store.openTabs.includes(id)) {
-      void openTitleBackground(id)
-      opened++
-    }
-  }
-  for (const w of s.web) {
-    if (w.url && !browser.tabs.some((t) => t.url === w.url)) {
-      newTabBackground(w.url)
+  for (const p of listOf(s.places)) if (reopen(p)) opened++
+  for (const w of listOf(s.web)) {
+    const url = isRecord(w) ? str(w.url) : ''
+    if (url && !browser.tabs.some((t) => t.url === url)) {
+      newTabBackground(url)
       opened++
     }
   }
@@ -76,8 +126,10 @@ export function sessionLabel(s: SessionSnap): string {
   const d = new Date(s.at)
   const pad = (n: number) => String(n).padStart(2, '0')
   const when = Number.isNaN(d.getTime()) ? '' : `${pad(d.getDate())}.${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+  const tabs = listOf(s.places).length
+  const web = listOf(s.web).length
   const parts = []
-  if (s.titles.length) parts.push(`${s.titles.length} title${s.titles.length === 1 ? '' : 's'}`)
-  if (s.web.length) parts.push(`${s.web.length} web`)
+  if (tabs) parts.push(`${tabs} tab${tabs === 1 ? '' : 's'}`)
+  if (web) parts.push(`${web} web`)
   return `${when} · ${parts.join(' · ') || 'empty'}`
 }

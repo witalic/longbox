@@ -4,20 +4,25 @@
 // worked out by the sidecar every time — works, numbers, neighbours, where it
 // came from, the rules about it; what the owner writes (a description, links,
 // an image, other spellings) is edited here, explicitly, and kept in the vault.
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+// A page is a tab of its own (design/navigation.md): a neighbour followed from
+// here continues in it, and its Back returns.
+import { computed, onActivated, onBeforeUnmount, ref, watch } from 'vue'
 import Icon from './Icon.vue'
+import HistoryNav from './HistoryNav.vue'
 import { api } from '../api'
 import { newTab, searchUrl } from '../browser'
 import {
-  askConfirm, closeValuePage, editValueInMetadata, filterByField, openTitle, openTitleBackground,
-  openValuePage, runVaultPass, store, valuePageBack,
+  askConfirm, editValueInMetadata, followValue, openAxis, openTitle, openTitleBackground, openValuePage,
+  runVaultPass, showInLibrary, store, useShown, useTab,
 } from '../store'
 import {
   coverAt, hueFor, initials, linkLabel, siteOf,
   type PageLink, type PageRuleNote, type PageWork, type ValuePage,
 } from '../data'
 
-const at = computed(() => store.valuePage)
+const tab = useTab()
+const at = computed(() => (tab.place.kind === 'page' ? tab.place : null))
+const { shown } = useShown()
 const p = ref<ValuePage | null>(null)
 const loading = ref(false)
 
@@ -64,9 +69,13 @@ const roleBadge = computed(() => Object.entries(p.value?.roles ?? {})
   .map(([f, n]) => `${(ROLE_WORD[f] ?? labelOf(f)).toUpperCase()} ${n}`).join(' · '))
 
 // the library filtered to this value: a person through the joint people facet
-function showInLibrary() {
+function inLibrary() {
   const v = p.value
-  if (v) filterByField(v.vocab === 'authors' ? 'authors' : v.field, v.value)
+  if (v) showInLibrary(v.vocab === 'authors' ? 'authors' : v.field, v.value)
+}
+// the crumb: the list this value belongs to, in the library tab
+function toList() {
+  if (at.value && !editing.value) openAxis(at.value.field)
 }
 
 // ---- the face: its image, a person's initials, or its works' covers ----
@@ -142,7 +151,10 @@ const spellInput = ref('')
 const linkInput = ref('')
 const edImage = ref<PendingImage | null>(null) // null: the image stays as it is
 
-function startEdit() {
+// Edit what is stored NOW: spellings are rules, and a rule added elsewhere while
+// this tab waited must not be dropped by a save that sends the whole list.
+async function startEdit() {
+  await load()
   const v = p.value
   if (!v) return
   edDesc.value = v.desc
@@ -167,8 +179,19 @@ onBeforeUnmount(() => setImage(null))
 // Below the edit state on purpose: the first run is immediate, and it leaves
 // edit mode — which must exist by then.
 watch(at, () => { cancelEdit(); void load() }, { immediate: true })
-// a commit or a metadata run changes the works and the counts
-watch(() => store.titles, () => { if (!editing.value) void load() })
+// a commit or a metadata run changes the works and the counts — a page behind
+// another tab reads itself again when it comes back (below)
+watch(() => store.titles, () => { if (shown.value) reloadIdle() })
+function reloadIdle() {
+  if (!editing.value) void load()
+}
+// A page being edited holds its tab: Back waits, and closing it asks.
+watch(editing, (on) => {
+  tab.hold = on ? `The page of “${at.value?.value ?? ''}” is being edited.` : ''
+})
+onBeforeUnmount(() => { tab.hold = '' })
+// back in front: what was written here or about it elsewhere is read again
+onActivated(() => { if (p.value) reloadIdle() })
 
 const shownImage = computed(() => {
   const im = edImage.value
@@ -194,7 +217,7 @@ function onDrop(e: DragEvent) {
   takeFile(e.dataTransfer?.files?.[0])
 }
 function onPaste(e: ClipboardEvent) {
-  if (!editing.value) return
+  if (!editing.value || !shown.value) return
   const file = [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith('image/'))
   if (file) {
     e.preventDefault()
@@ -274,8 +297,8 @@ function lookUp() {
 <template>
   <div class="vp">
     <div class="vhead">
-      <button class="iconbtn plain" title="Back" :disabled="editing" @click="valuePageBack()"><Icon name="back" :size="15" :sw="2" /></button>
-      <span class="crumb"><span class="cl" @click="!editing && closeValuePage()">{{ axisLabel }}</span>
+      <HistoryNav />
+      <span class="crumb"><span class="cl" :title="`All ${axisLabel.toLowerCase()} — Browse by`" @click="toList">{{ axisLabel }}</span>
         <span class="csep">/</span><b>{{ p?.value ?? at?.value }}</b></span>
       <span v-if="editing" class="editing mono">EDITING</span>
       <div style="flex:1"></div>
@@ -284,7 +307,7 @@ function lookUp() {
                 :title="p.fav ? 'Unfavourite' : 'Favourite this person'" @click="toggleFav">
           <Icon name="star" :size="14" :sw="1.8" :fill="p.fav ? 'var(--fav)' : 'none'" />
         </button>
-        <button class="btn" :disabled="!p?.titles" @click="showInLibrary"><Icon name="filter" :size="13" :sw="1.9" />Show in library</button>
+        <button class="btn" :disabled="!p?.titles" @click="inLibrary"><Icon name="filter" :size="13" :sw="1.9" />Show in library</button>
         <button v-if="p" class="btn" title="This value in the Metadata view — to rename or merge it"
                 @click="editValueInMetadata(p.field, p.value)"><Icon name="meta" :size="13" :sw="1.9" />In Metadata</button>
         <button class="btn accent" :disabled="!p" @click="startEdit"><Icon name="edit" :size="13" :sw="1.9" />Edit</button>
@@ -426,7 +449,7 @@ function lookUp() {
                   <button class="opt" :class="{ on: sort === 'rating' }" @click="sort = 'rating'">Rating</button>
                   <button class="opt" :class="{ on: sort === 'az' }" @click="sort = 'az'">A–Z</button>
                 </div>
-                <a v-if="p.titles" class="lnk" @click="showInLibrary">Show all in library</a>
+                <a v-if="p.titles" class="lnk" @click="inLibrary">Show all in library</a>
               </div>
             </div>
             <div v-if="!works.length" class="none">No title holds it now.</div>
@@ -438,13 +461,14 @@ function lookUp() {
                 <span v-if="isPerson && w.roles.length" class="r mono">{{ w.roles.map((f) => (ROLE_WORD[f] ?? f)[0]).join('·') }}</span>
                 <span class="w">{{ w.title }}</span>
               </div>
-              <div v-if="works.length > WORKS_SHOWN" class="more mono" @click="showInLibrary">+{{ works.length - WORKS_SHOWN }}<br />more</div>
+              <div v-if="works.length > WORKS_SHOWN" class="more mono" @click="inLibrary">+{{ works.length - WORKS_SHOWN }}<br />more</div>
             </div>
           </div>
           <div v-for="g in p.groups" :key="g.label" class="sec">
             <div class="sechead"><span class="eyebrow">{{ g.label }}</span><span class="cnt">on the same titles</span></div>
             <div class="chips">
-              <button v-for="n in g.items" :key="n.field + n.value" class="chip link" @click="openValuePage(n.field, n.value)">
+              <button v-for="n in g.items" :key="n.field + n.value" class="chip link" @click="followValue(n.field, n.value)"
+                      @mousedown.middle.prevent="openValuePage(n.field, n.value, true)">
                 <span v-if="isPerson && ['authors', 'artists'].includes(n.field)" class="av" :style="{ background: hueFor(n.value) }">{{ initials(n.value) }}</span>
                 {{ n.value }}<span class="n mono">{{ n.n }}<template v-if="p.vocab !== (n.field === 'artists' ? 'authors' : n.field)"> · {{ labelOf(n.field).toLowerCase() }}</template></span>
               </button>

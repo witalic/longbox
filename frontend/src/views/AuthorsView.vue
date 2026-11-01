@@ -4,27 +4,29 @@
 // axis (only lists have anything to group by), so this view gains an axis the
 // moment a field exists. People are not a special case, only the axis that
 // carries a role and a favourite mark. A group's name opens its value page
-// (design/value-pages.md), which this view shows in place of the list.
-// Middle-click on a work opens its tab in the background.
+// (design/value-pages.md) in a tab of its own; this list stays in the library
+// tab it belongs to. Middle-click on a work or a name opens its tab behind.
 import { computed, ref, watch } from 'vue'
 import Icon from '../components/Icon.vue'
 import SearchBox from '../components/SearchBox.vue'
 import Pager from '../components/Pager.vue'
 import {
-  activeFilterCount, axisSurface, buildQuery, filterBy, filterByField, hiddenAxes, openTitle,
-  openTitleBackground, openValuePage, setFieldHidden, shownAxes, store, takeAuthorFocus,
+  activeFilterCount, axisSurface, buildQuery, hiddenAxes, openTitle, openTitleBackground, openValuePage,
+  setFieldHidden, showInLibrary, shownAxes, store, useShown, useTab, type LibraryPlace,
 } from '../store'
 import FilterBlock from '../components/FilterBlock.vue'
+import HistoryNav from '../components/HistoryNav.vue'
 import MenuButton from '../components/MenuButton.vue'
 import FieldVisibility from '../components/FieldVisibility.vue'
-import ValuePage from '../components/ValuePage.vue'
 import { peekOff, peekOn } from '../peek'
 import { api } from '../api'
 import { readLocalOne, writeLocalOne } from '../local'
 import { coverAt, hueFor, initials as initialsOf, type BrowseGroup } from '../data'
 
-// ---- the axis ----
-const axis = computed(() => store.browseAxis)
+// ---- the axis: this library tab's ----
+const place = useTab().place as LibraryPlace
+const { whenShown } = useShown()
+const axis = computed(() => place.axis)
 const groups = ref<BrowseGroup[]>([])
 const loading = ref(false)
 // the axes menu edits THIS shelf's list — the rail shows the same one
@@ -49,8 +51,10 @@ async function load() {
 // `store.titles` is reassigned by every library reload — a filter change, a
 // commit, a delete. Riding that one signal keeps the groups fresh without a
 // second debounce of its own, and it always arrives AFTER the reload.
+// A tab behind another one does not load for a selection that is not its own:
+// it catches up when it comes back.
 watch([() => curAxis.value?.id, () => store.fields.length, () => store.titles],
-      load, { immediate: true })
+      () => whenShown(load), { immediate: true })
 
 const MODES = ['cards', 'rows'] as const
 const mode = ref<(typeof MODES)[number]>(
@@ -59,12 +63,6 @@ watch(mode, (v) => writeLocalOne('lb.browseMode', v))
 
 const role = ref<'all' | 'author' | 'artist' | 'both'>('all')
 const search = ref('')
-// arriving via a person link (library / title page) → land focused on them
-const focus = takeAuthorFocus()
-if (focus) {
-  search.value = focus
-  store.ui.auPage = 1
-}
 
 // the whole filter sidebar can hide (shared preference with the Library)
 const fsideOpen = ref(readLocalOne('lb.fside', ['0', '1'] as const, '1') === '1')
@@ -106,9 +104,9 @@ const list = computed(() => {
 const undescribedCount = computed(() => bySearch.value.filter((a) => !a.described).length)
 const AUTHORS_PAGE = 24
 const totalPages = computed(() => Math.max(1, Math.ceil(list.value.length / AUTHORS_PAGE)))
-const curPage = computed(() => Math.min(Math.max(1, store.ui.auPage), totalPages.value))
+const curPage = computed(() => Math.min(Math.max(1, place.page), totalPages.value))
 function goPage(v: number) {
-  store.ui.auPage = Math.min(Math.max(1, Math.floor(v) || 1), totalPages.value)
+  place.page = Math.min(Math.max(1, Math.floor(v) || 1), totalPages.value)
   amainEl.value?.scrollTo({ top: 0 })
 }
 const rangeLabel = computed(() => {
@@ -161,10 +159,9 @@ const initials = initialsOf
 
 <template>
   <div class="au">
-    <ValuePage v-if="store.valuePage" />
-    <template v-else>
     <div class="lmaincol">
     <div class="head">
+        <HistoryNav />
         <h1 class="h1">{{ curAxis?.label ?? 'Browse' }}</h1>
         <span class="count">{{ list.length }} of {{ groups.length }}</span>
         <div style="flex:1"></div>
@@ -205,7 +202,8 @@ const initials = initialsOf
             <div class="ghead2">
               <span v-if="a.image" class="gface" :style="{ background: `#181a1f url(${coverAt(a.image, 64)}) center/cover no-repeat` }"></span>
               <span class="gname" :title="`${a.value} — its page`"
-                    @click="openValuePage(a.field, a.value)">{{ a.value }}</span>
+                    @click="openValuePage(a.field, a.value)"
+                    @mousedown.middle.prevent="openValuePage(a.field, a.value, true)">{{ a.value }}</span>
               <button v-if="isPeople" class="iconbtn plain" :title="a.fav ? 'Unfavorite' : 'Favorite'"
                       :style="{ color: a.fav ? 'var(--fav)' : 'var(--tx3)' }" @click="toggleAuthorFav(a)">
                 <Icon name="star" :size="14" :sw="1.8" :fill="a.fav ? 'var(--fav)' : 'none'" />
@@ -233,14 +231,15 @@ const initials = initialsOf
                 <span v-else class="avatar">{{ initials(a.value) }}</span>
                 <div style="min-width:0">
                   <div class="aname" :title="`${a.value} — its page`"
-                       @click="openValuePage(a.field, a.value)">{{ a.value }}</div>
+                       @click="openValuePage(a.field, a.value)"
+                       @mousedown.middle.prevent="openValuePage(a.field, a.value, true)">{{ a.value }}</div>
                   <div v-if="a.role" class="arole mono">{{ roleLabel[a.role] }}</div>
                 </div>
               </div>
               <div v-if="a.excerpt" class="aex">{{ a.excerpt }}</div>
               <div v-if="a.topTags.length" class="atags">
                 <span class="tlabel">TOP TAGS</span>
-                <span v-for="tg in a.topTags" :key="tg" class="atag" :title="`Filter library by ${tg}`" @click="filterBy('tag', tg)"
+                <span v-for="tg in a.topTags" :key="tg" class="atag" :title="`${tg} — open the page`" @click="openValuePage('tags', tg)"
                       @mouseenter="peekOn($event, 'tags', tg)" @mouseleave="peekOff">{{ tg }}</span>
               </div>
               <div class="afoot">
@@ -261,7 +260,7 @@ const initials = initialsOf
                   <div class="wtitle">{{ w.title }}</div>
                 </div>
                 <div v-if="moreWorks(a)" class="wmore" :title="`Show all ${a.titles} in the library`"
-                     @click="filterByField(a.field, a.value)">+{{ moreWorks(a) }}</div>
+                     @click="showInLibrary(a.field === 'artists' ? 'authors' : a.field, a.value)">+{{ moreWorks(a) }}</div>
               </div>
             </div>
           </div>
@@ -293,7 +292,6 @@ const initials = initialsOf
         </template>
       </template>
     </FilterBlock>
-    </template>
   </div>
 </template>
 

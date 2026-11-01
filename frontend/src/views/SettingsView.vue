@@ -3,8 +3,9 @@
 // Browser (global embedded-browser controls), Keyboard, Appearance, Index.
 // Only functionality the app actually supports appears here; knobs that belong
 // to a flow live IN that flow (the page-capture filter is in the capture dock).
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onActivated, onDeactivated, ref, watch } from 'vue'
 import RailSection from '../components/RailSection.vue'
+import HistoryNav from '../components/HistoryNav.vue'
 import SettingsAbout from '../components/SettingsAbout.vue'
 import SettingsFields from '../components/SettingsFields.vue'
 import SettingsHealth from '../components/SettingsHealth.vue'
@@ -101,13 +102,13 @@ async function refresh() {
     appMeta.value = s.app || {}
   } catch { /* backend not ready */ }
 }
-onMounted(refresh)
+onActivated(refresh) // what it shows can change while the tab waits behind another
 
 // The pass belongs to the sidecar, and `store.ts` follows it for the whole app
 // — walking to the library and back must not lose the progress of something
 // still running. This view only keeps the poll warm while it is on screen.
-onMounted(() => { watchVaultPass(true); void pollVaultPass(true) })
-onBeforeUnmount(() => watchVaultPass(false))
+onActivated(() => { watchVaultPass(true); void pollVaultPass(true) })
+onDeactivated(() => watchVaultPass(false))
 
 // The last check, kept HERE because the rail says whether the library needs you
 // — and the rail is the page's, not the section's.
@@ -128,6 +129,7 @@ const health = ref<CheckReport | null>(null)
     </Teleport>
 
     <div class="head">
+      <HistoryNav />
       <h1 class="h1">{{ secLabel }}</h1>
       <span v-if="headCount" class="count">{{ headCount }}</span>
     </div>

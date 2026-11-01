@@ -8,6 +8,7 @@
 // instantly in either mode.
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import Icon from '../components/Icon.vue'
+import HistoryNav from '../components/HistoryNav.vue'
 import FieldVisibility from '../components/FieldVisibility.vue'
 import MenuButton from '../components/MenuButton.vue'
 import MetadataEditor from '../components/MetadataEditor.vue'
@@ -15,7 +16,7 @@ import VideoSurface from '../components/VideoSurface.vue'
 import EntryFields from '../components/EntryFields.vue'
 import Dropdown from '../components/Dropdown.vue'
 import { openInBrowser } from '../browser'
-import { peekOff, peekOn } from '../peek'
+import { hasValuePage, peekOff, peekOn } from '../peek'
 import {
   commitDraft, confirmDiscard, discardDraft, draftFromTitle, draftState, isDirty,
 } from '../draft'
@@ -34,9 +35,9 @@ import {
 const noIcon = reactive<Record<string, boolean>>({})
 import {
   addChapterRow, askConfirm, cache, clearTitleSource, commitChapterOrder, deleteTitle,
-  editChapterRow, filterBy, filterByField, filterByPerson, goView, groupRings, hiddenOf,
-  langRings, openReader, openTitle, setFavorite, setFieldHidden, setRating, setRead,
-  store, titleById, visibleFields,
+  editChapterRow, goLibrary, groupRings, hiddenOf, langRings, openReader, openTitle,
+  openValuePage, setFavorite, setFieldHidden, setRating, setRead, showInLibrary, store, titleById,
+  visibleFields,
 } from '../store'
 import {
   READ_COLOR as readColor, groupByNum, statusColor, initials,
@@ -86,21 +87,24 @@ const extraRows = computed(() => {
 function asList(v: string | string[]): string[] {
   return Array.isArray(v) ? v : []
 }
-// A facet can be jumped from, exactly like a genre chip: the library filters by
-// field id, so a field it has never heard of filters like one it has.
 // Story, Art and Studio are three rows, not three runs on one line.
 const makers = computed(() => {
   const title = t.value
   if (!title) return []
   return [
-    { label: 'STORY', field: 'authors', names: title.authors, jump: filterByPerson },
-    { label: 'ART', field: 'artists', names: title.artists, jump: filterByPerson },
-    { label: 'STUDIO', field: 'studio', names: title.studio, jump: (v: string) => filterByField('studio', v) },
+    { label: 'STORY', field: 'authors', names: title.authors },
+    { label: 'ART', field: 'artists', names: title.artists },
+    { label: 'STUDIO', field: 'studio', names: title.studio },
   ].filter((r) => r.names.length)
 })
 
-function jumpTo(f: FieldDef, value: string) {
-  if (f.facet) filterByField(f.id, value)
+// A value opens its page (design/navigation.md, D3) — a field it has never
+// heard of included; a value with no page of its own (one line of text, a
+// number) shows its titles in the library.
+const linked = (f: FieldDef) => hasValuePage(f.id) || f.facet
+function jumpTo(f: FieldDef, value: string, background = false) {
+  if (hasValuePage(f.id)) openValuePage(f.id, value, background)
+  else if (f.facet && !background) showInLibrary(f.id, value)
 }
 
 watch(() => store.activeTitle, () => { metaEdit.value = false })
@@ -134,10 +138,8 @@ function startContentsEdit() {
 }
 async function cancelMetaEdit() {
   if (!(await confirmDiscard())) return
-  const wasCreating = creating.value
-  discardDraft()
+  discardDraft() // a new title's draft gone: App returns to the tab it came from
   metaEdit.value = false
-  if (wasCreating) goView('library')
 }
 async function saveMeta() {
   const id = await commitDraft()
@@ -848,7 +850,8 @@ async function removeRow(c: Chapter) {
     <!-- ONE band over the record: where you are, and what you can do to it -->
     <div class="head">
       <template v-if="!editing">
-        <span class="crumb" @click="goView('library')">Library</span>
+        <HistoryNav />
+        <span class="crumb" @click="goLibrary()">Library</span>
         <span class="csep">›</span>
         <span class="cnow">{{ pageTitle }}</span>
         <div style="flex:1"></div>
@@ -969,7 +972,8 @@ async function removeRow(c: Chapter) {
           <span class="eyebrow">{{ role.label }}</span>
           <div class="wrap">
             <a v-for="name in role.names" :key="name" class="authorlink"
-               :title="`Filter library by ${name}`" @click="role.jump(name)"
+               :title="`${name} — open the page`" @click="openValuePage(role.field, name)"
+               @mousedown.middle.prevent="openValuePage(role.field, name, true)"
                @mouseenter="peekOn($event, role.field, name)" @mouseleave="peekOff">
               <span class="avatar">{{ initials(name) }}</span><span class="pname">{{ name }}</span>
             </a>
@@ -990,17 +994,20 @@ async function removeRow(c: Chapter) {
 
         <div v-if="t.characters.length" class="metarow">
           <span class="eyebrow">CAST</span>
-          <div class="wrap"><span v-for="ch in t.characters" :key="ch" class="genre link" :title="`Filter by ${ch}`" @click="filterBy('character', ch)"
+          <div class="wrap"><span v-for="ch in t.characters" :key="ch" class="genre link" :title="`${ch} — open the page`" @click="openValuePage('characters', ch)"
+                                  @mousedown.middle.prevent="openValuePage('characters', ch, true)"
                                   @mouseenter="peekOn($event, 'characters', ch)" @mouseleave="peekOff">{{ ch }}</span></div>
         </div>
         <div v-if="t.genres.length" class="metarow">
           <span class="eyebrow">GENRES</span>
-          <div class="wrap"><span v-for="g in t.genres" :key="g" class="genre link" :title="`Filter by ${g}`" @click="filterBy('genre', g)"
+          <div class="wrap"><span v-for="g in t.genres" :key="g" class="genre link" :title="`${g} — open the page`" @click="openValuePage('genres', g)"
+                                  @mousedown.middle.prevent="openValuePage('genres', g, true)"
                                   @mouseenter="peekOn($event, 'genres', g)" @mouseleave="peekOff">{{ g }}</span></div>
         </div>
         <div v-if="t.tags.length" class="metarow">
           <span class="eyebrow">TAGS</span>
-          <div class="wrap"><span v-for="tg in t.tags" :key="tg" class="tag link" :title="`Filter by ${tg}`" @click="filterBy('tag', tg)"
+          <div class="wrap"><span v-for="tg in t.tags" :key="tg" class="tag link" :title="`${tg} — open the page`" @click="openValuePage('tags', tg)"
+                                  @mousedown.middle.prevent="openValuePage('tags', tg, true)"
                                   @mouseenter="peekOn($event, 'tags', tg)" @mouseleave="peekOff">{{ tg }}</span></div>
         </div>
 
@@ -1008,8 +1015,9 @@ async function removeRow(c: Chapter) {
         <div v-for="row in extraRows" :key="row.f.id" class="metarow">
           <span class="eyebrow">{{ row.f.label.toUpperCase() }}</span>
           <div v-if="row.f.type === 'list'" class="wrap">
-            <span v-for="v in row.list" :key="v" class="genre" :class="{ link: row.f.facet }"
-                  :title="row.f.facet ? `Filter by ${v}` : undefined" @click="jumpTo(row.f, v)"
+            <span v-for="v in row.list" :key="v" class="genre" :class="{ link: linked(row.f) }"
+                  :title="hasValuePage(row.f.id) ? `${v} — open the page` : row.f.facet ? `Show ${v} in the library` : undefined"
+                  @click="jumpTo(row.f, v)" @mousedown.middle.prevent="jumpTo(row.f, v, true)"
                   @mouseenter="peekOn($event, row.f.id, v)" @mouseleave="peekOff">
               {{ v }}
             </span>
@@ -1018,7 +1026,7 @@ async function removeRow(c: Chapter) {
           <div v-else class="wrap">
             <span class="plainval" :class="{ num: row.f.type === 'number' || row.f.type === 'date',
                                              link: row.f.facet }"
-                  :title="row.f.facet ? `Filter by ${row.text}` : undefined"
+                  :title="row.f.facet ? `Show ${row.text} in the library` : undefined"
                   @click="jumpTo(row.f, row.text)">{{ row.text }}</span>
           </div>
         </div>

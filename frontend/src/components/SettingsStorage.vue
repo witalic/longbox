@@ -32,7 +32,7 @@ async function switchTo(p: string) {
   const applied = await setLibraryPath(p)
   busy.value = false
   if (applied) emit('changed')
-  else error.value = store.error || 'could not switch'
+  else if (store.error) error.value = store.error // nothing to say when the switch was declined
 }
 
 async function addLibrary() {

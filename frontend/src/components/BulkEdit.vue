@@ -10,7 +10,7 @@ import { api } from '../api'
 import {
   FLAG_DEFS, fieldBlocks, type FieldDef, type FlagKey, type MetaAction, type MetaHeld, type MetaPreview,
 } from '../data'
-import { askConfirm, editInMetadata, refreshLibrary, runVaultPass, store, visibleFields } from '../store'
+import { askConfirm, editInMetadata, refreshLibrary, runVaultPass, store, useShown, visibleFields } from '../store'
 import Combo from './Combo.vue'
 import Icon from './Icon.vue'
 
@@ -33,12 +33,15 @@ function kindOf(f: FieldDef): Kind {
 const labelOf = (id: string) => (store.fields.find((f) => f.id === id)?.label ?? id).toLowerCase()
 
 // ---- what the selection holds: follows the selection AND the library ----
+// (a library tab behind another one asks again when it comes back)
+const { whenShown } = useShown()
 const held = ref<MetaHeld | null>(null)
 const heldErr = ref('')
 const idsKey = computed(() => props.ids.join('\n'))
 let heldSeq = 0
 let heldTimer: number | undefined
-watch([idsKey, () => store.titles, rows], () => {
+watch([idsKey, () => store.titles, rows], () => whenShown(askHeld), { immediate: true })
+function askHeld() {
   const seq = ++heldSeq
   window.clearTimeout(heldTimer)
   if (!props.ids.length) {
@@ -55,7 +58,7 @@ watch([idsKey, () => store.titles, rows], () => {
       if (seq === heldSeq) heldErr.value = e instanceof Error ? e.message : String(e)
     }
   }, 200)
-}, { immediate: true })
+}
 const total = computed(() => held.value?.inScope ?? props.ids.length)
 function heldIn(field: string) { return held.value?.fields[field] ?? { titles: 0, values: [] } }
 function holding(field: string, value: string): number {

@@ -5,7 +5,7 @@
 //
 // The capture listener lives here rather than in the page: it is armed only
 // while a binding is waiting for a key, and only this section can arm it.
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onDeactivated, onMounted, ref } from 'vue'
 import Icon from './Icon.vue'
 import {
   KEY_ACTIONS, bindingsFor, isOverridden, keyLabel, keyOverrides, rebind, resetAllKeys, resetKey,
@@ -25,6 +25,9 @@ function onCaptureKey(e: KeyboardEvent) {
 }
 onMounted(() => window.addEventListener('keydown', onCaptureKey, true))
 onBeforeUnmount(() => window.removeEventListener('keydown', onCaptureKey, true))
+// Settings stays alive behind other tabs: a key waiting to be pressed must not
+// catch the first one typed somewhere else
+onDeactivated(() => { capturing.value = null })
 </script>
 
 <template>

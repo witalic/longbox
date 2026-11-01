@@ -2,7 +2,9 @@
 // user layer. User-layer changes (star, rating, read state) are instant
 // write-through — they never go through a draft (design/state-model.md §11).
 // The draft itself lives in draft.ts; browser tabs live in browser.ts.
-import { reactive, watch, watchEffect } from 'vue'
+import {
+  inject, onActivated, onDeactivated, reactive, ref, watch, watchEffect, type InjectionKey, type Ref,
+} from 'vue'
 import {
   api, ApiError, type DownloadItem, type DownloadsState, type LibraryQuery, type PassState,
 } from './api'
@@ -16,8 +18,8 @@ import {
 } from './local'
 import { stopCaptureFor } from './pagecapture'
 
-export type View = 'library' | 'title' | 'reader' | 'authors' | 'sources' | 'metadata' | 'import' | 'settings'
-  | 'browser'
+export type View = 'library' | 'title' | 'reader' | 'authors' | 'page' | 'sources' | 'metadata' | 'import'
+  | 'settings' | 'browser'
 export type Density = 'grid' | 'dense' | 'expanded'
 export type ThemePref = 'dark' | 'light' | 'system'
 
@@ -68,17 +70,19 @@ export function setFieldHidden(surface: FieldSurface, id: string, hidden: boolea
   // Hiding a FILTER field means "I do not filter by this" — and an active
   // selection left behind on a row nobody can see is exactly the invisible
   // filtering that makes a library look like it lost titles.
+  // Every library tab, and every step its Back could bring back.
   if (surface === 'filters' && hidden) {
-    const lib = store.library
-    if (selected(lib.include, id as FacetKey).length || selected(lib.exclude, id as FacetKey).length) {
-      delete lib.include[id as FacetKey]
-      delete lib.exclude[id as FacetKey]
-      onSelectionChange(reloadLibrary)
+    for (const tab of store.tabs) {
+      for (const p of [tab.place, ...tab.back, ...tab.forward]) {
+        if (p.kind !== 'library') continue
+        delete p.sel.include[id as FacetKey]
+        delete p.sel.exclude[id as FacetKey]
+      }
     }
   }
 }
 
-interface LibraryFilters {
+export interface LibraryFilters {
   density: Density
   search: string
   sort: string // updated | title | rating | unread
@@ -98,12 +102,22 @@ function blankSelection(): Record<FacetKey, string[]> {
 function selected(bag: Record<FacetKey, string[]>, key: FacetKey): string[] {
   return bag[key] ?? (bag[key] = [])
 }
+function blankLibrary(): LibraryFilters {
+  return {
+    density: 'grid', search: '', sort: 'updated', favOnly: false, progress: 'all',
+    // the shelf is which TYPE you are looking at — navigation, kept apart from
+    // the filter bags so the filter UI never has to pretend it owns it
+    minRating: 0, shelf: '', include: blankSelection(), exclude: blankSelection(),
+  }
+}
 
 interface State {
   theme: ThemePref
+  // what is on screen: the place of the app tab in front, or the web
   view: View
-  openTabs: string[]
-  pinnedTabs: string[] // pinned title-tab ids — icon-only, stuck to the front
+  tabs: AppTab[]     // the app strip, the home library tab first
+  activeTab: string  // the app tab in front (DRAFT: an unsaved new title)
+  libFocus: string   // the library tab `library` belongs to — the last one in front
   activeTitle: string | null
   browseHomepage: string
   // data from the backend
@@ -115,14 +129,6 @@ interface State {
   // bumps when the active library changes: what a view caches per library
   // outside this store (recipes, say) watches it and lets go
   libraryGen: number
-  // the titles the Metadata view works on when the library's select mode handed
-  // them over; null = what the library's filters show
-  metaSelection: string[] | null
-  browseAxis: string     // which list field the browse view groups by
-  // the value page the browse view shows instead of its list, and the pages
-  // that led to it — Back walks them before it returns to the list
-  valuePage: ValueRef | null
-  valueTrail: ValueRef[]
   facets: Facets // linked counts for the CURRENT selection
   globalFacets: Facets // unfiltered counts — the STABLE row order for the sidebar
   // Counts under the SHELF alone: what an axis would actually find if you
@@ -135,23 +141,22 @@ interface State {
   byId: Record<string, Title> // cache for open tabs / detail view
   loading: boolean
   error: string | null
-  library: LibraryFilters
-  // pagination memory, preserved across tab/view switches
-  ui: { libPage: number; auPage: number }
+  library: LibraryFilters // the selection of the library tab in focus — each owns its own
   // app identity from <repo>/app-meta.json (via /api/settings)
   appMeta: { name?: string; version?: string; updated?: string; description?: string }
   // the reader (view 'reader') — the title is activeTitle, this is the position
   reader: { chapterId: string | null; page: number }
-  // tabs currently IN reader mode: switching back to such a tab re-enters the
-  // reader at the remembered spot instead of dropping to the title page
-  readerTabs: Record<string, { chapterId: string; page: number }>
 }
+
+export const HOME = 'home'
+export const DRAFT = 'draft'
 
 export const store = reactive<State>({
   theme: 'dark',
   view: 'library',
-  openTabs: [],
-  pinnedTabs: [],
+  tabs: [],
+  activeTab: HOME,
+  libFocus: HOME,
   activeTitle: null,
   browseHomepage: 'https://www.google.com',
   titles: [],
@@ -160,10 +165,6 @@ export const store = reactive<State>({
   sourceGroups: [],
   sourcesRead: false,
   libraryGen: 0,
-  metaSelection: null,
-  browseAxis: 'authors',
-  valuePage: null,
-  valueTrail: [],
   facets: emptyFacets(),
   globalFacets: emptyFacets(),
   shelfFacets: emptyFacets(),
@@ -172,16 +173,9 @@ export const store = reactive<State>({
   byId: {},
   loading: false,
   error: null,
-  library: {
-    density: 'grid', search: '', sort: 'updated', favOnly: false, progress: 'all',
-    // the shelf is which TYPE you are looking at — navigation, kept apart from
-    // the filter bags so the filter UI never has to pretend it owns it
-    minRating: 0, shelf: '', include: blankSelection(), exclude: blankSelection(),
-  },
-  ui: { libPage: 1, auPage: 1 },
+  library: blankLibrary(),
   appMeta: {},
   reader: { chapterId: null, page: 0 },
-  readerTabs: {},
 })
 
 // ---- theme ----
@@ -195,8 +189,6 @@ function resolveTheme(pref: ThemePref): 'dark' | 'light' {
 // restore persisted UI prefs before wiring the auto-save
 store.theme = readLocalOne('lb.theme', ['dark', 'light', 'system'] as const, store.theme)
 store.library.density = readLocalOne('lb.density', ['grid', 'dense', 'expanded'] as const, store.library.density)
-// an axis is any list field, custom ones included, so it is not a fixed set
-store.browseAxis = readLocal('lb.browseAxis', (v): v is string => typeof v === 'string', 'authors')
 // the shell's native window-controls overlay follows the theme
 const TITLEBAR = {
   dark: { color: '#0f1115', symbolColor: '#9aa1ad' },
@@ -212,7 +204,6 @@ document.documentElement.classList.toggle('frameless', !!window.longbox)
 watchEffect(() => {
   writeLocalOne('lb.theme', store.theme)
   writeLocalOne('lb.density', store.library.density)
-  writeLocal('lb.browseAxis', store.browseAxis)
 })
 
 // ---- what page capture accepts as a page ----
@@ -326,55 +317,12 @@ export function buildQuery(): LibraryQuery {
   }
 }
 
-// The Metadata view's scope: the selection handed over from the library, or
-// exactly what the library shows under its filters right now.
-export function metaScope(): MetaScope {
-  if (store.metaSelection) return { ids: store.metaSelection }
+// The Metadata view's scope: the titles a tab was handed, or exactly what the
+// library shows under its filters right now.
+export function metaScope(ids: string[] | null): MetaScope {
+  if (ids) return { ids }
   const { sort: _sort, ...filters } = buildQuery()
   return filters
-}
-export function editInMetadata(ids: string[]) {
-  store.metaSelection = [...ids]
-  goView('metadata')
-}
-
-// ---- value pages (design/value-pages.md) ----
-// A page lives inside the browse view, on the axis of the field it was opened
-// by, so the rail says where you are and its Back returns to that list.
-export interface ValueRef { field: string; value: string }
-export function openValuePage(field: string, value: string) {
-  const cur = store.valuePage
-  if (cur && store.view === 'authors') {
-    if (cur.field === field && cur.value === value) return
-    store.valueTrail.push(cur)
-  } else {
-    store.valueTrail = []
-  }
-  store.valuePage = { field, value }
-  store.browseAxis = field
-  store.view = 'authors'
-}
-// One-shot handoff to the Metadata view: the field, with the value searched
-// and selected — what a page's "In Metadata" means (rename, merge).
-let pendingMetaFocus: ValueRef | null = null
-export function editValueInMetadata(field: string, value: string) {
-  pendingMetaFocus = { field, value }
-  store.metaSelection = null
-  goView('metadata')
-}
-export function takeMetaFocus(): ValueRef | null {
-  const v = pendingMetaFocus
-  pendingMetaFocus = null
-  return v
-}
-export function valuePageBack() {
-  const prev = store.valueTrail.pop() ?? null
-  store.valuePage = prev
-  if (prev) store.browseAxis = prev.field // the rail says where Back went
-}
-export function closeValuePage() {
-  store.valuePage = null
-  store.valueTrail = []
 }
 
 export async function reloadLibrary() {
@@ -528,47 +476,209 @@ export function anyFilterActive(): boolean {
     || [...Object.values(f.include), ...Object.values(f.exclude)].some((v) => v.length)
 }
 
-// ---- navigation ----
-export function goView(v: Exclude<View, 'title' | 'browser'>) {
-  store.view = v
-  // opening a tab always refetches what it shows — the vault can change
-  // underneath (library-path switch, external edits); stale data stays on
-  // screen only until the background GET lands
-  if (v === 'authors' || v === 'sources') void refreshDerived()
-  else if (v === 'library') void reloadLibrary()
+// ---- navigation: places and tabs (design/navigation.md) ----
+//
+// Everything the app shows is a PLACE. An app tab holds one, the trail that
+// led to it (Back / Forward) and — kept alive by TabHost — what was done there,
+// until it is closed. The web keeps its own tabs and strip (browser.ts).
+// `view`, `activeTitle`, `reader` and `library` are what the tab in front holds.
+export interface ValueRef { field: string; value: string }
+// a library tab: its selection, and the axis it is browsed by ('' — its grid)
+export interface LibraryPlace { kind: 'library'; sel: LibraryFilters; axis: string; page: number }
+export interface TitlePlace { kind: 'title'; id: string }
+export interface ReaderPlace { kind: 'reader'; id: string; chapterId: string; page: number }
+export interface PagePlace { kind: 'page'; field: string; value: string }
+// the titles it was handed (null — the filters of library tab `lib`, the one it
+// was opened from), and a value to open on
+export interface MetadataPlace { kind: 'metadata'; ids: string[] | null; focus: ValueRef | null; lib: string }
+export interface SectionPlace { kind: 'import' | 'settings' }
+export type Place = LibraryPlace | TitlePlace | ReaderPlace | PagePlace | MetadataPlace | SectionPlace
+export interface AppTab {
+  id: string
+  place: Place
+  back: Place[]
+  forward: Place[]
+  pinned: boolean
+  hold: string // why the tab may not move or close quietly (a page being edited) — '' when it may
 }
-export async function openTitle(id: string) {
-  if (!store.openTabs.includes(id)) store.openTabs.push(id)
-  store.activeTitle = id
-  // a tab left in reader mode COMES BACK in reader mode, at the same spot
-  const r = store.readerTabs[id]
-  if (r) {
-    store.reader.chapterId = r.chapterId
-    store.reader.page = r.page
-    store.view = 'reader'
+type LibraryTab = AppTab & { place: LibraryPlace }
+
+const MAX_STEPS = 50
+let tabSeq = 0
+function addTab(place: Place): AppTab {
+  store.tabs.push({ id: `t${++tabSeq}`, place, back: [], forward: [], pinned: false, hold: '' })
+  const tab = store.tabs[store.tabs.length - 1]
+  settle(tab)
+  return tab
+}
+export function tabById(id: string): AppTab | undefined {
+  return store.tabs.find((t) => t.id === id)
+}
+export function activeAppTab(): AppTab | undefined {
+  return tabById(store.activeTab)
+}
+// the focus is always a library tab — the home tab when nothing else
+function libraryTab(): LibraryTab {
+  return (tabById(store.libFocus) ?? store.tabs[0]) as LibraryTab
+}
+function titleTab(id: string): AppTab | undefined {
+  return store.tabs.find((t) => (t.place.kind === 'title' || t.place.kind === 'reader') && t.place.id === id)
+}
+
+function viewOf(p: Place): View {
+  return p.kind === 'library' ? (p.axis ? 'authors' : 'library') : p.kind
+}
+// The library tab whose selection `store.library` is — the filters the library,
+// the browse groups and a Metadata scope are all under.
+function focusLibrary(tab: LibraryTab) {
+  if (store.libFocus === tab.id) return
+  flushStep()
+  store.libFocus = tab.id
+  store.library = tab.place.sel
+}
+// Put a tab in front: what it holds becomes what the app shows. A library tab
+// takes the focus; a Metadata tab on the library's filters gives it back to the
+// library tab it was opened from, so its scope cannot change underneath it.
+function project(tab: AppTab) {
+  const p = tab.place
+  if (p.kind === 'library') focusLibrary(tab as LibraryTab)
+  if (p.kind === 'metadata' && !p.ids) {
+    const lib = tabById(p.lib)
+    if (lib?.place.kind === 'library') focusLibrary(lib as LibraryTab)
+    else p.lib = store.libFocus // the tab it came from is closed: the one in focus now
+  }
+  store.activeTab = tab.id
+  store.activeTitle = p.kind === 'title' || p.kind === 'reader' ? p.id : null
+  if (p.kind === 'reader') Object.assign(store.reader, { chapterId: p.chapterId, page: p.page })
+  store.view = viewOf(p)
+}
+async function ensureTitle(id: string) {
+  if (store.byId[id]) return
+  try { cache([await api.title(id)]) } catch (e) { store.error = String(e) }
+}
+export function showTab(id: string) {
+  const tab = tabById(id)
+  if (!tab) return
+  // coming back to a library tab whose selection is already the focus: nothing
+  // else will ask again, and the vault can change underneath (a pass, a sync)
+  const again = tab.place.kind === 'library' && store.libFocus === tab.id
+    && (store.activeTab !== tab.id || store.view === 'browser' || store.view === 'sources')
+  project(tab)
+  const p = tab.place
+  if (p.kind === 'title' || p.kind === 'reader') void ensureTitle(p.id)
+  else if (p.kind === 'library' && p.axis) void refreshDerived()
+  if (again) void reloadLibrary()
+}
+// Back from the web to the app tab that was in front.
+export function showApp() {
+  if (store.activeTab === DRAFT) showDraft()
+  else showTab(tabById(store.activeTab) ? store.activeTab : HOME)
+}
+export function showSources() {
+  store.view = 'sources'
+  void refreshDerived()
+}
+
+// An unsaved NEW title has no id to be a tab of: it is drawn on its own, and
+// leaving it returns to the tab it was started from.
+let beforeDraft = HOME
+export function showDraft() {
+  if (store.activeTab !== DRAFT) beforeDraft = store.activeTab
+  store.activeTab = DRAFT
+  store.activeTitle = null
+  store.view = 'title'
+}
+export function leaveDraft() {
+  const back = tabById(beforeDraft) ? beforeDraft : HOME
+  if (store.view === 'browser' || store.view === 'sources') store.activeTab = back
+  else showTab(back)
+}
+
+// ---- Back and Forward: each tab walks its own trail ----
+function cloneSel(s: LibraryFilters): LibraryFilters {
+  return JSON.parse(JSON.stringify(s))
+}
+function clonePlace(p: Place): Place {
+  if (p.kind === 'library') return { ...p, sel: cloneSel(p.sel) }
+  if (p.kind === 'metadata') return { ...p, ids: p.ids && [...p.ids], focus: p.focus && { ...p.focus } }
+  return { ...p }
+}
+// A step inside a tab: the place it leaves is the one Back returns to.
+function step(tab: AppTab, to: Place) {
+  tab.back.push(clonePlace(tab.place))
+  if (tab.back.length > MAX_STEPS) tab.back.shift()
+  tab.forward = []
+  tab.place = to
+  if (tab.id === store.activeTab) project(tab)
+}
+// A library tab keeps ONE selection object for its life — the filter block and
+// the results are bound to it — so a step back is copied into it, not swapped.
+function arrive(tab: AppTab, to: Place) {
+  const cur = tab.place
+  if (cur.kind === 'library' && to.kind === 'library') {
+    Object.assign(cur.sel, cloneSel(to.sel), { density: cur.sel.density })
+    cur.axis = to.axis
+    cur.page = 1
+    settle(tab)
   } else {
-    store.view = 'title'
+    tab.place = to
   }
-  if (!store.byId[id]) {
-    try { cache([await api.title(id)]) } catch (e) { store.error = String(e) }
+  if (tab.id === store.activeTab) project(tab)
+}
+export function goBack(steps = 1) {
+  const tab = activeAppTab()
+  if (!tab || tab.hold) return
+  flushStep()
+  for (let i = 0; i < steps && tab.back.length; i++) {
+    tab.forward.push(clonePlace(tab.place))
+    arrive(tab, tab.back.pop()!)
   }
 }
-// Middle-click: open the tab WITHOUT leaving the current view.
-export async function openTitleBackground(id: string) {
-  if (!store.openTabs.includes(id)) store.openTabs.push(id)
-  if (!store.byId[id]) {
-    try { cache([await api.title(id)]) } catch (e) { store.error = String(e) }
-  }
+export function goForward() {
+  const tab = activeAppTab()
+  if (!tab || tab.hold || !tab.forward.length) return
+  flushStep()
+  tab.back.push(clonePlace(tab.place))
+  arrive(tab, tab.forward.pop()!)
 }
-// Drop every per-tab trace of a title (open tab, pin, reader memory).
-// Returns the tab's former index so closeTab can pick a successor.
-function forgetTab(id: string): number {
-  const i = store.openTabs.indexOf(id)
-  if (i >= 0) store.openTabs.splice(i, 1)
-  const p = store.pinnedTabs.indexOf(id)
-  if (p >= 0) store.pinnedTabs.splice(p, 1)
-  delete store.readerTabs[id]
-  return i
+
+// A library tab's steps are taken as its selection settles, not per keystroke:
+// a burst of changes (a search being typed) is one step once it stops.
+const settled = new Map<string, LibraryPlace>()
+let stepTimer: number | undefined
+function libKey(p: LibraryPlace): string {
+  const { density: _density, include, exclude, ...rest } = p.sel
+  const bag = (b: Record<string, string[]>) =>
+    Object.entries(b).filter(([, v]) => v.length).sort(([a], [b2]) => a.localeCompare(b2))
+  return JSON.stringify([p.axis, rest, bag(include), bag(exclude)])
+}
+function settle(tab: AppTab) {
+  if (tab.place.kind === 'library') settled.set(tab.id, clonePlace(tab.place) as LibraryPlace)
+}
+function recordStep() {
+  const tab = libraryTab()
+  const was = settled.get(tab.id)
+  if (was && libKey(was) !== libKey(tab.place)) {
+    tab.back.push(was)
+    if (tab.back.length > MAX_STEPS) tab.back.shift()
+    tab.forward = []
+  }
+  settle(tab)
+}
+function flushStep() {
+  if (stepTimer === undefined) return
+  window.clearTimeout(stepTimer)
+  stepTimer = undefined
+  recordStep()
+}
+// ---- titles: one tab per title ----
+export function openTitle(id: string) {
+  showTab((titleTab(id) ?? addTab({ kind: 'title', id })).id)
+}
+// Middle-click: the tab opens behind the one in front.
+export function openTitleBackground(id: string) {
+  if (!titleTab(id)) addTab({ kind: 'title', id })
+  void ensureTitle(id)
 }
 // A title that no longer exists cannot be captured into — the session ends with
 // it instead of posting pages at a dead id every couple of seconds.
@@ -576,50 +686,219 @@ function forgetTitle(id: string) {
   delete store.byId[id]
   stopCaptureFor({ titleId: id })
 }
-export function closeTab(id: string) {
-  const i = forgetTab(id)
-  if (store.activeTitle === id) {
-    const next = store.openTabs[i] ?? store.openTabs[i - 1] ?? null
-    store.activeTitle = next
-    if (next) void openTitle(next)
-    else store.view = 'library'
+function forgetTitleTabs(id: string) {
+  const gone = store.tabs.filter((t) => (t.place.kind === 'title' || t.place.kind === 'reader') && t.place.id === id)
+  for (const t of gone) dropTab(t.id)
+}
+// Closing is the only thing that forgets. The home tab stays; a tab holding
+// unsaved work asks first.
+export async function closeTab(id: string) {
+  const tab = tabById(id)
+  if (!tab || id === HOME) return
+  if (tab.hold && !(await askConfirm({
+    title: 'Close the tab', danger: true, okLabel: 'Close',
+    message: `${tab.hold} Close the tab and drop it?`,
+  }))) return
+  dropTab(id)
+}
+function dropTab(id: string) {
+  const i = store.tabs.findIndex((t) => t.id === id)
+  if (i <= 0) return // the home tab is first, and stays
+  if (store.libFocus === id) flushStep()
+  store.tabs.splice(i, 1)
+  settled.delete(id)
+  if (store.libFocus === id) {
+    const lib = (store.tabs.find((t) => t.place.kind === 'library') ?? store.tabs[0]) as LibraryTab
+    store.libFocus = lib.id
+    store.library = lib.place.sel
   }
+  if (beforeDraft === id) beforeDraft = HOME
+  if (store.activeTab !== id) return
+  const next = store.tabs[i] ?? store.tabs[i - 1]
+  if (store.view === 'browser' || store.view === 'sources') store.activeTab = next.id
+  else showTab(next.id)
+}
+export function toggleTabPin(id: string) {
+  const tab = tabById(id)
+  if (tab && id !== HOME) tab.pinned = !tab.pinned
+}
+// Reorder (drag & drop in the strip or the all-tabs menu): `dragId` before
+// `targetId` ('#end' — last). Nothing goes before the home tab.
+export function moveTabBefore(dragId: string, targetId: string) {
+  if (dragId === targetId || dragId === HOME) return
+  const from = store.tabs.findIndex((t) => t.id === dragId)
+  if (from < 0) return
+  const [tab] = store.tabs.splice(from, 1)
+  const to = store.tabs.findIndex((t) => t.id === targetId)
+  store.tabs.splice(to < 0 ? store.tabs.length : Math.max(1, to), 0, tab)
 }
 
-// ---- the reader: SAME tab as the title, just a view swap (mockup decision) ----
-export async function openReader(titleId: string, chapterId: string, page = 0) {
-  if (!store.openTabs.includes(titleId)) store.openTabs.push(titleId)
-  store.activeTitle = titleId
-  store.reader.chapterId = chapterId
-  store.reader.page = page
-  store.readerTabs[titleId] = { chapterId, page }
-  store.view = 'reader'
-  if (!store.byId[titleId]) {
-    try { cache([await api.title(titleId)]) } catch (e) { store.error = String(e) }
-  }
+// ---- the reader: a step inside the title's own tab ----
+export function openReader(titleId: string, chapterId: string, page = 0) {
+  const tab = titleTab(titleId) ?? addTab({ kind: 'title', id: titleId })
+  const spot: ReaderPlace = { kind: 'reader', id: titleId, chapterId, page }
+  if (tab.place.kind === 'reader') tab.place = spot // already reading: another spot, not another step
+  else step(tab, spot)
+  showTab(tab.id)
 }
 export function closeReader() {
-  // explicit exit — this tab is a title page again
-  if (store.activeTitle) delete store.readerTabs[store.activeTitle]
-  store.view = 'title'
+  const tab = activeAppTab()
+  if (!tab || tab.place.kind !== 'reader') return
+  const top = tab.back[tab.back.length - 1]
+  if (top?.kind === 'title' && top.id === tab.place.id) goBack()
+  else arrive(tab, { kind: 'title', id: tab.place.id })
+}
+// the tab remembers the reading spot — coming back to it re-enters there
+export function keepReaderSpot(chapterId: string, page: number) {
+  const p = activeAppTab()?.place
+  if (p?.kind === 'reader') Object.assign(p, { chapterId, page })
 }
 
-export function toggleTitlePin(id: string) {
-  const i = store.pinnedTabs.indexOf(id)
-  if (i >= 0) store.pinnedTabs.splice(i, 1)
-  else store.pinnedTabs.push(id)
+// ---- value pages (design/value-pages.md): a value's page is a tab of its own ----
+// one tab per value — authors and artists share the people's pages
+function pageKey(field: string, value: string): string {
+  const vocab = store.fields.find((f) => f.id === field)?.vocab || field
+  return `${vocab}\n${value.trim().toLowerCase()}`
+}
+export function openValuePage(field: string, value: string, background = false) {
+  const k = pageKey(field, value)
+  const tab = store.tabs.find((t) => t.place.kind === 'page' && pageKey(t.place.field, t.place.value) === k)
+    ?? addTab({ kind: 'page', field, value })
+  if (!background) showTab(tab.id)
+}
+// A neighbour reached FROM a page continues in that page's tab — Back returns.
+export function followValue(field: string, value: string) {
+  const tab = activeAppTab()
+  if (!tab || tab.place.kind !== 'page') return openValuePage(field, value)
+  if (pageKey(tab.place.field, tab.place.value) !== pageKey(field, value)) step(tab, { kind: 'page', field, value })
 }
 
-// Reorder (drag & drop in the all-tabs menu): put `dragId` before `targetId`.
-export function moveTitleTabBefore(dragId: string, targetId: string) {
-  if (dragId === targetId) return
-  const arr = store.openTabs
-  const from = arr.indexOf(dragId)
-  if (from < 0) return
-  arr.splice(from, 1)
-  const to = arr.indexOf(targetId)
-  if (to < 0) arr.push(dragId)
-  else arr.splice(to, 0, dragId)
+// ---- the library tabs ----
+export function goLibrary() {
+  showTab(libraryTab().id)
+}
+export function newLibraryTab(init: Partial<LibraryFilters> & { axis?: string } = {}, background = false) {
+  const { axis = '', ...sel } = init
+  const tab = addTab({ kind: 'library', sel: { ...blankLibrary(), density: store.library.density, ...sel }, axis, page: 1 })
+  if (!background) showTab(tab.id)
+}
+// the library tab in focus, browsed by this axis ('' — its grid)
+export function openAxis(axis: string) {
+  const tab = libraryTab()
+  if (tab.place.axis !== axis) Object.assign(tab.place, { axis, page: 1 })
+  showTab(tab.id)
+}
+// The rail's Browse by: clicking the axis already open goes back to the grid —
+// the shelves' grammar, one way in and the same way out.
+export function goBrowse(axis: string) {
+  const open = store.view === 'authors' && libraryTab().place.axis === axis
+  openAxis(open ? '' : axis)
+}
+// "Show in library": the library tab in focus, its grid filtered to exactly
+// this value — a step its Back undoes.
+export function showInLibrary(field: string, value: string) {
+  const tab = libraryTab()
+  Object.assign(tab.place.sel, {
+    search: '', favOnly: false, progress: 'all', minRating: 0, shelf: '',
+    include: { [field]: [value] }, exclude: {},
+  })
+  Object.assign(tab.place, { axis: '', page: 1 })
+  showTab(tab.id)
+}
+
+// ---- sections: one tab each; Metadata also opens on exactly what it is handed ----
+export type Section = 'metadata' | 'import' | 'settings'
+export function openSection(kind: Section, background = false) {
+  const tab = store.tabs.find((t) => t.place.kind === kind
+    && (t.place.kind !== 'metadata' || (!t.place.ids && !t.place.focus)))
+    ?? addTab(kind === 'metadata' ? { kind, ids: null, focus: null, lib: store.libFocus } : { kind })
+  if (!background) showTab(tab.id)
+}
+export function editInMetadata(ids: string[], background = false) {
+  const key = JSON.stringify(ids)
+  const tab = store.tabs.find((t) => t.place.kind === 'metadata' && !!t.place.ids && JSON.stringify(t.place.ids) === key)
+    ?? addTab({ kind: 'metadata', ids: [...ids], focus: null, lib: store.libFocus })
+  if (!background) showTab(tab.id)
+}
+// a value page's "In Metadata": its field, the value searched and selected
+export function editValueInMetadata(field: string, value: string, background = false) {
+  const tab = store.tabs.find((t) => t.place.kind === 'metadata'
+    && t.place.focus?.field === field && t.place.focus.value === value)
+    ?? addTab({ kind: 'metadata', ids: null, focus: { field, value }, lib: store.libFocus })
+  if (!background) showTab(tab.id)
+}
+
+const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+// What a tab says it holds — its label in the strip, a step in Back's list.
+export function placeLabel(p: Place): string {
+  switch (p.kind) {
+    case 'library': {
+      const axis = p.axis ? store.fields.find((f) => f.id === p.axis)?.label ?? p.axis : ''
+      const where = [p.sel.shelf && capital(p.sel.shelf), axis].filter(Boolean).join(' · ') || 'Library'
+      const n = activeFilterCount(p.sel)
+      // one value picked says itself; more say how many
+      const one = n === 1 ? Object.values(p.sel.include).flat()[0] : ''
+      return [where, p.sel.search && `“${p.sel.search}”`, one || (n && `${n} filter${n === 1 ? '' : 's'}`)]
+        .filter(Boolean).join(' · ')
+    }
+    case 'title': case 'reader': return titleById(p.id)?.title ?? 'Title'
+    case 'page': return p.value
+    case 'metadata':
+      return p.ids ? `Metadata · ${p.ids.length} titles` : p.focus ? `Metadata · ${p.focus.value}` : 'Metadata'
+    case 'import': return 'Import'
+    case 'settings': return 'Settings'
+  }
+}
+
+// A tab's view finds its place here (TabHost provides it): a view kept alive
+// behind another tab keeps reading its own place, not the one in front.
+export const TAB: InjectionKey<AppTab> = Symbol('tab')
+export function useTab(): AppTab {
+  const tab = inject(TAB)
+  if (!tab) throw new Error('a tab view was drawn outside its tab')
+  return tab
+}
+// A view kept alive behind another tab holds what it shows and stops answering
+// to the library: `whenShown` runs a load now, or once as the view comes back
+// (each load is owed once, however often it was asked for meanwhile).
+export function useShown(): { shown: Ref<boolean>; whenShown: (fn: () => void) => void } {
+  const shown = ref(true)
+  const owed = new Set<() => void>()
+  onActivated(() => {
+    shown.value = true
+    const due = [...owed]
+    owed.clear()
+    for (const fn of due) fn()
+  })
+  onDeactivated(() => { shown.value = false })
+  return { shown, whenShown: (fn) => { if (shown.value) fn(); else owed.add(fn) } }
+}
+
+// the home tab: the library the window opens on — always there, never closed
+function homeTab(sel: LibraryFilters): AppTab {
+  return { id: HOME, place: { kind: 'library', sel, axis: '', page: 1 }, back: [], forward: [], pinned: false, hold: '' }
+}
+store.tabs.push(homeTab(store.library))
+settle(store.tabs[0])
+watch(() => `${store.libFocus}\n${libKey(libraryTab().place)}`, () => {
+  window.clearTimeout(stepTimer)
+  stepTimer = window.setTimeout(() => {
+    stepTimer = undefined
+    recordStep()
+  }, 700)
+})
+// A library switch: every tab names a place in the vault being left.
+function resetTabs() {
+  window.clearTimeout(stepTimer)
+  stepTimer = undefined
+  settled.clear()
+  store.tabs = [homeTab({ ...blankLibrary(), density: store.library.density })]
+  store.libFocus = HOME
+  store.library = (store.tabs[0].place as LibraryPlace).sel
+  settle(store.tabs[0])
+  beforeDraft = HOME
+  store.reader = { chapterId: null, page: 0 }
+  showTab(HOME)
 }
 
 // Combo suggestions for entry LANG / GROUP fields — the chapters at hand
@@ -660,46 +939,12 @@ export function groupRings(chapters: { lang: string; group: string }[] = [], dom
   return ringsOf(chapters, domain, (c) => c.group)
 }
 
-// Jump to the library filtered by ONE value of ONE field. Everything that
-// links out of a chip, a card or a browse group lands here.
-// How many things the current selection has switched on — what the Filters
-// button counts, in the library and in the browse view alike.
-export function activeFilterCount(): number {
-  const f = store.library
+// How many things a selection has switched on — what the Filters button
+// counts, in the library and in the browse view alike, and a tab's label.
+export function activeFilterCount(f: LibraryFilters = store.library): number {
   const n = (bag: Record<string, string[]>) => Object.values(bag).reduce((t, v) => t + v.length, 0)
   return n(f.include) + n(f.exclude)
     + (f.favOnly ? 1 : 0) + (f.progress !== 'all' ? 1 : 0) + (f.minRating ? 1 : 0)
-}
-
-export function filterByField(field: FacetKey, value: string) {
-  resetFilters()
-  store.library.shelf = '' // a jump from a chip means THIS value, not this value on this shelf
-  store.library.include[field] = [value]
-  store.view = 'library'
-}
-// The singular vocabulary the title page and the cards speak, over that one.
-export function filterBy(kind: 'genre' | 'tag' | 'type' | 'status' | 'character', value: string) {
-  filterByField(kind === 'genre' ? 'genres' : kind === 'tag' ? 'tags'
-    : kind === 'character' ? 'characters' : kind, value)
-}
-// Jump to the library filtered to ONE person via the dedicated AUTHOR facet.
-export function filterByPerson(name: string) {
-  filterByField('authors', name)
-}
-
-// One-shot handoff: jump to the Authors tab focused on one person — the view
-// picks the name up on mount and puts it into its own search box.
-let pendingAuthorFocus = ''
-export function goAuthorsFor(name: string) {
-  pendingAuthorFocus = name
-  closeValuePage()
-  store.browseAxis = 'authors' // the browse view may have been left on another axis
-  goView('authors')
-}
-export function takeAuthorFocus(): string {
-  const v = pendingAuthorFocus
-  pendingAuthorFocus = ''
-  return v
 }
 
 // ---- lookups ----
@@ -963,7 +1208,7 @@ export async function deleteTitle(id: string): Promise<void> {
   try {
     await api.removeTitle(id)
     forgetTitle(id)
-    closeTab(id)
+    forgetTitleTabs(id)
     await refreshLibrary()
   } catch (e) {
     store.error = e instanceof Error ? e.message : String(e)
@@ -977,8 +1222,7 @@ export async function deleteTitles(ids: string[]): Promise<number> {
     try {
       await api.removeTitle(id)
       forgetTitle(id)
-      forgetTab(id)
-      if (store.activeTitle === id) store.activeTitle = null
+      forgetTitleTabs(id)
       done++
     } catch (e) {
       store.error = e instanceof Error ? e.message : String(e)
@@ -1064,6 +1308,11 @@ export async function refreshTotal() {
 }
 
 export async function setLibraryPath(path: string): Promise<string | null> {
+  const held = store.tabs.find((t) => t.hold)
+  if (held && !(await askConfirm({
+    title: 'Switch the library', danger: true, okLabel: 'Switch',
+    message: `${held.hold} Switching closes every tab and drops it.`,
+  }))) return null
   Object.assign(opening, { active: true, path, done: 0, total: 0 })
   // what is waiting, or already on its way, belongs to the library being left
   if (legacyReader) legacyReader.stop = true
@@ -1078,17 +1327,7 @@ export async function setLibraryPath(path: string): Promise<string | null> {
     Object.assign(pageFilter, PAGE_FILTER_DEFAULTS)
     stopCaptureFor() // the armed entry belongs to the library we are leaving
     store.byId = {}
-    store.metaSelection = null // a selection names the OLD vault's titles
-    closeValuePage()
-    store.openTabs = []
-    store.pinnedTabs = []
-    store.activeTitle = null
-    store.readerTabs = {} // reader memory is keyed by the OLD vault's title ids
-    store.reader = { chapterId: null, page: 0 }
-    store.ui.libPage = 1
-    store.ui.auPage = 1
-    store.view = 'library'
-    resetFilters()
+    resetTabs() // every tab names a place in the OLD vault
     const all = await api.library()
     cache(all)
     store.total = all.length

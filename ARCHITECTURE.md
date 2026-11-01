@@ -274,7 +274,8 @@ backend/app/
   routers/  library.py · downloads.py · recipes.py · settings.py · metadata.py · imports.py
 frontend/src/
   App.vue (the frame: views, tabs, activity panel, close guard) · styles.css (the design tokens)
-  store.ts (app state, facets, user layer, downloads) · draft.ts (THE draft) · browser.ts (tabs)
+  store.ts (app state, navigation: the app tabs and their places, facets, user layer, downloads) ·
+  draft.ts (THE draft) · browser.ts (the web's tabs)
   api.ts (the sidecar client) · local.ts (validated localStorage) · data.ts (domain helpers)
   sessions.ts (tab-session restore) · keys.ts (physical-key bindings) · normalize.ts
   pagecapture.ts (the page-capture activity) · frames.ts (episode stills, cut in the window)
@@ -284,6 +285,8 @@ frontend/src/
   components/ MetadataEditor (the one editor) · ImportMeta (its fields over an import's values) ·
               BulkEdit (the library's editor for many picked titles) ·
               ValuePage + ValuePeek (a value's page, and its hover card) ·
+              TabHost (an app tab's screen, kept alive) · HistoryNav (‹ › and the steps) ·
+              TabFace ·
               CapturePanel (draft + downloads dock) ·
               PassButton + ProgressBar (run/progress/stop, one grammar everywhere) ·
               Settings* (one component per settings section) ·

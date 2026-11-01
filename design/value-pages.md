@@ -115,8 +115,8 @@ In the vault, so it travels with the library like recipes and rules:
 
 ## 6. Surfaces
 
-1. **The page** — opens inside Browse (*Browse › Tags › time loop*, with Back to the list), from
-   anywhere a value is shown. The head band speaks the title page's grammar: image, kind badge,
+1. **The page** — a tab of its own (design/navigation.md), opened from anywhere a value is
+   shown; a neighbour followed from it continues in the same tab, and Back returns. The head band speaks the title page's grammar: image, kind badge,
    name, other spellings, counts, links, description. Actions: **Edit**, **Show in library**,
    **In Metadata** (that value selected, for rename / merge), ★ for a person. Below: works and
    often-together; a side column with the numbers and the rules.
@@ -126,8 +126,8 @@ In the vault, so it travels with the library like recipes and rules:
    titles that still hold that spelling.
 3. **Peek** — hovering a value's chip for a beat (the title page, Browse's tag chips) shows a
    small card: name, kind, the first lines of the description or "nothing written yet", the
-   count and a few covers, *Open page* and *Show in library*. A click keeps doing what it does
-   today (D1). Not in the metadata editor: *Open page* would walk away from an unsaved draft.
+   count and a few covers, *Open page* and *Show in library*. A click opens the page
+   (design/navigation.md, D3). Not in the metadata editor: *Open page* would walk away from an unsaved draft.
 4. **Browse** — a group's name opens its page; its card shows the image and the description's
    first line. A filter **Not described** lists the values with nothing written, most-used
    first — the queue for filling pages in.

@@ -1,21 +1,22 @@
 <script setup lang="ts">
 // METADATA — a library's vocabulary in one place (design/metadata-management.md).
 // Every field's values with their counts across a SCOPE (the library's own
-// filters, or a selection handed over from its select mode); operations that
+// filters, or the titles this tab was handed — design/navigation.md); operations that
 // change what titles already hold — previewed from the index before anything is
 // written, run as a vault pass, journaled; the rules that change what enters a
 // title from then on; and the history of every run, each one revertible.
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, onActivated, onDeactivated, reactive, ref, watch } from 'vue'
 import Icon from '../components/Icon.vue'
 import SearchBox from '../components/SearchBox.vue'
 import Pager from '../components/Pager.vue'
 import RailSection from '../components/RailSection.vue'
 import FilterBlock from '../components/FilterBlock.vue'
+import HistoryNav from '../components/HistoryNav.vue'
 import PassButton from '../components/PassButton.vue'
 import { api } from '../api'
 import {
   activeFilterCount, askConfirm, metaScope, openValuePage, refreshLibrary, runVaultPass, stopVaultPass,
-  store, takeMetaFocus, vaultPass, watchVaultPass,
+  store, useShown, useTab, vaultPass, watchVaultPass, type MetadataPlace,
 } from '../store'
 import { hasValuePage } from '../peek'
 import {
@@ -30,8 +31,20 @@ const tab = ref<(typeof TABS)[number]>(readLocalOne('lb.metaTab', TABS, 'values'
 watch(tab, (v) => writeLocalOne('lb.metaTab', v))
 
 const PASS = 'metadata'
-watchVaultPass(true)
-onBeforeUnmount(() => watchVaultPass(false))
+// the poll is warm while the tab is in front, not while it waits behind another
+onActivated(() => watchVaultPass(true))
+onDeactivated(() => watchVaultPass(false))
+// Rules are saved as a whole list and runs revert from this one: both are read
+// again each time the tab comes back — another tab, a page, a run may have
+// changed them meanwhile.
+onActivated(() => {
+  void loadRules()
+  void loadRuns()
+})
+// what this tab works on: the titles it was handed, or the library's filters
+const place = useTab().place as MetadataPlace
+const { shown: inFront, whenShown } = useShown()
+const scope = () => metaScope(place.ids)
 const busy = computed(() => vaultPass.running)
 
 function failed(e: unknown): string {
@@ -45,7 +58,7 @@ const inScope = ref(0)
 const fieldId = ref(readLocal('lb.metaField', (v): v is string => typeof v === 'string', 'tags'))
 watch(fieldId, (v) => writeLocal('lb.metaField', v))
 // a value page's "In Metadata": its field, the value searched and selected
-const focus = takeMetaFocus()
+const focus = place.focus
 let focusValue = focus?.value ?? ''
 if (focus) {
   fieldId.value = focus.field
@@ -59,7 +72,7 @@ const chapterFields = computed(() => fields.value.filter((f) => f.kind === 'chap
 const labelOf = (id: string) => fields.value.find((f) => f.id === id)?.label ?? id
 const shapeOf = (id: string) => fields.value.find((f) => f.id === id)?.shape
 
-function useFilters() { store.metaSelection = null }
+function useFilters() { place.ids = null }
 
 // ---- the values ----
 const values = ref<MetaValue[]>([])
@@ -79,7 +92,7 @@ async function loadValues() {
   if (!f) return
   const seq = ++valuesSeq
   try {
-    const got = await api.metaValues(f.id, metaScope())
+    const got = await api.metaValues(f.id, scope())
     if (seq !== valuesSeq) return // a later request (another field, another scope) owns the list
     values.value = got
     const held = new Set(got.map((v) => v.value))
@@ -123,7 +136,7 @@ async function reload() {
   const seq = ++reloadSeq
   loading.value = true
   try {
-    const got = await api.metaFields(metaScope())
+    const got = await api.metaFields(scope())
     if (seq !== reloadSeq) return
     fields.value = got.fields
     inScope.value = got.inScope
@@ -132,7 +145,7 @@ async function reload() {
 }
 // `store.titles` is reassigned by every library reload — a filter change, a
 // commit — so riding it keeps the counts true to the scope without a poll
-watch([() => store.titles, () => store.metaSelection], reload, { immediate: true })
+watch([() => store.titles, () => place.ids], () => whenShown(reload), { immediate: true })
 watch(() => field.value?.id, (now, was) => {
   if (!was || now === was) return
   selected.clear()
@@ -259,8 +272,11 @@ const action = computed<MetaAction | null>(() => {
 let previewTimer: number | undefined
 let previewSeq = 0
 const previewFor = ref('')
-const currentKey = computed(() => (action.value ? JSON.stringify([action.value, metaScope()]) : ''))
-watch(currentKey, (key) => {
+const currentKey = computed(() => (action.value ? JSON.stringify([action.value, scope()]) : ''))
+// a tab behind another one previews what it holds when it comes back
+watch(currentKey, () => whenShown(previewNow))
+function previewNow() {
+  const key = currentKey.value
   const seq = ++previewSeq
   window.clearTimeout(previewTimer)
   preview.value = null
@@ -271,7 +287,7 @@ watch(currentKey, (key) => {
   previewTimer = window.setTimeout(async () => {
     previewing.value = true
     try {
-      const got = await api.metaPreview([a], metaScope())
+      const got = await api.metaPreview([a], scope())
       if (seq !== previewSeq) return
       preview.value = got
       previewFor.value = key
@@ -281,7 +297,7 @@ watch(currentKey, (key) => {
       if (seq === previewSeq) previewing.value = false
     }
   }, 300)
-})
+}
 const previewIsCurrent = computed(() => !!preview.value && previewFor.value === currentKey.value)
 
 const runLabel = computed(() => {
@@ -300,7 +316,7 @@ async function runAction() {
   const keep = remember.value && canRemember.value
   let ran = false
   await runVaultPass(async () => {
-    const out = await api.metaRun([a], metaScope(), keep)
+    const out = await api.metaRun([a], scope(), keep)
     ran = true
     if (out.failed) {
       store.error = `${out.failed} title${out.failed === 1 ? ' was' : 's were'} left as they were `
@@ -320,7 +336,6 @@ const runs = ref<MetaRun[]>([])
 async function loadRuns() {
   try { runs.value = await api.metaRuns() } catch (e) { store.error = failed(e) }
 }
-void loadRuns()
 const lastRun = computed<MetaRun | undefined>(() => runs.value[0])
 function when(at: string): string {
   const d = new Date(at)
@@ -362,7 +377,6 @@ async function loadRules() {
     rulesErr.value = ''
   } catch (e) { rulesErr.value = failed(e) }
 }
-void loadRules()
 async function saveList(list: Rule[]): Promise<boolean> {
   try {
     const got = await api.saveRules(list)
@@ -488,19 +502,19 @@ async function applyRule() {
   const r = editing.value
   if (!r?.id) return
   let pv: MetaPreview
-  try { pv = await api.rulePreview(r.id, metaScope()) } catch (e) { store.error = failed(e); return }
+  try { pv = await api.rulePreview(r.id, scope()) } catch (e) { store.error = failed(e); return }
   const typed = pv.manual ? ` ${pv.manual} of these values were typed by you and change too.` : ''
   const ok = await askConfirm({ title: 'Apply rule to stored titles', okLabel: `Apply to ${pv.titles}`,
     message: `${pv.titles} title${pv.titles === 1 ? '' : 's'} in the current scope change.${typed}` })
   if (!ok) return
-  await runVaultPass(() => api.ruleRun(r.id, metaScope()))
+  await runVaultPass(() => api.ruleRun(r.id, scope()))
   await afterRun()
 }
 </script>
 
 <template>
   <div class="meta">
-    <Teleport to="#siderail">
+    <Teleport v-if="inFront" to="#siderail">
       <RailSection label="TITLE" hint="values">
         <button v-for="f in titleFields" :key="f.id" :class="{ on: tab === 'values' && field?.id === f.id }"
                 @click="fieldId = f.id; tab = 'values'">
@@ -520,6 +534,7 @@ async function applyRule() {
 
     <div class="col">
       <div class="head">
+        <HistoryNav />
         <h1 class="h1">{{ tab === 'values' ? field?.label ?? 'Metadata' : tab === 'rules' ? 'Rules' : 'History' }}</h1>
         <span v-if="tab === 'values'" class="count">{{ values.length.toLocaleString() }} values</span>
         <span v-else-if="tab === 'rules'" class="count">applied top to bottom, once</span>
@@ -532,18 +547,18 @@ async function applyRule() {
           <button class="opt" :class="{ on: tab === 'history' }" @click="tab = 'history'">History</button>
         </div>
         <button v-if="tab !== 'history'" class="btn" :class="{ acton: scopeOpen }"
-                :disabled="!!store.metaSelection" :title="store.metaSelection ? 'Working on the selected titles' : 'Which titles'"
+                :disabled="!!place.ids" :title="place.ids ? 'Working on the selected titles' : 'Which titles'"
                 @click="scopeOpen = !scopeOpen">
           <Icon name="filter" :size="13" :sw="1.9" />Scope
-          <span v-if="!store.metaSelection && activeFilterCount()" class="numbadge">{{ activeFilterCount() }}</span>
+          <span v-if="!place.ids && activeFilterCount()" class="numbadge">{{ activeFilterCount() }}</span>
         </button>
         <button v-if="tab === 'rules'" class="btn" @click="newRule()"><Icon name="plus" :size="13" :sw="2.2" />Rule</button>
       </div>
 
       <!-- what the scope reaches, always in sight -->
       <div v-if="tab !== 'history'" class="scopeline">
-        <template v-if="store.metaSelection">
-          <span><b>{{ store.metaSelection.length.toLocaleString() }}</b> selected titles</span>
+        <template v-if="place.ids">
+          <span><b>{{ place.ids.length.toLocaleString() }}</b> selected titles</span>
           <button class="lnk" @click="useFilters()">Use the library's filters instead</button>
         </template>
         <template v-else>
@@ -798,7 +813,7 @@ async function applyRule() {
       </div>
     </div>
 
-    <FilterBlock v-if="scopeOpen && !store.metaSelection" @close="scopeOpen = false" />
+    <FilterBlock v-if="scopeOpen && !place.ids" @close="scopeOpen = false" />
   </div>
 </template>
 

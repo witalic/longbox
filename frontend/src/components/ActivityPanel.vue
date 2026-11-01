@@ -12,7 +12,7 @@ import Icon from './Icon.vue'
 import ProgressBar from './ProgressBar.vue'
 import { api } from '../api'
 import {
-  downloads, goView, passHome, passIcon, passPercent, pollDownloads, stopVaultPass, store, titleById, vaultPass,
+  downloads, openSection, passHome, passIcon, passPercent, pollDownloads, stopVaultPass, store, titleById, vaultPass,
   watchDownloads, watchVaultPass,
 } from '../store'
 
@@ -48,7 +48,7 @@ const passAmount = computed(() => {
   return p.total ? `${p.done} of ${p.total}` : ''
 })
 function openHome() {
-  goView(passHome(vaultPass.key))
+  openSection(passHome(vaultPass.key))
   emit('close')
 }
 

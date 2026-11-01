@@ -1,29 +1,31 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import {
+  computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch,
+  type Component, type PropType,
+} from 'vue'
 import Icon from './components/Icon.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
 import RailSection from './components/RailSection.vue'
 import {
-  store, goView, openTitle, closeTab, titleById, toggleTitlePin, moveTitleTabBefore, init, closeValuePage,
-  shownAxes, runningDownloads, unfinishedDownloads, vaultPass, passIcon, passPercent,
+  store, closeTab, toggleTabPin, moveTabBefore, init, shownAxes, runningDownloads,
+  unfinishedDownloads, vaultPass, passIcon, passPercent, activeAppTab, tabById, showTab, showDraft,
+  leaveDraft, goLibrary, goBrowse, newLibraryTab, openSection, showSources, placeLabel, goBack, goForward,
+  DRAFT, HOME, type AppTab, type LibraryPlace, type Section,
 } from './store'
 import {
-  browser, openBrowse, activateTab, closeTab as closeBrowserTab, newTab, toggleTabPin,
+  browser, openBrowse, activateTab, closeTab as closeBrowserTab, newTab, toggleTabPin as toggleBrowserTabPin,
   moveBrowserTabBefore, toggleTabMute,
 } from './browser'
 import { confirmDiscard, discardDraft, draftState } from './draft'
 import { initSessions, restoreSession, sessionHistory, sessionLabel } from './sessions'
-import { coverAt, hueFor } from './data'
-import LibraryView from './views/LibraryView.vue'
+import { hueFor } from './data'
+import TabFace from './components/TabFace.vue'
 import ActivityPanel from './components/ActivityPanel.vue'
+import TabHost from './components/TabHost.vue'
 import TitleView from './views/TitleView.vue'
 import ReaderView from './views/ReaderView.vue'
-import AuthorsView from './views/AuthorsView.vue'
 import ValuePeek from './components/ValuePeek.vue'
 import SourcesView from './views/SourcesView.vue'
-import MetadataView from './views/MetadataView.vue'
-import ImportView from './views/ImportView.vue'
-import SettingsView from './views/SettingsView.vue'
 import BrowserView from './views/BrowserView.vue'
 
 // The destinations. Browsing BY a field is not one of them: it is the library
@@ -32,41 +34,99 @@ import BrowserView from './views/BrowserView.vue'
 // read like a second browser.
 const nav = [
   { key: 'library', label: 'Library', icon: 'library' },
-  { key: 'browse', label: 'Browse', icon: 'browser' },
+  { key: 'web', label: 'Web', icon: 'browser' },
   { key: 'sources', label: 'Sources', icon: 'sources' },
   { key: 'metadata', label: 'Metadata', icon: 'meta' },
   { key: 'import', label: 'Import', icon: 'import' },
   { key: 'settings', label: 'Settings', icon: 'settings' },
 ] as const
 
+// what the app tab in front holds — the rail lights its section
+const frontKind = computed(() => (store.activeTab === DRAFT ? 'title' : activeAppTab()?.place.kind ?? 'library'))
 function navActive(key: string): boolean {
-  if (key === 'library') return ['library', 'title', 'reader', 'authors'].includes(store.view)
-  if (key === 'browse') return store.view === 'browser'
-  return store.view === key
+  if (key === 'web') return store.view === 'browser'
+  if (key === 'sources') return store.view === 'sources'
+  if (stripMode.value === 'web') return false
+  if (key === 'library') return ['library', 'title', 'reader', 'page'].includes(frontKind.value)
+  return frontKind.value === key
 }
 // Navigation is inert by design: the draft lives outside the views and survives
-// moving around; no guard is needed here (discarding is what asks).
+// moving around; no guard is needed here (discarding is what asks). A section
+// is a tab of its own, opened the first time and found again after that.
 function navClick(key: string) {
-  // the rail's Metadata works on what the library's filters show; a selection
-  // arrives only from the library's select mode
-  if (key === 'metadata') store.metaSelection = null
-  if (key === 'browse') openBrowse()
-  else goView(key as 'library' | 'sources' | 'metadata' | 'import' | 'settings')
+  if (key === 'web') openBrowse()
+  else if (key === 'sources') showSources()
+  else if (key === 'library') goLibrary()
+  else openSection(key as Section)
 }
 
-// ONE browser-styled strip, CONTEXTUAL: in-app views (Library/Title/Authors/
-// Settings) show the title tabs; browser-side views (Browse/Sources) show the
-// browser tabs. The all-tabs menu always lists both worlds.
-const titleTabs = computed(() => {
-  const entry = (id: string) => ({ id, t: titleById(id)!, pinned: store.pinnedTabs.includes(id) })
-  const all = store.openTabs.map(entry).filter((x) => x.t)
-  return [...all.filter((x) => x.pinned), ...all.filter((x) => !x.pinned)]
+// Two strips, never mixed (design/navigation.md, D1): the app's places in the
+// app's views, the web's pages in Web and Sources. The all-tabs menu lists both.
+const appTabs = computed(() => {
+  const [home, ...rest] = store.tabs
+  return [home, ...rest.filter((t) => t.pinned), ...rest.filter((t) => !t.pinned)]
 })
 const browserTabs = computed(() =>
   [...browser.tabs.filter((t) => t.pinned), ...browser.tabs.filter((t) => !t.pinned)])
-// Settings is neither world — its strip shows no tabs at all.
-const stripMode = computed(() =>
-  store.view === 'settings' ? 'none' : ['browser', 'sources'].includes(store.view) ? 'web' : 'app')
+const stripMode = computed(() => (['browser', 'sources'].includes(store.view) ? 'web' : 'app'))
+
+// Back / Forward for the app tab in front: Alt+← / Alt+→ and the mouse's side
+// buttons. In the web the page's own history answers them.
+function onHistoryKey(e: KeyboardEvent) {
+  if (stripMode.value !== 'app' || !e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+  if (e.code === 'ArrowLeft') {
+    e.preventDefault()
+    goBack()
+  } else if (e.code === 'ArrowRight') {
+    e.preventDefault()
+    goForward()
+  }
+}
+function onHistoryButton(e: MouseEvent) {
+  if (stripMode.value !== 'app' || (e.button !== 3 && e.button !== 4)) return
+  e.preventDefault()
+  if (e.type !== 'mouseup') return
+  if (e.button === 3) goBack()
+  else goForward()
+}
+onMounted(() => {
+  window.addEventListener('keydown', onHistoryKey)
+  window.addEventListener('mousedown', onHistoryButton)
+  window.addEventListener('mouseup', onHistoryButton)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onHistoryKey)
+  window.removeEventListener('mousedown', onHistoryButton)
+  window.removeEventListener('mouseup', onHistoryButton)
+})
+
+// The tabs the KeepAlive holds — every app place but a title, which redraws
+// from the vault's own copy each time (TitleView, ReaderView).
+const hosted = computed(() => {
+  if (stripMode.value !== 'app') return null
+  const tab = activeAppTab()
+  return tab && tab.place.kind !== 'title' && tab.place.kind !== 'reader' ? tab : null
+})
+// KeepAlive keeps a screen by its component's NAME, so each tab gets a name of
+// its own: a closed tab's screen goes with it (`include`), and an open tab's is
+// never put away for room — unsaved work in it included.
+const hosts = new Map<string, Component>()
+function hostOf(id: string): Component {
+  let host = hosts.get(id)
+  if (!host) {
+    host = defineComponent({
+      name: `tab-${id}`,
+      props: { tab: { type: Object as PropType<AppTab>, required: true } },
+      setup: (props) => () => h(TabHost, { tab: props.tab }),
+    })
+    hosts.set(id, host)
+  }
+  return host
+}
+const keptHosts = computed(() => store.tabs.map((t) => `tab-${t.id}`))
+watch(() => store.tabs.map((t) => t.id), (open) => {
+  for (const id of hosts.keys()) if (!open.includes(id)) hosts.delete(id)
+})
 
 // Activity: what the app is doing — the library job and the transfers — in the
 // footer, the panel over everything, and the one case where the WINDOW asks
@@ -116,32 +176,33 @@ onMounted(() => {
 })
 onBeforeUnmount(() => stripWatch?.disconnect())
 // a tab opening, closing or being renamed changes the strip without scrolling it
-watch(() => [browser.tabs.length, store.openTabs.length, stripMode.value],
+watch(() => [browser.tabs.length, store.tabs.length, stripMode.value],
       () => void nextTick(measureStrip))
 function onTabWheel(e: WheelEvent) {
   tabScrollEl.value?.scrollBy({ left: e.deltaY + e.deltaX })
 }
 // keep the active tab visible when activation happens from elsewhere
-watch(() => [store.view, store.activeTitle, browser.activeId], async () => {
+watch(() => [store.view, store.activeTab, browser.activeId], async () => {
   await nextTick()
   tabScrollEl.value?.querySelector('.tab.on')?.scrollIntoView({ inline: 'nearest', block: 'nearest' })
 })
 
 // The strip's "+" opens a new tab OF THE WORLD it belongs to: a browser tab on
-// the homepage in the web strip, the library on the app side.
+// the homepage in the web strip, a fresh library tab on the app side.
 function newStripTab() {
   if (stripMode.value === 'web') newTab()
-  else goView('library')
+  else newLibraryTab()
 }
 
 // ---- the shelves: the `type` facet, the one field a title physically lives on
 // The shelf narrows the library AND the browse groups (they are the same
 // selection), so it has to be visible in both — a filter you cannot see from the
 // screen it is filtering is just a broken screen.
-const SHELF_VIEWS = ['library', 'title', 'reader', 'authors']
+const SHELF_VIEWS = ['library', 'title', 'reader', 'authors', 'page']
 const shelfViews = computed(() => SHELF_VIEWS.includes(store.view))
 const narrowsHere = computed(() => store.view === 'library' || store.view === 'authors')
 const shelfPicked = computed(() => store.library.shelf)
+const focusedAxis = computed(() => (tabById(store.libFocus)?.place as LibraryPlace | undefined)?.axis ?? '')
 const shelves = computed(() => (store.globalFacets.type ?? []).map((g) => ({
   v: g.v, n: g.n, on: shelfPicked.value === g.v,
 })))
@@ -151,23 +212,10 @@ function pickShelf(v: string) {
   // the same click is navigation — "take me to this shelf" — so it never clears
   // and it goes to the library.
   store.library.shelf = !v || (narrowsHere.value && shelfPicked.value === v) ? '' : v
-  if (!narrowsHere.value) goView('library')
+  if (!narrowsHere.value) goLibrary()
 }
 
 const axisFields = computed(() => shownAxes())
-function goBrowse(id: string) {
-  // clicking the OPEN axis goes back to the plain library — the same grammar the
-  // shelves have, so the rail has one way in and the same way out. From a value
-  // page it is one step: back to that axis's list.
-  if (store.view === 'authors' && store.browseAxis === id) {
-    if (store.valuePage) closeValuePage()
-    else goView('library')
-    return
-  }
-  closeValuePage()
-  store.browseAxis = id
-  goView('authors')
-}
 
 // An unsaved NEW title exists only in the draft — it has no id, so it cannot be
 // an open tab. Without one, leaving it meant a discard prompt with nowhere to
@@ -176,14 +224,13 @@ const draftTab = computed(() => {
   const d = draftState.cur
   return d && !d.targetId ? (d.meta.title.trim() || 'New title') : null
 })
-const onDraft = computed(() => store.view === 'title' && !store.activeTitle)
-function openDraft() {
-  store.activeTitle = null
-  store.view = 'title'
-}
+const onDraft = computed(() => stripMode.value === 'app' && store.activeTab === DRAFT)
 async function closeDraft() {
   if (await confirmDiscard()) discardDraft()
 }
+// A new title saved or discarded anywhere (the capture dock too) leaves the
+// draft's place empty: back to the tab it was started from.
+watch(draftTab, (name) => { if (!name && store.activeTab === DRAFT) leaveDraft() })
 
 const tabsMenu = ref(false)
 const tabsMenuRoot = ref<HTMLElement | null>(null)
@@ -192,7 +239,7 @@ function onDocDown(e: MouseEvent) {
 }
 onMounted(() => document.addEventListener('mousedown', onDocDown))
 onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown))
-function jumpTitle(id: string) { tabsMenu.value = false; void openTitle(id) }
+function jumpTab(id: string) { tabsMenu.value = false; showTab(id) }
 function jumpBrowser(id: string) { tabsMenu.value = false; activateTab(id) }
 // drag & drop reordering inside the menu (within a group)
 const dragging = ref<{ kind: 't' | 'b'; id: string } | null>(null)
@@ -201,7 +248,7 @@ function dropOn(kind: 't' | 'b', targetId: string) {
   const d = dragging.value
   dragging.value = null
   if (!d || d.kind !== kind) return
-  if (kind === 't') moveTitleTabBefore(d.id, targetId)
+  if (kind === 't') moveTabBefore(d.id, targetId)
   else moveBrowserTabBefore(d.id, targetId)
 }
 
@@ -226,6 +273,7 @@ function parseTx(t: string): number {
 function tabPointerDown(kind: 't' | 'b', id: string, e: PointerEvent) {
   if (e.button !== 0) return
   if ((e.target as HTMLElement).closest('.tact')) return // ✕ / pin are clicks, never drags
+  if (kind === 't' && id === HOME) return // the home tab stays first
   if (stripDrag.value) return // a second pointer must not orphan the live drag
   swallowClick = false // a cancelled drag never gets its click — start clean
   dragEl = e.currentTarget as HTMLElement
@@ -245,7 +293,7 @@ function tabPointerMove(e: PointerEvent) {
   if (!dragLive) {
     dragLive = true
     // chrome selects the tab the moment its drag starts
-    if (d.kind === 't') void openTitle(d.id)
+    if (d.kind === 't') showTab(d.id)
     else activateTab(d.id)
   }
   const strip = tabScrollEl.value
@@ -268,7 +316,7 @@ function tabPointerMove(e: PointerEvent) {
   // raw array the move helpers splice — pinned tabs render first, so the two
   // orders are not the same list.
   if (!strip) return
-  const shown = d.kind === 't' ? titleTabs.value.map((x) => x.id) : browserTabs.value.map((x) => x.id)
+  const shown = d.kind === 't' ? appTabs.value.map((x) => x.id) : browserTabs.value.map((x) => x.id)
   const from = shown.indexOf(d.id)
   if (from < 0) return
   for (const el of strip.querySelectorAll<HTMLElement>('.tab')) {
@@ -283,7 +331,7 @@ function tabPointerMove(e: PointerEvent) {
     // land before the next tab that still exists AFTER this one moves out
     const rest = shown.filter((x) => x !== d.id)
     const beforeId = rest[insert > from ? insert - 1 : insert]
-    if (d.kind === 't') moveTitleTabBefore(d.id, beforeId ?? '#end')
+    if (d.kind === 't') moveTabBefore(d.id, beforeId ?? '#end')
     else moveBrowserTabBefore(d.id, beforeId ?? '#end')
     break
   }
@@ -310,7 +358,7 @@ function tabPointerUp(e: PointerEvent) {
 }
 function tabClick(kind: 't' | 'b', id: string) {
   if (swallowClick) { swallowClick = false; return }
-  if (kind === 't') void openTitle(id)
+  if (kind === 't') showTab(id)
   else activateTab(id)
 }
 
@@ -342,7 +390,7 @@ initSessions()
            :class="{ moreL: tabsMore.left, moreR: tabsMore.right }"
            @wheel.prevent="onTabWheel" @scroll="measureStrip">
         <div v-if="stripMode === 'app' && draftTab" class="tab draft" :class="{ on: onDraft }"
-             :title="`${draftTab} — unsaved`" @click="openDraft">
+             :title="`${draftTab} — unsaved`" @click="showDraft">
           <Icon name="edit" :size="11" :sw="2" />
           <span class="lbl">{{ draftTab }}</span>
           <span class="tact" title="Discard this draft" @click.stop="closeDraft">
@@ -350,21 +398,23 @@ initSessions()
           </span>
         </div>
         <TransitionGroup v-if="stripMode === 'app'" name="tabslide">
-          <div v-for="x in titleTabs" :key="x.id" class="tab" :data-tab-id="x.id"
-               :class="{ on: ['title', 'reader'].includes(store.view) && store.activeTitle === x.id, pinned: x.pinned,
+          <div v-for="x in appTabs" :key="x.id" class="tab" :data-tab-id="x.id"
+               :class="{ on: !onDraft && store.activeTab === x.id, pinned: x.pinned, home: x.id === HOME,
                          dragging: stripDrag?.id === x.id }"
-               :title="x.t.title"
+               :title="x.id === HOME ? `${placeLabel(x.place)} — the library` : placeLabel(x.place)"
                @pointerdown="tabPointerDown('t', x.id, $event)" @pointermove="tabPointerMove"
                @pointerup="tabPointerUp" @pointercancel="tabPointerUp"
                @auxclick.prevent="$event.button === 1 && closeTab(x.id)"
                @click="tabClick('t', x.id)">
-            <span class="swatch" :style="x.t.cover ? { background: `#181a1f url('${coverAt(x.t.cover, 64)}') center/cover` } : { background: hueFor(x.id) }"></span>
+            <TabFace :tab="x" />
             <template v-if="!x.pinned">
-              <span class="lbl">{{ x.t.title }}</span>
-              <span class="tact pinbtn" title="Pin tab" @click.stop="toggleTitlePin(x.id)"><Icon name="pin" :size="10" :sw="2" /></span>
-              <span class="tact" title="Close" @click.stop="closeTab(x.id)"><Icon name="x" :size="10" :sw="2.4" /></span>
+              <span class="lbl">{{ placeLabel(x.place) }}</span>
+              <template v-if="x.id !== HOME">
+                <span class="tact pinbtn" title="Pin tab" @click.stop="toggleTabPin(x.id)"><Icon name="pin" :size="10" :sw="2" /></span>
+                <span class="tact" title="Close" @click.stop="closeTab(x.id)"><Icon name="x" :size="10" :sw="2.4" /></span>
+              </template>
             </template>
-            <span v-else class="tact unpin" title="Unpin tab" @click.stop="toggleTitlePin(x.id)"><Icon name="pin" :size="10" :sw="2" /></span>
+            <span v-else class="tact unpin" title="Unpin tab" @click.stop="toggleTabPin(x.id)"><Icon name="pin" :size="10" :sw="2" /></span>
           </div>
         </TransitionGroup>
         <TransitionGroup v-else-if="stripMode === 'web'" name="tabslide">
@@ -386,30 +436,28 @@ initSessions()
             </span>
             <template v-if="!t.pinned">
               <span class="lbl">{{ t.title || t.label }}</span>
-              <span class="tact pinbtn" title="Pin tab" @click.stop="toggleTabPin(t.id)"><Icon name="pin" :size="10" :sw="2" /></span>
+              <span class="tact pinbtn" title="Pin tab" @click.stop="toggleBrowserTabPin(t.id)"><Icon name="pin" :size="10" :sw="2" /></span>
               <span class="tact" title="Close" @click.stop="closeBrowserTab(t.id)"><Icon name="x" :size="10" :sw="2.4" /></span>
             </template>
-            <span v-else class="tact unpin" title="Unpin tab" @click.stop="toggleTabPin(t.id)"><Icon name="pin" :size="10" :sw="2" /></span>
+            <span v-else class="tact unpin" title="Unpin tab" @click.stop="toggleBrowserTabPin(t.id)"><Icon name="pin" :size="10" :sw="2" /></span>
           </div>
         </TransitionGroup>
       </div>
-      <button class="stripbtn" :title="stripMode === 'web' ? 'New browser tab' : 'Library'" @click="newStripTab">
+      <button class="stripbtn" :title="stripMode === 'web' ? 'New browser tab' : 'New library tab'" @click="newStripTab">
         <Icon name="plus" :size="14" :sw="2.2" />
       </button>
       <div ref="tabsMenuRoot" class="alltabs">
         <button class="stripbtn" :class="{ on: tabsMenu }" title="All tabs" @click="tabsMenu = !tabsMenu"><Icon name="chevron" :size="12" :sw="2.2" /></button>
         <div v-if="tabsMenu" class="tabsmenu scroll">
-          <template v-if="titleTabs.length">
-            <div class="mlbl">TITLES · {{ titleTabs.length }} <span class="mhint">drag to reorder</span></div>
-            <div v-for="x in titleTabs" :key="x.id" class="mitem"
-                 :class="{ on: ['title', 'reader'].includes(store.view) && store.activeTitle === x.id, drag: dragging?.id === x.id }"
-                 draggable="true" @dragstart="dragStart('t', x.id)" @dragover.prevent @drop.prevent="dropOn('t', x.id)"
-                 @click="jumpTitle(x.id)">
-              <span class="swatch" :style="x.t.cover ? { background: `#181a1f url('${coverAt(x.t.cover, 64)}') center/cover` } : { background: hueFor(x.id) }"></span>
-              <span class="mname">{{ x.t.title }}</span>
-              <span class="mx" title="Close" @click.stop="closeTab(x.id)"><Icon name="x" :size="11" :sw="2.4" /></span>
-            </div>
-          </template>
+          <div class="mlbl">APP · {{ appTabs.length }} <span class="mhint">drag to reorder</span></div>
+          <div v-for="x in appTabs" :key="x.id" class="mitem"
+               :class="{ on: stripMode === 'app' && !onDraft && store.activeTab === x.id, drag: dragging?.id === x.id }"
+               :draggable="x.id !== HOME" @dragstart="dragStart('t', x.id)" @dragover.prevent @drop.prevent="dropOn('t', x.id)"
+               @click="jumpTab(x.id)">
+            <TabFace :tab="x" />
+            <span class="mname">{{ placeLabel(x.place) }}</span>
+            <span v-if="x.id !== HOME" class="mx" title="Close" @click.stop="closeTab(x.id)"><Icon name="x" :size="11" :sw="2.4" /></span>
+          </div>
           <template v-if="browserTabs.length">
             <div class="mlbl">BROWSER · {{ browserTabs.length }} <span class="mhint">drag to reorder</span></div>
             <div v-for="t in browserTabs" :key="t.id" class="mitem"
@@ -421,7 +469,6 @@ initSessions()
               <span class="mx" title="Close" @click.stop="closeBrowserTab(t.id)"><Icon name="x" :size="11" :sw="2.4" /></span>
             </div>
           </template>
-          <div v-if="!titleTabs.length && !browserTabs.length" class="mlbl">NO OPEN TABS</div>
           <div class="mnew" @click="tabsMenu = false; newTab()">
             <Icon name="browser" :size="14" :sw="1.9" /><span>New browser tab</span>
           </div>
@@ -441,9 +488,10 @@ initSessions()
     <aside class="side">
       <nav class="nav">
         <button v-for="n in nav" :key="n.key" class="navitem" :class="{ on: navActive(n.key) }"
-                @click="navClick(n.key)">
+                :title="n.key === 'library' ? 'The library — middle-click for a new library tab' : n.label"
+                @click="navClick(n.key)" @auxclick.prevent="$event.button === 1 && n.key === 'library' && newLibraryTab({}, true)">
           <Icon :name="n.icon" :size="18" />{{ n.label }}
-          <span v-if="n.key === 'browse' && draftOpen" class="draftdot" title="A draft is open"></span>
+          <span v-if="n.key === 'web' && draftOpen" class="draftdot" title="A draft is open"></span>
         </button>
       </nav>
       <!-- Contextual rail: whichever view is on screen teleports its own
@@ -457,7 +505,8 @@ initSessions()
             <span class="slbl">All types</span>
             <span class="sn mono">{{ store.total }}</span>
           </button>
-          <button v-for="sh in shelves" :key="sh.v" :class="{ on: sh.on }" @click="pickShelf(sh.v)">
+          <button v-for="sh in shelves" :key="sh.v" :class="{ on: sh.on }" @click="pickShelf(sh.v)"
+                  @auxclick.prevent="$event.button === 1 && newLibraryTab({ shelf: sh.v }, true)">
             <span class="sdot" :style="{ background: hueFor(sh.v) }"></span>
             <span class="slbl">{{ sh.v }}</span>
             <span class="sn mono">{{ sh.n }}</span>
@@ -466,10 +515,10 @@ initSessions()
         <!-- the same axes the browse view groups by, as navigation into it -->
         <RailSection v-if="shelfViews" label="BROWSE BY">
           <button v-for="f in axisFields" :key="f.id"
-                  :class="{ on: store.view === 'authors' && store.browseAxis === f.id }"
-                  :title="store.view === 'authors' && store.browseAxis === f.id
-                    ? 'Back to the library' : `Browse by ${f.label.toLowerCase()}`"
-                  @click="goBrowse(f.id)">
+                  :class="{ on: store.view === 'authors' && focusedAxis === f.id }"
+                  :title="store.view === 'authors' && focusedAxis === f.id
+                    ? 'Back to the library' : `Browse by ${f.label.toLowerCase()} — middle-click for a new tab`"
+                  @click="goBrowse(f.id)" @auxclick.prevent="$event.button === 1 && newLibraryTab({ axis: f.id }, true)">
             <span class="slbl">{{ f.label }}</span>
           </button>
         </RailSection>
@@ -507,14 +556,14 @@ initSessions()
     <!-- main -->
     <main class="main">
       <div class="viewport scroll">
-        <LibraryView v-if="store.view === 'library'" />
-        <TitleView v-else-if="store.view === 'title'" />
+        <!-- every app tab but a title keeps its screen while it is open -->
+        <!-- a library switch starts every screen over: they all named the old vault -->
+        <KeepAlive :key="store.libraryGen" :include="keptHosts">
+          <component :is="hostOf(hosted.id)" v-if="hosted" :key="hosted.id" :tab="hosted" />
+        </KeepAlive>
+        <TitleView v-if="store.view === 'title'" />
         <ReaderView v-else-if="store.view === 'reader'" class="reader-host" />
-        <AuthorsView v-else-if="store.view === 'authors'" />
         <SourcesView v-else-if="store.view === 'sources'" />
-        <MetadataView v-else-if="store.view === 'metadata'" />
-        <ImportView v-else-if="store.view === 'import'" />
-        <SettingsView v-else-if="store.view === 'settings'" />
         <!-- kept mounted so the embedded browser (pages + history) survives leaving Browse -->
         <BrowserView v-show="store.view === 'browser'" class="browser-host" />
       </div>
@@ -595,11 +644,12 @@ initSessions()
    in the light theme */
 .tab.on { background: var(--bg); color: var(--tx); border-color: var(--line); box-shadow: inset 0 2.5px 0 var(--accent); }
 .tab.pinned { width: auto; padding: 0 8px; }
+/* home: as wide as what it says it shows, and never closed */
+.tab.home { width: auto; max-width: 190px; }
 /* the draft is not a saved record yet, and says so */
 .tab.draft { border-style: dashed; color: var(--warn); }
 .tab.draft.on { color: var(--warn); box-shadow: inset 0 2.5px 0 var(--warn); }
 .tab .lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.swatch { width: 14px; height: 19px; border-radius: 3px; flex: none; border: 1px solid var(--line); }
 .fav { width: 16px; height: 16px; border-radius: 4px; background: var(--panel2); display: inline-flex; align-items: center; justify-content: center; font: 700 8px/1 system-ui; color: var(--tx3); flex: none; }
 .tact { width: 16px; height: 16px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; color: var(--tx3); flex: none; }
 /* the sound mark is a STATE first and a button second: it is there because the

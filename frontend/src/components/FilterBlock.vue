@@ -17,7 +17,8 @@ import { isBoolMap, isNumMap, readLocal, writeLocal } from '../local'
 import { FLAG_DEFS, type FacetValue } from '../data'
 
 const emit = defineEmits<{ (e: 'close'): void }>()
-const lib = store.library
+// the library tab in focus — read every time: the focus moves with the tab in front
+const lib = computed(() => store.library)
 
 // reading progress — the USER-layer axis, independent of the manga's own status
 const progRows = [
@@ -74,13 +75,13 @@ const curRows = computed(() => {
 
 // What is switched on right now, readable without opening a single group.
 const activeChips = computed(() => SECTIONS.value.flatMap((x) => [
-  ...picked(lib.include, x.key).map((v) => ({ key: x.key, v, label: x.labels?.[v] ?? v, on: 'inc' })),
-  ...picked(lib.exclude, x.key).map((v) => ({ key: x.key, v, label: x.labels?.[v] ?? v, on: 'exc' })),
+  ...picked(lib.value.include, x.key).map((v) => ({ key: x.key, v, label: x.labels?.[v] ?? v, on: 'inc' })),
+  ...picked(lib.value.exclude, x.key).map((v) => ({ key: x.key, v, label: x.labels?.[v] ?? v, on: 'exc' })),
 ]))
 const activeCount = computed(() => activeFilterCount())
 function dropValue(key: FacetKey, v: string) {
-  lib.include[key] = picked(lib.include, key).filter((x) => x !== v)
-  lib.exclude[key] = picked(lib.exclude, key).filter((x) => x !== v)
+  lib.value.include[key] = picked(lib.value.include, key).filter((x) => x !== v)
+  lib.value.exclude[key] = picked(lib.value.exclude, key).filter((x) => x !== v)
 }
 
 // The panel's own height is fixed between the header and the footer, so the
@@ -130,7 +131,7 @@ const openSec = reactive<Record<string, boolean>>({
 watch(openSec, () => writeLocal('lb.facetOpen', { ...openSec }), { deep: true })
 function toggleSec(k: string) { openSec[k] = !openSec[k] }
 function selCount(key: FacetKey): number {
-  return picked(lib.include, key).length + picked(lib.exclude, key).length
+  return picked(lib.value.include, key).length + picked(lib.value.exclude, key).length
 }
 const PROG_LABEL: Record<string, string> = { unread: 'Unread', reading: 'Reading', completed: 'Completed' }
 
@@ -140,7 +141,7 @@ function rowsFor(key: FacetKey): FacetValue[] {
   const cur = new Map((store.facets[key] ?? []).map((x) => [x.v, x.n]))
   const rows = (store.globalFacets[key] ?? []).map((g) => ({ v: g.v, n: cur.get(g.v) ?? 0 }))
   const seen = new Set(rows.map((r) => r.v))
-  for (const v of [...picked(lib.include, key), ...picked(lib.exclude, key)]) {
+  for (const v of [...picked(lib.value.include, key), ...picked(lib.value.exclude, key)]) {
     if (!seen.has(v)) rows.push({ v, n: cur.get(v) ?? 0 })
   }
   return rows
@@ -155,7 +156,7 @@ function orderedRows(key: FacetKey): FacetValue[] {
   return [...sel, ...live, ...dead]
 }
 function sectionActive(key: FacetKey): boolean {
-  return picked(lib.include, key).length > 0 || picked(lib.exclude, key).length > 0
+  return picked(lib.value.include, key).length > 0 || picked(lib.value.exclude, key).length > 0
 }
 // Hiding a facet must not leave it filtering from off-screen: its picks go too.
 function hideFacet(id: string, hidden: boolean) {
@@ -163,8 +164,8 @@ function hideFacet(id: string, hidden: boolean) {
   if (hidden) clearSection(id as FacetKey)
 }
 function clearSection(key: FacetKey) {
-  lib.include[key] = []
-  lib.exclude[key] = []
+  lib.value.include[key] = []
+  lib.value.exclude[key] = []
 }
 
 </script>

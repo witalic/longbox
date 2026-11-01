@@ -37,7 +37,7 @@ const advOpen = ref(false)
 </script>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
+import { computed, onActivated, onDeactivated, onMounted, watch } from 'vue'
 import Combo from '../components/Combo.vue'
 import FieldVisibility from '../components/FieldVisibility.vue'
 import Icon from '../components/Icon.vue'
@@ -45,14 +45,19 @@ import ImportMeta from '../components/ImportMeta.vue'
 import MenuButton from '../components/MenuButton.vue'
 import PassButton from '../components/PassButton.vue'
 import RailSection from '../components/RailSection.vue'
+import HistoryNav from '../components/HistoryNav.vue'
 import { api } from '../api'
-import { goView, refreshLibrary, runVaultPass, stopVaultPass, store, vaultPass, watchVaultPass } from '../store'
+import {
+  goLibrary, refreshLibrary, runVaultPass, stopVaultPass, store, useShown, vaultPass, watchVaultPass,
+} from '../store'
 import type { ImportEntry, ImportRole, ImportWork } from '../data'
 import { readLocal, readLocalOne, writeLocal, writeLocalOne } from '../local'
 
 const PASS = 'import'
-watchVaultPass(true)
-onBeforeUnmount(() => watchVaultPass(false))
+// the poll is warm while the tab is in front, not while it waits behind another
+onActivated(() => watchVaultPass(true))
+onDeactivated(() => watchVaultPass(false))
+const { shown: inFront } = useShown()
 
 const TABS = ['structure', 'meta', 'files'] as const
 const tab = ref<(typeof TABS)[number]>(readLocalOne('lb.importTab', TABS, 'structure'))
@@ -393,11 +398,11 @@ async function runImport() {
   if (body.profile.files === 'move') await scanFolder(s.root)
   else await replan()
 }
-function openLibrary() { goView('library') }
+function openLibrary() { goLibrary() }
 
+// back from another tab: the library may have changed under the preview
+onActivated(() => { if (scan.value) void replan() })
 onMounted(async () => {
-  // back from another view: the library may have changed under the preview
-  if (scan.value) void replan()
   try {
     profiles.value = await api.importProfiles()
     if (!opened) {
@@ -413,7 +418,7 @@ onMounted(async () => {
 
 <template>
   <div class="imp">
-    <Teleport to="#siderail">
+    <Teleport v-if="inFront" to="#siderail">
       <RailSection label="PROFILES">
         <button v-for="p in profiles" :key="p.id" :class="{ on: p.id === profile.id }" @click="useProfile(p)">
           <span class="slbl">{{ p.name || 'Unnamed' }}</span>
@@ -431,6 +436,7 @@ onMounted(async () => {
 
     <div class="col">
       <div class="head">
+        <HistoryNav />
         <h1 class="h1">Import</h1>
         <span v-if="scan" class="path mono" :title="scan.root">{{ scan.root }}
           <span class="dim">· {{ scan.counts.folders ?? 0 }} folders · {{ (scan.counts.video ?? 0) + (scan.counts.archive ?? 0) + (scan.counts.image ?? 0) }} files</span></span>

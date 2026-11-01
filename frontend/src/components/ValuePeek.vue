@@ -3,7 +3,7 @@
 // mounted by App, placed next to whichever chip asked.
 import { coverAt } from '../data'
 import { peek, peekClose, peekHold, peekOff } from '../peek'
-import { filterByField, openValuePage } from '../store'
+import { openValuePage, showInLibrary as filterLibrary } from '../store'
 
 function open() {
   const d = peek.data
@@ -13,7 +13,7 @@ function open() {
 function showInLibrary() {
   const d = peek.data
   peekClose()
-  if (d) filterByField(d.field === 'artists' ? 'authors' : d.field, d.value)
+  if (d) filterLibrary(d.field === 'artists' ? 'authors' : d.field, d.value)
 }
 </script>
 

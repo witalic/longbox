@@ -11,7 +11,7 @@ import Icon from '../components/Icon.vue'
 import Dropdown from '../components/Dropdown.vue'
 import VideoSurface from '../components/VideoSurface.vue'
 import { api } from '../api'
-import { closeReader, setRead, setReaderPrefs, store, titleById } from '../store'
+import { closeReader, keepReaderSpot, setRead, setReaderPrefs, store, titleById } from '../store'
 import {
   READ_COLOR as readColor, coverAt, filterOptions, formatDuration, groupByNum, hueFor,
   isReadable, mediaLabel, orderedChaptersOf, readerPrefsOf, type Chapter, type Title,
@@ -150,9 +150,7 @@ function onStripImgLoad(index: number, e: Event) {
 
 // the tab remembers the reading spot — switching tabs and back re-enters here
 watch([() => store.reader.chapterId, () => store.reader.page], () => {
-  if (t.value && store.view === 'reader' && store.reader.chapterId) {
-    store.readerTabs[t.value.id] = { chapterId: store.reader.chapterId, page: store.reader.page }
-  }
+  if (store.view === 'reader' && store.reader.chapterId) keepReaderSpot(store.reader.chapterId, store.reader.page)
 })
 
 // entering a chapter (from anywhere) marks it 'reading'; a dead/missing id

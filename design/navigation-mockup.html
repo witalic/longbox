@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Navigation — mockup</title>
+<style>
+/* ---- the app's own tokens (frontend/src/styles.css), verbatim ---- */
+:root {
+  --bg: #0a0b0d; --bg2: #0f1115; --panel: #15171b; --panel2: #1b1e24;
+  --line: #262a31; --hover: #2a2e36;
+  --tx: #e8eaef; --tx2: #9aa1ad; --tx3: #697080;
+  --accent: #7089e6; --accent-ink: #0d0e11; --accentSoft: rgba(112, 137, 230, .14);
+  --fav: #e0687a; --good: #5fb88a; --warn: #d6a44f; --adult: #e0687a;
+}
+html[data-theme="light"] {
+  --bg: #f0eeea; --bg2: #e6e3dd; --panel: #faf9f6; --panel2: #edeae4;
+  --line: #d2cdc2; --hover: #e2ded6;
+  --tx: #2a2c31; --tx2: #575d67; --tx3: #8d95a1;
+  --accent: #5f77d4; --accent-ink: #ffffff; --accentSoft: rgba(95, 119, 212, .15);
+  --fav: #d6516a; --good: #3f9e6f; --warn: #b07d2a; --adult: #d6516a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--tx); font: 400 13px/1.45 system-ui; -webkit-font-smoothing: antialiased; }
+.mono { font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; }
+.page { max-width: 1420px; margin: 0 auto; padding: 26px 24px 60px; }
+h1 { font: 700 22px/1.1 system-ui; margin: 0 0 4px; letter-spacing: -.3px; }
+h2 { font: 600 13px/1 system-ui; margin: 0; }
+.lede { color: var(--tx2); max-width: 88ch; margin: 0 0 26px; }
+.block { border: 1px solid var(--line); border-radius: 10px; background: var(--bg2); margin-bottom: 22px; overflow: hidden; }
+.bhead { height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.bhead .n { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
+.bbody { padding: 18px 16px; }
+.note { font: 400 11.5px/1.55 system-ui; color: var(--tx3); margin: 12px 0 0; max-width: 100ch; }
+.note b { color: var(--tx2); font-weight: 600; }
+.themebtn { position: fixed; top: 14px; right: 16px; z-index: 5; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--tx); border-radius: 6px; height: 30px; padding: 0 12px; cursor: pointer; font: 600 12px/1 system-ui; white-space: nowrap; }
+.btn.accent { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.ghost { background: transparent; color: var(--tx2); }
+.ic { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---- the titlebar strip, as App.vue draws it ---- */
+.strips { display: flex; flex-direction: column; gap: 14px; }
+.strip { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); overflow: hidden; }
+.strip .lab { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 14px; border-bottom: 1px solid var(--line); font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
+.strip .lab .tag { letter-spacing: .06em; padding: 3px 6px; border-radius: 4px; border: 1px solid var(--line); }
+.strip .lab .tag.new { color: var(--accent); border-color: var(--accent); }
+.strip .why { padding: 10px 14px 12px; border-top: 1px solid var(--line); font: 400 11.5px/1.5 system-ui; color: var(--tx3); }
+.strip .why b { color: var(--tx2); font-weight: 600; }
+.tabbar { height: 40px; flex: none; background: var(--bg2); border-bottom: 1px solid var(--line); display: flex; align-items: center; padding-left: 14px; }
+.brand { display: flex; align-items: center; gap: 9px; padding-right: 18px; flex: none; }
+.brand .logo { width: 22px; height: 22px; border-radius: 6px; background: linear-gradient(#8194f4, #3e4eb2); flex: none; }
+.brand .name { font: 700 13.5px/1 system-ui; letter-spacing: -.2px; }
+.tabscroll { flex: 1; min-width: 0; height: 100%; display: flex; align-items: flex-end; gap: 3px; padding-top: 5px; overflow: hidden; }
+.tab { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 35px; padding: 0 10px; width: 146px; min-width: 0; border: 1px solid color-mix(in srgb, var(--line) 55%, transparent); border-bottom: none; border-radius: 8px 8px 0 0; background: color-mix(in srgb, var(--panel) 55%, transparent); color: var(--tx3); font: 500 12px/1 system-ui; }
+.tab.on { background: var(--bg); color: var(--tx); border-color: var(--line); box-shadow: inset 0 2.5px 0 var(--accent); }
+.tab.home { width: auto; max-width: 170px; padding: 0 12px; }
+.tab.pinned { width: auto; padding: 0 8px; }
+.tab .lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tab.home .lbl { flex: none; }
+.tab .x { color: var(--tx3); width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; }
+.tab .x .ic { width: 10px; height: 10px; stroke-width: 2.4; }
+.swatch { width: 14px; height: 19px; border-radius: 3px; flex: none; border: 1px solid var(--line); }
+.fav { width: 16px; height: 16px; border-radius: 4px; background: var(--panel2); display: inline-flex; align-items: center; justify-content: center; font: 700 8px/1 system-ui; color: var(--tx3); flex: none; }
+.face { width: 16px; height: 16px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font: 700 6.5px/1 system-ui; color: #fff; flex: none; }
+.vdot { width: 9px; height: 9px; border-radius: 50%; flex: none; margin: 0 3px; }
+.tab .ic.k { width: 14px; height: 14px; color: var(--tx2); }
+.tab.on .ic.k { color: var(--accent); }
+.gplus { width: 28px; height: 28px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: var(--tx2); flex: none; align-self: center; }
+.gplus .ic { width: 13px; height: 13px; stroke-width: 2.2; }
+.stripbtn { width: 40px; height: 100%; display: inline-flex; align-items: center; justify-content: center; color: var(--tx2); flex: none; }
+.wc { display: flex; gap: 18px; color: var(--tx3); padding: 0 14px 0 6px; border-left: 1px solid var(--line); height: 22px; align-items: center; }
+.emptystrip { flex: 1; }
+
+/* ---- the app frame ---- */
+.app { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--bg); display: flex; flex-direction: column; }
+.approw { display: flex; min-height: 0; }
+.side { width: 210px; flex: none; background: var(--bg2); border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+.nav { padding: 12px 10px 6px; display: flex; flex-direction: column; gap: 2px; }
+.navitem { height: 34px; display: flex; align-items: center; gap: 11px; padding: 0 12px; border-radius: 8px; color: var(--tx2); font: 500 13px/1 system-ui; }
+.navitem .ic { width: 17px; height: 17px; }
+.navitem.on { background: var(--accentSoft); color: var(--accent); }
+.navitem .ren { margin-left: auto; font: 600 8.5px/1 ui-monospace, monospace; letter-spacing: .08em; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 2px 4px; }
+.rail { flex: 1; padding: 6px 10px 10px; }
+.rlabel { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); padding: 12px 12px 8px; }
+.ritem { height: 28px; display: flex; align-items: center; gap: 9px; padding: 0 12px; border-radius: 6px; font: 500 12.5px/1 system-ui; color: var(--tx2); }
+.ritem.on { color: var(--tx); background: var(--hover); }
+.ritem .sn { margin-left: auto; font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+/* head bands: ‹ › first, where the web view has its own */
+.vhead { height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px 0 12px; border-bottom: 1px solid var(--line); position: relative; }
+.hist { display: flex; gap: 2px; flex: none; margin-right: 4px; }
+.hb { width: 28px; height: 28px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: var(--tx2); }
+.hb .ic { width: 15px; height: 15px; stroke-width: 2; }
+.hb.on { background: var(--hover); color: var(--tx); }
+.hb.off { color: var(--tx3); opacity: .45; }
+.crumb { font: 500 13px/1 system-ui; color: var(--tx3); white-space: nowrap; }
+.crumb b { color: var(--tx); font-weight: 600; }
+.csep { color: var(--tx3); }
+.vhead .h { font: 600 22px/1 system-ui; letter-spacing: -.4px; }
+.vhead .cnt { font: 500 13px/1 ui-monospace, monospace; color: var(--tx3); white-space: nowrap; }
+.vhead .right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.sbox { width: 180px; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 11px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; color: var(--tx3); font: 400 12.5px/1 system-ui; }
+.steps { position: absolute; top: 40px; left: 12px; z-index: 3; width: 290px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 22px 50px rgba(0,0,0,.55); padding: 6px; }
+.steps .sl { font: 700 8.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); padding: 7px 9px 6px; }
+.steps div.it { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 9px; border-radius: 6px; color: var(--tx2); font: 500 12.5px/1 system-ui; }
+.steps div.it.hov { background: var(--hover); color: var(--tx); }
+.steps div.it.now { color: var(--tx); }
+.steps div.it .w { margin-left: auto; font: 500 10px/1 ui-monospace, monospace; color: var(--tx3); }
+
+/* the value page body, short */
+.vbody { padding: 22px 26px; display: flex; flex-direction: column; gap: 18px; }
+.vband { display: flex; gap: 20px; align-items: flex-start; }
+.bigface { width: 92px; height: 92px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font: 600 28px/1 system-ui; color: #fff; flex: none; }
+.vname { font: 700 22px/1.1 system-ui; letter-spacing: -.3px; }
+.vsub { margin-top: 6px; font: 500 12px/1.4 system-ui; color: var(--tx2); }
+.links { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
+.lnkchip { height: 24px; display: inline-flex; align-items: center; padding: 0 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel2); font: 500 11.5px/1 system-ui; color: var(--tx2); }
+.sect { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
+.works { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 14px; }
+.work .cov { aspect-ratio: 2/3; border-radius: 7px; border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; font: 600 24px/1 Georgia, serif; color: rgba(242,237,230,.18); }
+.work .t { margin-top: 6px; font: 600 11px/1.25 system-ui; color: var(--tx); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rel { display: flex; gap: 6px; flex-wrap: wrap; }
+.rchip { height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px 0 3px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel2); font: 500 11.5px/1 system-ui; color: var(--tx); }
+.rchip .face { width: 18px; height: 18px; }
+.rchip.v { padding-left: 9px; }
+
+/* the table of clicks */
+table.clicks { width: 100%; border-collapse: collapse; font: 400 12.5px/1.45 system-ui; }
+table.clicks th { text-align: left; font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); padding: 0 12px 10px; border-bottom: 1px solid var(--line); }
+table.clicks td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; color: var(--tx2); }
+table.clicks td:first-child { color: var(--tx); font-weight: 500; width: 26%; }
+table.clicks td.now { width: 30%; }
+table.clicks td.new { color: var(--tx); }
+table.clicks td.new b { color: var(--accent); font-weight: 600; }
+table.clicks tr:last-child td { border-bottom: none; }
+.same { color: var(--tx3); font-style: italic; }
+
+/* decisions */
+.dec { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.d { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); padding: 14px; }
+.d .k { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--accent); margin-bottom: 8px; }
+.d .q { font: 600 13px/1.35 system-ui; margin-bottom: 8px; }
+.d p { margin: 0; font: 400 11.5px/1.5 system-ui; color: var(--tx3); }
+.d p b { color: var(--tx2); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-library" viewBox="0 0 24 24"><path d="M4 5h11v14H4zM17 7h3v12h-3"/></symbol>
+  <symbol id="i-browser" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></symbol>
+  <symbol id="i-sources" viewBox="0 0 24 24"><path d="M10.5 13.5a4 4 0 0 0 5.7 0l2.8-2.8a4 4 0 0 0-5.7-5.7l-1.6 1.6M13.5 10.5a4 4 0 0 0-5.7 0l-2.8 2.8a4 4 0 0 0 5.7 5.7l1.6-1.6"/></symbol>
+  <symbol id="i-meta" viewBox="0 0 24 24"><path d="M4 7h9M4 12h16M4 17h6M17 5v4M13 15v4"/></symbol>
+  <symbol id="i-import" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM12 10v6M9 13l3 3 3-3"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.3 1a7 7 0 0 0-1.7-1l-.3-2.6h-4l-.3 2.6a7 7 0 0 0-1.7 1l-2.3-1-2 3.4 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 1.7 1l.3 2.6h4l.3-2.6a7 7 0 0 0 1.7-1l2.3 1 2-3.4-2-1.5c.1-.3.1-.7.1-1z"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol>
+  <symbol id="i-forward" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14M20 20l-3.5-3.5"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16l-6.2 7.4V19l-3.6 2v-8.6z"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.8 5.9 20.4l1.4-6.8L2.2 9l6.9-.7z"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M9 3h6v6l3 3H6l3-3zM12 12v9"/></symbol>
+</svg>
+<button class="btn themebtn" onclick="const h=document.documentElement;h.dataset.theme=h.dataset.theme==='dark'?'light':'dark'">Light / dark</button>
+
+<div class="page">
+  <h1>Places, tabs and the way back</h1>
+  <p class="lede">Today only a title can be come back to. Here everything the app shows is a <b>place</b>, any place lives in
+    a <b>tab</b>, and a tab remembers how it got there and what you did in it — a value's page, the library under its
+    filters, Metadata half-way through an operation — until you close it. Concept: <span class="mono">design/navigation.md</span>.</p>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">1 · THE STRIP</span><h2>The app's strip holds every app place; the web keeps its own</h2></div>
+    <div class="bbody">
+      <div class="strips">
+        <div class="strip">
+          <div class="lab">TODAY · IN THE LIBRARY, A TITLE, BROWSE BY, METADATA, IMPORT — ONLY TITLES HAVE TABS</div>
+          <div class="tabbar">
+            <div class="brand"><span class="logo"></span><span class="name">longbox</span></div>
+            <div class="tabscroll" data-strip="today-app"></div>
+            <span class="stripbtn"><svg class="ic"><use href="#i-plus"/></svg></span><span class="stripbtn"><svg class="ic"><use href="#i-chevron"/></svg></span>
+            <span class="wc">— ☐ ✕</span>
+          </div>
+        </div>
+        <div class="strip">
+          <div class="lab">TODAY · IN BROWSE (THE WEB) AND SOURCES</div>
+          <div class="tabbar">
+            <div class="brand"><span class="logo"></span><span class="name">longbox</span></div>
+            <div class="tabscroll" data-strip="today-web"></div>
+            <span class="stripbtn"><svg class="ic"><use href="#i-plus"/></svg></span><span class="stripbtn"><svg class="ic"><use href="#i-chevron"/></svg></span>
+            <span class="wc">— ☐ ✕</span>
+          </div>
+        </div>
+        <div class="strip">
+          <div class="lab">TODAY · IN SETTINGS — NO TABS AT ALL</div>
+          <div class="tabbar">
+            <div class="brand"><span class="logo"></span><span class="name">longbox</span></div>
+            <div class="emptystrip"></div>
+            <span class="stripbtn"><svg class="ic"><use href="#i-plus"/></svg></span><span class="stripbtn"><svg class="ic"><use href="#i-chevron"/></svg></span>
+            <span class="wc">— ☐ ✕</span>
+          </div>
+        </div>
+        <div class="strip">
+          <div class="lab">PROPOSED · THE APP STRIP — LIBRARY, A TITLE, A PAGE, METADATA, IMPORT, SETTINGS<span class="tag new">NEW</span></div>
+          <div class="tabbar">
+            <div class="brand"><span class="logo"></span><span class="name">longbox</span></div>
+            <div class="tabscroll" data-strip="proposed"></div>
+            <span class="stripbtn"><svg class="ic"><use href="#i-chevron"/></svg></span>
+            <span class="wc">— ☐ ✕</span>
+          </div>
+          <div class="why"><b>Library</b> is the first tab and always there — home; its label says what it shows. Then
+            <b>titles</b> (their cover), <b>pages</b> (a person's face, a value's colour) and <b>sections</b> (their icon). Its
+            <b>+</b> opens a new library tab. Settings shows this strip too, with Settings as a tab in it.</div>
+        </div>
+        <div class="strip">
+          <div class="lab">PROPOSED · THE WEB STRIP — WEB AND SOURCES, AS TODAY<span class="tag">UNCHANGED</span></div>
+          <div class="tabbar">
+            <div class="brand"><span class="logo"></span><span class="name">longbox</span></div>
+            <div class="tabscroll" data-strip="today-web"></div>
+            <span class="stripbtn"><svg class="ic"><use href="#i-plus"/></svg></span><span class="stripbtn"><svg class="ic"><use href="#i-chevron"/></svg></span>
+            <span class="wc">— ☐ ✕</span>
+          </div>
+          <div class="why"><b>The two worlds never share a strip</b> (D1). Pin, drag and the all-tabs menu work for every kind;
+            the menu lists both worlds, and Restore session brings every kind of tab back.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">2 · A PAGE IS A TAB</span><h2>Mitsuki Arata, kept open beside the titles and the tag you came from</h2></div>
+    <div class="bbody">
+      <div class="app">
+        <div class="tabbar">
+          <div class="brand"><span class="logo"></span><span class="name">longbox</span></div>
+          <div class="tabscroll" data-strip="frame"></div>
+          <span class="stripbtn"><svg class="ic"><use href="#i-chevron"/></svg></span>
+          <span class="wc">— ☐ ✕</span>
+        </div>
+        <div class="approw" style="height:600px">
+          <aside class="side">
+            <nav class="nav">
+              <div class="navitem on"><svg class="ic"><use href="#i-library"/></svg>Library</div>
+              <div class="navitem"><svg class="ic"><use href="#i-browser"/></svg>Web<span class="ren">WAS BROWSE</span></div>
+              <div class="navitem"><svg class="ic"><use href="#i-sources"/></svg>Sources</div>
+              <div class="navitem"><svg class="ic"><use href="#i-meta"/></svg>Metadata</div>
+              <div class="navitem"><svg class="ic"><use href="#i-import"/></svg>Import</div>
+              <div class="navitem"><svg class="ic"><use href="#i-settings"/></svg>Settings</div>
+            </nav>
+            <div class="rail">
+              <div class="rlabel">SHELVES</div>
+              <div class="ritem">All types<span class="sn">1,910</span></div>
+              <div class="ritem">Manga<span class="sn">1,654</span></div>
+              <div class="ritem">Manhwa<span class="sn">120</span></div>
+              <div class="ritem">Anime<span class="sn">136</span></div>
+              <div class="rlabel">BROWSE BY</div>
+              <div class="ritem">People</div>
+              <div class="ritem">Characters</div>
+              <div class="ritem">Genres</div>
+              <div class="ritem">Tags</div>
+            </div>
+          </aside>
+          <div class="main">
+            <div class="vhead">
+              <span class="hist"><span class="hb"><svg class="ic"><use href="#i-back"/></svg></span><span class="hb off"><svg class="ic"><use href="#i-forward"/></svg></span></span>
+              <span class="crumb">People <span class="csep">/</span> <b>Mitsuki Arata</b></span>
+              <div class="right">
+                <button class="btn"><svg class="ic"><use href="#i-star"/></svg></button>
+                <button class="btn"><svg class="ic"><use href="#i-filter"/></svg>Show in library</button>
+                <button class="btn"><svg class="ic"><use href="#i-meta"/></svg>In Metadata</button>
+                <button class="btn accent"><svg class="ic"><use href="#i-edit"/></svg>Edit</button>
+              </div>
+            </div>
+            <div class="vbody">
+              <div class="vband">
+                <span class="bigface" style="background:hsl(214 38% 42%)">MA</span>
+                <div>
+                  <div class="vname">Mitsuki Arata</div>
+                  <div class="vsub">Person · story &amp; art · 22 works, 14 read · from 3 sources</div>
+                  <div class="links"><span class="lnkchip">x.com</span><span class="lnkchip">pixiv.net</span><span class="lnkchip">mangadex.org</span></div>
+                </div>
+              </div>
+              <div class="sect">WORKS · 22</div>
+              <div class="works" data-works="8"></div>
+              <div class="sect">WORKS WITH</div>
+              <div class="rel"><span class="rchip"><span class="face" style="background:hsl(32 40% 42%)">KY</span>Kei Yamada</span><span class="rchip"><span class="face" style="background:hsl(150 34% 36%)">SN</span>Sora Nishi</span><span class="rchip v">fantasy</span><span class="rchip v">witch</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note"><b>The page came from a title</b> (Lantern Witch, still open) and keeps its own tab: open a work, go to
+        Metadata, go to the web and back — the page is one click away, scrolled where you left it. <b>Kei Yamada</b> under "works with"
+        continues in this same tab (a related value), and <b>‹</b> comes back to Mitsuki. A title's chip or a library card would
+        open Kei in a tab of his own. The rail lights <b>Library</b>: a page belongs to the library's world.</p>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">3 · WHERE A CLICK GOES</span><h2>It stays in the tab when it continues the same thing; it opens a tab when it reaches another record</h2></div>
+    <div class="bbody">
+      <table class="clicks">
+        <tr><th>YOU CLICK</th><th>TODAY</th><th>PROPOSED</th></tr>
+        <tr><td>A title — card, row, a work on a page</td><td class="now">Its tab, switched to if open</td><td class="new same">The same</td></tr>
+        <tr><td>A value on a title page — genre, tag, character, studio</td><td class="now">Filters the library, replacing the filters you had</td><td class="new"><b>Its page tab</b>, switched to if open (D3)</td></tr>
+        <tr><td>A person on a library card</td><td class="now">Browse by People, searched for the name</td><td class="new"><b>Its page tab</b></td></tr>
+        <tr><td>A name in a Browse by list</td><td class="now">The page, in place of the list — lost on leaving</td><td class="new"><b>Its page tab</b>; the list stays in the library tab</td></tr>
+        <tr><td>A related value on a page</td><td class="now">The next page, in place (its own Back)</td><td class="new">The same tab — <b>‹</b> returns</td></tr>
+        <tr><td>A shelf, a filter, the search, a Browse by axis</td><td class="now">Changes the one library</td><td class="new">The library tab you are in (or the Library tab) — <b>each change a step ‹ undoes</b></td></tr>
+        <tr><td>Show in library — on a page or a hover card</td><td class="now">Filters the library</td><td class="new">The Library tab, filtered to the value — <b>‹</b> returns to the filters you had</td></tr>
+        <tr><td>Library, Metadata, Import, Settings in the rail</td><td class="now">Swaps the screen; Metadata and Browse by start over</td><td class="new"><b>Its tab</b> in the app strip, opened if needed — one each, kept as you left it until closed</td></tr>
+        <tr><td>Web, Sources in the rail</td><td class="now">The web world, with its own strip</td><td class="new same">The same</td></tr>
+        <tr><td>Edit in Metadata / In Metadata</td><td class="now">Metadata, its last state replaced</td><td class="new"><b>A Metadata tab of its own</b> — "Metadata · 37 titles", "Metadata · isekai"</td></tr>
+        <tr><td>Middle-click (or Ctrl+click) on any of these</td><td class="now">A title in the background; elsewhere nothing</td><td class="new">A new tab in the background, for every kind</td></tr>
+      </table>
+      <p class="note"><b>Filtering by a value stays one click away</b> — the hover card and the page both carry
+        <i>Show in library</i>. What changes is that a value's click means one thing everywhere: its page.</p>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">4 · BACK, PER TAB</span><h2>‹ › at the start of every head band — where the web view already has them</h2></div>
+    <div class="bbody">
+      <div class="strips">
+        <div class="strip">
+          <div class="lab">THE LIBRARY TAB · RIGHT-CLICK ‹ LISTS THE STEPS</div>
+          <div class="vhead" style="margin-bottom:190px">
+            <span class="hist"><span class="hb on"><svg class="ic"><use href="#i-back"/></svg></span><span class="hb off"><svg class="ic"><use href="#i-forward"/></svg></span></span>
+            <span class="h">Manga</span><span class="cnt">38 of 1,910 titles</span>
+            <div class="right"><div class="sbox"><svg class="ic"><use href="#i-search"/></svg>Search title, author…</div><button class="btn" style="border-color:var(--accent);color:var(--accent);background:var(--accentSoft)"><svg class="ic"><use href="#i-filter"/></svg>Filters <span class="mono" style="font-size:10px">2</span></button></div>
+            <div class="steps">
+              <div class="sl">BACK</div>
+              <div class="it now">Manga · tags: isekai, witch<span class="w">now</span></div>
+              <div class="it hov">Manga · tags: isekai<span class="w">142</span></div>
+              <div class="it">Manga<span class="w">1,654</span></div>
+              <div class="it">Tags — Browse by<span class="w">412</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="strip">
+          <div class="lab">A TITLE TAB · BACK FROM THE READER LANDS ON THE TITLE PAGE</div>
+          <div class="vhead">
+            <span class="hist"><span class="hb"><svg class="ic"><use href="#i-back"/></svg></span><span class="hb on"><svg class="ic"><use href="#i-forward"/></svg></span></span>
+            <span class="crumb">Library <span class="csep">›</span> <b>Lantern Witch</b></span>
+            <div class="right"><button class="btn"><svg class="ic"><use href="#i-edit"/></svg>Edit metadata</button><button class="btn"><svg class="ic"><use href="#i-browser"/></svg>Capture from web</button></div>
+          </div>
+        </div>
+        <div class="strip">
+          <div class="lab">A METADATA TAB OF ITS OWN · ITS FIELD, PICKED VALUES AND HALF-SET ACTION WAIT FOR YOU</div>
+          <div class="vhead">
+            <span class="hist"><span class="hb off"><svg class="ic"><use href="#i-back"/></svg></span><span class="hb off"><svg class="ic"><use href="#i-forward"/></svg></span></span>
+            <span class="h">Metadata</span><span class="cnt">37 titles selected in the library</span>
+          </div>
+        </div>
+      </div>
+      <p class="note"><b>A step is a place, not a keystroke</b>: typing in the search box becomes one step when you stop.
+        Alt+← / Alt+→ and the mouse's side buttons do the same for whatever tab is in front — in a web tab they drive the
+        page's own history, as now.</p>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">5 · DECISIONS</span><h2>One decided, two with a proposal</h2></div>
+    <div class="bbody">
+      <div class="dec">
+        <div class="d"><div class="k">D1 · THE STRIP · DECIDED</div><div class="q">The app and the web keep separate strips</div>
+          <p><b>The owner's decision.</b> The app strip gains pages, library tabs and sections; the web strip stays as it is.</p></div>
+        <div class="d"><div class="k">D2 · NAMING</div><div class="q">The rail's Browse becomes Web</div>
+          <p><b>Proposed.</b> <i>Browse by</i> then means one thing — the library grouped by a field. The other way: keep
+            <i>Browse</i>.</p></div>
+        <div class="d"><div class="k">D3 · A VALUE'S CLICK</div><div class="q">A value opens its page, everywhere</div>
+          <p><b>Proposed.</b> Filtering moves to <i>Show in library</i> on the page and the hover card. The other way: a title's
+            chips keep filtering the library as today.</p></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function hue(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 360 }
+const ic = (n, cls = '') => `<svg class="ic ${cls}"><use href="#i-${n}"/></svg>`
+const x = `<span class="x">${ic('x')}</span>`
+const T = {
+  home: (label, on) => `<div class="tab home${on ? ' on' : ''}">${ic('library', 'k')}<span class="lbl">${label}</span></div>`,
+  title: (t, on) => `<div class="tab${on ? ' on' : ''}"><span class="swatch" style="background:linear-gradient(160deg,hsl(${hue(t)} 38% 42%),hsl(${(hue(t) + 40) % 360} 34% 18%))"></span><span class="lbl">${t}</span>${x}</div>`,
+  person: (t, on) => `<div class="tab${on ? ' on' : ''}"><span class="face" style="background:hsl(${hue(t)} 38% 42%)">${t.split(' ').map((w) => w[0]).join('').slice(0, 2)}</span><span class="lbl">${t}</span>${x}</div>`,
+  value: (t, on) => `<div class="tab${on ? ' on' : ''}"><span class="vdot" style="background:hsl(${hue(t)} 45% 55%)"></span><span class="lbl">${t}</span>${x}</div>`,
+  section: (icon, t, on) => `<div class="tab${on ? ' on' : ''}">${ic(icon, 'k')}<span class="lbl">${t}</span>${x}</div>`,
+  web: (t, on) => `<div class="tab${on ? ' on' : ''}"><span class="fav">${t[0].toUpperCase()}</span><span class="lbl">${t}</span>${x}</div>`,
+  pinnedTitle: (t) => `<div class="tab pinned"><span class="swatch" style="background:linear-gradient(160deg,hsl(${hue(t)} 38% 42%),hsl(${(hue(t) + 40) % 360} 34% 18%))"></span></div>`,
+}
+const plus = `<span class="gplus">${ic('plus')}</span>`
+const strips = {
+  'today-app': T.pinnedTitle('Hollow Crown') + T.title('Lantern Witch', true) + T.title('Salt and Embers') + T.title('Moth Kingdom'),
+  'today-web': T.web('mangadex.org — Search', true) + T.web('pixiv.net — Mitsuki Arata') + T.web('Google'),
+  'proposed': T.home('Manga', false) + T.pinnedTitle('Hollow Crown') + T.title('Lantern Witch') + T.person('Mitsuki Arata', true) + T.value('isekai') + T.section('meta', 'Metadata · 37 titles') + T.section('import', 'Import') + plus,
+  'frame': T.home('Manga', false) + T.title('Lantern Witch') + T.person('Mitsuki Arata', true) + T.value('isekai') + T.section('meta', 'Metadata') + plus,
+}
+document.querySelectorAll('[data-strip]').forEach((el) => { el.innerHTML = strips[el.dataset.strip] })
+const NAMES = ['Lantern Witch', 'Salt and Embers', 'Moth Kingdom', 'Paper Dragons', 'Winter Courier', 'Hollow Crown', 'Clockwork Spring', 'Eighth Night']
+document.querySelectorAll('[data-works]').forEach((el) => {
+  el.innerHTML = NAMES.slice(0, Number(el.dataset.works)).map((t) => {
+    const h = hue(t)
+    return `<div class="work"><div class="cov" style="background:linear-gradient(160deg,hsl(${h} 38% 42%),hsl(${(h + 40) % 360} 34% 18%))">${t[0]}</div><div class="t">${t}</div></div>`
+  }).join('')
+})
+</script>
+</body>
+</html>

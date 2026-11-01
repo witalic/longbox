@@ -77,6 +77,7 @@ export function peekClose() {
   peek.open = false
 }
 // a chip's click navigates; the card belongs to the place it was asked from
-watch(() => [store.view, store.activeTitle, store.valuePage], peekClose)
-// what a page says changes with a save, a run, another library
-watch(() => [store.titles, store.libraryGen, store.valuePage], () => seen.clear())
+watch(() => [store.view, store.activeTab], peekClose)
+// what a page says changes with a save, a run, another library — and is
+// asked again once a tab has been somewhere else (a page saved there)
+watch(() => [store.titles, store.libraryGen, store.activeTab], () => seen.clear())

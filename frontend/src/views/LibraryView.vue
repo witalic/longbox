@@ -14,10 +14,11 @@ import Stars from '../components/Stars.vue'
 import Dropdown from '../components/Dropdown.vue'
 import Pager from '../components/Pager.vue'
 import BulkEdit from '../components/BulkEdit.vue'
+import HistoryNav from '../components/HistoryNav.vue'
 import {
   store, openTitle, openTitleBackground, openReader, toggleFav, resetFilters,
-  activeFilterCount, askConfirm, deleteTitles, goAuthorsFor, setRating, refreshLibrary,
-  runVaultPass, opening,
+  activeFilterCount, askConfirm, deleteTitles, openValuePage, setRating, refreshLibrary,
+  runVaultPass, opening, useShown, useTab, type LibraryPlace,
 } from '../store'
 import { startNewTitle } from '../browser'
 import { api } from '../api'
@@ -26,7 +27,9 @@ import { readLocalOne, writeLocalOne } from '../local'
 import { coverStyle, mediaLabel, orderedChaptersOf, initials, statusColor, type Chapter, type Title } from '../data'
 import CoverArt from '../components/CoverArt.vue'
 
-const lib = store.library
+// this tab's own selection — the one the library shows while the tab is in front
+const place = useTab().place as LibraryPlace
+const lib = place.sel
 
 // the filter block can hide (a preference shared with the browse view)
 const fsideOpen = ref(readLocalOne('lb.fside', ['0', '1'] as const, '1') === '1')
@@ -43,9 +46,9 @@ const SORT_OPTS: FOpt[] = [{ v: 'updated', l: 'Recently updated' }, { v: 'title'
 const lmainEl = ref<HTMLElement | null>(null)
 const pageSize = computed(() => (lib.density === 'expanded' ? 12 : lib.density === 'dense' ? 60 : 48))
 const totalPages = computed(() => Math.max(1, Math.ceil(results.value.length / pageSize.value)))
-const curPage = computed(() => Math.min(Math.max(1, store.ui.libPage), totalPages.value))
+const curPage = computed(() => Math.min(Math.max(1, place.page), totalPages.value))
 function goPage(v: number) {
-  store.ui.libPage = Math.min(Math.max(1, Math.floor(v) || 1), totalPages.value)
+  place.page = Math.min(Math.max(1, Math.floor(v) || 1), totalPages.value)
   lmainEl.value?.scrollTo({ top: 0 })
 }
 const rangeLabel = computed(() => {
@@ -81,7 +84,12 @@ function previewChapter(t: Title): Chapter | undefined {
 // stored at ingest — the app has no decoder, so it does not pretend to have one.)
 // Cutting a frame is the window's job (frames.ts) and it happens once, for the
 // episodes actually on screen.
-watch(shown, (list) => ensurePostersFor(list), { immediate: true })
+// a library tab behind another one cuts no frames for results that are not its own
+const { whenShown } = useShown()
+watch(shown, () => whenShown(postersNow), { immediate: true })
+function postersNow() {
+  ensurePostersFor(shown.value)
+}
 
 function previewEpisodes(t: Title): Chapter[] {
   return orderedChapterRows(t).filter((c) => c.dl && c.kind === 'video').slice(0, PREVIEW_PAGES)
@@ -166,6 +174,7 @@ async function undoApplied() {
   <div class="lib">
     <div class="lmaincol">
     <div class="head">
+        <HistoryNav />
         <h1 class="h1">Library</h1>
         <span class="count">{{ results.length }} of {{ total }} titles</span>
         <div class="controls">
@@ -269,11 +278,11 @@ async function undoApplied() {
           <span class="dpeople">
             <span v-if="t.authors.length" class="pline">
               <span class="prole mono">STORY</span>
-              <a v-for="a in t.authors" :key="a" class="pchip" :title="`Open ${a} in Authors`" @click.stop="goAuthorsFor(a)"><span class="pavatar">{{ initials(a) }}</span>{{ a }}</a>
+              <a v-for="a in t.authors" :key="a" class="pchip" :title="`${a} — open the page`" @click.stop="openValuePage('authors', a)" @mousedown.middle.prevent.stop="openValuePage('authors', a, true)"><span class="pavatar">{{ initials(a) }}</span>{{ a }}</a>
             </span>
             <span v-if="t.artists.length" class="pline">
               <span class="prole mono">ART</span>
-              <a v-for="a in t.artists" :key="a" class="pchip" :title="`Open ${a} in Authors`" @click.stop="goAuthorsFor(a)"><span class="pavatar">{{ initials(a) }}</span>{{ a }}</a>
+              <a v-for="a in t.artists" :key="a" class="pchip" :title="`${a} — open the page`" @click.stop="openValuePage('artists', a)" @mousedown.middle.prevent.stop="openValuePage('artists', a, true)"><span class="pavatar">{{ initials(a) }}</span>{{ a }}</a>
             </span>
             <span v-if="!t.authors.length && !t.artists.length" style="color:var(--tx3)">—</span>
           </span>
@@ -305,11 +314,11 @@ async function undoApplied() {
               <span class="sdot" :style="{ background: statusColor(t.status) }"></span><span class="cap">{{ t.status }}</span>
               <template v-if="t.authors.length">
                 <span class="edot">·</span><span class="prole mono">STORY</span>
-                <a v-for="a in t.authors" :key="a" class="pchip" :title="`Open ${a} in Authors`" @click.stop="goAuthorsFor(a)"><span class="pavatar">{{ initials(a) }}</span>{{ a }}</a>
+                <a v-for="a in t.authors" :key="a" class="pchip" :title="`${a} — open the page`" @click.stop="openValuePage('authors', a)" @mousedown.middle.prevent.stop="openValuePage('authors', a, true)"><span class="pavatar">{{ initials(a) }}</span>{{ a }}</a>
               </template>
               <template v-if="t.artists.length">
                 <span class="edot">·</span><span class="prole mono">ART</span>
-                <a v-for="a in t.artists" :key="'x' + a" class="pchip" :title="`Open ${a} in Authors`" @click.stop="goAuthorsFor(a)"><span class="pavatar">{{ initials(a) }}</span>{{ a }}</a>
+                <a v-for="a in t.artists" :key="'x' + a" class="pchip" :title="`${a} — open the page`" @click.stop="openValuePage('artists', a)" @mousedown.middle.prevent.stop="openValuePage('artists', a, true)"><span class="pavatar">{{ initials(a) }}</span>{{ a }}</a>
               </template>
               <template v-if="t.year"><span class="edot">·</span><span style="color:var(--tx3)">{{ t.year }}</span></template>
             </div>
