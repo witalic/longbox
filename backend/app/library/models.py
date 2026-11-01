@@ -196,7 +196,9 @@ class ChapterOut(ChapterRow):
     read: ReadState = "unread"
     dl: bool = False       # a downloaded archive exists in the vault
     pages: int = 0         # image pages inside the archive (0 for non-zip)
-    dlSource: str = ""     # where the DOWNLOAD came from (independent of meta.source)
+    # The page the DOWNLOAD came from (independent of meta.source) — never the
+    # file's own address: that is a file host's, with a token that expires.
+    dlSource: str = ""
     # The name the media ARRIVED under. The vault renames every file to the
     # chapter's id, so this is the only record of what the episode or chapter
     # was called at its source.
@@ -284,7 +286,7 @@ class TitleOut(BaseModel):
                 poster=bool((side or {}).get("poster", False)),
                 sheet=str((side or {}).get("sheet") or ""),
                 stills=stills_version(side),
-                dlSource=(side or {}).get("pageUrl") or (side or {}).get("fileUrl") or "",
+                dlSource=(side or {}).get("pageUrl") or "",
                 dlAt=(side or {}).get("downloadedAt", ""),
                 origName=(side or {}).get("origName", ""),
                 subtitles=subtitles_of(side),

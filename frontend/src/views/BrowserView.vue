@@ -1010,8 +1010,9 @@ function onReady(tabId: string) {
 
     <div v-else class="split">
       <div class="pagearea">
+        <!-- allowpopups: a page's new-tab link reaches the shell, which makes it a tab -->
         <webview
-          v-for="t in browser.tabs" :key="t.id" :ref="wvRef(t.id)"
+          v-for="t in browser.tabs" :key="t.id" :ref="wvRef(t.id)" allowpopups
           v-show="t.id === browser.activeId" :src="t.initialUrl" class="wv" :class="{ full: t.id === fullTab }"
           @enter-html-full-screen="fullTab = t.id"
           @leave-html-full-screen="fullTab = ''"

@@ -76,7 +76,7 @@ export interface Chapter extends ChapterRow {
   read: ReadState
   dl: boolean       // a downloaded archive exists in the vault
   pages: number     // image pages inside it (0 for non-zip archives)
-  dlSource: string  // where the DOWNLOAD came from (independent of meta.source)
+  dlSource: string  // the page the DOWNLOAD came from (independent of meta.source), never the file's
   dlAt: string      // when it was downloaded (ISO, from the sidecar)
   v: string         // media version — page/video URLs are cached under it
   kind: 'pages' | 'video' // a zip of images, or the episode file itself
@@ -727,6 +727,27 @@ export function mediaLabel(c: Chapter, empty = ''): string {
 // facts, one per line, and nothing at all when it holds neither.
 export function mediaTitle(c: Chapter): string {
   return [c.origName, c.dlSource].filter(Boolean).join('\n')
+}
+
+// The sites a title's entries were downloaded from, one per site, the one that
+// gave the most first — with the page of its latest download, which is what
+// naming the site opens. A download with no page of record counts for the site
+// its entry links to; a file host is never one of them.
+export interface DownloadSite { domain: string; count: number; url: string; at: string }
+export function downloadSites(chapters: readonly Chapter[]): DownloadSite[] {
+  const by = new Map<string, DownloadSite>()
+  for (const c of chapters) {
+    const url = c.dl ? c.dlSource || c.url : ''
+    const domain = hostOf(url)
+    if (!domain) continue
+    const site = by.get(domain)
+    if (!site) by.set(domain, { domain, count: 1, url, at: c.dlAt })
+    else {
+      site.count++
+      if (c.dlAt > site.at) Object.assign(site, { url, at: c.dlAt })
+    }
+  }
+  return [...by.values()].sort((a, b) => b.count - a.count)
 }
 
 // Stored, listed, catalogued — and not openable here. Asked in ONE place so the

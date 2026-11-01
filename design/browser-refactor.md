@@ -47,7 +47,8 @@ Toolbar, left→right:
 - **Capture panel toggle** (show/hide the right panel so you can browse full-width).
 
 Tabs: new (`+`) / close / activate; middle-click & `target=_blank` open a new **in-app** tab (never
-an OS window). Each tab keeps its own page, history and zoom.
+an OS window). A page opens one only off a fresh user gesture, one tab per gesture — Electron has
+no popup blocker, so the guest preload is one. Each tab keeps its own page, history and zoom.
 
 Electron surface used (for reference, not part of approval): `webview.setZoomFactor`,
 `findInPage`/`stopFindInPage`, `openDevTools`, `goBack/goForward/reload`, main-process

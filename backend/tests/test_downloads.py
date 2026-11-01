@@ -159,6 +159,17 @@ def test_download_attaches_to_the_matching_row(client, tmp_path):
     assert ch["dlSource"] == "https://site/title/berserk"       # download source, kept
 
 
+def test_a_download_with_no_page_names_no_source(client, tmp_path):
+    """A tab opened straight onto the file has no page: the file host's address
+    is not where the episode came from."""
+    client.post("/api/downloads/arm", json={"titleId": "berserk", "num": "5", "lang": "EN", "group": "dex"})
+    started = client.post("/api/downloads/start", json={
+        "filename": "dl.zip", "fileUrl": "https://cdn.site/f.zip?token=x", "pageUrl": ""}).json()
+    t = client.post(f"/api/downloads/{started['id']}/complete",
+                    json={"path": str(make_zip(tmp_path, "dl.zip"))}).json()
+    assert next(c for c in t["chapters"] if c["id"] == "b-5-en")["dlSource"] == ""
+
+
 def test_download_creates_a_row_when_none_matches(client, tmp_path):
     t = download(client, tmp_path, num="6", lang="UA", group="ukr")
     assert len(t["chapters"]) == 2

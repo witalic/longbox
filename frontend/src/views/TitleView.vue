@@ -25,7 +25,7 @@ import { readLocalOne, writeLocalOne } from '../local'
 import { api, type Gap } from '../api'
 import {
   ARCHIVE_RE, FILE_ACCEPT, FLAG_DEFS, IMAGE_RE, MAX_COVERS, MEDIA_ACCEPT, VIDEO_RE, compareChapterNums,
-  coverAt, coverStyle,
+  coverAt, coverStyle, downloadSites, hostOf,
   faviconFor, filterOptions, isReadable, isUnsupported, mediaLabel, mediaTitle, movedBefore,
   orderedChaptersOf,
   chaptersInScope, fieldValue, hasValue, labelChoices, nextLabel, nextLabels, sameChapter,
@@ -171,6 +171,19 @@ async function removeSourceLink() {
   })
   if (ok) await clearTitleSource(t.value)
 }
+// The source the title is bound to, then every other site an entry was
+// downloaded from — a title captured on one site is often fetched from another.
+const sourceChips = computed(() => {
+  const tt = t.value
+  if (!tt) return []
+  const sites = downloadSites(tt.chapters)
+  const own = tt.source.url ? (hostOf(tt.source.url) || tt.source.domain.replace(/^www\./, '')) : ''
+  return [
+    ...(tt.source.url ? [{ domain: tt.source.domain || own, url: tt.source.url, bound: true,
+                           count: sites.find((s) => s.domain === own)?.count ?? 0 }] : []),
+    ...sites.filter((s) => s.domain !== own).map((s) => ({ ...s, bound: false })),
+  ]
+})
 // the desktop shell opens folders; a plain browser has no file manager to hand one to
 const canOpenFolder = !!window.longbox?.openFolder
 async function openFolder() {
@@ -985,6 +998,30 @@ async function removeRow(c: Chapter) {
           </div>
         </div>
 
+        <div v-if="sourceChips.length" class="metarow">
+          <span class="eyebrow">{{ sourceChips.length > 1 ? 'SOURCES' : 'SOURCE' }}</span>
+          <div class="wrap">
+            <template v-for="s in sourceChips" :key="s.domain">
+              <span class="srcchip"
+                    :title="s.bound
+                      ? `${s.url}${s.count ? `\n${s.count} downloaded from here` : ''}`
+                      : `${s.count} downloaded from ${s.domain} — open the latest one's page`"
+                    @click="openInBrowser(t.id, s.url)">
+                <span class="srcinit">
+                  <img v-if="!noIcon[s.domain]" class="favimg" :src="faviconFor(s.domain)" alt=""
+                       @error="noIcon[s.domain] = true" />
+                  <template v-else>{{ (s.domain.slice(0, 2) || '?').toUpperCase() }}</template>
+                </span>{{ s.domain }}
+                <span v-if="s.count" class="srcn mono">{{ s.count }}</span>
+                <Icon name="forward" :size="11" :sw="2" style="color:var(--tx3)" />
+              </span>
+              <button v-if="s.bound" class="srcx" title="Remove the source link (the title stays)" @click="removeSourceLink">
+                <Icon name="x" :size="11" :sw="2.4" />
+              </button>
+            </template>
+          </div>
+        </div>
+
         <div class="metarow">
           <span class="eyebrow">MY RATING</span>
           <div class="wrap">
@@ -1037,21 +1074,6 @@ async function removeRow(c: Chapter) {
         </div>
 
         <p v-if="t.desc" class="desc">{{ t.desc }}</p>
-
-        <div v-if="t.source.url" class="metarow srcrow">
-          <span class="eyebrow">SOURCE</span>
-          <span class="srcchip" style="cursor:pointer" :title="t.source.url" @click="openInBrowser(t.id, t.source.url)">
-            <span class="srcinit">
-              <img v-if="!noIcon[t.source.domain]" class="favimg" :src="faviconFor(t.source.domain)" alt=""
-                   @error="noIcon[t.source.domain] = true" />
-              <template v-else>{{ (t.source.domain.slice(0, 2) || '?').toUpperCase() }}</template>
-            </span>{{ t.source.domain }}
-            <Icon name="forward" :size="11" :sw="2" style="color:var(--tx3)" />
-          </span>
-          <button class="srcx" title="Remove the source link (the title stays)" @click="removeSourceLink">
-            <Icon name="x" :size="11" :sw="2.4" />
-          </button>
-        </div>
       </div>
 
       <!-- THE editor — the same component the capture dock renders, with room -->
@@ -1402,8 +1424,8 @@ async function removeRow(c: Chapter) {
 .genre.link:hover { border-color: var(--accent); color: var(--accent); }
 .tag.link:hover { border-color: var(--accent); color: var(--accent); }
 .desc { margin: 18px 0 0; max-width: 760px; font: 400 13.5px/1.65 system-ui; color: var(--tx2); }
-.srcrow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.srcchip { display: inline-flex; align-items: center; gap: 7px; font: 500 12px/1 system-ui; color: var(--tx); background: var(--panel2); border: 1px solid var(--line); padding: 5px 9px 5px 5px; border-radius: 6px; }
+.srcchip { display: inline-flex; align-items: center; gap: 7px; font: 500 12px/1 system-ui; color: var(--tx); background: var(--panel2); border: 1px solid var(--line); padding: 5px 9px 5px 5px; border-radius: 6px; cursor: pointer; }
+.srcn { font-size: 11px; color: var(--tx3); }
 .srcinit { width: 20px; height: 20px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; font: 600 9px/1 system-ui; color: #fff; background: var(--panel); border: 1px solid var(--line); overflow: hidden; }
 .favimg { width: 14px; height: 14px; object-fit: contain; }
 .srcx { width: 22px; height: 22px; border: none; border-radius: 5px; background: transparent; color: var(--tx3); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }

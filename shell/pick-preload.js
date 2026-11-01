@@ -617,9 +617,23 @@ ipcRenderer.on('fetch-pages', async (_e, req) => {
   if (mine === fetchGen) ipcRenderer.sendToHost('pages-fetched', {})
 })
 
-// A window.open / middle-click / target=_blank was denied natively (main process) and
-// routed here — hand {url, background} to the app so it opens as an in-app tab
-// (background = middle-click/ctrl+click stays on the current page), not an OS window.
+// The page's own new-tab request (target=_blank, window.open), denied natively and
+// routed here. Electron has no popup blocker, so this is one, as Chromium's is: a
+// page opens a tab only off a fresh gesture of the user's, and one tab per gesture —
+// the ad script that opens windows on load, or five per click, gets none / one.
+// Only this frame's gestures are seen, so a click inside an embedded frame from
+// another site (an ad, mostly) opens nothing; its context menu still can.
+const GESTURE_MS = 5000 // Chromium's transient-activation lifespan
+let gestureAt = 0
+function onGesture(e) { if (e.isTrusted) gestureAt = Date.now() }
+window.addEventListener('pointerdown', onGesture, true)
+window.addEventListener('keydown', onGesture, true)
+ipcRenderer.on('popup', (_e, req) => {
+  if (Date.now() - gestureAt > GESTURE_MS) return
+  gestureAt = 0
+  ipcRenderer.sendToHost('open-tab', req)
+})
+// "Open link in new tab" from the context menu — the user's own request
 ipcRenderer.on('open-url-as-tab', (_e, req) => ipcRenderer.sendToHost('open-tab', req))
 
 // Ctrl+click and middle-click on a link open a BACKGROUND tab. The native path
@@ -639,7 +653,7 @@ function onLinkOpen(e) {
   if (!href) return
   e.preventDefault()
   e.stopPropagation()
-  ipcRenderer.sendToHost('open-tab', { url: href, background: true })
+  ipcRenderer.send('link-tab', href) // through the shell, which notes the page it was on
 }
 document.addEventListener('click', onLinkOpen, true)
 document.addEventListener('auxclick', onLinkOpen, true)

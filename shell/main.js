@@ -193,6 +193,17 @@ const liveDownloads = new Map()
 // are told apart at `will-download`, which sees only a URL.
 const manualSaves = new Set()
 
+// The page each link a page opened as a tab was on, by the URL the tab opened
+// onto. A tab opened straight onto a file commits no page of its own, so this is
+// the only record of where that download came from. Few and short-lived: a
+// download takes its entry, and the oldest go first.
+const openedFrom = new Map()
+function noteOpener(url, page) {
+  openedFrom.delete(url)
+  openedFrom.set(url, page)
+  if (openedFrom.size > 32) openedFrom.delete(openedFrom.keys().next().value)
+}
+
 // The app window, for the things a GUEST page's handlers need one: a context
 // menu has to be popped up over a window, and a <webview>'s webContents is not
 // one — `Menu.popup()` with nothing to anchor to takes the whole app down.
@@ -241,11 +252,19 @@ function wireDownloads(sess, origin, token) {
     }
     const tempFile = item.getSavePath()
 
+    // The page it came from — never the file's own address. A tab opened onto
+    // the file has none of its own: then it is the page whose link opened it.
+    const chain = item.getURLChain()
+    const tabUrl = webContents ? webContents.getURL() : ''
+    const opener = openedFrom.get(chain[0] || item.getURL())
+    openedFrom.delete(chain[0] || item.getURL())
+    const pageUrl = opener ?? (/^https?:/.test(tabUrl) && !chain.includes(tabUrl) ? tabUrl : '')
+
     // claim the binding NOW — the arm is consumed at download START
     const claim = api('/start', {
       filename: item.getFilename() || '',
       fileUrl: item.getURL(),
-      pageUrl: webContents ? webContents.getURL() : '',
+      pageUrl,
     }).then(async (res) => {
       if (!res.ok) {
         // 409 = nothing armed — this download was not asked for; drop it
@@ -648,11 +667,17 @@ app.on('web-contents-created', (_e, contents) => {
     webPreferences.nodeIntegration = false
     webPreferences.contextIsolation = true
   })
-  // Guest pages that try to open a window (target=_blank, window.open, middle-click)
-  // must NOT spawn an OS window — deny it and route the URL back so the app opens an
-  // in-app browser tab instead. The disposition rides along: middle-click/ctrl+click
-  // is a 'background-tab' — the app keeps the current page fronted, like a browser.
   if (contents.getType() === 'webview') {
+    // Every link this page opens as a tab goes through here, so a download the
+    // new tab lands on straight away still knows the page it came from.
+    const openTab = (url, background, channel = 'open-url-as-tab') => {
+      noteOpener(url, contents.getURL())
+      contents.send(channel, { url, background })
+    }
+    // Ctrl+click / middle-click, taken by the preload before the page sees it
+    contents.ipc.on('link-tab', (_e, url) => {
+      if (typeof url === 'string' && /^https?:\/\//.test(url)) openTab(url, true)
+    })
     // A key pressed while the PAGE has focus is delivered to the guest and stops
     // there — the app's document never sees it. So the shortcuts a browser is
     // expected to have would work everywhere except over the page itself, which
@@ -688,10 +713,6 @@ app.on('web-contents-created', (_e, contents) => {
     // items are the ones a browser has and this app actually needs: links and
     // images (a cover is one right-click away instead of a taught selector),
     // the selection, and the page itself.
-    // A page with no context menu is a page you cannot copy a link out of. The
-    // items are the ones a browser has and this app actually needs: links and
-    // images (a cover is one right-click away instead of a taught selector),
-    // the selection, and the page itself.
     //
     // Wrapped, and anchored to the app window: this runs for every right-click
     // on a page nobody controls, and `Menu.popup()` with nothing to anchor to —
@@ -701,8 +722,6 @@ app.on('web-contents-created', (_e, contents) => {
       try {
         if (!appWindow || appWindow.isDestroyed()) return
         const items = []
-        const openTab = (url, background) =>
-          contents.send('open-url-as-tab', { url, background })
         if (params.linkURL) {
           items.push(
             { label: 'Open link in new tab', click: () => openTab(params.linkURL, false) },
@@ -744,10 +763,13 @@ app.on('web-contents-created', (_e, contents) => {
       }
     })
 
+    // A page's target=_blank link or window.open (the <webview> carries
+    // `allowpopups`, or Chromium drops the request before it gets here) never
+    // makes an OS window: it is denied, and the URL goes back to the page's
+    // preload, which opens it as an in-app tab if the user asked for it. The
+    // disposition rides along — a 'background-tab' keeps the current page fronted.
     contents.setWindowOpenHandler(({ url, disposition }) => {
-      if (/^https?:\/\//.test(url)) {
-        contents.send('open-url-as-tab', { url, background: disposition === 'background-tab' })
-      }
+      if (/^https?:\/\//.test(url)) openTab(url, disposition === 'background-tab', 'popup')
       return { action: 'deny' }
     })
   }
