@@ -168,6 +168,7 @@ library/
   sources.json              # the owner's layer over the sites: groups, bookmarks, frozen, removed
   rules.json                # what a value becomes on its way in (design/metadata-management.md)
   .pages/<vocabulary>.json  # what the owner wrote about values, + images/ (design/value-pages.md)
+  downloads/               # what the browser downloaded with nothing armed (design/subtitles.md)
   health.json               # what was done to this library + the last check report
   <type-shelf>/             # one per type (manga/, image-set/, …); typeless → other/
     <title-id>/
@@ -268,7 +269,8 @@ fetches chapters itself):
    captured list doesn't have it), recording the **download source per chapter**
    (`fileUrl` + `pageUrl`) — deliberately independent of the title's metadata source:
    different chapters and languages may come from different sites.
-4. One arm = one download; unarmed downloads are rejected and discarded. Arms expire
+4. One arm = one download. A download nobody armed is kept in the library's `downloads/`
+   when the library can use it, and refused otherwise (design/subtitles.md). Arms expire
    (15 minutes). The arm is consumed when the transfer STARTS, so the next chapter can be
    armed while one still streams.
 5. A transfer interrupted by a quit is remembered in the app config — the chapter it was

@@ -9,6 +9,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import Icon from '../components/Icon.vue'
 import HistoryNav from '../components/HistoryNav.vue'
+import SubtitleForm from '../components/SubtitleForm.vue'
 import FieldVisibility from '../components/FieldVisibility.vue'
 import MenuButton from '../components/MenuButton.vue'
 import MetadataEditor from '../components/MetadataEditor.vue'
@@ -236,6 +237,10 @@ function onRowDrop(targetNum: string) {
 
 // ---- inline entry edit: LABEL · LANGUAGE · GROUP · SOURCE LINK (id stable) ----
 const editRow = ref<string | null>(null)
+// the episode whose subtitles are open under its row (design/subtitles.md)
+const subsRow = ref<string | null>(null)
+const ccLangs = (c: Chapter) => (c.subtitles ?? []).map((x) => (x.lang || '?').toUpperCase()).join(' · ')
+const ccTitle = (c: Chapter) => `Subtitles: ${(c.subtitles ?? []).map((x) => x.label + (x.default ? ' (default)' : '')).join(', ')}`
 const eLabel = ref('')
 const eLang = ref('')
 const eGroup = ref('')
@@ -1139,17 +1144,21 @@ async function removeRow(c: Chapter) {
                     <span class="trbadge"><span class="mono" style="color:var(--accent);font-size:9px">{{ c.lang || '?' }}</span><template v-if="c.group">{{ c.group }}</template></span>
                     <span class="chtitle"></span>
                     <span class="chright">
+                      <span v-if="c.subtitles?.length" class="ccmark mono" :title="ccTitle(c)">CC {{ ccLangs(c) }}</span>
                       <span class="pgcol mono" :class="{ unsup: isUnsupported(c) }"
                             :title="isUnsupported(c) ? unsupportedNote(c) : mediaTitle(c)">{{ mediaLabel(c) }}</span>
                       <span v-if="editMode" class="chacts">
                         <button class="chact" title="Edit entry: label · language · group · source link" @click.stop="openEntryEdit(c)"><Icon name="edit" :size="12" :sw="1.9" /></button>
                         <button v-if="c.kind !== 'video'" class="chact" title="Add images to this entry" @click.stop="pickAddImagesRow(c)"><Icon name="image" :size="12" :sw="1.9" /></button>
                         <button class="chact" :title="c.dl ? 'Replace the file on this entry' : 'Attach a file — an archive of pages or a video'" @click.stop="pickAttach(c)"><Icon name="download" :size="12" :sw="2" /></button>
+                        <button v-if="c.kind === 'video' && c.dl" class="chact cc mono" :class="{ on: subsRow === c.id }" title="Subtitles"
+                                @click.stop="subsRow = subsRow === c.id ? null : c.id">CC</button>
                         <button v-if="c.dl" class="chact" title="Remove the file (keep the entry)" @click.stop="removeDownload(c)"><Icon name="minus" :size="12" :sw="2.4" /></button>
                         <button class="chact danger" title="Remove the entry AND its file" @click.stop="removeRow(c)"><Icon name="x" :size="12" :sw="2.4" /></button>
                       </span>
                     </span>
                   </div>
+                  <SubtitleForm v-if="editMode && subsRow === c.id && t" class="entryform" :title="t" :chapter="c" />
                   <div v-if="editMode && editRow === c.id" class="entryform">
                     <EntryFields v-model:label="eLabel" v-model:lang="eLang" v-model:group="eGroup" v-model:url="eUrl"
                                  v-model:section="eSection" :section-suggest="sectionSuggest"
@@ -1179,17 +1188,21 @@ async function removeRow(c: Chapter) {
                 <span class="chtitle"><b class="chnum mono">{{ node.rows[0].num }}</b><template v-if="node.rows[0].title"> {{ node.rows[0].title }}</template></span>
                 <span class="chright">
                   <span v-if="node.rows[0].lang || node.rows[0].group" class="trbadge"><span class="mono" style="color:var(--accent);font-size:9px">{{ node.rows[0].lang || '?' }}</span><template v-if="node.rows[0].group">{{ node.rows[0].group }}</template></span>
+                  <span v-if="node.rows[0].subtitles?.length" class="ccmark mono" :title="ccTitle(node.rows[0])">CC {{ ccLangs(node.rows[0]) }}</span>
                   <span class="pgcol mono" :class="{ unsup: isUnsupported(node.rows[0]) }"
                     :title="isUnsupported(node.rows[0]) ? unsupportedNote(node.rows[0]) : mediaTitle(node.rows[0])">{{ mediaLabel(node.rows[0]) }}</span>
                   <span v-if="editMode" class="chacts">
                     <button class="chact" title="Edit entry: label · language · group · source link" @click.stop="openEntryEdit(node.rows[0])"><Icon name="edit" :size="12" :sw="1.9" /></button>
                     <button v-if="node.rows[0].kind !== 'video'" class="chact" title="Add images to this entry" @click.stop="pickAddImagesRow(node.rows[0])"><Icon name="image" :size="12" :sw="1.9" /></button>
                     <button class="chact" :title="node.rows[0].dl ? 'Replace the file on this entry' : 'Attach a file — an archive of pages or a video'" @click.stop="pickAttach(node.rows[0])"><Icon name="download" :size="12" :sw="2" /></button>
+                    <button v-if="node.rows[0].kind === 'video' && node.rows[0].dl" class="chact cc mono" :class="{ on: subsRow === node.rows[0].id }"
+                            title="Subtitles" @click.stop="subsRow = subsRow === node.rows[0].id ? null : node.rows[0].id">CC</button>
                     <button v-if="node.rows[0].dl" class="chact" title="Remove the file (keep the entry)" @click.stop="removeDownload(node.rows[0])"><Icon name="minus" :size="12" :sw="2.4" /></button>
                     <button class="chact danger" title="Remove the entry AND its file" @click.stop="removeRow(node.rows[0])"><Icon name="x" :size="12" :sw="2.4" /></button>
                   </span>
                 </span>
               </div>
+              <SubtitleForm v-if="editMode && subsRow === node.rows[0].id && t" class="entryform" :title="t" :chapter="node.rows[0]" />
               <div v-if="editMode && editRow === node.rows[0].id" class="entryform">
                 <EntryFields v-model:label="eLabel" v-model:lang="eLang" v-model:group="eGroup" v-model:url="eUrl"
                                  v-model:section="eSection" :section-suggest="sectionSuggest"
@@ -1477,6 +1490,10 @@ async function removeRow(c: Chapter) {
 .chact { width: 24px; height: 24px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--tx2); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex: none; }
 .chact:hover { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
 .chact.danger:hover { color: var(--adult); border-color: color-mix(in srgb, var(--adult) 45%, var(--line)); }
+.chact.cc { font-size: 8.5px; font-weight: 700; }
+.chact.on { color: var(--accent); border-color: var(--accent); background: var(--accentSoft); }
+/* an episode's subtitles, by language — the player's CC menu switches them */
+.ccmark { flex: none; font-size: 9px; font-weight: 700; letter-spacing: .04em; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); border-radius: 4px; padding: 3px 5px; }
 
 /* the pages pane: right column, its own scroll.
    The episode surface is EXACTLY the room left under the pane's head — a basis

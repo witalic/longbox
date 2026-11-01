@@ -21,6 +21,12 @@ contextBridge.exposeInMainWorld('longbox', {
     ipcRenderer.on('lb-page-key', h)
     return () => ipcRenderer.removeListener('lb-page-key', h)
   },
+  // a download began or ended — armed or not; returns unsubscribe
+  onDownloadsChanged: (fn) => {
+    const h = () => fn()
+    ipcRenderer.on('lb-downloads-changed', h)
+    return () => ipcRenderer.removeListener('lb-downloads-changed', h)
+  },
   // the window wants to close while transfers are running; returns unsubscribe
   onCloseBlocked: (fn) => {
     const h = (_e, n) => fn(Number(n) || 0)

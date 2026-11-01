@@ -202,6 +202,13 @@ let appWindow = null
 const interrupting = new Set()
 let dlApi = null // the sidecar's downloads API, once the origin and token exist
 
+// The app polls the sidecar's download list only while it knows something is
+// on its way — a download nobody armed would start and land unseen. The shell
+// is the one that sees every transfer begin and end, so it says so.
+function downloadsChanged() {
+  if (appWindow && !appWindow.isDestroyed()) appWindow.webContents.send('lb-downloads-changed')
+}
+
 function wireDownloads(sess, origin, token) {
   const api = (p, body) => fetch(`${origin}/api/downloads${p}`, {
     method: 'POST',
@@ -252,7 +259,10 @@ function wireDownloads(sess, origin, token) {
       return null
     })
 
-    void claim.then((id) => { if (id) liveDownloads.set(id, item) })
+    void claim.then((id) => {
+      if (id) liveDownloads.set(id, item)
+      downloadsChanged() // a refused one too: the sidecar recorded why
+    })
 
     if (resumed) item.resume()
 
@@ -295,6 +305,7 @@ function wireDownloads(sess, origin, token) {
         console.error('download ingest failed:', err)
         fs.promises.unlink(tempFile).catch(() => {})
       }
+      downloadsChanged()
     })
   })
 }

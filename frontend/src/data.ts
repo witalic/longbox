@@ -50,6 +50,28 @@ export interface ChapterRow {
 // for a preview. Both are cut in the same pass and kept in the vault.
 export type FrameKind = 'poster' | 'sheet'
 
+// One of an episode's subtitle tracks, stored as WebVTT beside it.
+export interface Subtitle {
+  id: string
+  lang: string
+  label: string
+  default: boolean  // the track the player starts with
+  origName: string  // the file it was made from
+  format: string    // what that file was: srt / vtt / ass / ssa
+  v: string         // what its URL is cached under
+}
+
+// A file in the library's downloads folder — what came with nothing armed.
+export interface LooseFile {
+  name: string
+  kind: 'subtitle' | 'archive' | 'image' | 'video'
+  size: number
+  at: string        // when it arrived (ISO)
+  fileUrl: string
+  pageUrl: string
+  lang: string      // a subtitle's language, read off its name
+}
+
 export interface Chapter extends ChapterRow {
   read: ReadState
   dl: boolean       // a downloaded archive exists in the vault
@@ -67,6 +89,7 @@ export interface Chapter extends ChapterRow {
   poster: boolean   // the one frame a tile wears is cut and stored
   sheet: string     // the geometry of the stored contact grid, '' when none
   stills: string    // the version those two are cached under (NOT the media's)
+  subtitles: Subtitle[] // an episode's subtitle tracks (design/subtitles.md)
   // The name the file ARRIVED under. The vault renames every stored file to the
   // chapter's id, so this is the only record of what it was called at its source.
   origName: string

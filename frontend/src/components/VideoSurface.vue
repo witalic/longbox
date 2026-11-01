@@ -267,7 +267,11 @@ onBeforeUnmount(() => {
       @playing="stalled = false"
       @canplay="stalled = false"
       @error="failed = true"
-    ></video>
+    >
+      <!-- the episode's subtitles: the player's own CC menu switches them -->
+      <track v-for="s in chapter.subtitles ?? []" :key="s.id" kind="subtitles" :label="s.label"
+             :srclang="s.lang || undefined" :src="api.subtitleSrc(title.id, chapter.id, s)" :default="s.default" />
+    </video>
 
     <!-- what an episode looks like before anyone asks it to play -->
     <div v-else-if="playable" class="vpre">

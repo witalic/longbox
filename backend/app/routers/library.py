@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -645,6 +645,90 @@ def chapter_video(request: Request, title_id: str, chapter_id: str) -> Response:
 
 class PlaybackIn(BaseModel):
     duration: float = 0.0
+
+
+# ---- an episode's subtitles (design/subtitles.md §3) ----
+
+MAX_SUBTITLE = 20 * 1024 * 1024  # a season of dialogue is a few hundred kilobytes
+
+
+@router.post("/titles/{title_id}/chapters/{chapter_id}/subtitles", response_model=TitleOut)
+async def add_subtitle(
+    request: Request, title_id: str, chapter_id: str, file: UploadFile = File(...),
+    lang: str = Form(""), label: str = Form(""), default: bool = Form(False),
+) -> TitleOut:
+    data = await file.read()
+    if not data or len(data) > MAX_SUBTITLE:
+        raise HTTPException(status_code=422, detail="a subtitle file (srt, vtt, ass or ssa) is required")
+    try:
+        result = await run_in_threadpool(
+            _lib(request).add_subtitle, title_id, chapter_id, data, file.filename or "",
+            lang=lang, label=label, default=default or None)
+    except media.UnsupportedArchiveError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    if result is None:
+        raise HTTPException(status_code=404, detail="title or entry not found")
+    return result
+
+
+class SubtitleFromDownloadsIn(BaseModel):
+    name: str
+    lang: str = ""
+    label: str = ""
+    default: bool = False
+
+
+@router.post("/titles/{title_id}/chapters/{chapter_id}/subtitles/from-downloads", response_model=TitleOut)
+def subtitle_from_downloads(request: Request, title_id: str, chapter_id: str,
+                            body: SubtitleFromDownloadsIn) -> TitleOut:
+    try:
+        result = _lib(request).subtitle_from_downloads(
+            title_id, chapter_id, body.name, lang=body.lang, label=body.label, default=body.default or None)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="that file is no longer in the library's downloads")
+    except media.UnsupportedArchiveError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    if result is None:
+        raise HTTPException(status_code=404, detail="title or entry not found")
+    return result
+
+
+class SubtitlePatch(BaseModel):
+    lang: str | None = None
+    label: str | None = None
+    default: bool | None = None
+
+
+@router.patch("/titles/{title_id}/chapters/{chapter_id}/subtitles/{sub_id}", response_model=TitleOut)
+def update_subtitle(request: Request, title_id: str, chapter_id: str, sub_id: str,
+                    body: SubtitlePatch) -> TitleOut:
+    result = _lib(request).update_subtitle(title_id, chapter_id, sub_id, lang=body.lang,
+                                           label=body.label, default=body.default)
+    if result is None:
+        raise HTTPException(status_code=404, detail="no such subtitle")
+    return result
+
+
+@router.delete("/titles/{title_id}/chapters/{chapter_id}/subtitles/{sub_id}", response_model=TitleOut)
+def remove_subtitle(request: Request, title_id: str, chapter_id: str, sub_id: str) -> TitleOut:
+    try:
+        result = _lib(request).remove_subtitle(title_id, chapter_id, sub_id)
+    except media.MediaInUseError as exc:
+        raise HTTPException(status_code=409, detail=f"“{exc}” is open right now — close the player and try again")
+    if result is None:
+        raise HTTPException(status_code=404, detail="no such subtitle")
+    return result
+
+
+@router.get("/titles/{title_id}/chapters/{chapter_id}/subtitles/{sub_id}")
+def subtitle(request: Request, title_id: str, chapter_id: str, sub_id: str) -> FileResponse:
+    """The track as WebVTT. Its URL carries the file's digest (`?v=`), so a
+    replaced track is a new URL and the old one may be cached for good."""
+    path = _lib(request).subtitle_file(title_id, chapter_id, sub_id)
+    if path is None:
+        raise HTTPException(status_code=404, detail="no such subtitle")
+    return FileResponse(path, media_type="text/vtt; charset=utf-8",
+                        headers={"Cache-Control": "max-age=31536000, immutable"})
 
 
 @router.post("/titles/{title_id}/chapters/{chapter_id}/video/meta", response_model=TitleOut)

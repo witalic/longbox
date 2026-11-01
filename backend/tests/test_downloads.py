@@ -114,8 +114,11 @@ def test_arm_state_disarm(client):
     assert client.get("/api/downloads").json()["armed"] is None
 
 
-def test_start_without_arm_is_rejected(client):
-    assert client.post("/api/downloads/start", json={"filename": "x.zip"}).status_code == 409
+def test_start_without_arm_goes_to_the_library_downloads(client):
+    """Nothing armed: no chapter is claimed — the file is kept loose
+    (tests/test_subtitles.py follows it there)."""
+    item = client.post("/api/downloads/start", json={"filename": "x.zip"}).json()
+    assert item["loose"] and item["titleId"] == ""
 
 
 def test_start_consumes_the_arm_and_allows_parallel(client, tmp_path):

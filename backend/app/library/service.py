@@ -22,7 +22,8 @@ from urllib.parse import urlsplit
 
 from ..scraper.recipes import RecipeStore
 from ..scraper.sources import SourcePrefs
-from . import comicinfo, fields, media
+from . import comicinfo, fields, media, subtitles
+from .loose import LooseStore
 from . import rules as rules_mod
 from .index import LibraryIndex
 from .pages import PageStore, excerpt_of, image_url, vocab_of
@@ -293,6 +294,7 @@ class Library:
         self.source_prefs = SourcePrefs(self.vault)
         self.rules = RuleStore(self.vault)
         self.pages = PageStore(self.vault)
+        self.loose = LooseStore(self.vault)
         self.index = LibraryIndex(root / "index.db")
         # two concurrent creates may derive the same fresh id — serialize the
         # pick-unique-id → first-commit step
@@ -605,7 +607,7 @@ class Library:
                     stem = stem[: -len(f".{kind}.jpg")]
                     break
             else:
-                stem = p.stem
+                stem = subtitles.owner_stem(name) or p.stem
             if stem not in seen:
                 out.append({"titleId": title_id, "title": doc.meta.title, "chapterId": stem,
                             "num": "", "lang": "", "group": "", "kind": "stray",
@@ -1603,8 +1605,19 @@ class Library:
                 row.section = self.ruled_section(self.incoming_rules(), section,
                                                  url or doc.meta.source.url, fired)
                 self._count_fired(fired)
-            suffix = Path(sidecar.get("filename") or src.name).suffix.lower()
-            if suffix in media.IMAGE_EXTS:
+            arrived = str(sidecar.get("filename") or src.name)
+            suffix = Path(arrived).suffix.lower()
+            if suffix in subtitles.SUBTITLE_EXTS:
+                # a subtitle file for an episode becomes its subtitles — the
+                # video stays (design/subtitles.md, D4)
+                side = self.vault.chapter_sidecar(title_id, row.id) or {}
+                if side.get("kind") != "video":
+                    raise subtitles.UnreadableSubtitle(
+                        "subtitles belong to an episode — download its video first")
+                self._add_subtitle(title_id, row.id, side, src.read_bytes(), arrived,
+                                   file_url=str(sidecar.get("fileUrl") or ""))
+                src.unlink(missing_ok=True)
+            elif suffix in media.IMAGE_EXTS:
                 # unpacked media: the image becomes the chapter zip's next page
                 path = self.vault.chapter_media_path(title_id, row.id)
                 if path is None:
@@ -1885,6 +1898,115 @@ class Library:
         key = cache_key("cover", cover_version(path.name, stat.st_mtime_ns, stat.st_size),
                         safe_id(title_id), path.stem, width)
         return self._cached_thumb(key, lambda: (path.read_bytes(), ct), width)
+
+    # ---- an episode's subtitles (design/subtitles.md §3) ----------------------
+
+    def _add_subtitle(self, title_id: str, chapter_id: str, side: dict, data: bytes, arrived: str, *,
+                      lang: str = "", label: str = "", default: bool | None = None,
+                      file_url: str = "") -> None:
+        """Store one subtitle beside its episode and list it in the episode's
+        sidecar. Called inside the title's lock, with that sidecar in hand."""
+        ext = Path(arrived).suffix.lower()
+        if ext not in subtitles.SUBTITLE_EXTS:
+            raise subtitles.UnreadableSubtitle(f"{arrived} is not a subtitle file (srt, vtt, ass or ssa)")
+        vtt = subtitles.to_webvtt(data, ext).encode("utf-8")  # refused before the vault changes
+        tracks = [dict(t) for t in side.get("subtitles") or []]
+        n = max((int(t.get("id") or 0) for t in tracks), default=0) + 1
+        lang = (lang or subtitles.guess_lang(arrived)).strip().lower()
+        first = not tracks
+        if default:
+            for t in tracks:
+                t["default"] = False
+        self.vault.write_subtitle(title_id, chapter_id, n, vtt, data, ext)
+        tracks.append({"id": str(n), "lang": lang, "label": label.strip() or subtitles.label_of(lang),
+                       "default": bool(default) or first, "origName": Path(arrived).name,
+                       "format": ext.lstrip("."), "sha": hashlib.sha256(vtt).hexdigest()[:12],
+                       **({"fileUrl": file_url} if file_url else {})})
+        self.vault.write_chapter_sidecar(title_id, chapter_id, {**side, "subtitles": tracks})
+
+    def _episode(self, title_id: str, chapter_id: str) -> tuple[TitleDoc, dict] | None:
+        doc = self.vault.load(title_id)
+        if doc is None or not any(c.id == chapter_id for c in doc.chapters):
+            return None
+        return doc, dict(self.vault.chapter_sidecar(title_id, chapter_id) or {})
+
+    def add_subtitle(self, title_id: str, chapter_id: str, data: bytes, arrived: str, *,
+                     lang: str = "", label: str = "", default: bool | None = None,
+                     file_url: str = "") -> TitleOut | None:
+        with self.vault.title_lock(title_id):
+            got = self._episode(title_id, chapter_id)
+            if got is None:
+                return None
+            doc, side = got
+            if side.get("kind") != "video":
+                raise subtitles.UnreadableSubtitle("subtitles belong to an episode — this entry has no video")
+            self._add_subtitle(title_id, chapter_id, side, data, arrived, lang=lang, label=label,
+                               default=default, file_url=file_url)
+            self._index(title_id, doc)
+            return self._out_now(title_id, doc)
+
+    def subtitle_from_downloads(self, title_id: str, chapter_id: str, name: str, *,
+                                lang: str = "", label: str = "",
+                                default: bool | None = None) -> TitleOut | None:
+        """A subtitle in the library's downloads, filed under its episode — and
+        gone from the downloads once it is."""
+        path = self.loose.path(name)
+        if path is None:
+            raise FileNotFoundError(name)
+        came = self.loose.arrival(name)
+        out = self.add_subtitle(title_id, chapter_id, path.read_bytes(), name, lang=lang, label=label,
+                                default=default, file_url=came.fileUrl if came else "")
+        if out is not None:
+            self.loose.remove(name)
+        return out
+
+    def update_subtitle(self, title_id: str, chapter_id: str, sub_id: str, *, lang: str | None = None,
+                        label: str | None = None, default: bool | None = None) -> TitleOut | None:
+        with self.vault.title_lock(title_id):
+            got = self._episode(title_id, chapter_id)
+            if got is None:
+                return None
+            doc, side = got
+            tracks = [dict(t) for t in side.get("subtitles") or []]
+            track = next((t for t in tracks if str(t.get("id")) == sub_id), None)
+            if track is None:
+                return None
+            if lang is not None:
+                track["lang"] = lang.strip().lower()
+            if label is not None:
+                track["label"] = label.strip() or subtitles.label_of(track.get("lang", ""))
+            if default is not None:
+                for t in tracks:
+                    t["default"] = default and t is track
+            self.vault.write_chapter_sidecar(title_id, chapter_id, {**side, "subtitles": tracks})
+            self._index(title_id, doc)
+            return self._out_now(title_id, doc)
+
+    def remove_subtitle(self, title_id: str, chapter_id: str, sub_id: str) -> TitleOut | None:
+        with self.vault.title_lock(title_id):
+            got = self._episode(title_id, chapter_id)
+            if got is None:
+                return None
+            doc, side = got
+            tracks = [dict(t) for t in side.get("subtitles") or []]
+            gone = next((t for t in tracks if str(t.get("id")) == sub_id), None)
+            if gone is None:
+                return None
+            self.vault.delete_subtitle(title_id, chapter_id, int(sub_id))
+            tracks.remove(gone)
+            # an episode with subtitles starts with one of them
+            if gone.get("default") and tracks:
+                tracks[0]["default"] = True
+            self.vault.write_chapter_sidecar(title_id, chapter_id, {**side, "subtitles": tracks})
+            self._index(title_id, doc)
+            return self._out_now(title_id, doc)
+
+    def subtitle_file(self, title_id: str, chapter_id: str, sub_id: str) -> Path | None:
+        side = self.vault.chapter_sidecar(title_id, chapter_id) or {}
+        if not any(str(t.get("id")) == sub_id for t in side.get("subtitles") or []) or not sub_id.isdigit():
+            return None
+        path = self.vault.subtitle_path(title_id, chapter_id, int(sub_id))
+        return path if path.is_file() else None
 
     def chapter_video_path(self, title_id: str, chapter_id: str) -> Path | None:
         """The stored episode, or None when this chapter is page media."""

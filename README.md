@@ -119,6 +119,18 @@ what differs is how it is stored, previewed and played.
 - *Replacing one* — attaching a new file to an entry replaces its media and carries the entry's
   identity, so read state and translation rows survive.
 
+**Subtitles.** An episode keeps any number of subtitle tracks — one of them the default — and the
+player's own CC menu switches them. Add them in the contents' edit mode (the episode's **CC**
+button): drop or pick an `srt`, `vtt`, `ass` or `ssa` file, or take one the browser downloaded
+earlier; the language is read off the file's name. Or arm the episode in the capture dock and
+download its subtitles — they attach to it and the video stays. Everything is stored as WebVTT,
+the format the player shows (ASS styling is flattened); the original file is kept beside it.
+
+**Downloads nobody armed.** A file the browser downloads with no entry armed is no longer thrown
+away: a subtitle, an archive, an image or a video lands in the library's own `downloads/`
+folder (anything else is refused, and the Activity panel says so). The activity corner counts
+what waits there; the panel lists it, with where it came from.
+
 **What is stored beside it.** At ingest longbox records the duration, container, codec and
 whether the file's index sits before the media; for `mp4`/`m4v` it moves the index to the front
 when it does not (that is what makes playback start at once instead of fetching the tail first).

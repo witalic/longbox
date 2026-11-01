@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Subtitles — mockup</title>
+<style>
+/* ---- the app's own tokens (frontend/src/styles.css), verbatim ---- */
+:root {
+  --bg: #0a0b0d; --bg2: #0f1115; --panel: #15171b; --panel2: #1b1e24;
+  --line: #262a31; --hover: #2a2e36;
+  --tx: #e8eaef; --tx2: #9aa1ad; --tx3: #697080;
+  --accent: #7089e6; --accent-ink: #0d0e11; --accentSoft: rgba(112, 137, 230, .14);
+  --fav: #e0687a; --good: #5fb88a; --warn: #d6a44f; --adult: #e0687a;
+}
+html[data-theme="light"] {
+  --bg: #f0eeea; --bg2: #e6e3dd; --panel: #faf9f6; --panel2: #edeae4;
+  --line: #d2cdc2; --hover: #e2ded6;
+  --tx: #2a2c31; --tx2: #575d67; --tx3: #8d95a1;
+  --accent: #5f77d4; --accent-ink: #ffffff; --accentSoft: rgba(95, 119, 212, .15);
+  --fav: #d6516a; --good: #3f9e6f; --warn: #b07d2a; --adult: #d6516a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--tx); font: 400 13px/1.45 system-ui; -webkit-font-smoothing: antialiased; }
+.mono { font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; }
+.page { max-width: 1420px; margin: 0 auto; padding: 26px 24px 60px; }
+h1 { font: 700 22px/1.1 system-ui; margin: 0 0 4px; letter-spacing: -.3px; }
+h2 { font: 600 13px/1 system-ui; margin: 0; }
+.lede { color: var(--tx2); max-width: 88ch; margin: 0 0 26px; }
+.block { border: 1px solid var(--line); border-radius: 10px; background: var(--bg2); margin-bottom: 22px; overflow: hidden; }
+.bhead { height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.bhead .n { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
+.bbody { padding: 18px 16px; }
+.note { font: 400 11.5px/1.55 system-ui; color: var(--tx3); margin: 12px 0 0; max-width: 100ch; }
+.note b { color: var(--tx2); font-weight: 600; }
+.themebtn { position: fixed; top: 14px; right: 16px; z-index: 5; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--tx); border-radius: 6px; height: 30px; padding: 0 12px; font: 600 12px/1 system-ui; white-space: nowrap; }
+.btn.accent { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.ghost { background: transparent; color: var(--tx2); }
+.btn.small { height: 26px; padding: 0 10px; font-size: 11px; }
+.ic { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.eyebrow { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
+.tag { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; font: 700 9px/1 ui-monospace, monospace; letter-spacing: .06em; border: 1px solid var(--line); color: var(--tx3); }
+.tag.new { color: var(--accent); border-color: var(--accent); }
+
+/* ---- the title page's contents, as TitleView draws them ---- */
+.frameE { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--bg); }
+.chead { height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.chead .t { font: 600 15px/1 system-ui; }
+.editing { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--warn); }
+.list { padding: 10px 12px 14px; display: flex; flex-direction: column; gap: 2px; }
+.chrow { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; border: 1px solid transparent; font: 500 12.5px/1 system-ui; }
+.chrow.open { background: var(--accentSoft); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+.grip { color: var(--tx3); font: 700 10px/1 ui-monospace, monospace; width: 12px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.num { font: 700 12px/1 ui-monospace, monospace; width: 22px; color: var(--tx); }
+.trbadge { display: inline-flex; align-items: center; gap: 5px; font: 500 10.5px/1 system-ui; color: var(--tx2); background: var(--panel2); border: 1px solid var(--line); padding: 3px 7px; border-radius: 5px; }
+.trbadge .l { font: 700 9px/1 ui-monospace, monospace; color: var(--accent); }
+.right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.pgcol { width: 44px; text-align: right; font: 500 10.5px/1 ui-monospace, monospace; color: var(--good); }
+.pgcol.no { color: var(--tx3); }
+.cc { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); color: var(--accent); font: 700 9px/1 ui-monospace, monospace; letter-spacing: .04em; }
+.chacts { display: inline-flex; gap: 5px; }
+.chact { width: 24px; height: 24px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--tx2); display: inline-flex; align-items: center; justify-content: center; font: 700 8.5px/1 ui-monospace, monospace; }
+.chact .ic { width: 12px; height: 12px; }
+.chact.on { color: var(--accent); border-color: var(--accent); background: var(--accentSoft); }
+.entryform { margin: 2px 0 6px 26px; padding: 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); display: flex; flex-direction: column; gap: 7px; }
+.flabel { flex: none; width: 46px; font: 700 8.5px/1 ui-monospace, monospace; letter-spacing: .08em; color: var(--tx3); }
+.irow { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.track { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); font: 500 12px/1 system-ui; }
+.track .lang { width: 22px; font: 700 9.5px/1 ui-monospace, monospace; color: var(--accent); }
+.track .from { margin-left: auto; font: 400 10.5px/1 ui-monospace, monospace; color: var(--tx3); }
+.track .def { font: 600 9px/1 ui-monospace, monospace; letter-spacing: .08em; color: var(--good); }
+.track .mk { color: var(--tx3); font-size: 12px; }
+.track .x { color: var(--tx3); }
+.pick { flex: 1; min-width: 0; height: 28px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg2); display: flex; align-items: center; gap: 8px; padding: 0 9px; font: 500 11.5px/1 ui-monospace, monospace; color: var(--tx); overflow: hidden; white-space: nowrap; }
+.pick .hint { color: var(--accent); font-weight: 700; font-size: 9.5px; }
+.pick .chev { margin-left: auto; color: var(--tx3); }
+.opts { margin-left: 54px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel2); padding: 4px; box-shadow: 0 10px 26px rgba(0,0,0,.35); }
+.opts div { display: flex; align-items: center; gap: 10px; height: 28px; padding: 0 8px; border-radius: 5px; font: 500 11.5px/1 ui-monospace, monospace; color: var(--tx2); }
+.opts div.on { background: var(--hover); color: var(--tx); }
+.opts div .m { margin-left: auto; font-size: 10px; color: var(--tx3); }
+.opts div .hint { color: var(--accent); font-weight: 700; font-size: 9.5px; }
+.in { height: 28px; border: 1px solid var(--line); background: var(--bg2); border-radius: 6px; padding: 0 9px; display: flex; align-items: center; font: 500 12px/1 system-ui; color: var(--tx); }
+
+.view { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--bg); }
+.view .list { padding: 10px 12px; }
+.video { margin: 0 12px 12px; aspect-ratio: 16/9; border-radius: 8px; border: 1px solid var(--line); background: linear-gradient(160deg, hsl(222 30% 22%), hsl(250 25% 10%)); position: relative; overflow: hidden; }
+.cue { position: absolute; left: 50%; bottom: 44px; transform: translateX(-50%); padding: 3px 9px; background: rgba(0,0,0,.55); color: #fff; font: 500 14px/1.35 system-ui; border-radius: 3px; white-space: nowrap; }
+.ctrl { position: absolute; left: 0; right: 0; bottom: 0; height: 34px; display: flex; align-items: center; gap: 12px; padding: 0 12px; background: linear-gradient(transparent, rgba(0,0,0,.6)); color: #e8eaef; font: 500 11px/1 ui-monospace, monospace; }
+.ctrl .bar { flex: 1; height: 3px; border-radius: 2px; background: rgba(255,255,255,.25); position: relative; }
+.ctrl .bar::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 38%; background: var(--accent); border-radius: 2px; }
+.ctrl .ccbtn { border: 1px solid rgba(255,255,255,.6); border-radius: 3px; padding: 2px 4px; font-weight: 700; font-size: 9px; }
+.ccmenu { position: absolute; right: 12px; bottom: 40px; width: 160px; background: rgba(20,22,26,.96); border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 5px; font: 500 12px/1 system-ui; color: #e8eaef; }
+.ccmenu div { padding: 7px 9px; border-radius: 5px; display: flex; gap: 8px; }
+.ccmenu div.on { background: rgba(255,255,255,.1); }
+.ccmenu div .k { margin-left: auto; color: #9aa1ad; font-size: 10px; }
+
+/* ---- the Activity panel ---- */
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.dlpanel { width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 30px 70px rgba(0,0,0,.4); }
+.dlh { display: flex; align-items: center; gap: 9px; padding: 12px 14px; border-bottom: 1px solid var(--line); color: var(--tx2); }
+.dlh .t { font: 600 14px/1 system-ui; color: var(--tx); }
+.dlrows { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 9px; }
+.sec { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); display: flex; align-items: center; gap: 10px; padding: 6px 2px 0; }
+.sec::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.sec .new { letter-spacing: .06em; }
+.dlnone { padding: 2px 2px 4px; font: 400 12px/1.4 system-ui; color: var(--tx3); }
+.loose { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel2); }
+.loose .kind { width: 30px; height: 30px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font: 700 9px/1 ui-monospace, monospace; color: var(--tx2); background: var(--bg2); border: 1px solid var(--line); flex: none; }
+.loose .kind.sub { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.loose .nm { font: 600 12px/1.3 ui-monospace, monospace; color: var(--tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.loose .sub2 { font: 400 10.5px/1.3 system-ui; color: var(--tx3); }
+.loose .acts { margin-left: auto; display: flex; gap: 6px; flex: none; }
+.refused { padding: 9px 10px; border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line)); border-radius: 9px; background: color-mix(in srgb, var(--warn) 8%, transparent); font: 400 11.5px/1.45 system-ui; color: var(--tx2); }
+.refused b { color: var(--tx); font-weight: 600; }
+
+.side { display: flex; flex-direction: column; gap: 18px; }
+.armed { border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); border-radius: 10px; background: var(--accentSoft); padding: 12px 14px; }
+.armed .t { font: 600 12.5px/1.3 system-ui; }
+.armed .h { margin-top: 6px; font: 400 11.5px/1.5 system-ui; color: var(--tx2); }
+.toast { display: inline-flex; align-items: center; gap: 12px; padding: 8px 8px 8px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); box-shadow: 0 12px 30px rgba(0,0,0,.4); font: 500 12px/1 system-ui; align-self: flex-start; }
+.toast .ok { width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+.toast .u { color: var(--accent); font-weight: 600; }
+.toast .fn { font: 500 11px/1 ui-monospace, monospace; color: var(--tx2); }
+
+.dec { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.d { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); padding: 14px; }
+.d .k { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--accent); margin-bottom: 8px; }
+.d .q { font: 600 13px/1.35 system-ui; margin-bottom: 8px; }
+.d p { margin: 0; font: 400 11.5px/1.5 system-ui; color: var(--tx3); }
+.d p b { color: var(--tx2); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.8 5.9 20.4l1.4-6.8L2.2 9l6.9-.7z"/></symbol>
+</svg>
+<button class="btn themebtn" onclick="const h=document.documentElement;h.dataset.theme=h.dataset.theme==='dark'?'light':'dark'">Light / dark</button>
+
+<div class="page">
+  <h1>Subtitles, and the downloads nobody armed</h1>
+  <p class="lede">A file the browser downloads with nothing armed is no longer thrown away: it lands in the library's own
+    downloads folder. An episode keeps its subtitles — added from that folder, from a file, or by arming the episode and
+    downloading them — and the player shows them. Concept: <span class="mono">design/subtitles.md</span>.</p>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">1 · AN EPISODE'S SUBTITLES</span><h2>Edited where an entry is edited — the contents' edit mode</h2></div>
+    <div class="bbody">
+      <div class="two">
+        <div class="frameE">
+          <div class="chead"><span class="t">Episodes</span><span class="editing">EDITING CONTENTS</span><span class="right"><button class="btn small accent">Done</button></span></div>
+          <div class="list">
+            <div class="chrow"><span class="grip">⋮⋮</span><span class="num">04</span><span class="trbadge"><span class="l">EN</span>Erai</span><span class="right"><span class="cc">CC EN · UK</span><span class="pgcol">23:40</span><span class="chacts"><span class="chact"><svg class="ic"><use href="#i-edit"/></svg></span><span class="chact"><svg class="ic"><use href="#i-download"/></svg></span><span class="chact" title="Subtitles">CC</span><span class="chact"><svg class="ic"><use href="#i-minus"/></svg></span><span class="chact"><svg class="ic"><use href="#i-x"/></svg></span></span></span></div>
+            <div class="chrow open"><span class="grip">⋮⋮</span><span class="num">05</span><span class="trbadge"><span class="l">EN</span>Erai</span><span class="right"><span class="cc">CC EN · UK</span><span class="pgcol">23:40</span><span class="chacts"><span class="chact"><svg class="ic"><use href="#i-edit"/></svg></span><span class="chact"><svg class="ic"><use href="#i-download"/></svg></span><span class="chact on" title="Subtitles">CC</span><span class="chact"><svg class="ic"><use href="#i-minus"/></svg></span><span class="chact"><svg class="ic"><use href="#i-x"/></svg></span></span></span></div>
+            <div class="entryform">
+              <div class="irow"><span class="flabel">TRACKS</span><span class="mono" style="font-size:10.5px;color:var(--tx3)">the player starts with the default</span></div>
+              <div class="track"><span class="lang">EN</span>English<span class="def">DEFAULT</span><span class="from">[Erai] 05 [ENG].ass · ass → vtt</span><span class="x">✕</span></div>
+              <div class="track"><span class="lang">UK</span>Українська<span class="mk" title="Make it the default">☆</span><span class="from">Ep05.uk.srt · srt → vtt</span><span class="x">✕</span></div>
+              <div class="irow" style="margin-top:4px"><span class="flabel">ADD</span>
+                <span class="pick"><span>[Erai-raws] Lantern Witch - 05 [1080p][RUS].ass</span><span class="hint">05 · RU</span><span class="chev">▾</span></span>
+                <button class="btn small ghost">File…</button></div>
+              <div class="opts">
+                <div class="on">[Erai-raws] Lantern Witch - 05 [1080p][RUS].ass<span class="hint">05 · RU</span><span class="m">today 21:40</span></div>
+                <div>lantern_witch_06.en.srt<span class="m">today 21:38</span></div>
+                <div>ost_track_list.srt<span class="m">yesterday</span></div>
+              </div>
+              <div class="irow"><span class="flabel">LANG</span><span class="in" style="width:64px">RU</span><span class="in" style="flex:1">Русский</span>
+                <button class="btn small ghost">Cancel</button><button class="btn small accent">Add</button></div>
+            </div>
+            <div class="chrow"><span class="grip">⋮⋮</span><span class="num">06</span><span class="trbadge"><span class="l">EN</span>Erai</span><span class="right"><span class="pgcol">23:39</span><span class="chacts"><span class="chact"><svg class="ic"><use href="#i-edit"/></svg></span><span class="chact"><svg class="ic"><use href="#i-download"/></svg></span><span class="chact" title="Subtitles">CC</span><span class="chact"><svg class="ic"><use href="#i-minus"/></svg></span><span class="chact"><svg class="ic"><use href="#i-x"/></svg></span></span></span></div>
+            <div class="chrow"><span class="grip">⋮⋮</span><span class="num">07</span><span class="trbadge"><span class="l">EN</span>Erai</span><span class="right"><span class="pgcol no">—</span><span class="chacts"><span class="chact"><svg class="ic"><use href="#i-edit"/></svg></span><span class="chact"><svg class="ic"><use href="#i-download"/></svg></span><span class="chact" title="Subtitles">CC</span><span class="chact"><svg class="ic"><use href="#i-minus"/></svg></span><span class="chact"><svg class="ic"><use href="#i-x"/></svg></span></span></span></div>
+          </div>
+        </div>
+        <div class="side">
+          <div class="view">
+            <div class="chead"><span class="t">Viewing</span><span class="mono" style="font-size:11px;color:var(--tx3)">nothing new takes room</span></div>
+            <div class="list">
+              <div class="chrow open"><span class="dot" style="background:var(--accent)"></span><span class="num">05</span><span class="trbadge"><span class="l">EN</span>Erai</span><span class="right"><span class="cc">CC EN · UK</span><span class="pgcol">23:40</span></span></div>
+            </div>
+            <div class="video">
+              <div class="cue">— You came back for the lantern?</div>
+              <div class="ccmenu"><div class="on">English<span class="k">default</span></div><div>Українська</div><div>Off</div></div>
+              <div class="ctrl"><span>▶</span><span>09:02 / 23:40</span><span class="bar"></span><span class="ccbtn">CC</span><span>⛶</span></div>
+            </div>
+          </div>
+          <p class="note" style="margin:0"><b>Viewing stays as it is</b>: the row says <b>CC EN · UK</b>, and the player's own CC
+            menu switches the tracks — on the title page and in the reader.</p>
+        </div>
+      </div>
+      <p class="note"><b>In edit mode an episode's row gets a CC action</b> beside Edit entry and Attach. It opens a small form
+        under the row, the way Edit entry does: the tracks it has (default, make default, remove) and one to add — a file
+        dropped on the form or picked, or one from the library's downloads (subtitle files, newest first, the one whose name
+        carries this episode's number on top, its language read off the name). <b>Stored as WebVTT</b>, which the player shows:
+        SRT converted, ASS flattened to text — the original kept beside it (D3).</p>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">2 · THE DOWNLOADS NOBODY ARMED</span><h2>Kept in the library, shown in Activity</h2></div>
+    <div class="bbody">
+      <div class="two">
+        <div class="dlpanel">
+          <div class="dlh"><svg class="ic"><use href="#i-activity"/></svg><span class="t">Activity</span><span class="right" style="margin-left:auto"><svg class="ic"><use href="#i-x"/></svg></span></div>
+          <div class="dlrows">
+            <div class="sec">LIBRARY</div>
+            <div class="dlnone">Nothing is running.</div>
+            <div class="sec">DOWNLOADS</div>
+            <div class="dlnone">Nothing is downloading.</div>
+            <div class="sec">IN THE LIBRARY'S DOWNLOADS · 3 <span class="tag new new">NEW</span></div>
+            <div class="loose"><span class="kind sub">ASS</span><div style="min-width:0"><div class="nm">[Erai-raws] Lantern Witch - 05 [1080p][RUS].ass</div><div class="sub2">48 KB · today 21:40 · from erai-raws.info</div></div><span class="acts"><button class="btn ghost small"><svg class="ic" style="width:12px;height:12px"><use href="#i-folder"/></svg>Show</button><button class="btn ghost small">Delete</button></span></div>
+            <div class="loose"><span class="kind sub">SRT</span><div style="min-width:0"><div class="nm">lantern_witch_06.en.srt</div><div class="sub2">31 KB · today 21:38 · from subsplease.org</div></div><span class="acts"><button class="btn ghost small"><svg class="ic" style="width:12px;height:12px"><use href="#i-folder"/></svg>Show</button><button class="btn ghost small">Delete</button></span></div>
+            <div class="loose"><span class="kind">ZIP</span><div style="min-width:0"><div class="nm">vol_02_extras.zip</div><div class="sub2">84 MB · yesterday · from mangadex.org</div></div><span class="acts"><button class="btn ghost small"><svg class="ic" style="width:12px;height:12px"><use href="#i-folder"/></svg>Show</button><button class="btn ghost small">Delete</button></span></div>
+            <div class="refused"><b>setup_player.exe was not kept</b> — the library keeps subtitles, archives, images and videos (D2).</div>
+          </div>
+        </div>
+        <div class="side">
+          <div class="toast"><span class="ok"></span>Saved to the library's downloads<span class="fn">lantern_witch_06.en.srt</span><span class="u">Show</span></div>
+          <div class="armed">
+            <div class="t">Next download is armed: Lantern Witch · ep. 06 · EN</div>
+            <div class="h">A video or an archive becomes the episode's file, as today. <b>A subtitle file becomes its subtitles</b> —
+              the video stays (D4).</div>
+          </div>
+          <p class="note" style="margin:0"><b>Nothing armed, nothing lost</b>: a file the library can use goes to
+            <span class="mono">&lt;library&gt;/downloads/</span> — beside the shelves, never read as one (D1) — with where it came
+            from. It moves with the library. Attaching happens where the file belongs: an episode's Subtitles block, or an
+            entry's <i>Attach a file</i>, which lists these too.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">3 · DECISIONS</span><h2>Four choices, each with a proposal</h2></div>
+    <div class="bbody">
+      <div class="dec">
+        <div class="d"><div class="k">D1 · THE FOLDER</div><div class="q">downloads in the library</div>
+          <p><b>Decided.</b> A name a file manager shows — a share hides dot names. Never read as a type shelf; a type called
+            that gets <i>downloads-shelf</i>.</p></div>
+        <div class="d"><div class="k">D2 · WHAT IT KEEPS</div><div class="q">Only files the library can use</div>
+          <p><b>Proposed.</b> Subtitles, archives, images, videos; an installer or a script a page pushes is refused. The other
+            way: everything a site sends.</p></div>
+        <div class="d"><div class="k">D3 · THE ORIGINAL</div><div class="q">Kept beside the WebVTT</div>
+          <p><b>Proposed.</b> ASS styling is flattened for the player; the original stays for a styled renderer later. The other
+            way: only the WebVTT.</p></div>
+        <div class="d"><div class="k">D4 · AN ARMED EPISODE</div><div class="q">Takes a subtitle file as its subtitles</div>
+          <p><b>Proposed.</b> Arm the episode, download its subtitles — done. The other way: an armed download only ever
+            replaces the entry's file.</p></div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

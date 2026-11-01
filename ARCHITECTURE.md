@@ -66,6 +66,9 @@ library/
   .pages/                    what the owner wrote about values (design/value-pages.md): one
     <vocabulary>.json        document per vocabulary (authors.json covers artists too) + images/;
                              a dot name, so no type shelf can ever take it
+  downloads/                 what the browser downloaded with nothing armed (design/subtitles.md);
+    index.json               where each file came from. One of the vault's own folders — never
+                             a shelf (a type called "downloads" gets downloads-shelf/)
   health.json                what was done to this library + the last check report — its
                              own file, so startup never parses it
   <type-shelf>/              one directory per TYPE (manga/, image-set/, …; typeless → other/)
@@ -105,7 +108,7 @@ library/
   run is journaled in `index.db` and revertible; the rules that change values on their way in
   live in `rules.json` and run in the sidecar, for capture, typing and new chapters alike.
 - **Vault-level documents** (`recipes.json`, `sources.json`, `rules.json`,
-  `import-profiles.json`, `.pages/<vocabulary>.json`) go through
+  `import-profiles.json`, `.pages/<vocabulary>.json`, `downloads/index.json`) go through
   `Vault.read_doc()` and `Vault.doc_transaction()`: one lock per document PATH (two Vault objects over one directory
   still take turns), atomic write. "There is none" is the only empty answer a read gives: a
   client told "nothing saved" builds its next write on it, and that write replaces what is
@@ -224,7 +227,9 @@ Endpoints run sync on FastAPI's threadpool, so races are real and handled struct
   - **Archive** — the **armed flow** (`state-model.md` §9): the user arms ONE next download for a
     specific chapter; the shell intercepts `will-download`, streams progress, and hands the
     finished temp file to the sidecar for ingest (conversion to zip + sidecar provenance + row
-    binding). Unarmed downloads are rejected at start.
+    binding). A download nobody armed lands in the library's `downloads/` when the library
+    can use it (subtitles, archives, images, videos) and is refused otherwise; a subtitle file
+    armed for an episode becomes its subtitles (`design/subtitles.md`).
   - **Page capture** — for sources that only render pages. The same explicit binding: the user
     names ONE entry and arms it, then reads; finishing the chapter is explicit and steps the label
     forward. The page-image selector is taught once per domain (pick mode → the recipe's `pages`
@@ -262,6 +267,8 @@ backend/app/
             rules.py (what a value becomes on its way in; rules.json) ·
             pages.py (value pages: what is written about a person, a tag…, worked out
             alongside the library's own answer; follows a rename) ·
+            subtitles.py (an episode's subtitles: SRT/VTT/ASS → WebVTT, a language off a name) ·
+            loose.py (the library's downloads folder: what came with nothing armed) ·
             folder_import.py (a folder already on disk: profiles, scan, plan, run) ·
             models.py (layers + flat DTO) · vault.py (shelves, locks, media ingest, covers,
             the vault/fields/authors/health files) · media.py (zip ops, conversion, thumbnails,
@@ -285,6 +292,7 @@ frontend/src/
   components/ MetadataEditor (the one editor) · ImportMeta (its fields over an import's values) ·
               BulkEdit (the library's editor for many picked titles) ·
               ValuePage + ValuePeek (a value's page, and its hover card) ·
+              SubtitleForm (an episode's tracks, in the contents' edit mode) ·
               TabHost (an app tab's screen, kept alive) · HistoryNav (‹ › and the steps) ·
               TabFace ·
               CapturePanel (draft + downloads dock) ·

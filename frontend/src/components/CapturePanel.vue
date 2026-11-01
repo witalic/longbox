@@ -603,7 +603,7 @@ async function save(asNew: boolean) {
         <div v-else-if="armed" class="armedbox">
           <div class="armtitle"><Icon name="download" :size="14" />Next download is armed</div>
           <div class="armmeta mono">{{ armed.num }}<template v-if="armed.lang"> · {{ armed.lang }}</template><template v-if="armed.group"> · {{ armed.group }}</template></div>
-          <div class="armnote">Now click the SITE'S own download button in this browser — the file lands in this entry, with its download source recorded. One arm = one download.</div>
+          <div class="armnote">Now click the SITE'S own download button in this browser — the file lands in this entry, with its download source recorded. One arm = one download. A subtitle file for a downloaded episode becomes its subtitles; the video stays.</div>
           <button class="btn ghost" style="align-self:flex-start" @click="disarm">Cancel</button>
         </div>
         <div v-else-if="!pageMode" class="dlform">

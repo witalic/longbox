@@ -167,6 +167,31 @@ class UserPatch(BaseModel):
 
 # ---- wire DTOs (flat camelCase, composed from the layers) ----
 
+class SubtitleOut(BaseModel):
+    """One of an episode's subtitle tracks (library/subtitles.py)."""
+    id: str
+    lang: str = ""
+    label: str = ""
+    default: bool = False
+    origName: str = ""   # the file it was made from
+    format: str = ""     # what that file was: srt / vtt / ass / ssa
+    v: str = ""          # what its URL is cached under: the stored WebVTT's digest
+
+
+def subtitles_of(side: dict | None) -> list[SubtitleOut]:
+    """An episode's tracks as its sidecar lists them — one written by hand or
+    by an older build that does not read is left out, never a failed title."""
+    out = []
+    for raw in (side or {}).get("subtitles") or []:
+        try:
+            out.append(SubtitleOut(**{k: raw.get(k) for k in ("id", "lang", "label", "default",
+                                                            "origName", "format") if raw.get(k) is not None},
+                                   v=str(raw.get("sha") or "")))
+        except (AttributeError, ValueError):
+            continue
+    return out
+
+
 class ChapterOut(ChapterRow):
     read: ReadState = "unread"
     dl: bool = False       # a downloaded archive exists in the vault
@@ -191,6 +216,7 @@ class ChapterOut(ChapterRow):
     poster: bool = False    # the one frame a tile wears is cut and stored
     sheet: str = ""         # the contact grid's geometry ("3x3"), "" when none
     stills: str = "0"       # the version those two are cached under
+    subtitles: list[SubtitleOut] = []  # an episode's subtitle tracks
 
 
 class TitleOut(BaseModel):
@@ -261,6 +287,7 @@ class TitleOut(BaseModel):
                 dlSource=(side or {}).get("pageUrl") or (side or {}).get("fileUrl") or "",
                 dlAt=(side or {}).get("downloadedAt", ""),
                 origName=(side or {}).get("origName", ""),
+                subtitles=subtitles_of(side),
             ))
         return cls(
             id=title_id, title=m.title, alt=m.alt, authors=m.authors, artists=m.artists,

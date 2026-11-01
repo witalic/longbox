@@ -4,10 +4,13 @@ The human arms ONE next download for a specific chapter; when the download
 STARTS in the embedded browser the arm is consumed and the chapter binding is
 claimed immediately — so the user can arm the next chapter and download in
 parallel. The shell reports progress while the file streams, then hands the
-finished temp file over for ingest. Unarmed downloads are rejected at start.
+finished temp file over for ingest. A download nobody armed lands in the
+library's downloads folder (library/loose.py) when it is a file the library can
+use — a subtitle, an archive, an image, a video — and is refused otherwise.
 """
 from __future__ import annotations
 
+import os
 import threading
 import time
 import uuid
@@ -18,7 +21,8 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from ..config_store import config_transaction, load_config
-from ..library import media
+from ..library import loose, media
+from ..library.loose import LooseFile
 from ..library.models import TitleOut
 from ..library.service import Library
 
@@ -70,6 +74,7 @@ class DownloadItem(BaseModel):
     state: str = "downloading"
     error: str = ""
     resume: Resume | None = None
+    loose: bool = False  # nobody armed it: it goes to the library's downloads folder
 
 
 class DownloadsOut(BaseModel):
@@ -163,6 +168,34 @@ def disarm(request: Request) -> Response:
     return Response(status_code=204)
 
 
+# ---- the library's downloads folder: what came with nothing armed ----
+# Declared before the `/{download_id}` routes, which would take these paths.
+
+@router.get("/files", response_model=list[LooseFile])
+def loose_files(request: Request) -> list[LooseFile]:
+    return _lib(request).loose.files()
+
+
+@router.delete("/files", status_code=204)
+def drop_loose_file(request: Request, name: str) -> Response:
+    if not _lib(request).loose.remove(name):
+        raise HTTPException(status_code=404, detail="that file is no longer in the library's downloads")
+    return Response(status_code=204)
+
+
+class FolderOut(BaseModel):
+    path: str
+
+
+@router.get("/folder", response_model=FolderOut)
+def loose_folder(request: Request) -> FolderOut:
+    """Where the folder is, for the system's file manager — as the library's
+    own path spells it (a mapped drive stays a drive letter)."""
+    folder = _lib(request).loose.folder
+    folder.mkdir(parents=True, exist_ok=True)
+    return FolderOut(path=os.path.abspath(folder))
+
+
 class InterruptIn(BaseModel):
     reason: str = ""
     resume: Resume | None = None
@@ -217,19 +250,29 @@ class StartIn(BaseModel):
 @router.post("/start", response_model=DownloadItem)
 def start(request: Request, body: StartIn) -> DownloadItem:
     """A download began in the browser: consume the arm and CLAIM the chapter
-    binding right now — the next chapter can be armed in parallel."""
+    binding right now — the next chapter can be armed in parallel. With nothing
+    armed it goes to the library's downloads folder, or is refused (409) when
+    the library could not use it."""
     with _DL_LOCK:  # observe + consume the arm as one step
         state = getattr(request.app.state, "armed_download", None)
         fresh = state is not None and time.monotonic() - state["at"] <= ARM_TTL_SECONDS
-        if not fresh:
-            raise HTTPException(status_code=409, detail="no download is armed")
-        armed = state["arm"]
-        request.app.state.armed_download = None
-    item = DownloadItem(
-        id=uuid.uuid4().hex[:12], titleId=armed.titleId, num=armed.num,
-        lang=armed.lang, group=armed.group,
-        filename=body.filename, fileUrl=body.fileUrl, pageUrl=body.pageUrl,
-    )
+        armed = state["arm"] if fresh else None
+        if fresh:
+            request.app.state.armed_download = None
+    if armed is not None:
+        item = DownloadItem(
+            id=uuid.uuid4().hex[:12], titleId=armed.titleId, num=armed.num,
+            lang=armed.lang, group=armed.group,
+            filename=body.filename, fileUrl=body.fileUrl, pageUrl=body.pageUrl,
+        )
+    else:
+        name = body.filename or Path(body.fileUrl.split("?")[0]).name
+        item = DownloadItem(id=uuid.uuid4().hex[:12], titleId="", num="", loose=True,
+                            filename=name, fileUrl=body.fileUrl, pageUrl=body.pageUrl)
+        if not loose.kind_of(name):
+            # said in the panel, so a refused download is not a silent one
+            item.state = "failed"
+            item.error = "not kept — the library keeps subtitles, archives, images and videos"
     items = _items(request)
     items[item.id] = item
     while len(items) > KEEP_ITEMS:  # prune the oldest finished entries
@@ -239,6 +282,8 @@ def start(request: Request, body: StartIn) -> DownloadItem:
                 break
         else:
             break
+    if item.state == "failed":
+        raise HTTPException(status_code=409, detail=item.error)
     return item
 
 
@@ -268,8 +313,8 @@ class CompleteIn(BaseModel):
     path: str
 
 
-@router.post("/{download_id}/complete", response_model=TitleOut)
-def complete(request: Request, download_id: str, body: CompleteIn) -> TitleOut:
+@router.post("/{download_id}/complete", response_model=TitleOut | LooseFile)
+def complete(request: Request, download_id: str, body: CompleteIn) -> TitleOut | LooseFile:
     item = _item_or_404(request, download_id)
     src = Path(body.path)
     if not src.is_file():
@@ -277,6 +322,12 @@ def complete(request: Request, download_id: str, body: CompleteIn) -> TitleOut:
         item.error = "downloaded file not found"
         raise HTTPException(status_code=400, detail=item.error)
     size = src.stat().st_size
+    if item.loose:
+        kept = _lib(request).loose.take(src, item.filename or src.name, item.fileUrl, item.pageUrl)
+        item.filename = kept.name  # the name it is kept under, ` (2)` and all
+        item.state = "done"
+        item.received = item.total = size
+        return kept
     # pages/size are stamped by the vault at ingest, from the stored zip
     sidecar = {
         "fileUrl": item.fileUrl,

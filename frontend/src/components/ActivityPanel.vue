@@ -4,17 +4,20 @@
 // a check — and the transfers (design/activity-mockup.html).
 //
 // A download is bound to a CHAPTER of a TITLE, so that is what a row says —
-// not a file name off a CDN. Rows survive a quit: a transfer stopped by closing
-// the window is remembered with its byte offset, and can be picked up from
-// there or started over, depending on what the server still honours.
-import { computed, onBeforeUnmount, onMounted } from 'vue'
+// not a file name off a CDN; one nobody armed goes to the library's downloads
+// folder and says its file's name (design/subtitles.md), and that folder is
+// listed here too. Rows survive a quit: a transfer stopped by closing the window
+// is remembered with its byte offset, and can be picked up from there or started
+// over, depending on what the server still honours.
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import ProgressBar from './ProgressBar.vue'
 import { api } from '../api'
 import {
-  downloads, openSection, passHome, passIcon, passPercent, pollDownloads, stopVaultPass, store, titleById, vaultPass,
-  watchDownloads, watchVaultPass,
+  askConfirm, downloads, openSection, passHome, passIcon, passPercent, pollDownloads, stopVaultPass, store,
+  titleById, vaultPass, watchDownloads, watchVaultPass,
 } from '../store'
+import { hostOf, type LooseFile } from '../data'
 
 const props = defineProps<{ warning: string }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'quit'): void }>()
@@ -58,6 +61,13 @@ async function stop(id: string) {
   await pollDownloads(true)
 }
 
+// ---- the library's downloads folder: what came with nothing armed ----
+const loose = ref<LooseFile[]>([])
+async function loadLoose() {
+  try { loose.value = await api.looseFiles() } catch { loose.value = [] }
+  store.loose = loose.value.length
+}
+
 // Picking one up: the chapter is armed again FIRST (so the transfer claims the
 // same entry), then the shell re-opens the file at the offset it reached. A
 // server that will not honour the range answers from zero — Electron reports
@@ -70,6 +80,37 @@ async function resume(id: string) {
   if (!ok) store.error = 'this transfer cannot be picked up — start it over from the source page'
   await pollDownloads(true)
 }
+
+onMounted(loadLoose)
+// a download landing there shows up while the panel is open
+watch(() => downloads.items.filter((i) => i.loose && i.state === 'done').length, loadLoose)
+const canOpenFolder = !!window.longbox?.openFolder
+async function showFolder() {
+  try {
+    const { path } = await api.looseFolder()
+    if (!(await window.longbox?.openFolder(path))) store.error = `Could not open ${path}`
+  } catch (e) { store.error = e instanceof Error ? e.message : String(e) }
+}
+async function dropLoose(f: LooseFile) {
+  const ok = await askConfirm({
+    title: 'Delete the file', danger: true, okLabel: 'Delete',
+    message: `Delete ${f.name} from the library's downloads?`,
+  })
+  if (!ok) return
+  try { await api.deleteLooseFile(f.name) } catch (e) { store.error = e instanceof Error ? e.message : String(e) }
+  await loadLoose()
+}
+const ext = (name: string) => (name.split('.').pop() ?? '').slice(0, 4).toUpperCase()
+function when(at: string): string {
+  const d = new Date(at)
+  if (Number.isNaN(d.getTime())) return ''
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return d.toDateString() === new Date().toDateString() ? `today ${time}` : d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+function sizeOf(n: number): string {
+  return n < 1048576 ? `${Math.max(1, Math.round(n / 1024))} KB` : size(n)
+}
+
 </script>
 
 <template>
@@ -123,10 +164,16 @@ async function resume(id: string) {
         <div v-if="!rows.length" class="dlnone">Nothing is downloading.</div>
         <div v-for="i in rows" :key="i.id" class="dlrow" :class="i.state">
           <div class="dlmain">
-            <span class="dlname">{{ titleOf(i.titleId) }}</span>
-            <span class="dlch mono">
-              ch. {{ i.num }}<template v-if="i.lang"> · {{ i.lang }}</template>
-            </span>
+            <template v-if="i.loose">
+              <span class="dlname mono">{{ i.filename || 'a download' }}</span>
+              <span class="dlch">to the library's downloads</span>
+            </template>
+            <template v-else>
+              <span class="dlname">{{ titleOf(i.titleId) }}</span>
+              <span class="dlch mono">
+                ch. {{ i.num }}<template v-if="i.lang"> · {{ i.lang }}</template>
+              </span>
+            </template>
           </div>
           <ProgressBar :done="i.received" :total="i.total" wide class="dlbar" />
           <div class="dlfoot">
@@ -141,6 +188,20 @@ async function resume(id: string) {
               {{ i.state === 'downloading' ? 'Stop' : 'Forget' }}
             </button>
           </div>
+        </div>
+
+        <div class="sec">IN THE LIBRARY'S DOWNLOADS<template v-if="loose.length"> · {{ loose.length }}</template></div>
+        <div v-if="!loose.length" class="dlnone">Nothing waiting — a download nobody armed lands here.</div>
+        <div v-for="f in loose" :key="f.name" class="loose">
+          <span class="lkind mono" :class="f.kind">{{ ext(f.name) }}</span>
+          <div class="lmain">
+            <div class="dlname mono" :title="f.name">{{ f.name }}</div>
+            <div class="lsub">{{ sizeOf(f.size) }} · {{ when(f.at) }}<template v-if="f.pageUrl || f.fileUrl"> · from {{ hostOf(f.pageUrl || f.fileUrl) }}</template></div>
+          </div>
+          <button v-if="canOpenFolder" class="btn ghost small" title="Open the library's downloads folder" @click="showFolder">
+            <Icon name="folder" :size="12" :sw="1.9" />Show
+          </button>
+          <button class="btn ghost small" @click="dropLoose(f)">Delete</button>
         </div>
       </div>
     </div>
@@ -176,4 +237,9 @@ async function resume(id: string) {
 .wt { font: 600 12.5px/1.3 system-ui; color: var(--tx); }
 .wh { margin-top: 6px; font: 400 11px/1.5 system-ui; color: var(--tx2); }
 .wacts { margin-top: 10px; display: flex; gap: 7px; justify-content: flex-end; }
+.loose { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel2); }
+.lkind { width: 32px; height: 30px; flex: none; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; color: var(--tx2); background: var(--bg2); border: 1px solid var(--line); }
+.lkind.subtitle { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.lmain { flex: 1; min-width: 0; }
+.lsub { margin-top: 3px; font: 400 10.5px/1.3 system-ui; color: var(--tx3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style>

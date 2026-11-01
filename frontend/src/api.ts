@@ -3,9 +3,9 @@
 // proxies /api to the sidecar (see vite.config.ts).
 import type {
   Bookmark, BrowseGroup, DraftCommit, Facets, FieldDef, FieldValues, FrameKind, ImportOverrides,
-  ImportPlan, ImportProfile, ImportReport, ImportScan, MetaAction, MetaField, MetaHeld, MetaPreview, MetaRun,
-  MetaScope, MetaValue, PageFilter, PageLink, Recipe, Rule, RuleApply, RuleStats, Source,
-  StoredPage, Title, UserPatch, ValuePage, ValuePeek,
+  ImportPlan, ImportProfile, ImportReport, ImportScan, LooseFile, MetaAction, MetaField, MetaHeld, MetaPreview,
+  MetaRun, MetaScope, MetaValue, PageFilter, PageLink, Recipe, Rule, RuleApply, RuleStats, Source,
+  StoredPage, Subtitle, Title, UserPatch, ValuePage, ValuePeek,
 } from './data'
 
 export class ApiError extends Error {
@@ -186,6 +186,28 @@ export const api = {
   // claims the same entry it was claiming before
   rearmDownload: (id: string) => req<DownloadsState>(`/downloads/${id}/rearm`, { method: 'POST' }),
   disarmDownload: () => reqVoid('/downloads/arm', { method: 'DELETE' }),
+  // the library's downloads folder: what came with nothing armed
+  looseFiles: () => req<LooseFile[]>('/downloads/files'),
+  deleteLooseFile: (name: string) =>
+    reqVoid(`/downloads/files?name=${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  looseFolder: () => req<{ path: string }>('/downloads/folder'),
+  // an episode's subtitles (design/subtitles.md)
+  addSubtitle: (tid: string, cid: string, file: File, lang: string, label: string, isDefault: boolean) => {
+    const fd = new FormData()
+    fd.append('file', file, file.name)
+    fd.append('lang', lang)
+    fd.append('label', label)
+    fd.append('default', String(isDefault))
+    return req<Title>(`/titles/${tid}/chapters/${cid}/subtitles`, { method: 'POST', body: fd })
+  },
+  subtitleFromDownloads: (tid: string, cid: string, body: { name: string; lang: string; label: string; default: boolean }) =>
+    req<Title>(`/titles/${tid}/chapters/${cid}/subtitles/from-downloads`, jsonBody('POST', body)),
+  updateSubtitle: (tid: string, cid: string, sid: string, body: { lang?: string; label?: string; default?: boolean }) =>
+    req<Title>(`/titles/${tid}/chapters/${cid}/subtitles/${sid}`, jsonBody('PATCH', body)),
+  deleteSubtitle: (tid: string, cid: string, sid: string) =>
+    req<Title>(`/titles/${tid}/chapters/${cid}/subtitles/${sid}`, { method: 'DELETE' }),
+  subtitleSrc: (tid: string, cid: string, s: Subtitle) =>
+    `/api/titles/${tid}/chapters/${cid}/subtitles/${s.id}?v=${encodeURIComponent(s.v)}`,
   // chapter media
   chapterPages: (tid: string, cid: string) => req<{ count: number }>(`/titles/${tid}/chapters/${cid}/pages`),
   // `w` = downscaled cached preview; `cap` crops very tall (webtoon) pages to
@@ -397,6 +419,7 @@ export interface DownloadItem {
   // interrupted = stopped with its place kept, and resumable
   state: 'downloading' | 'done' | 'failed' | 'interrupted'
   error: string
+  loose: boolean // nobody armed it: it goes to the library's downloads folder
   resume?: {
     path: string; urlChain: string[]; offset: number; total: number
     eTag: string; lastModified: string

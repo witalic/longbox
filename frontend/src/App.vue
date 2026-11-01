@@ -139,6 +139,7 @@ const RING = 2 * Math.PI * 8.5 // the progress ring's circumference
 const activityTitle = computed(() => [
   vaultPass.running ? `${vaultPass.op} — ${passPercent()}%` : '',
   runningCount.value ? `${runningCount.value} downloading` : unfinished.value.length ? 'unfinished downloads' : '',
+  store.loose ? `${store.loose} in the library's downloads` : '',
 ].filter(Boolean).join(' · '))
 let dropCloseHook: (() => void) | null = null
 onMounted(() => {
@@ -231,6 +232,13 @@ async function closeDraft() {
 // A new title saved or discarded anywhere (the capture dock too) leaves the
 // draft's place empty: back to the tab it was started from.
 watch(draftTab, (name) => { if (!name && store.activeTab === DRAFT) leaveDraft() })
+
+// a notice goes by itself after a while; a newer one starts the wait over
+let noticeTimer: number | undefined
+watch(() => store.notice, (text) => {
+  window.clearTimeout(noticeTimer)
+  if (text) noticeTimer = window.setTimeout(() => { store.notice = null }, 9000)
+})
 
 const tabsMenu = ref(false)
 const tabsMenuRoot = ref<HTMLElement | null>(null)
@@ -530,7 +538,7 @@ initSessions()
         <div style="flex:1"></div>
         <!-- what the app is doing right now, and the way into all of it: a library
              job draws how far it is around its own icon, the transfers their count -->
-        <button v-if="vaultPass.running || unfinished.length" class="themebtn actbtn"
+        <button v-if="vaultPass.running || unfinished.length || store.loose" class="themebtn actbtn"
                 :class="{ hot: vaultPass.running || !!runningCount }" :title="activityTitle" @click="actOpen = true">
           <template v-if="vaultPass.running">
             <span class="ring"><svg class="rs" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8.5" class="track" />
@@ -538,9 +546,14 @@ initSessions()
               <Icon :name="passIcon(vaultPass.key)" :size="10" :sw="2.2" /></span>
             <span class="actnum mono">{{ passPercent() }}%<template v-if="unfinished.length"> · {{ unfinished.length }}</template></span>
           </template>
-          <template v-else>
+          <template v-else-if="unfinished.length">
             <Icon name="download" :size="15" :sw="2" />
             <span class="actnum mono">{{ unfinished.length }}</span>
+          </template>
+          <!-- nothing moving: the files waiting in the library's downloads -->
+          <template v-else>
+            <Icon name="folder" :size="15" :sw="1.9" />
+            <span class="actnum mono">{{ store.loose }}</span>
           </template>
         </button>
         <button class="themebtn" title="Toggle theme" @click="toggleTheme">
@@ -572,6 +585,11 @@ initSessions()
     <!-- Failures used to be written to store.error and never shown: a refused
          upload, a failed reorder or delete simply did nothing. One toast, one
          place, dismissable. -->
+    <div v-if="store.notice" class="notetoast">
+      <span class="ok"></span><span class="errmsg">{{ store.notice }}</span>
+      <button class="show" @click="actOpen = true; store.notice = null">Show</button>
+      <button class="iconbtn plain dx" title="Dismiss" @click="store.notice = null"><Icon name="x" :size="11" :sw="2.4" /></button>
+    </div>
     <div v-if="store.error" class="errtoast" @click="store.error = null">
       <Icon name="x" :size="13" :sw="2.4" />
       <span class="errmsg">{{ store.error }}</span>
@@ -695,6 +713,14 @@ initSessions()
   background: color-mix(in srgb, var(--adult) 14%, var(--panel2)); color: var(--tx);
   font: 500 12px/1.4 system-ui; box-shadow: 0 14px 34px rgba(0, 0, 0, .45); cursor: pointer; }
 .errtoast:hover { border-color: var(--adult); }
+/* a word about something done — it goes by itself, above the failure surface's place */
+.notetoast { position: fixed; left: 50%; bottom: 72px; transform: translateX(-50%); z-index: 199;
+  display: flex; align-items: center; gap: 12px; max-width: 620px; padding: 8px 8px 8px 14px;
+  border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--tx);
+  font: 500 12px/1.4 system-ui; box-shadow: 0 12px 30px rgba(0, 0, 0, .4); }
+.notetoast .ok { width: 8px; height: 8px; border-radius: 50%; background: var(--good); flex: none; }
+.notetoast .show { border: none; background: none; cursor: pointer; font: 600 12px/1 system-ui; color: var(--accent); padding: 4px; }
+.notetoast .dx { width: 24px; height: 24px; color: var(--tx3); }
 .errmsg { overflow: hidden; text-overflow: ellipsis; }
 /* frameless drag regions live in styles.css (GLOBAL — a scoped :global()
    variant once compiled into a rule that made the whole window a drag region

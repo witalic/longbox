@@ -12,6 +12,7 @@ declare global {
       // stop a download in flight; false when the shell no longer holds it
       cancelDownload: (id: string) => Promise<boolean>
       // the window is trying to close with transfers running
+      onDownloadsChanged: (fn: () => void) => () => void
       onCloseBlocked: (fn: (running: number) => void) => () => void
       closeNow: () => Promise<boolean>
       // pick an interrupted transfer up from where it stopped

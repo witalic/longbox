@@ -141,6 +141,8 @@ interface State {
   byId: Record<string, Title> // cache for open tabs / detail view
   loading: boolean
   error: string | null
+  notice: string | null // something done that is worth a word (a download kept loose)
+  loose: number         // files waiting in the library's downloads folder
   library: LibraryFilters // the selection of the library tab in focus — each owns its own
   // app identity from <repo>/app-meta.json (via /api/settings)
   appMeta: { name?: string; version?: string; updated?: string; description?: string }
@@ -173,6 +175,8 @@ export const store = reactive<State>({
   byId: {},
   loading: false,
   error: null,
+  notice: null,
+  loose: 0,
   library: blankLibrary(),
   appMeta: {},
   reader: { chapterId: null, page: 0 },
@@ -434,11 +438,14 @@ export async function init() {
   // the Authors tab and the source list are not on the way to the grid
   void refreshDerived()
   void loadPageFilter()
+  void refreshLoose()
   // …and the vault check runs behind the window, refreshing it if disk moved on
   watchLibrarySync()
   // what a previous run left unfinished is already on the sidecar's list
   void pollDownloads(true)
   window.setInterval(() => void pollDownloads(), 1000)
+  // one nobody armed is not polled for: the shell says when a transfer begins or ends
+  window.longbox?.onDownloadsChanged?.(() => void pollDownloads(true))
   // a pass survives leaving the page, so following it has to as well
   void pollVaultPass(true)
   window.setInterval(() => void pollVaultPass(), 600)
@@ -980,9 +987,16 @@ export async function pollDownloads(force = false): Promise<void> {
     for (const it of s.items) {
       if (it.state === 'done' && !seenDone.has(it.id)) {
         seenDone.add(it.id)
-        void refreshTitle(it.titleId) // its chapter now has media
-      } else if (it.state === 'failed' || it.state === 'interrupted') {
+        if (it.loose) {
+          store.notice = `Saved to the library's downloads — ${it.filename}`
+          void refreshLoose()
+        } else {
+          void refreshTitle(it.titleId) // its chapter now has media
+        }
+      } else if ((it.state === 'failed' || it.state === 'interrupted') && !seenDone.has(it.id)) {
         seenDone.add(it.id)
+        // a file nobody armed and the library would not keep: nothing else says so
+        if (it.loose && it.state === 'failed') store.error = `${it.filename || 'A download'} was ${it.error}`
       }
     }
     downloads.armed = s.armed
@@ -1303,6 +1317,12 @@ export function watchLibrarySync() {
   }, 700)
 }
 
+// How many files wait in the library's downloads (design/subtitles.md) — the
+// activity corner shows them, so they are never out of sight.
+export async function refreshLoose() {
+  try { store.loose = (await api.looseFiles()).length } catch { /* keep the previous count */ }
+}
+
 export async function refreshTotal() {
   try { store.total = (await api.libraryCount()).total } catch { /* keep the previous total */ }
 }
@@ -1333,6 +1353,7 @@ export async function setLibraryPath(path: string): Promise<string | null> {
     store.total = all.length
     store.titles = all.map((t) => store.byId[t.id])
     await refreshDerived() // authors + sources + vocab all belong to the NEW vault
+    void refreshLoose() // and so does its downloads folder
     void loadPageFilter() // …and so does what it knows about pages
     store.facets = await api.facets()
     watchLibrarySync() // the new library verifies itself behind us

@@ -30,7 +30,7 @@ from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from . import media
+from . import media, subtitles
 from .migrations import CURRENT_SCHEMA, migrate
 from .models import CustomFieldDef, DraftIn, TitleDoc, UserPatch
 
@@ -160,11 +160,24 @@ def safe_id(raw: str) -> str:
     return "t-" + hashlib.sha1(raw.strip().encode("utf-8")).hexdigest()[:10]
 
 
+# The vault's own folders that a file manager must show — a dot name is hidden
+# on a share that hides dot files. They sit beside the shelves and are never
+# one: a type that would take such a name gets a shelf of its own.
+DOWNLOADS_DIR = "downloads"
+VAULT_FOLDERS = {DOWNLOADS_DIR}
+
+
+def _not_a_shelf(name: str) -> bool:
+    """The vault's own folders: a dot name (safe_id strips it) or one of VAULT_FOLDERS."""
+    return name.startswith(".") or name in VAULT_FOLDERS
+
+
 def type_dir_name(type_str: str) -> str:
     """The per-TYPE shelf a title lives on: `<root>/<type-dir>/<title-id>/`.
     Typeless titles land in `other`."""
     t = (type_str or "").strip().lower()
-    return safe_id(t) if t else "other"
+    name = safe_id(t) if t else "other"
+    return f"{name}-shelf" if name in VAULT_FOLDERS else name
 
 
 def _atomic_write(path: Path, data: bytes) -> None:
@@ -361,9 +374,9 @@ class Vault:
         except OSError:
             return out
         for shelf in shelves:
-            # a dot name is never a shelf (safe_id strips it): the vault's own
-            # folders, like the value pages, sit beside the shelves
-            if not shelf.is_dir() or shelf.name.startswith("."):
+            # the vault's own folders (the value pages, the downloads) sit
+            # beside the shelves and are never one
+            if not shelf.is_dir() or _not_a_shelf(shelf.name):
                 continue
             legacy = self._scan_one(shelf.path)  # an unmigrated title dir on the root
             if legacy is not None:
@@ -388,7 +401,7 @@ class Vault:
         if shelf and (self.root / shelf / sid / "title.json").is_file():
             return self.root / shelf / sid
         for td in self.root.iterdir():
-            if td.is_dir() and not td.name.startswith(".") and (td / sid / "title.json").is_file():
+            if td.is_dir() and not _not_a_shelf(td.name) and (td / sid / "title.json").is_file():
                 self._loc[sid] = td.name
                 return td / sid
         if (self.root / sid / "title.json").is_file():
@@ -503,7 +516,7 @@ class Vault:
             return []
         ids: set[str] = set()
         for td in self.root.iterdir():
-            if not td.is_dir() or td.name.startswith("."):
+            if not td.is_dir() or _not_a_shelf(td.name):
                 continue
             if (td / "title.json").is_file():
                 ids.add(td.name)  # unmigrated legacy leftover
@@ -774,7 +787,7 @@ class Vault:
             name, suffix = p.name, p.suffix.lower()
             if suffix == ".json" or name.endswith(".tmp"):
                 continue
-            if any(name.endswith(f".{k}.jpg") for k in FRAME_KINDS):
+            if any(name.endswith(f".{k}.jpg") for k in FRAME_KINDS) or subtitles.owner_stem(name):
                 continue
             stem = p.stem
             rank = 0 if suffix == ".zip" else (1 if suffix in media.VIDEO_EXTS else 2)
@@ -806,7 +819,8 @@ class Vault:
                 return video
         for p in sorted(d.glob(f"{stem}.*")):
             if (p.is_file() and p.suffix != ".json" and not p.name.endswith(".tmp")
-                    and not any(p.name.endswith(f".{k}.jpg") for k in FRAME_KINDS)):
+                    and not any(p.name.endswith(f".{k}.jpg") for k in FRAME_KINDS)
+                    and not subtitles.owner_stem(p.name)):
                 return p
         return None
 
@@ -826,6 +840,26 @@ class Vault:
         with self._lock(title_id):
             self._chapters_dir(title_id).mkdir(parents=True, exist_ok=True)
             _atomic_write(self.chapter_frames_path(title_id, chapter_id, kind), data)
+
+    # an episode's subtitles live beside it (library/subtitles.py)
+    def subtitle_path(self, title_id: str, chapter_id: str, n: int) -> Path:
+        return self._chapters_dir(title_id) / subtitles.vtt_name(safe_id(chapter_id), n)
+
+    def write_subtitle(self, title_id: str, chapter_id: str, n: int, vtt: bytes,
+                       original: bytes, ext: str) -> None:
+        with self._lock(title_id):
+            d = self._chapters_dir(title_id)
+            d.mkdir(parents=True, exist_ok=True)
+            stem = safe_id(chapter_id)
+            _atomic_write(d / subtitles.orig_name(stem, n, ext), original)
+            _atomic_write(d / subtitles.vtt_name(stem, n), vtt)
+
+    def delete_subtitle(self, title_id: str, chapter_id: str, n: int) -> None:
+        with self._lock(title_id):
+            stem = safe_id(chapter_id)
+            for p in self._chapters_dir(title_id).glob(f"{stem}.sub-{n}.*"):
+                if subtitles.owner_stem(p.name) == stem:
+                    _unlink_stubborn(p)
 
     def chapter_sidecars(self, title_id: str) -> dict[str, dict]:
         """All chapter sidecars, keyed by the chapter file stem (safe id)."""
@@ -900,6 +934,8 @@ class Vault:
             for old in d.glob(f"{stem}.*"):
                 if old == final or old.suffix == ".json":
                     continue
+                if as_video and subtitles.owner_stem(old.name) == stem:
+                    continue  # the episode's subtitles outlive the file they were made for
                 try:
                     _unlink_stubborn(old, tries=2)
                 except media.MediaInUseError:
@@ -928,6 +964,7 @@ class Vault:
                            # human must not find out by clicking
                            "playable": video_ext in media.PLAYABLE_VIDEO_EXTS,
                            "container": video_ext.lstrip(".")} if as_video else {}),
+                       **({"subtitles": prev["subtitles"]} if as_video and prev.get("subtitles") else {}),
                        "pages": 0 if as_video else len(media.image_entries(final)),
                        "size": final.stat().st_size,
                        # taken HERE, while the file is still warm from being
