@@ -8,7 +8,7 @@ import ConfirmModal from './components/ConfirmModal.vue'
 import RailSection from './components/RailSection.vue'
 import {
   store, closeTab, toggleTabPin, moveTabBefore, init, shownAxes, runningDownloads,
-  unfinishedDownloads, vaultPass, passIcon, passPercent, pausedImports, activeAppTab, tabById, showTab, showDraft,
+  unfinishedDownloads, vaultPass, passIcon, passPercent, pausedImports, mediaJobs, activeAppTab, tabById, showTab, showDraft,
   leaveDraft, goLibrary, goBrowse, newLibraryTab, openSection, showApp, showSources, placeLabel, goBack, goForward,
   DRAFT, HOME, type AppTab, type LibraryPlace, type Section,
 } from './store'
@@ -138,10 +138,12 @@ const actOpen = ref(false)
 const closeWarning = ref('')
 const unfinished = computed(() => unfinishedDownloads())
 const runningCount = computed(() => runningDownloads().length)
+const mediaRunning = computed(() => mediaJobs.some((j) => j.state === 'running'))
 const RING = 2 * Math.PI * 8.5 // the progress ring's circumference
 const activityTitle = computed(() => [
   vaultPass.running ? `${vaultPass.op} — ${passPercent()}%` : '',
   runningCount.value ? `${runningCount.value} downloading` : unfinished.value.length ? 'unfinished downloads' : '',
+  mediaJobs.length ? `${mediaJobs.length} being added to titles` : '',
   pausedImports.value.length ? `${pausedImports.value.length} import${pausedImports.value.length === 1 ? '' : 's'} paused` : '',
   store.loose ? `${store.loose} in the library's downloads` : '',
 ].filter(Boolean).join(' · '))
@@ -542,8 +544,8 @@ initSessions()
         <div style="flex:1"></div>
         <!-- what the app is doing right now, and the way into all of it: a library
              job draws how far it is around its own icon, the transfers their count -->
-        <button v-if="vaultPass.running || unfinished.length || pausedImports.length || store.loose" class="themebtn actbtn"
-                :class="{ hot: vaultPass.running || !!runningCount }" :title="activityTitle" @click="actOpen = true">
+        <button v-if="vaultPass.running || unfinished.length || mediaJobs.length || pausedImports.length || store.loose"
+                class="themebtn actbtn" :class="{ hot: vaultPass.running || !!runningCount || mediaRunning }" :title="activityTitle" @click="actOpen = true">
           <template v-if="vaultPass.running">
             <span class="ring"><svg class="rs" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8.5" class="track" />
               <circle cx="10" cy="10" r="8.5" class="arc" :style="{ strokeDasharray: RING, strokeDashoffset: RING * (1 - passPercent() / 100) }" /></svg>
@@ -553,6 +555,10 @@ initSessions()
           <template v-else-if="unfinished.length">
             <Icon name="download" :size="15" :sw="2" />
             <span class="actnum mono">{{ unfinished.length }}</span>
+          </template>
+          <template v-else-if="mediaJobs.length">
+            <Icon name="plus" :size="15" :sw="2.2" />
+            <span class="actnum mono">{{ mediaJobs.length }}</span>
           </template>
           <template v-else-if="pausedImports.length">
             <Icon name="import" :size="15" :sw="2" />

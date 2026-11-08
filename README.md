@@ -122,7 +122,9 @@ what differs is how it is stored, previewed and played.
   nothing from a zip and would pay a full rewrite for every edit).
 - *Files you already have* — drop one on the entry form of the contents editor, or pick it with
   *Choose files…*; whole folders work too. `mp4 · m4v · webm · mkv · mov · avi · ts` are
-  recognised.
+  recognised. What you give an entry is queued and added in the background, one after another —
+  the form is free for the next entry, the next title, at once, and Activity lists what is still
+  on its way (a failed one waits there to be tried again).
 - *Replacing one* — attaching a new file to an entry replaces its media and carries the entry's
   identity, so read state and translation rows survive.
 

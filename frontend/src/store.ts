@@ -1335,28 +1335,98 @@ export async function editChapterRow(t: Title, id: string,
 // Returns the row the VAULT ended up with: the id is assigned server-side (a
 // commit can adopt an existing row's id), so anything addressing the new row's
 // media has to read it back rather than assume what it will be.
-export async function addChapterRow(
-  t: Title, ch: { num: string; lang: string; group: string; url?: string; section?: string }): Promise<Chapter | null> {
+export async function addChapterRow(t: Title, ch: MediaEntry): Promise<Chapter | null> {
   if (t.chapters.some((c) => sameChapter(c, ch))) {
     store.error = `Chapter ${ch.num}${ch.lang ? ' · ' + ch.lang : ''} already exists`
     return null
   }
   try {
-    const body = commitBodyFrom(t)
-    body.chapters.push({ id: '', num: ch.num, title: '', url: ch.url || '', lang: ch.lang, group: ch.group,
-                         date: '', section: ch.section || '' })
-    const saved = await api.commitTitle(t.id, body)
-    cache([saved])
-    const added = saved.chapters.find((c) => sameChapter(c, ch))
-    // The commit came back without the row it was asked for. That is a bug
-    // wherever it happens, and it used to happen in silence — a button that
-    // looked broken. Say so rather than return nothing.
-    if (!added) store.error = `Chapter ${ch.num} was not added — the library refused the row`
-    return added ?? null
+    return await commitChapterRow(t, ch)
   } catch (e) {
     store.error = e instanceof Error ? e.message : String(e)
     return null
   }
+}
+async function commitChapterRow(t: Title, ch: MediaEntry): Promise<Chapter> {
+  const body = commitBodyFrom(t)
+  body.chapters.push({ id: '', num: ch.num, title: '', url: ch.url || '', lang: ch.lang, group: ch.group,
+                       date: '', section: ch.section || '' })
+  const saved = await api.commitTitle(t.id, body)
+  cache([saved])
+  const added = saved.chapters.find((c) => sameChapter(c, ch))
+  // The commit came back without the row it was asked for. That is a bug
+  // wherever it happens, and it used to happen in silence — a button that
+  // looked broken. Say so rather than return nothing.
+  if (!added) throw new Error(`Chapter ${ch.num} was not added — the library refused the row`)
+  return added
+}
+
+// ---- media added by hand: queued, so no form ever waits on an upload ----
+//
+// An archive, an episode or a set of images given to an entry is a JOB. It
+// carries its title and its entry with it — by the time it runs, the form that
+// queued it may be showing another title — and the jobs run one after another,
+// behind whatever is done next. Activity lists them; a failed one stays there
+// until it is tried again or dropped.
+export interface MediaEntry { num: string; lang: string; group: string; url?: string; section?: string }
+export interface MediaJob {
+  id: string
+  titleId: string
+  entry: MediaEntry
+  chapterId: string // the entry it goes into; '' — the one with this identity, made if there is none
+  kind: 'archive' | 'images'
+  files: File[]
+  state: 'queued' | 'running' | 'failed'
+  error: string
+}
+export const mediaJobs = reactive<MediaJob[]>([])
+let mediaSeq = 0
+let mediaRunning = false
+export function queueMedia(job: Pick<MediaJob, 'titleId' | 'entry' | 'chapterId' | 'kind' | 'files'>) {
+  mediaJobs.push({ ...job, id: `media-${++mediaSeq}`, state: 'queued', error: '' })
+  void runMedia()
+}
+export function retryMedia(id: string) {
+  const job = mediaJobs.find((j) => j.id === id && j.state === 'failed')
+  if (!job) return
+  Object.assign(job, { state: 'queued', error: '' })
+  void runMedia()
+}
+// a queued job given up, or a failed one dismissed — never the one being sent
+export function dropMedia(id: string) {
+  const i = mediaJobs.findIndex((j) => j.id === id && j.state !== 'running')
+  if (i >= 0) mediaJobs.splice(i, 1)
+}
+async function runMedia() {
+  if (mediaRunning) return
+  mediaRunning = true
+  try {
+    for (let job = nextMedia(); job; job = nextMedia()) {
+      job.state = 'running'
+      try {
+        await sendMedia(job)
+        mediaJobs.splice(mediaJobs.indexOf(job), 1)
+      } catch (e) {
+        Object.assign(job, { state: 'failed', error: e instanceof Error ? e.message : String(e) })
+      }
+    }
+  } finally {
+    mediaRunning = false
+  }
+}
+const nextMedia = () => mediaJobs.find((j) => j.state === 'queued')
+async function sendMedia(job: MediaJob) {
+  if (job.kind === 'archive') {
+    cache([await api.importChapterArchive(job.titleId,
+      { ...job.entry, chapterId: job.chapterId || undefined }, job.files[0])])
+    return
+  }
+  let cid = job.chapterId
+  if (!cid) {
+    const t = store.byId[job.titleId] ?? await api.title(job.titleId)
+    cid = t.chapters.find((c) => sameChapter(c, job.entry))?.id ?? (await commitChapterRow(t, job.entry)).id
+  }
+  cache([await api.addChapterPages(job.titleId, cid, job.files)])
 }
 
 // The library is served from the index and verified against disk afterwards, so

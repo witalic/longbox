@@ -9,15 +9,16 @@
 // listed here too. Rows survive a quit: a transfer paused, or stopped by
 // closing the window, is remembered with its byte offset, and can be picked up
 // from there or started over, depending on what the server still honours — and
-// an import paused waits here to be carried on.
+// an import paused waits here to be carried on. Media added to an entry by hand
+// is queued (store.ts `queueMedia`) and listed with the library's work.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import ProgressBar from './ProgressBar.vue'
 import { api } from '../api'
 import {
-  askConfirm, downloads, forgetPausedImport, openSection, passHome, passIcon, passPercent, pauseDownload,
-  pauseImport, pausedImports, pollDownloads, resumeDownload, resumeImport, stopDownload, stopVaultPass, store,
-  titleById, vaultPass, watchDownloads, watchVaultPass,
+  askConfirm, downloads, dropMedia, forgetPausedImport, mediaJobs, openSection, passHome, passIcon, passPercent,
+  pauseDownload, pauseImport, pausedImports, pollDownloads, resumeDownload, resumeImport, retryMedia, stopDownload,
+  stopVaultPass, store, titleById, vaultPass, watchDownloads, watchVaultPass, type MediaJob,
 } from '../store'
 import { hostOf, type LooseFile } from '../data'
 
@@ -29,7 +30,8 @@ onMounted(() => { watchDownloads(true); watchVaultPass(true); void pollDownloads
 onBeforeUnmount(() => { watchDownloads(false); watchVaultPass(false) })
 
 const rows = computed(() => downloads.items.filter((i) => i.state !== 'done'))
-const running = computed(() => rows.value.filter((i) => i.state === 'downloading').length + (vaultPass.running ? 1 : 0))
+const running = computed(() => rows.value.filter((i) => i.state === 'downloading').length + (vaultPass.running ? 1 : 0)
+  + mediaJobs.filter((j) => j.state === 'running').length)
 
 function titleOf(id: string): string { return titleById(id)?.title || 'a title that is gone' }
 function pct(i: { received: number; total: number }): number {
@@ -53,6 +55,11 @@ function jobAmount(p: Counted): string {
   return p.total ? `${p.done} of ${p.total}` : ''
 }
 const folderName = (root: string) => root.split(/[\\/]/).filter(Boolean).pop() || root
+// what a queued job carries: the one file, or how many images
+function mediaWhat(j: MediaJob): string {
+  const bytes = size(j.files.reduce((n, f) => n + f.size, 0))
+  return j.kind === 'archive' ? `${j.files[0]?.name ?? 'a file'} · ${bytes}` : `${j.files.length} images · ${bytes}`
+}
 function openHome() {
   openSection(passHome(vaultPass.key))
   emit('close')
@@ -163,7 +170,25 @@ function sizeOf(n: number): string {
                     @click="forgetPausedImport(p.id)">Forget</button>
           </div>
         </div>
-        <div v-if="!vaultPass.running && !pausedImports.length" class="dlnone">Nothing is running.</div>
+        <!-- media given to an entry by hand, one after another -->
+        <div v-for="j in mediaJobs" :key="j.id" class="dlrow" :class="{ failed: j.state === 'failed' }">
+          <div class="dlmain">
+            <Icon name="plus" :size="14" :sw="2.2" class="pic" />
+            <span class="dlname">{{ titleOf(j.titleId) }}</span>
+            <span class="dlch mono">{{ j.entry.num }}<template v-if="j.entry.lang"> · {{ j.entry.lang }}</template></span>
+          </div>
+          <div class="dlfoot">
+            <span class="dlamt mono" :title="mediaWhat(j)">{{ mediaWhat(j) }}</span>
+            <span v-if="j.state === 'failed'" class="dlerr" :title="j.error">{{ j.error }}</span>
+            <span v-else class="dlpct mono">{{ j.state === 'running' ? 'adding…' : 'queued' }}</span>
+            <div style="flex:1"></div>
+            <button v-if="j.state === 'failed'" class="btn ghost small" @click="retryMedia(j.id)">Try again</button>
+            <button v-if="j.state !== 'running'" class="btn ghost small" @click="dropMedia(j.id)">
+              {{ j.state === 'failed' ? 'Dismiss' : 'Cancel' }}
+            </button>
+          </div>
+        </div>
+        <div v-if="!vaultPass.running && !pausedImports.length && !mediaJobs.length" class="dlnone">Nothing is running.</div>
 
         <div class="sec">DOWNLOADS</div>
         <div v-if="!rows.length" class="dlnone">Nothing is downloading.</div>

@@ -28,7 +28,7 @@ import {
   coverAt, coverStyle, downloadSites, hostOf,
   faviconFor, filterOptions, isReadable, isUnsupported, mediaLabel, mediaTitle, movedBefore,
   orderedChaptersOf,
-  chaptersInScope, fieldValue, hasValue, labelChoices, nextLabel, nextLabels, sameChapter,
+  chaptersInScope, fieldValue, hasValue, labelChoices, nextLabel, nextLabels,
   unsupportedNote, type FieldDef,
 } from '../data'
 
@@ -36,9 +36,9 @@ import {
 const noIcon = reactive<Record<string, boolean>>({})
 import {
   addChapterRow, askConfirm, cache, clearTitleSource, commitChapterOrder, deleteTitle,
-  editChapterRow, goLibrary, groupRings, hiddenOf, langRings, openReader, openTitle,
-  openValuePage, setFavorite, setFieldHidden, setRating, setRead, showInLibrary, store, titleById,
-  visibleFields,
+  editChapterRow, goLibrary, groupRings, hiddenOf, langRings, mediaJobs, openReader, openTitle,
+  openValuePage, queueMedia, setFavorite, setFieldHidden, setRating, setRead, showInLibrary, store,
+  titleById, visibleFields, type MediaEntry,
 } from '../store'
 import {
   READ_COLOR as readColor, groupByNum, statusColor, initials,
@@ -220,7 +220,18 @@ function opensSection(i: number): boolean {
 }
 
 // ---- edit mode: reorder (drag num-groups), delete rows/files/pages ----
-const editMode = ref(false)
+// Per TITLE: this screen is one for every title tab, and the contents being
+// edited on one are not the next one's — each keeps its own mode, and what was
+// open on the last (a form, a row, a selection) closes with the switch.
+const editingContents = reactive(new Set<string>())
+const editMode = computed({
+  get: () => !!t.value && editingContents.has(t.value.id),
+  set: (on: boolean) => {
+    if (!t.value) return
+    if (on) editingContents.add(t.value.id)
+    else editingContents.delete(t.value.id)
+  },
+})
 const dragNum = ref<string | null>(null)
 const dropTarget = ref<string | null>(null) // num we'd land BEFORE; '#end' = the end
 const canDrag = computed(() => editMode.value && !filtersActive.value)
@@ -314,7 +325,8 @@ const iLang = ref('')
 const iGroup = ref('')
 const iUrl = ref('')
 const iSection = ref('')
-const importing = ref(false)
+// what is still on its way into this title — the form is free the moment a job is queued
+const addingHere = computed(() => mediaJobs.filter((j) => j.titleId === t.value?.id).length)
 // the parts this title already has, in the order they first appear
 const sectionSuggest = computed(() =>
   [...new Set((t.value?.chapters ?? []).map((c) => c.section).filter(Boolean))])
@@ -329,25 +341,35 @@ const iLabelNext = computed(() => nextLabels(iLabelScope.value))
 // the rule. A label the human typed stands until an entry is filed, and every
 // title counts from its own beginning.
 const iTouched = ref(false)
-watch(() => t.value?.id, () => { iTouched.value = false })
+// What was open on the title being left closes with it: the add form, a row
+// being edited, its subtitles, the pages picked.
+watch(() => t.value?.id, () => {
+  iTouched.value = false
+  importOpen.value = false
+  iUrl.value = ''
+  editRow.value = null
+  subsRow.value = null
+  selPages.value = []
+})
 watch(iLabelNext, (next) => { if (!iTouched.value) iNum.value = next[0] ?? '' }, { immediate: true })
 
-async function importEntryArchive(file: File) {
+const formEntry = (): MediaEntry => ({
+  num: iNum.value.trim(), lang: iLang.value.trim(), group: iGroup.value.trim(), url: iUrl.value.trim(),
+  section: iSection.value.trim(),
+})
+// A job queued: the form is ready for the next entry at once. The label moves
+// on and STANDS — the queued entry is no row yet, so the suggestion would
+// offer its label again, and a row landing later must not take the box back.
+function queued() {
+  importOpen.value = false
+  iNum.value = nextLabel(iNum.value.trim())
+  iTouched.value = true
+  iUrl.value = ''
+}
+function queueEntryArchive(file: File) {
   if (!t.value) return
-  importing.value = true
-  try {
-    cache([await api.importChapterArchive(t.value.id,
-      { num: iNum.value.trim(), lang: iLang.value.trim(), group: iGroup.value.trim(), url: iUrl.value.trim(),
-        section: iSection.value.trim() }, file)])
-    importOpen.value = false
-    iNum.value = nextLabel(iNum.value.trim())
-    iTouched.value = false
-    iUrl.value = ''
-  } catch (err) {
-    store.error = err instanceof Error ? err.message : String(err)
-  } finally {
-    importing.value = false
-  }
+  queueMedia({ titleId: t.value.id, entry: formEntry(), chapterId: '', kind: 'archive', files: [file] })
+  queued()
 }
 // the same form, without a file: just create the chapter row
 async function addRowOnly() {
@@ -361,31 +383,12 @@ async function addRowOnly() {
     iUrl.value = ''
   }
 }
-// the same form from loose images: create the row (or reuse an existing
-// identical one), then upload the files as its pages
-async function uploadEntryImages(files: File[]) {
+// the same form from loose images: the job reuses an identical row or makes
+// one, then adds the files as its pages
+function queueEntryImages(files: File[]) {
   if (!files.length || !t.value || !iNum.value.trim()) return
-  importing.value = true
-  try {
-    const ch = { num: iNum.value.trim(), lang: iLang.value.trim(), group: iGroup.value.trim(), url: iUrl.value.trim(),
-                 section: iSection.value.trim() }
-    const same = (c: Chapter) => sameChapter(c, ch)
-    let row = t.value.chapters.find(same)
-    if (!row) {
-      if (!(await addChapterRow(t.value, ch))) return
-      row = t.value.chapters.find(same)
-    }
-    if (!row) return
-    cache([await api.addChapterPages(t.value.id, row.id, files)])
-    importOpen.value = false
-    iNum.value = nextLabel(iNum.value.trim())
-    iTouched.value = false
-    iUrl.value = ''
-  } catch (err) {
-    store.error = err instanceof Error ? err.message : String(err)
-  } finally {
-    importing.value = false
-  }
+  queueMedia({ titleId: t.value.id, entry: formEntry(), chapterId: '', kind: 'images', files })
+  queued()
 }
 // ONE entry point for the entry's media: an archive or a set of images — the
 // branch is decided by what actually arrived. The OS can't put files and a
@@ -398,8 +401,8 @@ async function handleEntryFiles(files: File[]) {
   // several images accumulate into one chapter's pages
   const whole = files.filter((f) => ARCHIVE_RE.test(f.name) || VIDEO_RE.test(f.name))
   const images = files.filter((f) => IMAGE_RE.test(f.name))
-  if (whole.length === 1 && !images.length) await importEntryArchive(whole[0])
-  else if (images.length) await uploadEntryImages(sortFilesNat(images))
+  if (whole.length === 1 && !images.length) queueEntryArchive(whole[0])
+  else if (images.length) queueEntryImages(sortFilesNat(images))
   else store.error = 'Pick ONE archive or video file, or several images'
 }
 async function onEntryFiles(e: Event) {
@@ -432,7 +435,7 @@ async function filesFromDataTransfer(dt: DataTransfer): Promise<File[]> {
 }
 async function onEntryDrop(e: DragEvent) {
   entryDropHot.value = false
-  if (!e.dataTransfer || !iNum.value.trim() || importing.value) return
+  if (!e.dataTransfer || !iNum.value.trim()) return
   await handleEntryFiles(await filesFromDataTransfer(e.dataTransfer))
 }
 
@@ -450,15 +453,8 @@ async function onAttachFile(e: Event) {
   const c = attachFor.value
   attachFor.value = null
   if (!file || !c || !t.value) return
-  importing.value = true
-  try {
-    cache([await api.importChapterArchive(t.value.id,
-      { num: c.num, lang: c.lang, group: c.group, chapterId: c.id }, file)])
-  } catch (err) {
-    store.error = err instanceof Error ? err.message : String(err)
-  } finally {
-    importing.value = false
-  }
+  queueMedia({ titleId: t.value.id, entry: { num: c.num, lang: c.lang, group: c.group }, chapterId: c.id,
+               kind: 'archive', files: [file] })
 }
 
 // ---- covers: a title may wear several ----
@@ -708,17 +704,22 @@ async function onAddImages(e: Event) {
   const files = sortFilesNat([...(input.files ?? [])])
   input.value = ''
   const cid = openPages.value
-  if (!files.length || !t.value || !cid) return
-  importing.value = true
-  try {
-    cache([await api.addChapterPages(t.value.id, cid, files)])
-    pageCount.value = (await api.chapterPages(t.value.id, cid)).count
-  } catch (err) {
-    store.error = err instanceof Error ? err.message : String(err)
-  } finally {
-    importing.value = false
-  }
+  const c = t.value?.chapters.find((x) => x.id === cid)
+  if (!files.length || !t.value || !c) return
+  queueMedia({ titleId: t.value.id, entry: { num: c.num, lang: c.lang, group: c.group }, chapterId: c.id,
+               kind: 'images', files })
 }
+// The open entry's media changed — pages added from here, by the queue, or
+// anywhere else: its pane counts them again. Only on the SAME title: entry ids
+// can repeat across titles, and a switch is selectPages' business.
+watch(() => [t.value?.id, t.value?.chapters.find((c) => c.id === openPages.value)?.v] as const,
+  ([tid, v], [prevTid, prevV]) => {
+    const cid = openPages.value
+    if (!tid || !cid || tid !== prevTid || !v || v === prevV) return
+    void api.chapterPages(tid, cid).then((r) => {
+      if (t.value?.id === tid && openPages.value === cid) pageCount.value = r.count
+    }).catch(() => { /* the pane keeps what it had */ })
+  })
 
 const moveOpen = ref(false)
 const moveRoot = ref<HTMLElement | null>(null)
@@ -731,16 +732,19 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown))
 // move targets: every OTHER entry, in display order (translations are concrete
 // targets of their own — each is its own archive)
 const moveTargets = computed<ChapterNode[]>(() => groupByNum(orderedChapters.value))
+// (The pane counts the pages again by itself: the entry's media changed.)
 async function movePagesTo(targetId: string) {
+  const tid = t.value?.id
   const cid = openPages.value
-  if (!t.value || !cid || !selPages.value.length || targetId === cid) return
+  if (!tid || !cid || !selPages.value.length || targetId === cid) return
   moveOpen.value = false
   try {
-    cache([await api.moveChapterPages(t.value.id, cid, targetId, selPages.value.map(serverIdx))])
+    const saved = await api.moveChapterPages(tid, cid, targetId, selPages.value.map(serverIdx))
+    cache([saved])
+    if (t.value?.id !== tid || openPages.value !== cid) return // left meanwhile
     selPages.value = []
-    const still = t.value.chapters.find((c) => c.id === cid && c.dl && c.pages)
-    if (still) pageCount.value = (await api.chapterPages(t.value.id, cid)).count
-    else openPages.value = null // the pane's watch re-selects the first entry
+    // emptied, the entry has nothing to show: the pane's watch picks the first one
+    if (!saved.chapters.some((c) => c.id === cid && c.dl && c.pages)) openPages.value = null
   } catch (err) {
     store.error = err instanceof Error ? err.message : String(err)
   }
@@ -813,17 +817,18 @@ async function sendPageOrder() {
 }
 
 async function deleteSelectedPages() {
+  const tid = t.value?.id
   const cid = openPages.value
-  if (!t.value || !cid || !selPages.value.length) return
+  const picked = selPages.value.map(serverIdx)
+  if (!tid || !cid || !picked.length) return
   const ok = await askConfirm({
     title: 'Delete pages', danger: true, okLabel: 'Delete',
-    message: `Delete ${selPages.value.length} page(s) from this chapter's archive? The file is rewritten without them.`,
+    message: `Delete ${picked.length} page(s) from this chapter's archive? The file is rewritten without them.`,
   })
   if (!ok) return
   try {
-    cache([await api.deleteChapterPages(t.value.id, cid, selPages.value.map(serverIdx))])
-    selPages.value = []
-    pageCount.value = (await api.chapterPages(t.value.id, cid)).count
+    cache([await api.deleteChapterPages(tid, cid, picked)])
+    if (t.value?.id === tid && openPages.value === cid) selPages.value = []
   } catch (e) { store.error = String(e) }
 }
 // Windows refuses to unlink a file that is still open, and the surface showing
@@ -1096,6 +1101,8 @@ async function removeRow(c: Chapter) {
         <div class="chhead">
           <h2>Contents</h2>
           <span class="mono" style="color:var(--tx3);font-size:12px">{{ t.chapters.length }}</span>
+          <!-- media still on its way in, from the add form and the rows alike — Activity has each -->
+          <span v-if="addingHere" class="adding mono" title="Being added in the background — see Activity">+ {{ addingHere }} being added</span>
           <Dropdown v-if="langOpts.length > 2" label="LANG" :model-value="langFilter" :options="langOpts" @update:model-value="langFilter = String($event)" />
           <Dropdown v-if="groupOpts.length > 2" label="GROUP" :model-value="groupFilter" :options="groupOpts" @update:model-value="groupFilter = String($event)" />
           <div style="flex:1"></div>
@@ -1127,10 +1134,10 @@ async function removeRow(c: Chapter) {
           <div class="irow">
             <span class="drophint mono">drop an archive · a video · images · a whole folder</span>
             <div style="flex:1"></div>
-            <button class="btn ghost small" :disabled="importing" @click="importOpen = false; iUrl = ''">Cancel</button>
-            <button class="btn ghost small" :disabled="!iNum.trim() || importing" title="Create the entry row without a file — add images later from the pages pane" @click="addRowOnly">Add row only</button>
-            <button class="btn accent small" :disabled="!iNum.trim() || importing" title="One archive (.zip/.cbz/.rar/.7z) or a set of images (webp converts to a standard format); drop a folder onto the form" @click="filesEl?.click()">
-              {{ importing ? 'Importing…' : 'Choose files…' }}
+            <button class="btn ghost small" @click="importOpen = false; iUrl = ''">Cancel</button>
+            <button class="btn ghost small" :disabled="!iNum.trim()" title="Create the entry row without a file — add images later from the pages pane" @click="addRowOnly">Add row only</button>
+            <button class="btn accent small" :disabled="!iNum.trim()" title="One archive (.zip/.cbz/.rar/.7z) or a set of images (webp converts to a standard format); drop a folder onto the form" @click="filesEl?.click()">
+              Choose files…
             </button>
           </div>
           <input ref="filesEl" type="file"   :accept="MEDIA_ACCEPT" multiple style="display:none" @change="onEntryFiles" />
@@ -1263,10 +1270,10 @@ async function removeRow(c: Chapter) {
           <template v-if="editMode && openChapter">
             <!-- pages are added to page media only: an episode is its video file -->
             <template v-if="openChapter.kind !== 'video'">
-              <button class="btn ghost small" :disabled="importing" title="Append image files to this entry (its archive is created on first add)" @click="addImgEl?.click()">
-                <Icon name="plus" :size="12" :sw="2.2" />{{ importing ? 'Adding…' : 'Add images' }}
+              <button class="btn ghost small" title="Append image files to this entry (its archive is created on first add)" @click="addImgEl?.click()">
+                <Icon name="plus" :size="12" :sw="2.2" />Add images
               </button>
-              <button class="btn ghost small" :disabled="importing" title="Pick a folder and append every image in it to this entry" @click="addDirEl?.click()">Add folder…</button>
+              <button class="btn ghost small" title="Pick a folder and append every image in it to this entry" @click="addDirEl?.click()">Add folder…</button>
             </template>
             <span ref="moveRoot" class="movewrap">
               <button v-if="selPages.length" class="btn small" title="Move the selected pages into another entry" @click="moveOpen = !moveOpen">Move to…</button>
@@ -1495,6 +1502,7 @@ async function removeRow(c: Chapter) {
 /* the tree + edit mode + pages */
 .chedit { width: 28px; height: 28px; }
 .chhint { margin: 8px 0 2px; font-size: 10px; color: var(--tx3); }
+.adding { font-size: 10.5px; color: var(--accent); }
 .dragging { opacity: .45; }
 /* the landing indicator: an accent line ABOVE the row the drag would land before */
 .dropbefore { box-shadow: 0 -2px 0 var(--accent); border-top-left-radius: 0; border-top-right-radius: 0; }
