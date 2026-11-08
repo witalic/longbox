@@ -39,44 +39,37 @@ const startAt = ref<number | null>(null)
 // the player just seems broken.
 const stalled = ref(false)
 
-// Why a file may behave badly — ASKED, not assumed. Whether a codec plays well
-// depends on the machine, so claiming "HEVC stutters" on a machine that decodes
-// it in hardware would be a lie the user can see through.
-const decodeWarning = ref('')
-
-async function checkDecoding(video: HTMLVideoElement) {
-  decodeWarning.value = ''
-  const caps = navigator.mediaCapabilities
-  if (!caps?.decodingInfo || !props.chapter.codec || !video.videoWidth) return
-  const PROFILES: Record<string, string> = {
-    hevc: 'video/mp4; codecs="hvc1.1.6.L153.B0"',
-    h264: 'video/mp4; codecs="avc1.640033"',
-    av1: 'video/mp4; codecs="av01.0.08M.08"',
-    vp9: 'video/webm; codecs="vp09.00.10.08"',
-  }
-  const contentType = PROFILES[props.chapter.codec]
-  if (!contentType) return
-  try {
-    const info = await caps.decodingInfo({
-      type: 'file',
-      video: {
-        contentType, width: video.videoWidth, height: video.videoHeight,
-        bitrate: Math.round((props.chapter.duration ? 8 * 628e6 / props.chapter.duration : 8e6)),
-        framerate: 30,
-      },
-    })
-    if (!info.supported) decodeWarning.value = 'This machine cannot decode this codec.'
-    else if (!info.smooth) {
-      decodeWarning.value = `This machine decodes ${props.chapter.codec.toUpperCase()} at `
-        + `${video.videoWidth}×${video.videoHeight} in software — playback and seeking will stutter.`
-    }
-  } catch { /* the query is a courtesy; its absence is not an error */ }
+// Whether this machine keeps up is MEASURED on this playback, never predicted:
+// Chromium's own forecast ("smooth") is a memory of earlier playbacks, wrong both
+// ways, and a warning shown before anything stutters is one nobody can trust. So
+// it says so only once frames are actually being dropped — judged over a stretch
+// of steady playback, as a pause, a seek or a stall says nothing about decoding.
+const DROP_WINDOW_SECONDS = 5
+const DROP_SHARE = 0.1 // a tenth of the frames gone is stutter anyone can see
+const dropping = ref(false)
+let dropBase: { at: number; total: number; dropped: number } | null = null
+function restartDropWindow() { dropBase = null }
+function sampleDrops() {
+  const v = el.value
+  if (!v || v.paused || v.seeking || stalled.value) { dropBase = null; return }
+  const q = v.getVideoPlaybackQuality()
+  if (!dropBase) { dropBase = { at: v.currentTime, total: q.totalVideoFrames, dropped: q.droppedVideoFrames }; return }
+  if (v.currentTime - dropBase.at < DROP_WINDOW_SECONDS) return
+  const total = q.totalVideoFrames - dropBase.total
+  if (total > 0) dropping.value = (q.droppedVideoFrames - dropBase.dropped) / total > DROP_SHARE
+  dropBase = { at: v.currentTime, total: q.totalVideoFrames, dropped: q.droppedVideoFrames }
 }
+let dropTimer: ReturnType<typeof setInterval> | undefined
 
 const caveat = computed(() => {
   const c = props.chapter
   if (c.kind !== 'video') return ''
-  if (decodeWarning.value) return decodeWarning.value
+  if (dropping.value) {
+    const v = el.value
+    const what = [c.codec.toUpperCase(), v?.videoWidth ? `${v.videoWidth}×${v.videoHeight}` : ''].filter(Boolean).join(' ')
+    return `Frames are being dropped — this machine is not decoding ${what || 'this video'} fast enough; `
+      + 'seeking will be slow too.'
+  }
   if (c.faststart === false) {
     return 'This file keeps its index at the end, so the player fetches the tail before the '
       + 'first frame — that is the slow start. Seeking far can also take a moment: the '
@@ -156,7 +149,6 @@ function finished() {
 function onLoaded() {
   const v = el.value
   if (!v) return
-  void checkDecoding(v)
   // a clicked cell wins over the resume point; otherwise carry on where the
   // human stopped, unless they finished it
   const at = startAt.value ?? props.chapter.position
@@ -176,6 +168,8 @@ watch(() => props.chapter.id, (_next, previous) => {
   lastSeen = 0
   failed.value = false
   stalled.value = false
+  dropping.value = false
+  dropBase = null
   armed.value = props.autoplay
   startAt.value = null
   lastSaved = 0
@@ -236,11 +230,15 @@ function onKey(e: KeyboardEvent) {
   e.preventDefault()
   seekBy(back ? -SEEK_STEP : SEEK_STEP)
 }
-onMounted(() => document.addEventListener('keydown', onKey, true))
+onMounted(() => {
+  document.addEventListener('keydown', onKey, true)
+  dropTimer = setInterval(sampleDrops, 1000)
+})
 
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onKey, true)
   if (window_ !== null) clearTimeout(window_)
+  clearInterval(dropTimer)
   const at = el.value?.currentTime || lastSeen
   if (at > 0) void setPlaybackPosition(props.title, props.chapter.id, at)
 })
@@ -250,75 +248,81 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="vstage">
-    <video
-      v-if="playable && armed"
-      ref="el"
-      class="vplayer"
-      :src="src"
-      controls
-      :autoplay="autoplay"
-      preload="auto"
-      @loadedmetadata="onLoaded"
-      @timeupdate="remember(el?.currentTime ?? 0)"
-      @pause="remember(el?.currentTime ?? 0, true)"
-      @seeked="remember(el?.currentTime ?? 0)"
-      @ended="finished"
-      @waiting="stalled = true"
-      @playing="stalled = false"
-      @canplay="stalled = false"
-      @error="failed = true"
-    >
-      <!-- the episode's subtitles: the player's own CC menu switches them -->
-      <track v-for="s in chapter.subtitles ?? []" :key="s.id" kind="subtitles" :label="s.label"
-             :srclang="s.lang || undefined" :src="api.subtitleSrc(title.id, chapter.id, s)" :default="s.default" />
-    </video>
+    <div class="vscreen">
+      <video
+        v-if="playable && armed"
+        ref="el"
+        class="vplayer"
+        :src="src"
+        controls
+        :autoplay="autoplay"
+        preload="auto"
+        @loadedmetadata="onLoaded"
+        @timeupdate="remember(el?.currentTime ?? 0)"
+        @pause="remember(el?.currentTime ?? 0, true)"
+        @seeking="restartDropWindow()"
+        @seeked="remember(el?.currentTime ?? 0)"
+        @ended="finished"
+        @waiting="stalled = true"
+        @playing="stalled = false"
+        @canplay="stalled = false"
+        @error="failed = true"
+      >
+        <!-- the episode's subtitles: the player's own CC menu switches them -->
+        <track v-for="s in chapter.subtitles ?? []" :key="s.id" kind="subtitles" :label="s.label"
+               :srclang="s.lang || undefined" :src="api.subtitleSrc(title.id, chapter.id, s)" :default="s.default" />
+      </video>
 
-    <!-- what an episode looks like before anyone asks it to play -->
-    <div v-else-if="playable" class="vpre">
-      <div v-if="hasSheet" class="vcells" :style="gridStyle">
-        <button v-for="(at, i) in cellTimes" :key="i" class="vcell" :style="cellStyle(i)"
-                :title="chapter.duration ? `Play from ${formatDuration(at)}` : 'Play'"
-                @click="play(chapter.duration ? at : undefined)">
-          <span v-if="chapter.duration" class="vcellat mono">{{ formatDuration(at) }}</span>
+      <!-- what an episode looks like before anyone asks it to play -->
+      <div v-else-if="playable" class="vpre">
+        <div v-if="hasSheet" class="vcells" :style="gridStyle">
+          <button v-for="(at, i) in cellTimes" :key="i" class="vcell" :style="cellStyle(i)"
+                  :title="chapter.duration ? `Play from ${formatDuration(at)}` : 'Play'"
+                  @click="play(chapter.duration ? at : undefined)">
+            <span v-if="chapter.duration" class="vcellat mono">{{ formatDuration(at) }}</span>
+          </button>
+        </div>
+        <img v-else-if="posterSrc" class="vstill" :src="posterSrc" alt="" />
+        <button class="vplay" :title="chapter.position > 1 ? 'Carry on where you stopped' : 'Play from the start'"
+                @click="play()">
+          <span class="vplayring"><Icon name="play" :size="22" :sw="1.4" fill="currentColor" /></span>
+          <span class="vplaylbl">{{ chapter.position > 1 ? `Resume ${formatDuration(chapter.position)}` : 'Play' }}</span>
         </button>
+        <div v-if="isCutting(title, chapter)" class="vprenote">Cutting a preview from the episode…</div>
       </div>
-      <img v-else-if="posterSrc" class="vstill" :src="posterSrc" alt="" />
-      <button class="vplay" :title="chapter.position > 1 ? 'Carry on where you stopped' : 'Play from the start'"
-              @click="play()">
-        <span class="vplayring"><Icon name="play" :size="22" :sw="1.4" fill="currentColor" /></span>
-        <span class="vplaylbl">{{ chapter.position > 1 ? `Resume ${formatDuration(chapter.position)}` : 'Play' }}</span>
-      </button>
-      <div v-if="isCutting(title, chapter)" class="vprenote">Cutting a preview from the episode…</div>
+
+      <!-- stored, listed, catalogued — the app simply cannot open this container -->
+      <div v-else class="vunplayable">
+        <Icon name="film" :size="28" :sw="1.6" />
+        <div class="vtitle">{{ unsupportedTitle(chapter) }}</div>
+        <div class="vhint">
+          {{ chapter.num }}<template v-if="chapter.lang"> · {{ chapter.lang }}</template>
+          <template v-if="chapter.duration"> · {{ formatDuration(chapter.duration) }}</template>
+          — {{ UNSUPPORTED_HINT }}
+        </div>
+        <a class="btn ghost" :href="src" download>Save a copy</a>
+      </div>
+
+      <div v-if="playable && stalled" class="vstall">Buffering…</div>
     </div>
 
-    <!-- stored, listed, catalogued — the app simply cannot open this container -->
-    <div v-else class="vunplayable">
-      <Icon name="film" :size="28" :sw="1.6" />
-      <div class="vtitle">{{ unsupportedTitle(chapter) }}</div>
-      <div class="vhint">
-        {{ chapter.num }}<template v-if="chapter.lang"> · {{ chapter.lang }}</template>
-        <template v-if="chapter.duration"> · {{ formatDuration(chapter.duration) }}</template>
-        — {{ UNSUPPORTED_HINT }}
-      </div>
-      <a class="btn ghost" :href="src" download>Save a copy</a>
-    </div>
-
-    <div v-if="playable && stalled" class="vstall">Buffering…</div>
-
-    <!-- said once, quietly, and only when the file explains itself -->
+    <!-- said once, quietly, and only when the file explains itself — UNDER the
+         picture, never over it: the player's own controls live on its bottom edge -->
     <div v-if="playable && caveat" class="vcaveat">{{ caveat }}</div>
   </div>
 </template>
 
 <style scoped>
-/* min-height: 0 is load-bearing. As a flex item in a column, the stage's
-   automatic minimum size is the min-content height of what it holds — and a
-   <video> reports its own frame height, so without this the stage refuses to
-   shrink below 1080px and the player hangs out past the pane with it. */
-.vstage { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; align-items: center; justify-content: center; background: #000; user-select: none; }
-/* The stage is a fixed box — the same one whether an episode is previewing or
+/* min-height: 0 is load-bearing, on the stage and on the screen in it. As a
+   flex item in a column, each one's automatic minimum size is the min-content
+   height of what it holds — and a <video> reports its own frame height, so
+   without this the stage refuses to shrink below 1080px and the player hangs
+   out past the pane with it. */
+.vstage { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: #000; user-select: none; }
+/* The screen is a fixed box — the same one whether an episode is previewing or
    playing — so what is drawn inside it fits itself to the box and never the
    other way round. */
+.vscreen { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
 .vplayer { width: 100%; height: 100%; object-fit: contain; background: #000; }
 /* the focus ring is dealt with globally — every <video> in the app, one rule
    set, in styles.css beside the other element-level resets */
@@ -329,10 +333,8 @@ onBeforeUnmount(() => {
 }
 .vtitle { font: 600 15px/1.3 system-ui; color: var(--tx); }
 .vcaveat {
-  position: absolute; left: 0; right: 0; bottom: 0;
-  padding: 8px 14px; font: 400 11px/1.4 system-ui;
-  color: var(--tx2); background: color-mix(in srgb, var(--bg) 88%, transparent);
-  border-top: 1px solid var(--line);
+  flex: none; padding: 8px 14px; font: 400 11px/1.4 system-ui;
+  color: var(--tx2); background: var(--bg); border-top: 1px solid var(--line);
 }
 .vstall {
   position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
