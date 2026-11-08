@@ -134,6 +134,28 @@ def test_a_defined_field_is_served_stored_and_filtered(tmp_path):
     lib.close()
 
 
+def test_a_list_kept_out_of_the_filters_still_scopes_its_value_pages(tmp_path):
+    """A value page's works are the library filtered by its own field — and a
+    list has pages whether or not the owner offers it in the filter block, so a
+    query narrows by it either way. It is still no facet: nothing counts it."""
+    lib = Library(tmp_path)
+    with TestClient(create_app(lib)) as c:
+        c.put("/api/fields/mood", json={"label": "Mood", "type": "list", "facet": False})
+        for title, values in (("A", ["calm"]), ("B", ["calm", "eerie"]), ("C", [])):
+            lib.create(DraftIn(meta=TitleMeta(title=title, custom={"mood": values})))
+
+        calm = c.get("/api/library", params={"f": "mood:calm"}).json()
+        assert sorted(t["title"] for t in calm) == ["A", "B"]
+        not_eerie = c.get("/api/library", params={"f": "mood:calm", "nf": "mood:eerie"}).json()
+        assert [t["title"] for t in not_eerie] == ["A"]
+
+        # the counts a page's filter block shows are its works' own
+        facets = c.get("/api/library/facets", params={"f": "mood:calm"}).json()
+        assert "mood" not in facets
+        assert sum(f["n"] for f in facets["authors"]) == 0
+    lib.close()
+
+
 def test_deleting_a_field_keeps_the_values_it_held(tmp_path):
     """Removing a definition stops OFFERING the field; shredding what the user
     typed would make the delete button a data-loss trap."""

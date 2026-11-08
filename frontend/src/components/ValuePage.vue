@@ -9,20 +9,25 @@
 import { computed, onActivated, onBeforeUnmount, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import HistoryNav from './HistoryNav.vue'
+import FilterBlock from './FilterBlock.vue'
+import SearchBox from './SearchBox.vue'
+import Dropdown from './Dropdown.vue'
+import Pager from './Pager.vue'
 import { api } from '../api'
 import { newTab, searchUrl } from '../browser'
+import { readLocalOne, writeLocalOne } from '../local'
 import {
-  askConfirm, editValueInMetadata, followValue, openAxis, openTitle, openTitleBackground, openValuePage,
-  runVaultPass, showInLibrary, store, useShown, useTab,
+  activeFilterCount, askConfirm, buildQuery, cache, editValueInMetadata, followValue, openAxis, openTitle,
+  openTitleBackground, openValuePage, resetFilters, runVaultPass, showInLibrary, store, useShown, useTab,
 } from '../store'
 import {
-  coverAt, hueFor, initials, linkLabel, siteOf,
-  type PageLink, type PageRuleNote, type PageWork, type ValuePage,
+  TITLE_SORTS, coverAt, coverStyle, emptyFacets, hueFor, initials, linkLabel, siteOf,
+  type Facets, type PageLink, type PageRuleNote, type Title, type ValuePage,
 } from '../data'
 
 const tab = useTab()
 const at = computed(() => (tab.place.kind === 'page' ? tab.place : null))
-const { shown } = useShown()
+const { shown, whenShown } = useShown()
 const p = ref<ValuePage | null>(null)
 const loading = ref(false)
 
@@ -50,28 +55,114 @@ const labelOf = (id: string) => store.fields.find((f) => f.id === id)?.label ?? 
 const axisLabel = computed(() => (at.value ? labelOf(at.value.field) : ''))
 const isPerson = computed(() => p.value?.vocab === 'authors')
 
-// ---- the works ----
-const SORTS = ['recent', 'rating', 'az'] as const
-const sort = ref<(typeof SORTS)[number]>('recent')
-const role = ref<string>('') // a person's works by the field they hold the value in
-watch(at, () => { role.value = '' })
-const WORKS_SHOWN = 60
-const works = computed<PageWork[]>(() => {
-  let list = p.value?.works ?? []
-  if (role.value) list = list.filter((w) => w.roles.includes(role.value))
-  if (sort.value === 'rating') list = [...list].sort((a, b) => b.rating - a.rating)
-  else if (sort.value === 'az') list = [...list].sort((a, b) => a.title.localeCompare(b.title))
-  return list
+// ---- the works: the library, scoped to this value ----
+// The same query the library runs, with the value as a filter the page always
+// carries — so every work is reachable, a page at a time, under the library's
+// own search, sort and filter block. The page's selection, a person's role and
+// the page number live in its place: Back and Forward keep them, another page
+// starts clean, and the library's own filters are never touched.
+const PAGE_SIZE = 48
+const personPlace = computed(() =>
+  (store.fields.find((f) => f.id === at.value?.field)?.vocab || at.value?.field) === 'authors')
+// A person is the people facet, authors and artists both — or, by role, the one
+// field: drawing is a facet of its own, and writing narrows the people below.
+const baseFacet = computed(() => {
+  const r = at.value
+  if (!r) return ''
+  if (!personPlace.value) return r.field
+  return r.role === 'artists' ? 'artists' : 'authors'
 })
+function worksQuery() {
+  const r = at.value!
+  const q = buildQuery(r.sel)
+  return { ...q, f: [...(q.f ?? []), `${baseFacet.value}:${r.value}`] }
+}
+const results = ref<Title[]>([])
+const workFacets = ref<Facets>(emptyFacets())
+const worksLoading = ref(false)
+let wseq = 0
+async function loadWorks() {
+  if (!at.value) return
+  const n = ++wseq
+  worksLoading.value = true
+  try {
+    const q = worksQuery()
+    const [list, counts] = await Promise.all([api.library(q), api.facets(q)])
+    if (n !== wseq) return
+    cache(list)
+    results.value = list.map((t) => store.byId[t.id] ?? t)
+    workFacets.value = counts
+  } catch (e) {
+    if (n === wseq) store.error = failed(e)
+  } finally {
+    if (n === wseq) worksLoading.value = false
+  }
+}
+const works = computed(() => {
+  const r = at.value
+  return r?.role === 'authors' ? results.value.filter((t) => t.authors.includes(r.value)) : results.value
+})
+// A changed selection starts from page 1 and asks again — a burst of typing
+// once. Arriving at another place (Back, Forward, a neighbour) keeps its page.
+let worksTimer: ReturnType<typeof setTimeout> | undefined
+watch(() => [at.value, at.value ? JSON.stringify(worksQuery()) : ''] as const, ([place, key], prev) => {
+  if (!place || !key) return
+  const samePlace = !!prev && prev[0] === place
+  if (samePlace && prev[1] !== key) place.page = 1
+  if (!samePlace) results.value = [] // another value's works are not this one's, even for a moment
+  clearTimeout(worksTimer)
+  worksTimer = setTimeout(() => whenShown(loadWorks), samePlace ? 140 : 0)
+}, { immediate: true })
+onBeforeUnmount(() => clearTimeout(worksTimer))
+
+const totalPages = computed(() => Math.max(1, Math.ceil(works.value.length / PAGE_SIZE)))
+const curPage = computed(() => Math.min(Math.max(1, at.value?.page ?? 1), totalPages.value))
+const pageWorks = computed(() => works.value.slice((curPage.value - 1) * PAGE_SIZE, curPage.value * PAGE_SIZE))
+const worksEl = ref<HTMLElement | null>(null)
+function goPage(v: number) {
+  if (!at.value) return
+  at.value.page = Math.min(Math.max(1, Math.floor(v) || 1), totalPages.value)
+  worksEl.value?.scrollIntoView({ block: 'start' })
+}
+// narrowed below what holds the value — not yet known while the first answer is on its way
+const filtered = computed(() => !!p.value && !(worksLoading.value && !results.value.length)
+  && works.value.length !== p.value.titles)
+const rangeLabel = computed(() => {
+  const n = works.value.length
+  const all = filtered.value ? ` · ${p.value?.titles} in all` : ''
+  if (!n) return `0 works${all}`
+  const a = (curPage.value - 1) * PAGE_SIZE + 1
+  const b = Math.min(curPage.value * PAGE_SIZE, n)
+  return `${a}–${b} of ${n} work${n === 1 ? '' : 's'}${all}`
+})
+const filtersOpen = ref(false)
+const filterCount = computed(() => (at.value ? activeFilterCount(at.value.sel) : 0))
+// shown first among the filter block's chips: what the page IS, not a filter
+const baseChip = computed(() => (p.value ? `${p.value.kind.toLowerCase()}: ${p.value.value}` : ''))
+function clearWorkFilters() {
+  if (!at.value) return
+  resetFilters(at.value.sel)
+  at.value.role = ''
+}
+
 const ROLE_WORD: Record<string, string> = { authors: 'Wrote', artists: 'Drew' }
 const ROLE_NOUN: Record<string, string> = { authors: 'author', artists: 'artist' }
 const roleBadge = computed(() => Object.entries(p.value?.roles ?? {})
   .map(([f, n]) => `${(ROLE_WORD[f] ?? labelOf(f)).toUpperCase()} ${n}`).join(' · '))
+// the fields a person holds the value in on one work: W·D on its cover
+function rolesOf(t: Title): string {
+  const v = at.value?.value ?? ''
+  return [t.authors.includes(v) && 'W', t.artists.includes(v) && 'D'].filter(Boolean).join('·')
+}
 
-// the library filtered to this value: a person through the joint people facet
+// the side strip can hide — this machine's preference, the same on every page
+const sideOpen = ref(readLocalOne('lb.pageSide', ['0', '1'] as const, '1') === '1')
+watch(sideOpen, (v) => writeLocalOne('lb.pageSide', v ? '1' : '0'))
+
+// the library filtered to this value — and to what the page has filtered it to
 function inLibrary() {
   const v = p.value
-  if (v) showInLibrary(v.vocab === 'authors' ? 'authors' : v.field, v.value)
+  if (v && at.value) showInLibrary(baseFacet.value, v.value, at.value.sel)
 }
 // the crumb: the list this value belongs to, in the library tab
 function toList() {
@@ -181,7 +272,10 @@ onBeforeUnmount(() => setImage(null))
 watch(at, () => { cancelEdit(); void load() }, { immediate: true })
 // a commit or a metadata run changes the works and the counts — a page behind
 // another tab reads itself again when it comes back (below)
-watch(() => store.titles, () => { if (shown.value) reloadIdle() })
+watch(() => store.titles, () => {
+  whenShown(loadWorks)
+  if (shown.value) reloadIdle()
+})
 function reloadIdle() {
   if (!editing.value) void load()
 }
@@ -433,35 +527,42 @@ function lookUp() {
       </div>
 
       <!-- while editing, the page around the form is not a way out of it -->
-      <div class="body" :class="{ inert: editing }">
+      <div class="body" :class="{ inert: editing, noside: !sideOpen }">
         <div class="colmain">
-          <div class="sec">
+          <div v-if="at" ref="worksEl" class="sec">
             <div class="sechead">
-              <span class="eyebrow">Works</span><span class="cnt mono">{{ works.length }}</span>
+              <span class="eyebrow">Works</span>
+              <span class="cnt mono">{{ filtered ? `${works.length} of ${p.titles}` : p.titles }}</span>
               <div v-if="Object.keys(p.roles).length > 1" class="seg text">
-                <button class="opt" :class="{ on: !role }" @click="role = ''">All</button>
-                <button v-for="(n, f) in p.roles" :key="f" class="opt" :class="{ on: role === f }"
-                        @click="role = String(f)">{{ ROLE_WORD[f] ?? labelOf(String(f)) }} <span class="c mono">{{ n }}</span></button>
+                <button class="opt" :class="{ on: !at.role }" @click="at.role = ''">All</button>
+                <button v-for="(n, f) in p.roles" :key="f" class="opt" :class="{ on: at.role === f }"
+                        @click="at.role = String(f)">{{ ROLE_WORD[f] ?? labelOf(String(f)) }} <span class="c mono">{{ n }}</span></button>
               </div>
               <div class="right">
-                <div class="seg text">
-                  <button class="opt" :class="{ on: sort === 'recent' }" @click="sort = 'recent'">Recent</button>
-                  <button class="opt" :class="{ on: sort === 'rating' }" @click="sort = 'rating'">Rating</button>
-                  <button class="opt" :class="{ on: sort === 'az' }" @click="sort = 'az'">A–Z</button>
-                </div>
-                <a v-if="p.titles" class="lnk" @click="inLibrary">Show all in library</a>
+                <SearchBox v-model="at.sel.search" placeholder="Search these works…" :width="220" />
+                <Dropdown :model-value="at.sel.sort" :options="TITLE_SORTS" @update:model-value="at.sel.sort = String($event)" />
+                <button class="btn" :class="{ acton: filtersOpen }" title="Filters" @click="filtersOpen = !filtersOpen">
+                  <Icon name="filter" :size="13" :sw="1.9" />Filters
+                  <span v-if="filterCount" class="numbadge">{{ filterCount }}</span>
+                </button>
+                <button class="btn sidebtn" :class="{ acton: sideOpen }"
+                        :title="sideOpen ? 'Hide the side strip — the works take the width' : 'Show the side strip'"
+                        @click="sideOpen = !sideOpen"><Icon name="panel" :size="14" :sw="1.9" /></button>
               </div>
             </div>
-            <div v-if="!works.length" class="none">No title holds it now.</div>
+            <div v-if="!works.length && worksLoading" class="none">Loading…</div>
+            <div v-else-if="!works.length && !p.titles" class="none">No title holds it now.</div>
+            <div v-else-if="!works.length" class="nomatch">
+              <span class="none">No work matches these filters.</span>
+              <button class="btn ghost small" @click="clearWorkFilters">Clear filters</button>
+            </div>
             <div v-else class="covers">
-              <div v-for="w in works.slice(0, WORKS_SHOWN)" :key="w.id" class="cov"
-                   :style="w.cover ? { background: `#181a1f url(${coverAt(w.cover, 220)}) center/cover no-repeat` } : { background: hueFor(w.id) }"
-                   :title="w.title" @click="openTitle(w.id)" @mousedown.middle.prevent="openTitleBackground(w.id)">
-                <span v-if="!w.cover" class="m">{{ (w.title[0] || '?').toUpperCase() }}</span>
-                <span v-if="isPerson && w.roles.length" class="r mono">{{ w.roles.map((f) => (ROLE_WORD[f] ?? f)[0]).join('·') }}</span>
-                <span class="w">{{ w.title }}</span>
+              <div v-for="t in pageWorks" :key="t.id" class="cov" :style="coverStyle(t, 220)"
+                   :title="t.title" @click="openTitle(t.id)" @mousedown.middle.prevent="openTitleBackground(t.id)">
+                <span v-if="!t.cover" class="m">{{ (t.title[0] || '?').toUpperCase() }}</span>
+                <span v-if="isPerson && rolesOf(t)" class="r mono">{{ rolesOf(t) }}</span>
+                <span class="w">{{ t.title }}</span>
               </div>
-              <div v-if="works.length > WORKS_SHOWN" class="more mono" @click="inLibrary">+{{ works.length - WORKS_SHOWN }}<br />more</div>
             </div>
           </div>
           <div v-for="g in p.groups" :key="g.label" class="sec">
@@ -476,7 +577,7 @@ function lookUp() {
           </div>
         </div>
 
-        <div class="colside">
+        <div v-if="sideOpen" class="colside">
           <div class="sec">
             <div class="sechead"><span class="eyebrow">In your library</span></div>
             <div class="kv">
@@ -519,11 +620,27 @@ function lookUp() {
       </div>
     </div>
     <div v-else-if="loading" class="none pad">Loading…</div>
+
+    <!-- the view's closing band: where the works are, page by page -->
+    <div v-if="p" class="lfoot">
+      <span class="mono lfinfo">{{ rangeLabel }}</span>
+      <div style="flex:1"></div>
+      <Pager :page="curPage" :pages="totalPages" @go="goPage" />
+    </div>
+
+    <!-- the library's own filter block, on this page's selection and its works' counts -->
+    <FilterBlock v-if="filtersOpen && at && !editing" :sel="at.sel" :facets="workFacets" :base="baseChip"
+                 @close="filtersOpen = false" />
   </div>
 </template>
 
 <style scoped>
-.vp { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+/* The whole height of the tab, as every view in a TabHost takes it — a block
+   parent, so flex: 1 sized it to its content, and the side strip and the
+   closing band ended wherever the works did. Relative: the filter block floats
+   over the page, as it does over the library. */
+.vp { position: relative; height: 100%; overflow: hidden; display: flex; flex-direction: column; }
+.sidebtn { width: 30px; padding: 0; }
 .vhead { height: 44px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 16px 0 10px; border-bottom: 1px solid var(--line); }
 .crumb { font: 500 12px/1 system-ui; color: var(--tx3); display: flex; align-items: center; gap: 7px; min-width: 0; }
 .crumb .cl { cursor: pointer; }
@@ -531,9 +648,11 @@ function lookUp() {
 .crumb b { color: var(--tx); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .editing { font-size: 10px; letter-spacing: .1em; color: var(--warn); font-weight: 600; }
 .btn.favon { color: var(--fav); border-color: color-mix(in srgb, var(--fav) 45%, var(--line)); }
-.vbody { flex: 1; min-height: 0; overflow-y: auto; }
+/* A column, so the body below the band can GROW into what is left of the view:
+   the side strip runs to the closing band however few works there are. */
+.vbody { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
 
-.band { display: flex; gap: 24px; padding: 24px 24px 22px; border-bottom: 1px solid var(--line); }
+.band { flex: none; display: flex; gap: 24px; padding: 24px 24px 22px; border-bottom: 1px solid var(--line); }
 .face { width: 132px; height: 132px; flex: none; border-radius: 10px; border: 1px solid var(--line); overflow: hidden; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px; background: var(--line); }
 .face.round { border-radius: 50%; }
 .face img { grid-column: 1 / -1; grid-row: 1 / -1; width: 100%; height: 100%; object-fit: cover; }
@@ -593,7 +712,8 @@ function lookUp() {
 .hint b { color: var(--tx2); font-weight: 600; }
 
 /* below the band */
-.body { display: grid; grid-template-columns: minmax(0, 1fr) 286px; min-height: 100%; }
+.body { flex: 1 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) 286px; }
+.body.noside { grid-template-columns: minmax(0, 1fr); }
 .body.inert { opacity: .45; pointer-events: none; }
 .colmain { padding: 18px 24px 24px; min-width: 0; }
 .colside { border-left: 1px solid var(--line); padding: 18px 18px 24px; background: var(--bg2); }
@@ -611,8 +731,7 @@ function lookUp() {
 .cov .m { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 600 30px/1 Georgia, serif; color: rgba(242, 237, 230, .16); }
 .cov .w { position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 7px 7px; background: linear-gradient(transparent, rgba(9, 10, 13, .88)); font: 600 10.5px/1.2 system-ui; color: #f2ede6; }
 .cov .r { position: absolute; top: 6px; left: 6px; font-size: 8px; font-weight: 700; letter-spacing: .08em; color: #f2ede6; background: rgba(9, 10, 13, .6); border-radius: 3px; padding: 3px 4px; }
-.more { display: flex; align-items: center; justify-content: center; aspect-ratio: 2 / 3; border: 1px dashed var(--line); border-radius: 6px; color: var(--tx3); font-size: 12px; font-weight: 600; text-align: center; cursor: pointer; }
-.more:hover { border-color: var(--accent); color: var(--accent); }
+.nomatch { display: flex; align-items: center; gap: 12px; }
 .kv { display: grid; grid-template-columns: 1fr auto; row-gap: 9px; column-gap: 10px; font: 500 12px/1.2 system-ui; color: var(--tx2); }
 .kv .v { font-size: 11.5px; color: var(--tx); text-align: right; }
 .bar { height: 4px; border-radius: 999px; background: var(--line); overflow: hidden; grid-column: 1 / -1; margin-top: -4px; }

@@ -24,7 +24,7 @@ import { startNewTitle } from '../browser'
 import { api } from '../api'
 import { ensurePostersFor } from '../frames'
 import { readLocalOne, writeLocalOne } from '../local'
-import { coverStyle, mediaLabel, orderedChaptersOf, initials, statusColor, type Chapter, type Title } from '../data'
+import { TITLE_SORTS, coverStyle, mediaLabel, orderedChaptersOf, initials, statusColor, type Chapter, type Title } from '../data'
 import CoverArt from '../components/CoverArt.vue'
 
 // this tab's own selection — the one the library shows while the tab is in front
@@ -40,8 +40,6 @@ const shown = computed(() =>
   results.value.slice((curPage.value - 1) * pageSize.value, curPage.value * pageSize.value))
 const total = computed(() => store.total)
 
-interface FOpt { v: string | number; l: string }
-const SORT_OPTS: FOpt[] = [{ v: 'updated', l: 'Recently updated' }, { v: 'title', l: 'Title A–Z' }, { v: 'rating', l: 'My rating' }, { v: 'unread', l: 'Unread count' }]
 // ---- PAGINATION (hard page limit — the expanded previews are heavy) ----
 const lmainEl = ref<HTMLElement | null>(null)
 const pageSize = computed(() => (lib.density === 'expanded' ? 12 : lib.density === 'dense' ? 60 : 48))
@@ -190,7 +188,7 @@ async function undoApplied() {
           </template>
           <template v-else>
             <SearchBox v-model="lib.search" placeholder="Search title, author…" />
-            <Dropdown :model-value="lib.sort" :options="SORT_OPTS" @update:model-value="lib.sort = String($event)" />
+            <Dropdown :model-value="lib.sort" :options="TITLE_SORTS" @update:model-value="lib.sort = String($event)" />
             <div class="seg">
               <button class="opt" :class="{ on: lib.density === 'grid' }" title="Covers" @click="lib.density = 'grid'"><Icon name="grid" :size="15" :sw="1.9" /></button>
               <button class="opt" :class="{ on: lib.density === 'dense' }" title="Dense list" @click="lib.density = 'dense'"><Icon name="rows" :size="15" :sw="1.9" /></button>
@@ -230,7 +228,7 @@ async function undoApplied() {
         </template>
         <template v-else>
           <div class="emptyt">No titles match these filters</div>
-          <button class="btn ghost" @click="resetFilters">Clear filters</button>
+          <button class="btn ghost" @click="resetFilters()">Clear filters</button>
         </template>
       </div>
 

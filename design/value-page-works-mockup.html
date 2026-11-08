@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Value page works — mockup</title>
+<style>
+/* ---- the app's own tokens (frontend/src/styles.css), verbatim ---- */
+:root {
+  --bg: #0a0b0d; --bg2: #0f1115; --panel: #15171b; --panel2: #1b1e24;
+  --line: #262a31; --hover: #2a2e36;
+  --tx: #e8eaef; --tx2: #9aa1ad; --tx3: #697080;
+  --accent: #7089e6; --accent-ink: #0d0e11; --accentSoft: rgba(112, 137, 230, .14);
+  --fav: #e0687a; --good: #5fb88a; --warn: #d6a44f; --adult: #e0687a;
+}
+html[data-theme="light"] {
+  --bg: #f0eeea; --bg2: #e6e3dd; --panel: #faf9f6; --panel2: #edeae4;
+  --line: #d2cdc2; --hover: #e2ded6;
+  --tx: #2a2c31; --tx2: #575d67; --tx3: #8d95a1;
+  --accent: #5f77d4; --accent-ink: #ffffff; --accentSoft: rgba(95, 119, 212, .15);
+  --fav: #d6516a; --good: #3f9e6f; --warn: #b07d2a; --adult: #d6516a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--tx); font: 400 13px/1.45 system-ui; -webkit-font-smoothing: antialiased; }
+.mono { font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; }
+
+/* ---- the page around the frames ---- */
+.page { max-width: 1420px; margin: 0 auto; padding: 26px 24px 60px; }
+h1 { font: 700 22px/1.1 system-ui; margin: 0 0 4px; letter-spacing: -.3px; }
+h2 { font: 600 13px/1 system-ui; margin: 0; }
+.lede { color: var(--tx2); max-width: 90ch; margin: 0 0 26px; }
+.block { border: 1px solid var(--line); border-radius: 10px; background: var(--bg2); margin-bottom: 22px; overflow: hidden; }
+.bhead { height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.bhead .n { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
+.bbody { padding: 18px 16px; }
+.note { font: 400 11.5px/1.55 system-ui; color: var(--tx3); margin: 12px 0 0; max-width: 100ch; }
+.note b { color: var(--tx2); font-weight: 600; }
+.themebtn { position: fixed; top: 14px; right: 16px; z-index: 50; }
+
+/* ---- the app's control grammar (controls 30, radius 6, text 11/12/13) ---- */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--tx); border-radius: 6px; height: 30px; padding: 0 12px; cursor: pointer; font: 600 12px/1 system-ui; white-space: nowrap; }
+.btn.accent { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.acton { border-color: var(--accent); color: var(--accent); background: var(--accentSoft); }
+.numbadge { font: 600 9.5px/1 ui-monospace, monospace; color: var(--accent-ink); background: var(--accent); border-radius: 999px; padding: 3px 5px; }
+.seg { display: flex; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 2px; height: 30px; width: fit-content; }
+.seg .opt { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; padding: 0 10px; border-radius: 4px; border: none; background: transparent; font: 500 12px/1 system-ui; color: var(--tx2); }
+.seg .opt.on { background: var(--accentSoft); color: var(--accent); }
+.seg .opt .c { font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); }
+.seg.text { height: 26px; }
+.seg.text .opt { padding: 0 8px; font-size: 11px; }
+.search { display: flex; align-items: center; gap: 8px; height: 30px; width: 200px; padding: 0 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; color: var(--tx3); font: 400 12px/1 system-ui; }
+.dd { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font: 500 12px/1 system-ui; color: var(--tx); white-space: nowrap; }
+.dd .ic { color: var(--tx3); }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line); font: 500 11.5px/1 system-ui; color: var(--tx); white-space: nowrap; }
+.chip .n { font: 500 10px/1 ui-monospace, monospace; color: var(--tx3); }
+.eyebrow { font: 600 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); text-transform: uppercase; }
+.ic { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---- the app frame: titlebar 40, sidebar 220, work bands 44 ---- */
+.app { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--bg); display: flex; flex-direction: column; }
+.tabbar { height: 40px; flex: none; background: var(--bg2); border-bottom: 1px solid var(--line); display: flex; align-items: center; padding: 0 14px; gap: 9px; }
+.tabbar .logo { width: 22px; height: 22px; border-radius: 6px; background: linear-gradient(#8194f4, #3e4eb2); flex: none; }
+.tabbar .name { font: 700 13.5px/1 system-ui; letter-spacing: -.2px; }
+.tabbar .wc { margin-left: auto; display: flex; gap: 18px; color: var(--tx3); font: 400 13px/1 system-ui; }
+.approw { display: flex; min-height: 0; }
+.side { width: 220px; flex: none; background: var(--bg2); border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+.nav { padding: 12px 10px 6px; display: flex; flex-direction: column; gap: 2px; }
+.navitem { height: 36px; display: flex; align-items: center; gap: 11px; padding: 0 12px; border-radius: 8px; color: var(--tx2); font: 500 13px/1 system-ui; }
+.navitem.on { background: var(--accentSoft); color: var(--accent); }
+.rail { flex: 1; }
+.foot { height: 44px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 9px; padding: 0 16px; font: 500 11px/1.3 system-ui; color: var(--tx3); flex: none; }
+.foot .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+.vhead { height: 44px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.vhead .back { display: inline-flex; color: var(--tx2); }
+.vhead .crumb { font: 500 12px/1 system-ui; color: var(--tx3); display: flex; align-items: center; gap: 7px; }
+.vhead .crumb b { color: var(--tx); font-weight: 600; }
+.vhead .right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+/* the scroll column: band, then a body that GROWS into what is left */
+.scrollv { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+/* the view's closing band — every in-app view ends with it */
+.lfoot { flex: none; height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-top: 1px solid var(--line); background: var(--bg2); }
+.lfinfo { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); }
+.pager { display: flex; align-items: center; gap: 6px; }
+.pgbtn { width: 26px; height: 26px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--tx2); font: 600 14px/1 system-ui; display: inline-flex; align-items: center; justify-content: center; }
+.pgbtn.dis { opacity: .4; }
+.pgin { width: 44px; height: 26px; text-align: center; font: 500 12px/26px system-ui; color: var(--tx); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+.pgof { font: 500 11px/1 system-ui; color: var(--tx3); }
+
+/* ---- the head band (unchanged) ---- */
+.band { flex: none; display: flex; gap: 24px; padding: 22px 24px 20px; border-bottom: 1px solid var(--line); }
+.face { width: 108px; height: 108px; flex: none; border-radius: 10px; border: 1px solid var(--line); overflow: hidden; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px; background: var(--line); }
+.face .t { background-size: cover; }
+.face.round { border-radius: 50%; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at 30% 25%, #c58f74, #6b4a5a 55%, #2a2433); font: 600 34px/1 system-ui; color: rgba(255,255,255,.88); }
+.info { flex: 1; min-width: 0; }
+.badges { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.typebadge { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; font: 600 10px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--accent); border: 1px solid var(--accent); border-radius: 5px; text-transform: uppercase; }
+.pname { margin: 0; font: 600 28px/1.08 system-ui; letter-spacing: -.6px; color: var(--tx); }
+.desc { margin-top: 10px; max-width: 74ch; font: 400 13px/1.6 system-ui; color: var(--tx2); }
+
+/* ---- below the band ---- */
+.body { flex: 1 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) 286px; }
+.colmain { padding: 18px 24px 24px; min-width: 0; }
+.colside { border-left: 1px solid var(--line); padding: 18px 18px 24px; background: var(--bg2); }
+.sec + .sec { margin-top: 22px; }
+.sechead { display: flex; align-items: center; gap: 10px; min-height: 30px; margin-bottom: 12px; }
+.sechead .cnt { font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); }
+.sechead .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.sechead .lnk { font: 600 11.5px/1 system-ui; color: var(--accent); }
+.covers { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px; }
+.cov { position: relative; aspect-ratio: 2/3; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 5px 14px rgba(0,0,0,.35); }
+.cov .m { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 600 30px/1 Georgia, serif; color: rgba(242,237,230,.16); }
+.cov .w { position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 7px 7px; background: linear-gradient(transparent, rgba(9,10,13,.88)); font: 600 10.5px/1.2 system-ui; color: #f2ede6; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.kv { display: grid; grid-template-columns: 1fr auto; row-gap: 9px; column-gap: 10px; font: 500 12px/1.2 system-ui; color: var(--tx2); }
+.kv .v { font: 500 11.5px/1.2 ui-monospace, monospace; color: var(--tx); text-align: right; }
+.bar { height: 4px; border-radius: 999px; background: var(--line); overflow: hidden; grid-column: 1 / -1; margin-top: -4px; }
+.bar span { display: block; height: 100%; background: var(--good); }
+.src { display: flex; align-items: center; gap: 8px; font: 500 12px/1 system-ui; color: var(--tx2); height: 24px; }
+.src .n { margin-left: auto; font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); }
+.src .b { width: 60px; height: 4px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.src .b span { display: block; height: 100%; background: var(--tx3); }
+.none { font: 400 12px/1.45 system-ui; color: var(--tx3); }
+.mark { outline: 2px dashed var(--warn); outline-offset: -2px; }
+.callout { position: absolute; z-index: 30; font: 600 10.5px/1.3 system-ui; color: var(--warn); background: var(--bg); border: 1px solid var(--warn); border-radius: 6px; padding: 5px 8px; max-width: 230px; }
+
+/* ---- the library's filter block, verbatim (components/FilterBlock.vue) ---- */
+.fpop { position: absolute; right: 16px; top: 50px; bottom: 52px; width: 380px; z-index: 20; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 22px 50px rgba(0,0,0,.6); display: flex; flex-direction: column; overflow: hidden; }
+.fptop { height: 44px; flex: none; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; padding: 0 10px 0 12px; }
+.fsearch { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; color: var(--tx3); font: 400 12px/1 system-ui; }
+.fgh { display: flex; align-items: center; gap: 8px; height: 30px; flex: none; padding: 0 12px; color: var(--tx3); }
+.fglbl { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; }
+.fhint { font: 400 10px/1 system-ui; color: var(--tx3); }
+.ftxt { font: 500 10.5px/1 system-ui; color: var(--tx3); margin-left: auto; }
+.fchips { display: flex; flex-wrap: wrap; gap: 5px; padding: 2px 12px 10px; }
+.fchip { display: inline-flex; align-items: center; gap: 6px; font: 500 11px/1 system-ui; color: var(--tx); background: var(--panel2); border: 1px solid var(--line); padding: 5px 8px; border-radius: 6px; }
+.fchip.inc { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+.fchip.exc { border-color: color-mix(in srgb, var(--adult) 55%, var(--line)); }
+.fchip.exc .cv { text-decoration: line-through; }
+.fchip.base { border-style: dashed; color: var(--tx3); }
+.fyours { padding: 2px 8px 8px; display: flex; flex-direction: column; gap: 1px; }
+.urow { display: flex; align-items: center; gap: 9px; padding: 5px 6px; border-radius: 6px; color: var(--tx2); }
+.uname { flex: 1; font: 500 12px/1.3 system-ui; }
+.fbox { width: 14px; height: 14px; flex: none; border: 1.5px solid var(--line); border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; }
+.ffields { padding: 0 8px; display: flex; flex-direction: column; gap: 1px; }
+.fld { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-radius: 6px; font: 500 12px/1 system-ui; color: var(--tx2); }
+.fld.sel { background: var(--accentSoft); color: var(--accent); }
+.fld .n { margin-left: auto; font: 500 10px/1 ui-monospace, monospace; color: var(--tx3); }
+.fvalhead { flex: none; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-top: 1px solid var(--line); background: var(--panel2); color: var(--tx2); margin-top: 8px; }
+.flist { flex: 1; min-height: 0; overflow: hidden; padding: 6px 8px 10px; background: var(--panel2); }
+.frow { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px; color: var(--tx2); }
+.frow.in { color: var(--tx); }
+.frow.in .fbox { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.frow.out { color: var(--tx3); }
+.frow.out .fbox { background: var(--adult); border-color: var(--adult); color: #fff; }
+.frow.out .fname { text-decoration: line-through; }
+.fname { flex: 1; font: 500 12px/1.3 system-ui; }
+.fcount { font: 500 10px/1 ui-monospace, monospace; color: var(--tx3); }
+</style>
+</head>
+<body>
+<button class="btn themebtn" onclick="const h=document.documentElement;h.dataset.theme=h.dataset.theme==='dark'?'light':'dark'">Light / dark</button>
+<div class="page">
+  <h1>Value page — works you can page and filter</h1>
+  <p class="lede">A value page's <b>Works</b> becomes the library's own answer, scoped to the value: every work, a page at a
+    time, searched, sorted and filtered with the same controls and the same filter block as the library. Nothing is cut
+    off at 60 any more and nothing has to leave for the library to be narrowed down. The side strip runs to the bottom of
+    the view however few works there are.</p>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">1 · MANY WORKS</span><h2>A tag held by 230 titles — page 1 of 5</h2></div>
+    <div class="bbody">
+      <div class="app">
+        <div class="tabbar"><span class="logo"></span><span class="name">longbox</span><span class="wc"><span>—</span><span>☐</span><span>✕</span></span></div>
+        <div class="approw" style="height:860px">
+          <aside class="side">
+            <nav class="nav">
+              <div class="navitem on"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="6" height="16" rx="1"/><rect x="11" y="4" width="4" height="16" rx="1"/><path d="M17 5l3 14"/></svg>Library</div>
+              <div class="navitem"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/></svg>Web</div>
+              <div class="navitem"><svg class="ic" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Sources</div>
+              <div class="navitem"><svg class="ic" viewBox="0 0 24 24"><path d="M4 7h10M4 12h16M4 17h7"/><circle cx="18" cy="7" r="2"/><circle cx="15" cy="17" r="2"/></svg>Metadata</div>
+            </nav>
+            <div class="rail"></div>
+            <div class="foot"><span class="dot"></span>3,912 titles · library verified</div>
+          </aside>
+          <div class="main">
+            <div class="vhead">
+              <span class="back"><svg class="ic" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></span>
+              <span class="crumb">Tags <span>/</span> <b>time loop</b></span>
+              <div class="right">
+                <button class="btn"><svg class="ic" viewBox="0 0 24 24"><path d="M4 5h16l-6 7v6l-4 2v-8z"/></svg>Show in library</button>
+                <button class="btn"><svg class="ic" viewBox="0 0 24 24"><path d="M4 7h10M4 12h16M4 17h7"/><circle cx="18" cy="7" r="2"/><circle cx="15" cy="17" r="2"/></svg>In Metadata</button>
+                <button class="btn accent"><svg class="ic" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>Edit</button>
+              </div>
+            </div>
+            <div class="scrollv">
+              <div class="band">
+                <div class="face" data-mosaic="Re:Turn|Tomorrow, Again|Clockwork Spring|Eighth Night"></div>
+                <div class="info">
+                  <div class="badges"><span class="typebadge">Tag</span></div>
+                  <h2 class="pname">time loop</h2>
+                  <div class="desc">The protagonist lives the same stretch of time over and over, keeping their memories while the world resets.</div>
+                </div>
+              </div>
+              <div class="body">
+                <div class="colmain">
+                  <div class="sec">
+                    <div class="sechead">
+                      <span class="eyebrow">Works</span><span class="cnt">230</span>
+                      <div class="right">
+                        <span class="search"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>Search these works…</span>
+                        <span class="dd">Recently updated <svg class="ic" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>
+                        <button class="btn"><svg class="ic" viewBox="0 0 24 24"><path d="M4 5h16l-6 7v6l-4 2v-8z"/></svg>Filters</button>
+                      </div>
+                    </div>
+                    <div class="covers" data-gen="24" data-seed="a"></div>
+                  </div>
+                </div>
+                <div class="colside">
+                  <div class="sec">
+                    <div class="sechead"><span class="eyebrow">In your library</span></div>
+                    <div class="kv">
+                      <span>Titles</span><span class="v">230</span>
+                      <span>Chapters</span><span class="v">7,104</span>
+                      <span>Read</span><span class="v">61 of 230</span>
+                      <div class="bar"><span style="width:26%"></span></div>
+                      <span>Your rating</span><span class="v">4.0 · 88 rated</span>
+                    </div>
+                  </div>
+                  <div class="sec">
+                    <div class="sechead"><span class="eyebrow">Came from</span></div>
+                    <div class="src">mangadex.org<span class="n">171</span><span class="b"><span style="width:74%"></span></span></div>
+                    <div class="src">typed by you<span class="n">59</span><span class="b"><span style="width:26%"></span></span></div>
+                  </div>
+                  <div class="sec">
+                    <div class="sechead"><span class="eyebrow">Rules</span></div>
+                    <div class="none">No rule mentions it.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="lfoot">
+              <span class="lfinfo">1–48 of 230 works</span>
+              <div style="flex:1"></div>
+              <div class="pager">
+                <span class="pgbtn dis">‹</span><span class="pgin">1</span><span class="pgof">of 5</span><span class="pgbtn">›</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note"><b>Works are the library, scoped to the value</b> — the same query the library runs, with this tag as a
+        filter the page always carries. So every work is reachable (48 a page, as the library's covers), and the head of the
+        section has the library's own controls: <b>search</b>, <b>sort</b> (recently updated, A–Z, my rating, unread count)
+        and <b>Filters</b>. The section's “+N more” tile and “Show all in library” link go: paging replaces the first, and
+        <b>Show in library</b> in the head band still opens a library tab — carrying the page's filters with it. The pager
+        sits in the view's closing band, as the library's does. “Often together” and the side strip are unchanged.</p>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">2 · FILTERED</span><h2>The library's filter block, on this tag's works</h2></div>
+    <div class="bbody">
+      <div class="app">
+        <div class="tabbar"><span class="logo"></span><span class="name">longbox</span><span class="wc"><span>—</span><span>☐</span><span>✕</span></span></div>
+        <div class="approw" style="height:860px">
+          <aside class="side">
+            <nav class="nav">
+              <div class="navitem on"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="6" height="16" rx="1"/><rect x="11" y="4" width="4" height="16" rx="1"/><path d="M17 5l3 14"/></svg>Library</div>
+              <div class="navitem"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/></svg>Web</div>
+            </nav>
+            <div class="rail"></div>
+            <div class="foot"><span class="dot"></span>3,912 titles · library verified</div>
+          </aside>
+          <div class="main">
+            <div class="vhead">
+              <span class="back"><svg class="ic" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></span>
+              <span class="crumb">Tags <span>/</span> <b>time loop</b></span>
+              <div class="right">
+                <button class="btn"><svg class="ic" viewBox="0 0 24 24"><path d="M4 5h16l-6 7v6l-4 2v-8z"/></svg>Show in library</button>
+                <button class="btn accent"><svg class="ic" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>Edit</button>
+              </div>
+            </div>
+            <div class="scrollv">
+              <div class="band">
+                <div class="face" data-mosaic="Re:Turn|Tomorrow, Again|Clockwork Spring|Eighth Night"></div>
+                <div class="info">
+                  <div class="badges"><span class="typebadge">Tag</span></div>
+                  <h2 class="pname">time loop</h2>
+                  <div class="desc">The protagonist lives the same stretch of time over and over, keeping their memories while the world resets.</div>
+                </div>
+              </div>
+              <div class="body">
+                <div class="colmain">
+                  <div class="sec">
+                    <div class="sechead">
+                      <span class="eyebrow">Works</span><span class="cnt">38 of 230</span>
+                      <div class="right">
+                        <span class="search"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>Search these works…</span>
+                        <span class="dd">Recently updated <svg class="ic" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>
+                        <button class="btn acton"><svg class="ic" viewBox="0 0 24 24"><path d="M4 5h16l-6 7v6l-4 2v-8z"/></svg>Filters<span class="numbadge">3</span></button>
+                      </div>
+                    </div>
+                    <div class="covers" data-gen="18" data-seed="b"></div>
+                  </div>
+                </div>
+                <div class="colside">
+                  <div class="sec">
+                    <div class="sechead"><span class="eyebrow">In your library</span></div>
+                    <div class="kv">
+                      <span>Titles</span><span class="v">230</span>
+                      <span>Chapters</span><span class="v">7,104</span>
+                      <span>Read</span><span class="v">61 of 230</span>
+                      <div class="bar"><span style="width:26%"></span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- the filter block: the library's component, bound to this page's own selection -->
+            <div class="fpop">
+              <div class="fptop">
+                <div class="fsearch"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>Search fields and values…</div>
+                <svg class="ic" viewBox="0 0 24 24" style="color:var(--tx3)"><path d="M6 6l12 12M18 6L6 18"/></svg>
+              </div>
+              <div class="fgh"><svg class="ic" viewBox="0 0 24 24" style="width:10px;height:10px"><path d="M6 9l6 6 6-6"/></svg><span class="fglbl">ACTIVE</span><span class="numbadge">3</span><span class="ftxt">Clear all</span></div>
+              <div class="fchips">
+                <span class="fchip base" title="What this page is about — not a filter you can drop"><span class="cv">tag: time loop</span></span>
+                <span class="fchip inc"><span class="cv">drama</span> ×</span>
+                <span class="fchip exc"><span class="cv">romance</span> ×</span>
+                <span class="fchip inc"><span class="cv">Unread</span> ×</span>
+              </div>
+              <div class="fgh"><svg class="ic" viewBox="0 0 24 24" style="width:10px;height:10px"><path d="M6 9l6 6 6-6"/></svg><span class="fglbl">YOURS</span></div>
+              <div class="fyours">
+                <div class="urow"><span class="fbox"></span><span class="uname">Only favourites</span></div>
+                <div class="urow"><span class="uname">Reading</span>
+                  <div class="seg text"><button class="opt">All</button><button class="opt on">Unread</button><button class="opt">Reading</button><button class="opt">Completed</button></div></div>
+              </div>
+              <div class="fgh"><svg class="ic" viewBox="0 0 24 24" style="width:10px;height:10px"><path d="M6 9l6 6 6-6"/></svg><span class="fglbl">FIELDS</span><span class="fhint" style="margin-left:auto">the eye hides one</span></div>
+              <div class="ffields">
+                <div class="fld">Authors<span class="n">164</span></div>
+                <div class="fld">Status<span class="n">4</span></div>
+                <div class="fld sel">Genres<span class="n">31</span></div>
+                <div class="fld">Tags<span class="n">402</span></div>
+                <div class="fld">Language<span class="n">6</span></div>
+              </div>
+              <div class="fvalhead"><span class="fglbl">GENRES</span><span class="fhint">31 values</span><span class="ftxt">Clear</span></div>
+              <div class="flist">
+                <div class="frow in"><span class="fbox">✓</span><span class="fname">drama</span><span class="fcount">38</span></div>
+                <div class="frow"><span class="fbox"></span><span class="fname">mystery</span><span class="fcount">21</span></div>
+                <div class="frow"><span class="fbox"></span><span class="fname">sci-fi</span><span class="fcount">17</span></div>
+                <div class="frow out"><span class="fbox">−</span><span class="fname">romance</span><span class="fcount">0</span></div>
+                <div class="frow"><span class="fbox"></span><span class="fname">action</span><span class="fcount">12</span></div>
+                <div class="frow"><span class="fbox"></span><span class="fname">school</span><span class="fcount">9</span></div>
+                <div class="frow"><span class="fbox"></span><span class="fname">thriller</span><span class="fcount">8</span></div>
+              </div>
+            </div>
+
+            <div class="lfoot">
+              <span class="lfinfo">1–38 of 38 works · 230 hold the tag</span>
+              <div style="flex:1"></div>
+              <div class="pager"><span class="pgbtn dis">‹</span><span class="pgin">1</span><span class="pgof">of 1</span><span class="pgbtn dis">›</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note"><b>The same filter block as the library</b> — search, ACTIVE chips, YOURS (favourites, reading, rating),
+        FIELDS and their values — opened by the section's <b>Filters</b> button over the page. The counts beside every value
+        are <b>this tag's works</b>, so a value that would leave nothing reads as such. The value the page is about shows first
+        among the ACTIVE chips, dashed: it is what the page <i>is</i>, not a filter to drop. The selection belongs to the
+        page's own tab: Back and Forward keep it, another page starts clean, and the library's own filters are never touched.</p>
+    </div>
+  </div>
+
+  <!-- ============================================================= -->
+  <div class="block">
+    <div class="bhead"><span class="n">3 · A FEW WORKS</span><h2>The side strip runs to the bottom of the view</h2></div>
+    <div class="bbody">
+      <div class="app">
+        <div class="tabbar"><span class="logo"></span><span class="name">longbox</span><span class="wc"><span>—</span><span>☐</span><span>✕</span></span></div>
+        <div class="approw" style="height:760px">
+          <aside class="side">
+            <nav class="nav">
+              <div class="navitem on"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="6" height="16" rx="1"/><rect x="11" y="4" width="4" height="16" rx="1"/><path d="M17 5l3 14"/></svg>Library</div>
+            </nav>
+            <div class="rail"></div>
+            <div class="foot"><span class="dot"></span>3,912 titles · library verified</div>
+          </aside>
+          <div class="main">
+            <div class="vhead">
+              <span class="back"><svg class="ic" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></span>
+              <span class="crumb">People <span>/</span> <b>Mira Ostrov</b></span>
+              <div class="right"><button class="btn accent"><svg class="ic" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>Edit</button></div>
+            </div>
+            <div class="scrollv">
+              <div class="band">
+                <div class="face round">MO</div>
+                <div class="info"><div class="badges"><span class="typebadge">Person</span></div><h2 class="pname">Mira Ostrov</h2></div>
+              </div>
+              <div class="body">
+                <div class="colmain">
+                  <div class="sec">
+                    <div class="sechead">
+                      <span class="eyebrow">Works</span><span class="cnt">4</span>
+                      <div class="seg text"><button class="opt on">All</button><button class="opt">Wrote <span class="c">3</span></button><button class="opt">Drew <span class="c">2</span></button></div>
+                      <div class="right">
+                        <span class="search"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>Search these works…</span>
+                        <span class="dd">Recently updated <svg class="ic" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span>
+                        <button class="btn"><svg class="ic" viewBox="0 0 24 24"><path d="M4 5h16l-6 7v6l-4 2v-8z"/></svg>Filters</button>
+                      </div>
+                    </div>
+                    <div class="covers" data-gen="4" data-seed="c"></div>
+                  </div>
+                </div>
+                <div class="colside mark" style="position:relative">
+                  <div class="sec">
+                    <div class="sechead"><span class="eyebrow">In your library</span></div>
+                    <div class="kv">
+                      <span>Titles</span><span class="v">4</span>
+                      <span>Chapters</span><span class="v">96</span>
+                      <span>Read</span><span class="v">1 of 4</span>
+                      <div class="bar"><span style="width:25%"></span></div>
+                    </div>
+                  </div>
+                  <div class="sec">
+                    <div class="sechead"><span class="eyebrow">Rules</span></div>
+                    <div class="none">No rule mentions it.</div>
+                  </div>
+                  <span class="callout" style="left:18px;bottom:22px">today it stops where the works stop — it fills the view</span>
+                </div>
+              </div>
+            </div>
+            <div class="lfoot">
+              <span class="lfinfo">4 works</span>
+              <div style="flex:1"></div>
+              <div class="pager"><span class="pgbtn dis">‹</span><span class="pgin">1</span><span class="pgof">of 1</span><span class="pgbtn dis">›</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note"><b>The strip is a column of the view, not of its content</b>: with four works the page still ends in one
+        line, where the closing band begins. A person's <b>All / Wrote / Drew</b> stays beside the count — it is the person's
+        own filter, and it narrows the same query.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+// covers stand in as hued tiles: the mockup carries no images
+function hue(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 360 }
+const WORDS = ['Re:Turn', 'Tomorrow, Again', 'Clockwork Spring', 'Eighth Night', 'The Last Monday', 'Loop Diver',
+  'Seven Sunsets', 'Rewind Club', 'A Thousand Mornings', 'Hourglass Knight', 'Night Shift Zero', 'Second Bell',
+  'Paper Moon Station', 'Glass Calendar', 'Morning Again', 'Fold of Days', 'Quiet Repeat', 'Echo Harbour',
+  'Last Train Loop', 'Spiral Diary', 'Dawn Protocol', 'Ninefold', 'Clock Garden', 'Monday Forever']
+function tile(title) {
+  const h = hue(title)
+  const bg = `linear-gradient(160deg, hsl(${h} 38% 42%), hsl(${(h + 40) % 360} 34% 18%))`
+  return `<div class="cov" style="background:${bg}"><span class="m">${title[0]}</span><span class="w">${title}</span></div>`
+}
+document.querySelectorAll('[data-gen]').forEach((el) => {
+  const n = Number(el.dataset.gen)
+  const off = { a: 0, b: 5, c: 11 }[el.dataset.seed] || 0
+  el.innerHTML = Array.from({ length: n }, (_, i) => tile(WORDS[(i + off) % WORDS.length])).join('')
+})
+document.querySelectorAll('[data-mosaic]').forEach((el) => {
+  el.innerHTML = el.dataset.mosaic.split('|').map((t) => {
+    const h = hue(t)
+    return `<div class="t" style="background:linear-gradient(160deg, hsl(${h} 38% 42%), hsl(${(h + 40) % 360} 34% 18%))"></div>`
+  }).join('')
+})
+</script>
+</body>
+</html>

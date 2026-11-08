@@ -52,8 +52,14 @@ The favourite mark people already have (`authors.json`) is shown on a person's p
 
 **Worked out every time (never stored):**
 
-- **Works** — every title holding the value; for a person split by role (wrote / drew); sorted
-  by recently added, rating or title; *Show all in the library* is the old click.
+- **Works** — every title holding the value: the library's own query, with the value as a
+  filter the page always carries (`design/value-page-works-mockup.html`). A page at a time (48,
+  the pager in the view's closing band), with the library's search, sort and filter block —
+  its counts are the value's works', and the value shows among its chips, dashed, as what the
+  page is rather than a filter to drop. For a person, by role too (all / wrote / drew). The
+  selection belongs to the page's tab: Back and Forward keep it, another page starts clean,
+  the library's own filters are never touched; *Show in library* carries it along. A list the
+  owner keeps out of the filter block still scopes its pages.
 - **In your library** — titles, chapters, how many are read, the average of your ratings,
   first and last added, and the sources that brought the value in (`mangadex.org 6 · typed 2`)
   — for an unknown tag, often the best clue to what it means.
@@ -119,7 +125,9 @@ In the vault, so it travels with the library like recipes and rules:
    shown; a neighbour followed from it continues in the same tab, and Back returns. The head band speaks the title page's grammar: image, kind badge,
    name, other spellings, counts, links, description. Actions: **Edit**, **Show in library**,
    **In Metadata** (that value selected, for rename / merge), ★ for a person. Below: works and
-   often-together; a side column with the numbers and the rules.
+   often-together; a side column with the numbers and the rules, running to the bottom of the
+   view, which a button beside the works' Filters hides (remembered on this machine) to give the
+   works the width.
 2. **Edit** — explicit, like a title: Save / Cancel in the band. Description; links (paste a
    URL and the site names itself; drag to order); image (drop or paste a file, or pick a cover
    of its works); other spellings as chips — each one a rename rule, offered to apply to the

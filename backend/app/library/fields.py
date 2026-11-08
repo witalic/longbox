@@ -186,3 +186,10 @@ def by_id() -> dict[str, Field]:
 
 def facets() -> tuple[Field, ...]:
     return tuple(f for f in registry() if f.facet)
+
+
+def filterable() -> tuple[Field, ...]:
+    """What a query can narrow by: the facets, and every list a value page can be
+    about — a page scopes the library by its own field even when the owner keeps
+    that field out of the filter block."""
+    return tuple(f for f in registry() if f.facet or (f.type == "list" and f.values is not None))

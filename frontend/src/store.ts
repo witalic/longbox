@@ -306,8 +306,7 @@ function onSelectionChange(fn: () => void, ms = 140) {
   })
 }
 
-export function buildQuery(): LibraryQuery {
-  const f = store.library
+export function buildQuery(f: LibraryFilters = store.library): LibraryQuery {
   return {
     search: f.search || undefined,
     progress: f.progress === 'all' ? undefined : f.progress,
@@ -456,30 +455,30 @@ export async function init() {
 
 // Clears the FILTERS. The shelf survives: you asked to see this type, and
 // clearing a genre is not a request to leave it.
-export function resetFilters() {
-  Object.assign(store.library, {
+// (These take the selection they act on: the library tab's, or a value page's.)
+export function resetFilters(f: LibraryFilters = store.library) {
+  Object.assign(f, {
     search: '', favOnly: false, progress: 'all', minRating: 0,
     include: blankSelection(), exclude: blankSelection(),
   })
 }
 
 // ---- faceted selection: off → include → exclude → off ----
-export function facetState(key: FacetKey, value: string): 'in' | 'out' | '' {
-  if (selected(store.library.include, key).includes(value)) return 'in'
-  if (selected(store.library.exclude, key).includes(value)) return 'out'
+export function facetState(key: FacetKey, value: string, f: LibraryFilters = store.library): 'in' | 'out' | '' {
+  if (selected(f.include, key).includes(value)) return 'in'
+  if (selected(f.exclude, key).includes(value)) return 'out'
   return ''
 }
-export function toggleFacet(key: FacetKey, value: string) {
-  const inc = selected(store.library.include, key)
-  const exc = selected(store.library.exclude, key)
+export function toggleFacet(key: FacetKey, value: string, f: LibraryFilters = store.library) {
+  const inc = selected(f.include, key)
+  const exc = selected(f.exclude, key)
   const i = inc.indexOf(value)
   const e = exc.indexOf(value)
   if (i >= 0) { inc.splice(i, 1); exc.push(value) }
   else if (e >= 0) { exc.splice(e, 1) }
   else inc.push(value)
 }
-export function anyFilterActive(): boolean {
-  const f = store.library
+export function anyFilterActive(f: LibraryFilters = store.library): boolean {
   return !!f.search || f.favOnly || f.progress !== 'all' || f.minRating !== 0
     || [...Object.values(f.include), ...Object.values(f.exclude)].some((v) => v.length)
 }
@@ -495,7 +494,11 @@ export interface ValueRef { field: string; value: string }
 export interface LibraryPlace { kind: 'library'; sel: LibraryFilters; axis: string; page: number }
 export interface TitlePlace { kind: 'title'; id: string }
 export interface ReaderPlace { kind: 'reader'; id: string; chapterId: string; page: number }
-export interface PagePlace { kind: 'page'; field: string; value: string }
+// a value's page: its works are the library scoped to it, under the page's own
+// selection, a person's role (the field they hold the value in, '' — any) and page
+export interface PagePlace {
+  kind: 'page'; field: string; value: string; sel: LibraryFilters; role: string; page: number
+}
 // the titles it was handed (null — the filters of library tab `lib`, the one it
 // was opened from), and a value to open on
 export interface MetadataPlace { kind: 'metadata'; ids: string[] | null; focus: ValueRef | null; lib: string }
@@ -768,17 +771,21 @@ function pageKey(field: string, value: string): string {
   const vocab = store.fields.find((f) => f.id === field)?.vocab || field
   return `${vocab}\n${value.trim().toLowerCase()}`
 }
+// a page opens on all its works: another page's filters are that page's own
+function pagePlace(field: string, value: string): PagePlace {
+  return { kind: 'page', field, value, sel: blankLibrary(), role: '', page: 1 }
+}
 export function openValuePage(field: string, value: string, background = false) {
   const k = pageKey(field, value)
   const tab = store.tabs.find((t) => t.place.kind === 'page' && pageKey(t.place.field, t.place.value) === k)
-    ?? addTab({ kind: 'page', field, value })
+    ?? addTab(pagePlace(field, value))
   if (!background) showTab(tab.id)
 }
 // A neighbour reached FROM a page continues in that page's tab — Back returns.
 export function followValue(field: string, value: string) {
   const tab = activeAppTab()
   if (!tab || tab.place.kind !== 'page') return openValuePage(field, value)
-  if (pageKey(tab.place.field, tab.place.value) !== pageKey(field, value)) step(tab, { kind: 'page', field, value })
+  if (pageKey(tab.place.field, tab.place.value) !== pageKey(field, value)) step(tab, pagePlace(field, value))
 }
 
 // ---- the library tabs ----
@@ -803,12 +810,16 @@ export function goBrowse(axis: string) {
   openAxis(open ? '' : axis)
 }
 // "Show in library": the library tab in focus, its grid filtered to exactly
-// this value — a step its Back undoes.
-export function showInLibrary(field: string, value: string) {
+// this value — a step its Back undoes. From a value page it carries the page's
+// own filters along, so the library shows what the page did.
+export function showInLibrary(field: string, value: string, filters: LibraryFilters | null = null) {
   const tab = libraryTab()
+  const f: LibraryFilters = JSON.parse(JSON.stringify(filters ?? blankLibrary()))
   Object.assign(tab.place.sel, {
-    search: '', favOnly: false, progress: 'all', minRating: 0, shelf: '',
-    include: { [field]: [value] }, exclude: {},
+    search: f.search, favOnly: f.favOnly, progress: f.progress, minRating: f.minRating, shelf: '',
+    include: { ...f.include, [field]: [...new Set([...(f.include[field] ?? []), value])] },
+    exclude: f.exclude,
+    ...(filters ? { sort: f.sort } : {}),
   })
   Object.assign(tab.place, { axis: '', page: 1 })
   showTab(tab.id)

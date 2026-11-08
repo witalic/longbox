@@ -440,6 +440,12 @@ export function fieldBlocks(rows: FieldDef[]): FieldBlock[] {
 // Facet counts keyed by field id.
 export type Facets = Record<string, FacetValue[]>
 
+// How a list of titles is ordered — the library's, and a value page's works
+export const TITLE_SORTS: { v: string; l: string }[] = [
+  { v: 'updated', l: 'Recently updated' }, { v: 'title', l: 'Title A–Z' },
+  { v: 'rating', l: 'My rating' }, { v: 'unread', l: 'Unread count' },
+]
+
 export function emptyFacets(): Facets {
   return {}
 }

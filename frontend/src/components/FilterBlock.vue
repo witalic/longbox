@@ -1,8 +1,10 @@
 <script setup lang="ts">
 // THE filter block — one implementation for every view that filters the library.
-// It binds to the ONE selection (`store.library`), so what you switch on here is
-// what the library, the browse groups and their contents are all under; the chips
-// at the top say so without opening a single group.
+// It binds to the library tab's selection (`store.library`), so what you switch
+// on here is what the library, the browse groups and their contents are all
+// under; the chips at the top say so without opening a single group. A value
+// page hands it its OWN selection and counts instead, and the value it is about
+// (`base`) — shown among the chips, never a filter to drop.
 //
 // Layout: ONE search over both lists (fields, and the values of the field you
 // picked). Three separate search boxes were three ways to ask one question.
@@ -11,14 +13,17 @@ import Icon from './Icon.vue'
 import FieldVisibility from './FieldVisibility.vue'
 import {
   activeFilterCount, anyFilterActive, facetFields, facetState, hiddenOf, resetFilters,
-  setFieldHidden, store, toggleFacet, visibleFields, type FacetKey,
+  setFieldHidden, store, toggleFacet, visibleFields, type FacetKey, type LibraryFilters,
 } from '../store'
 import { isBoolMap, isNumMap, readLocal, writeLocal } from '../local'
-import { FLAG_DEFS, type FacetValue } from '../data'
+import { FLAG_DEFS, type FacetValue, type Facets } from '../data'
 
+const props = defineProps<{ sel?: LibraryFilters; facets?: Facets; base?: string }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
-// the library tab in focus — read every time: the focus moves with the tab in front
-const lib = computed(() => store.library)
+// the library tab in focus — read every time: the focus moves with the tab in
+// front — unless a view hands over a selection of its own
+const lib = computed(() => props.sel ?? store.library)
+const counts = computed(() => props.facets ?? store.facets)
 
 // reading progress — the USER-layer axis, independent of the manga's own status
 const progRows = [
@@ -78,7 +83,7 @@ const activeChips = computed(() => SECTIONS.value.flatMap((x) => [
   ...picked(lib.value.include, x.key).map((v) => ({ key: x.key, v, label: x.labels?.[v] ?? v, on: 'inc' })),
   ...picked(lib.value.exclude, x.key).map((v) => ({ key: x.key, v, label: x.labels?.[v] ?? v, on: 'exc' })),
 ]))
-const activeCount = computed(() => activeFilterCount())
+const activeCount = computed(() => activeFilterCount(lib.value))
 function dropValue(key: FacetKey, v: string) {
   lib.value.include[key] = picked(lib.value.include, key).filter((x) => x !== v)
   lib.value.exclude[key] = picked(lib.value.exclude, key).filter((x) => x !== v)
@@ -138,7 +143,7 @@ const PROG_LABEL: Record<string, string> = { unread: 'Unread', reading: 'Reading
 // The row SET and base order come from the GLOBAL (unfiltered) vocabulary, so
 // nothing ever appears/disappears mid-filter; current counts overlay on top.
 function rowsFor(key: FacetKey): FacetValue[] {
-  const cur = new Map((store.facets[key] ?? []).map((x) => [x.v, x.n]))
+  const cur = new Map((counts.value[key] ?? []).map((x) => [x.v, x.n]))
   const rows = (store.globalFacets[key] ?? []).map((g) => ({ v: g.v, n: cur.get(g.v) ?? 0 }))
   const seen = new Set(rows.map((r) => r.v))
   for (const v of [...picked(lib.value.include, key), ...picked(lib.value.exclude, key)]) {
@@ -150,9 +155,9 @@ function rowsFor(key: FacetKey): FacetValue[] {
 // live unselected ones, then dead zeros — a toggled value is always in sight.
 function orderedRows(key: FacetKey): FacetValue[] {
   const rows = rowsFor(key)
-  const sel = rows.filter((r) => facetState(key, r.v) !== '')
-  const live = rows.filter((r) => facetState(key, r.v) === '' && r.n > 0)
-  const dead = rows.filter((r) => facetState(key, r.v) === '' && r.n === 0)
+  const sel = rows.filter((r) => facetState(key, r.v, lib.value) !== '')
+  const live = rows.filter((r) => facetState(key, r.v, lib.value) === '' && r.n > 0)
+  const dead = rows.filter((r) => facetState(key, r.v, lib.value) === '' && r.n === 0)
   return [...sel, ...live, ...dead]
 }
 function sectionActive(key: FacetKey): boolean {
@@ -189,10 +194,13 @@ function clearSection(key: FacetKey) {
         <span class="fglbl">ACTIVE</span>
         <span v-if="activeCount" class="numbadge">{{ activeCount }}</span>
         <div style="flex:1"></div>
-        <button v-if="anyFilterActive()" class="ftxt" @click.stop="resetFilters">Clear all</button>
+        <button v-if="anyFilterActive(lib)" class="ftxt" @click.stop="resetFilters(lib)">Clear all</button>
       </div>
       <template v-if="openSec.active">
         <div class="fchips scroll" :style="{ height: `${gh.active}px` }">
+          <span v-if="base" class="chip base" title="What this page is about — not a filter to drop">
+            <span class="cv">{{ base }}</span>
+          </span>
           <span v-if="!activeCount" class="fnone">nothing filtered yet</span>
           <span v-for="c in activeChips" :key="c.key + c.v" class="chip" :class="c.on"
                 :title="c.on === 'inc' ? 'Included — click to drop' : 'Excluded — click to drop'"
@@ -278,12 +286,12 @@ function clearSection(key: FacetKey) {
            :style="openSec.fields ? { height: `${valuesHeight()}px` } : undefined">
         <div v-if="!curRows.length" class="fnone" style="padding: 8px 10px">nothing here</div>
         <div v-for="r in curRows" :key="r.v" class="frow"
-             :class="[facetState(curField, r.v), { dead: r.n === 0 && facetState(curField, r.v) === '' }]"
-             :title="facetState(curField, r.v) === '' ? 'Click: include · again: exclude' : facetState(curField, r.v) === 'in' ? 'Included — click to exclude' : 'Excluded — click to clear'"
-             @click="toggleFacet(curField, r.v)">
+             :class="[facetState(curField, r.v, lib), { dead: r.n === 0 && facetState(curField, r.v, lib) === '' }]"
+             :title="facetState(curField, r.v, lib) === '' ? 'Click: include · again: exclude' : facetState(curField, r.v, lib) === 'in' ? 'Included — click to exclude' : 'Excluded — click to clear'"
+             @click="toggleFacet(curField, r.v, lib)">
           <span class="fbox">
-            <Icon v-if="facetState(curField, r.v) === 'in'" name="check" :size="9" :sw="3.2" />
-            <Icon v-else-if="facetState(curField, r.v) === 'out'" name="minus" :size="9" :sw="3.2" />
+            <Icon v-if="facetState(curField, r.v, lib) === 'in'" name="check" :size="9" :sw="3.2" />
+            <Icon v-else-if="facetState(curField, r.v, lib) === 'out'" name="minus" :size="9" :sw="3.2" />
           </span>
           <span class="fname" :class="{ cap: curSection?.cap }">{{ curSection?.labels?.[r.v] ?? r.v }}</span>
           <span class="fcount mono">{{ r.n }}</span>
@@ -316,6 +324,9 @@ function clearSection(key: FacetKey) {
 .chip.inc { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); color: var(--tx); }
 .chip.exc { border-color: color-mix(in srgb, var(--adult) 55%, var(--line)); }
 .chip.exc .cv { text-decoration: line-through; }
+/* what the page is about: shown, never dropped */
+.chip.base { border-style: dashed; color: var(--tx3); cursor: default; }
+.chip.base:hover { color: var(--tx3); }
 .cv { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .grab { flex: none; height: 7px; cursor: ns-resize; position: relative; }
 .grab::after { content: ''; position: absolute; left: 12px; right: 12px; top: 3px; height: 1px; background: var(--line); }

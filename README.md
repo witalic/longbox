@@ -54,8 +54,9 @@ tags or cover, and longbox learns a reusable per-site recipe.
   (visibly, with "keep as typed"), from a new chapter's language, group and section — in the order you
   give them, and any rule can be applied to the titles already stored.
 - **Value pages** — every person, studio, character, genre, tag and list value of your own has a
-  page: its works, how many you have read and how you rated them, the sites it came from, the
-  values it travels with, and the rules about it — before you write a word. Add a description,
+  page: its works (all of them, a page at a time, searched, sorted and narrowed with the
+  library's own filter block), how many you have read and how you rated them, the sites it came
+  from, the values it travels with, and the rules about it — before you write a word. Add a description,
   links (X, pixiv, Patreon, Wikipedia… open in the embedded browser) and an image; a person's
   other names are kept as rules, so every spelling lands as one. Hovering a chip on a title
   page shows its page in brief; a rename in Metadata takes the page along.
