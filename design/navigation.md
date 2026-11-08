@@ -50,7 +50,8 @@ the background.
 | a shelf, a filter, the search, a Browse by axis | the library tab you are in; from any other tab, the Library tab — each change a step Back undoes |
 | Read / a page tile | the title's tab, as the reader (Back → the title page) |
 | Metadata, Import, Settings in the rail | its tab in the app strip, opened if needed — one each |
-| Web, Sources in the rail | the web world, as today — its own strip |
+| Web, Sources in the rail | the web world, as today — its own strip, on the page you were on |
+| Library in the rail, from the web | back to the app tab you left — whatever it holds |
 | *Edit in Metadata* / *In Metadata* (with a selection or a value) | a Metadata tab of its own for exactly that ("Metadata · 37 titles") |
 | *Show in library* (on a page, a peek card) | the Library tab, filtered to that value — one step, Back returns |
 

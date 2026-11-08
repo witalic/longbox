@@ -9,7 +9,7 @@ import RailSection from './components/RailSection.vue'
 import {
   store, closeTab, toggleTabPin, moveTabBefore, init, shownAxes, runningDownloads,
   unfinishedDownloads, vaultPass, passIcon, passPercent, pausedImports, activeAppTab, tabById, showTab, showDraft,
-  leaveDraft, goLibrary, goBrowse, newLibraryTab, openSection, showSources, placeLabel, goBack, goForward,
+  leaveDraft, goLibrary, goBrowse, newLibraryTab, openSection, showApp, showSources, placeLabel, goBack, goForward,
   DRAFT, HOME, type AppTab, type LibraryPlace, type Section,
 } from './store'
 import {
@@ -56,7 +56,10 @@ function navActive(key: string): boolean {
 function navClick(key: string) {
   if (key === 'web') openBrowse()
   else if (key === 'sources') showSources()
-  else if (key === 'library') goLibrary()
+  // From the web, Library is the way back: to the app tab that was left there,
+  // whatever it holds (as Web returns to the page you were on). Within the app
+  // it is the library itself.
+  else if (key === 'library') { if (stripMode.value === 'web') showApp(); else goLibrary() }
   else openSection(key as Section)
 }
 
