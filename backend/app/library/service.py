@@ -22,7 +22,7 @@ from urllib.parse import urlsplit
 
 from ..scraper.recipes import RecipeStore
 from ..scraper.sources import SourcePrefs
-from . import comicinfo, fields, media, subtitles
+from . import comicinfo, copies, fields, media, subtitles
 from .loose import LooseStore
 from . import rules as rules_mod
 from .index import LibraryIndex
@@ -32,7 +32,7 @@ from .rules import RuleStore
 from .models import (
     AuthorWork, BrowseGroup, ChapterRow, DraftIn, Source, TitleDoc, TitleOut, UserPatch,
 )
-from .vault import FRAME_KINDS, UnreadableDocument, Vault, safe_id
+from .vault import FRAME_KINDS, UnreadableDocument, Vault, derived_owner, safe_id
 from .versions import cache_key, chapter_version, cover_version, page_image_version, stills_version
 
 
@@ -305,6 +305,9 @@ class Library:
         self._normalize_lock = threading.Lock()
         self._closing = threading.Event()
         self._sidecar_cache: dict[str, tuple[int, dict[str, dict]]] = {}
+        # before anything indexes a title: every index write offers its episodes
+        self.copies = copies.CopyQueue(self, self._closing)
+        self.vault.let_go = self.copies.release
         # What the index already holds needs no disk at all, so the library is
         # SERVED FIRST and verified after: the scan below only answers "did
         # anything change on disk", and nothing has to wait for that answer.
@@ -320,7 +323,12 @@ class Library:
         # runs only for a vault that never had it, off the startup path (large
         # repacks are slow), and marks the vault when done. Settings re-runs it.
         self._normalize_thread: threading.Thread | None = None
+        # Reported with the sync: a window opened while a pass runs has already
+        # drawn what the pass is rewriting, and only this says when to ask again.
+        self.migration_state = {"running": False, "changed": 0}
         if self.vault.needs_normalize() or self.vault.needs_faststart():
+            self.migration_state["running"] = True
+            self.copies.hold()  # until the pass has said what each episode is
             self._normalize_thread = threading.Thread(
                 target=self._migrations_bg, name="lb-migrate", daemon=True)
             self._normalize_thread.start()
@@ -329,18 +337,25 @@ class Library:
         """One-time vault passes, in sequence — never in parallel: both walk the
         whole vault, and on a network share two sweeps only get in each other's
         way."""
+        changed = 0
         try:
             if self.vault.needs_normalize():
-                self.normalize_archives()
+                changed += max(0, self.normalize_archives())
             if self.vault.needs_faststart():
-                self.refresh_episodes()
+                changed += self.refresh_episodes()
         except Exception:  # noqa: BLE001 — a failed pass must never take the app down
-            pass
+            log.exception("one-time vault pass failed")
+        finally:
+            self.migration_state.update(running=False, changed=changed)
+            self.copies.resume()
 
     def refresh_episodes(self) -> int:
         """Bring stored episodes up to what the app records about them, once per
         vault. Anything arriving now gets it at ingest."""
-        changed, touched = self.vault.refresh_stored_episodes(stop=self._closing)
+        # the index knows every episode already; an empty one (a first open, a
+        # dropped cache) knows nothing, and the vault is walked instead
+        known = self.index.episodes() if self.index.count() else None
+        changed, touched = self.vault.refresh_stored_episodes(known, stop=self._closing)
         if not self._closing.is_set():
             self.vault.mark_faststart()
         self._reindex(touched)
@@ -594,6 +609,8 @@ class Library:
                 continue
             name = p.name
             if name.endswith(".tmp"):
+                if self.copies.writing(p):
+                    continue  # a playable copy being written right now, not a leftover
                 out.append({"titleId": title_id, "title": doc.meta.title, "chapterId": "",
                             "num": "", "lang": "", "group": "", "kind": "stray",
                             "name": name, "bytes": _size_of(p),
@@ -601,13 +618,7 @@ class Library:
                 continue
             if p.suffix == ".json":
                 continue  # a sidecar with no row is reported as an orphan above
-            stem = name
-            for kind in FRAME_KINDS:
-                if stem.endswith(f".{kind}.jpg"):
-                    stem = stem[: -len(f".{kind}.jpg")]
-                    break
-            else:
-                stem = subtitles.owner_stem(name) or p.stem
+            stem = derived_owner(name) or p.stem
             if stem not in seen:
                 out.append({"titleId": title_id, "title": doc.meta.title, "chapterId": stem,
                             "num": "", "lang": "", "group": "", "kind": "stray",
@@ -825,6 +836,7 @@ class Library:
         def run() -> None:
             try:
                 self.sync(lambda done, total: self.sync_state.update(done=done, total=total))
+                self.copies.fill()  # what the verification found on disk may need a copy
             except Exception:  # noqa: BLE001 — a failed verification must not take the app down
                 log.exception("background sync failed")
             finally:
@@ -929,6 +941,7 @@ class Library:
     def close(self) -> None:
         # tell the sweep to stop, give it a moment, then close the index it uses
         self._closing.set()
+        self.copies.close()
         for thread in (self._normalize_thread, self._sync_thread):
             if thread is not None and thread.is_alive():
                 thread.join(timeout=10)
@@ -977,8 +990,12 @@ class Library:
         # than the row, so the next launch re-reads it — the other order would
         # store fresh stamps over stale content and never notice
         stamp = self.vault.chapters_stamp(title_id)
+        sides = self._sidecars(title_id)
         self.index.upsert(title_id, doc, self.vault.touched_at(title_id),
-                          self._sidecars(title_id), stamp, self._covers_url(title_id))
+                          sides, stamp, self._covers_url(title_id))
+        # whatever just arrived or changed, an episode the window cannot show
+        # goes to the playable-copy queue from here — the one place every write passes
+        self.copies.offer(title_id, doc, sides)
 
     def _sidecars(self, title_id: str) -> dict[str, dict]:
         """Chapter sidecars, cached per title against the chapters dir's mtime.
@@ -2009,9 +2026,44 @@ class Library:
         return path if path.is_file() else None
 
     def chapter_video_path(self, title_id: str, chapter_id: str) -> Path | None:
-        """The stored episode, or None when this chapter is page media."""
+        """The file the window plays: the episode's playable copy where it has one
+        (library/copies.py), else the stored episode; None for page media."""
         path = self.vault.chapter_media_path(title_id, chapter_id)
-        return path if path is not None and media.is_video(path) else None
+        if path is None or not media.is_video(path):
+            return None
+        copy = self.vault.chapter_copy_path(title_id, chapter_id)
+        return copy if copy.is_file() else path
+
+    def commit_copy(self, title_id: str, chapter_id: str, tmp: Path, of: str, held: dict) -> bool:
+        """Put a finished playable copy beside its episode — only while the episode
+        is still the bytes the copy was made from. A re-download that landed
+        during the conversion wins, and gets a copy of its own."""
+        with self.vault.title_lock(title_id):
+            doc = self.vault.load(title_id)
+            side = self.vault.chapter_sidecar(title_id, chapter_id)
+            if doc is None or side is None or copies.original_of(side) != of:
+                return False
+            final = self.vault.chapter_copy_path(title_id, chapter_id)
+            media.replace_atomically(tmp, final)
+            side.pop("copyFailed", None)
+            # when it was made rides along: a copy redone at the same size must
+            # not come back under the version of the one it replaced
+            side["copy"] = {**held, "size": final.stat().st_size, "made": time.time_ns()}
+            self.vault.write_chapter_sidecar(title_id, chapter_id, side)
+            self._index(title_id, doc)
+        return True
+
+    def record_copy_failed(self, title_id: str, chapter_id: str, of: str, error: str) -> None:
+        """Remember a copy that could not be made OF THESE BYTES, so no launch tries
+        the same hopeless file again on its own."""
+        with self.vault.title_lock(title_id):
+            doc = self.vault.load(title_id)
+            side = self.vault.chapter_sidecar(title_id, chapter_id)
+            if doc is None or side is None or copies.original_of(side) != of:
+                return
+            side["copyFailed"] = {"of": of, "error": error}
+            self.vault.write_chapter_sidecar(title_id, chapter_id, side)
+            self._index(title_id, doc)
 
     def set_video_duration(self, title_id: str, chapter_id: str, seconds: float) -> TitleOut | None:
         """Record what the player measured. Not a page operation: it describes
@@ -2036,9 +2088,7 @@ class Library:
             if probe_needed:
                 path = self.vault.chapter_media_path(title_id, chapter_id)
                 if path is not None:
-                    probe = media.probe_mp4(path)
-                    side["codec"] = probe.get("codec", "")
-                    side["faststart"] = probe.get("faststart", False)
+                    side.update(media.probe_video(path))
             side["duration"] = round(seconds, 3)
             self.vault.write_chapter_sidecar(title_id, chapter_id, side)
             self._index(title_id, doc)

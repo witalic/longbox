@@ -280,9 +280,10 @@ footer a { color: var(--tx2); }
     <p class="sub">
       Playback is in place, on the title page, with arrow-key scrubbing and the player's own
       controls; the same surface fills the window when you want it to. A file that is playing is
-      never replaced or deleted under the player — the app says which entry to close first. Files
-      a browser cannot play (mkv, avi, mov, ts) are still stored, listed and catalogued, and say
-      so, with the file offered for saving elsewhere — nothing is silently dropped.
+      never replaced or deleted under the player — the app says which entry to close first. An mkv
+      plays when its codecs are ones a browser decodes; anything a browser cannot show (avi, mov,
+      ts, an mkv of HEVC, HEVC 4:4:4) gets a playable copy, made in the background and kept beside
+      the original, which is never touched.
     </p>
     <figure class="shot">
       <img src="img/10-episode.png" alt="A title page showing an episode as a grid of nine frames cut from it" />

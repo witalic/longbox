@@ -285,7 +285,9 @@ chapter's next page; an episode is stored as the file it arrived as
 (`<chapter-id>.<video-ext>`). Beside it, a sidecar (`<chapter-id>.json`): fileUrl, pageUrl,
 filename, origName (the name the file arrived under — the vault renames every file to the
 id), downloadedAt, kind, pages, size, rev, pageKeys, the digests below; for an episode also
-container, playable, codec, faststart, duration and its stills. Pages are the zip's image
+container, playable, codec, audio (Matroska), profile (H.264/HEVC), faststart, duration, its
+stills, and its playable copy — `copy` (what `<chapter-id>.play.mp4` holds) or `copyFailed`
+(why there is none, against the bytes it was tried on); see design/playable-copies.md. Pages are the zip's image
 entries in natural order; every page operation rewrites the archive atomically.
 
 The sidecar also carries what the vault can PROVE about the file: `sha256` over every

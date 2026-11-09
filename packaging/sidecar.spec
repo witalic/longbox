@@ -9,7 +9,7 @@
 import json
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 ROOT = Path(SPECPATH).resolve().parent
 DIST = ROOT / "frontend" / "dist"
@@ -52,8 +52,11 @@ a = Analysis(
     pathex=[str(ROOT / "backend")],
     binaries=[],
     # the built UI, and the app's identity — Settings reads the same file the
-    # shell and this spec do, so a packaged build knows its own version
-    datas=[(str(DIST), "frontend_dist"), (str(ROOT / "app-meta.json"), ".")],
+    # shell and this spec do, so a packaged build knows its own version — and
+    # the ffmpeg binary playable copies are made with (library/transcode.py),
+    # which imageio-ffmpeg's wheel carries as package data
+    datas=[(str(DIST), "frontend_dist"), (str(ROOT / "app-meta.json"), "."),
+           *collect_data_files("imageio_ffmpeg", subdir="binaries")],
     hiddenimports=hidden,
     hookspath=[],
     runtime_hooks=[],

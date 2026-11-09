@@ -54,8 +54,11 @@ def chapter_version(sidecar: dict | None) -> str:
     which can land on the version that chapter is already cached under."""
     if not sidecar:
         return ""
+    # an episode's playable copy is what its URL then serves, so it versions it too
+    copied = sidecar.get("copy") or {}
     return (f"{int(sidecar.get('rev') or 0)}"
-            f".{sidecar.get('size', 0)}.{sidecar.get('pages', 0)}")
+            f".{sidecar.get('size', 0)}.{sidecar.get('pages', 0)}"
+            + (f".c{copied.get('size', 0)}.{copied.get('made', 0)}" if copied else ""))
 
 
 def cover_version(name: str, mtime: int, size: int) -> str:

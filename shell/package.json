@@ -30,7 +30,8 @@
     "files": ["main.js", "adblock.js", "app-preload.js", "pick-preload.js", "icon.*", "package.json"],
     "extraResources": [
       { "from": "../dist-sidecar/longbox-sidecar", "to": "sidecar" },
-      { "from": "../app-meta.json", "to": "app-meta.json" }
+      { "from": "../app-meta.json", "to": "app-meta.json" },
+      { "from": "../packaging/licenses", "to": "licenses" }
     ],
     "afterPack": "../packaging/adhoc-sign.js",
     "publish": [{

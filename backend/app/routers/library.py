@@ -610,9 +610,10 @@ def _window(path: Path, start: int, length: int) -> Iterator[bytes]:
 
 @router.get("/titles/{title_id}/chapters/{chapter_id}/video")
 def chapter_video(request: Request, title_id: str, chapter_id: str) -> Response:
-    """The episode file itself — never copied or re-containered on the way out.
-    An open-ended ask gets a window; anything else FileResponse answers, so an
-    explicit range still comes back as a 206 and seeking works untouched."""
+    """The episode file the window plays — the stored one, or its playable copy
+    (design/playable-copies.md) — sent as it is, never re-containered on the
+    way out. An open-ended ask gets a window; anything else FileResponse answers,
+    so an explicit range still comes back as a 206 and seeking works untouched."""
     path = _lib(request).chapter_video_path(title_id, chapter_id)
     if path is None:
         raise HTTPException(status_code=404, detail="no video for this chapter")
@@ -741,6 +742,42 @@ def chapter_video_meta(request: Request, title_id: str, chapter_id: str,
     if title is None:
         raise HTTPException(status_code=404, detail="chapter not found")
     return title
+
+
+# ---- playable copies (design/playable-copies.md) ----
+
+@router.get("/copies")
+def list_copies(request: Request) -> dict:
+    """The copies being made, waiting, or failed — Activity lists them, and a
+    player waiting on one shows how far it got — plus the latest that landed,
+    numbered, for a window that was not looking when they did."""
+    return _lib(request).copies.state()
+
+
+@router.post("/titles/{title_id}/chapters/{chapter_id}/copy")
+def request_copy(request: Request, title_id: str, chapter_id: str) -> dict:
+    """The window opened this episode and could not show it, or the human asked."""
+    queue = _lib(request).copies
+    if not queue.available:
+        raise HTTPException(status_code=409, detail="ffmpeg is not available")
+    job = queue.request(title_id, chapter_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="no episode for this chapter")
+    return {"state": "landed"} if job == "landed" else job.out()
+
+
+@router.post("/copies/{job_id}/retry")
+def retry_copy(request: Request, job_id: str) -> dict:
+    if not _lib(request).copies.retry(job_id):
+        raise HTTPException(status_code=404, detail="no failed copy with this id")
+    return {"ok": True}
+
+
+@router.delete("/copies/{job_id}")
+def drop_copy(request: Request, job_id: str) -> dict:
+    if not _lib(request).copies.drop(job_id):
+        raise HTTPException(status_code=404, detail="no copy with this id")
+    return {"ok": True}
 
 
 @router.get("/titles/{title_id}/chapters/{chapter_id}/frames/{kind}")

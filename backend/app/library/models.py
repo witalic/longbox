@@ -211,9 +211,11 @@ class ChapterOut(ChapterRow):
     # chapter — identity, provenance, translations, progress — is the same.
     kind: str = "pages"
     duration: float = 0.0  # seconds, learned from the player on first play
-    playable: bool = True  # a browser can open this container as it stands
+    playable: bool = True  # the window plays it: as stored, or through its playable copy
+    playableCopy: bool = False  # a playable copy stands in for it (library/copies.py)
     container: str = ""    # mp4 / mkv / avi … — named in the list when it cannot play
-    codec: str = ""        # h264 / hevc / av1 … — what the file actually holds
+    codec: str = ""        # h264 / hevc / av1 … — what the PLAYED file holds
+    audio: str = ""        # opus / aac / ac3 … — read from an mkv's tracks or a copy, "" elsewhere
     faststart: bool = True  # the index sits before the media, so playback starts at once
     poster: bool = False    # the one frame a tile wears is cut and stored
     sheet: str = ""         # the contact grid's geometry ("3x3"), "" when none
@@ -272,6 +274,9 @@ class TitleOut(BaseModel):
         chapters = []
         for c in doc.chapters:
             side = media.get(c.id)
+            copied = (side or {}).get("copy") or {}
+            # what the window is served: the playable copy wherever one exists
+            played = copied or side or {}
             chapters.append(ChapterOut(
                 **c.model_dump(), read=u.read.get(c.id, "unread"),
                 dl=side is not None, pages=(side or {}).get("pages", 0),
@@ -279,10 +284,12 @@ class TitleOut(BaseModel):
                 kind=(side or {}).get("kind", "pages"),
                 position=float(u.position.get(c.id, 0.0)),
                 duration=float((side or {}).get("duration") or 0.0),
-                playable=bool((side or {}).get("playable", True)),
+                playable=bool((side or {}).get("playable", True)) or bool(copied),
+                playableCopy=bool(copied),
                 container=(side or {}).get("container", ""),
-                codec=(side or {}).get("codec", ""),
-                faststart=bool((side or {}).get("faststart", True)),
+                codec=played.get("codec", ""),
+                audio=played.get("audio", ""),
+                faststart=bool(played.get("faststart", True)),
                 poster=bool((side or {}).get("poster", False)),
                 sheet=str((side or {}).get("sheet") or ""),
                 stills=stills_version(side),

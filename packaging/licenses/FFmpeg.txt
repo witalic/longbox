@@ -1,0 +1,36 @@
+FFmpeg
+======
+
+longbox makes playable copies of episodes the window cannot show with ffmpeg, which ships
+inside the app at
+
+    resources/sidecar/_internal/imageio_ffmpeg/binaries/
+
+It is a separate program the app runs; nothing of it is linked into longbox.
+
+That executable is FFmpeg (https://ffmpeg.org), built with GPL components (libx264 and others),
+and it is distributed under the GNU General Public License, version 3 — the full text is
+GPL-3.0.txt beside this file. FFmpeg is copyright the FFmpeg developers.
+
+It is the build the imageio-ffmpeg 0.6.0 package carries for each platform
+(https://github.com/imageio/imageio-ffmpeg, binaries from
+https://github.com/imageio/imageio-binaries/tree/master/ffmpeg):
+
+    Windows x64     ffmpeg-win-x86_64-v7.1.exe    FFmpeg 7.1 (gyan.dev essentials build)
+    macOS arm64     ffmpeg-macos-aarch64-v7.1      FFmpeg 7.1
+    macOS x64       ffmpeg-macos-x86_64-v7.1       FFmpeg 7.1
+    Linux x64       ffmpeg-linux-x86_64-v7.0.2     FFmpeg 7.0.2
+
+Running it with `-version` prints its exact version and the configuration it was built with.
+
+Source code
+-----------
+
+FFmpeg's source for these releases:
+
+    https://ffmpeg.org/releases/ffmpeg-7.1.tar.xz
+    https://ffmpeg.org/releases/ffmpeg-7.0.2.tar.xz
+
+The source of any GPL component a build names in its configuration is available from that
+component's project. If you cannot obtain any of it, open an issue at
+https://github.com/witalic/longbox/issues and the corresponding source will be provided.

@@ -16,7 +16,8 @@ import Icon from './Icon.vue'
 import ProgressBar from './ProgressBar.vue'
 import { api } from '../api'
 import {
-  askConfirm, downloads, dropMedia, forgetPausedImport, mediaJobs, openSection, passHome, passIcon, passPercent,
+  askConfirm, copies, downloads, dropCopy, dropMedia, forgetPausedImport, mediaJobs, openSection, passHome,
+  passIcon, passPercent, retryCopy,
   pauseDownload, pauseImport, pausedImports, pollDownloads, resumeDownload, resumeImport, retryMedia, stopDownload,
   stopVaultPass, store, titleById, vaultPass, watchDownloads, watchVaultPass, type MediaJob,
 } from '../store'
@@ -31,7 +32,8 @@ onBeforeUnmount(() => { watchDownloads(false); watchVaultPass(false) })
 
 const rows = computed(() => downloads.items.filter((i) => i.state !== 'done'))
 const running = computed(() => rows.value.filter((i) => i.state === 'downloading').length + (vaultPass.running ? 1 : 0)
-  + mediaJobs.filter((j) => j.state === 'running').length)
+  + mediaJobs.filter((j) => j.state === 'running').length
+  + copies.jobs.filter((j) => j.state === 'running').length)
 
 function titleOf(id: string): string { return titleById(id)?.title || 'a title that is gone' }
 function pct(i: { received: number; total: number }): number {
@@ -188,7 +190,25 @@ function sizeOf(n: number): string {
             </button>
           </div>
         </div>
-        <div v-if="!vaultPass.running && !pausedImports.length && !mediaJobs.length" class="dlnone">Nothing is running.</div>
+        <!-- playable copies of episodes the window cannot show (design/playable-copies.md) -->
+        <div v-for="j in copies.jobs" :key="j.id" class="dlrow" :class="{ failed: j.state === 'failed' }">
+          <div class="dlmain">
+            <Icon name="film" :size="14" :sw="2" class="pic" />
+            <span class="dlname" :title="j.title">{{ j.title }}</span>
+            <span class="dlch mono">{{ j.label }}</span>
+          </div>
+          <ProgressBar v-if="j.state === 'running'" :done="Math.round(j.progress * 1000)" :total="1000" wide class="dlbar" />
+          <div class="dlfoot">
+            <span class="dlamt">Playable copy</span>
+            <span v-if="j.state === 'failed'" class="dlerr" :title="j.error">{{ j.error }}</span>
+            <span v-else class="dlpct mono">{{ j.state === 'running' ? `${Math.round(j.progress * 100)}%` : 'queued' }}</span>
+            <div style="flex:1"></div>
+            <button v-if="j.state === 'failed'" class="btn ghost small" @click="retryCopy(j.id)">Try again</button>
+            <button class="btn ghost small" @click="dropCopy(j.id)">{{ j.state === 'failed' ? 'Dismiss' : 'Cancel' }}</button>
+          </div>
+        </div>
+        <div v-if="!vaultPass.running && !pausedImports.length && !mediaJobs.length && !copies.jobs.length"
+             class="dlnone">Nothing is running.</div>
 
         <div class="sec">DOWNLOADS</div>
         <div v-if="!rows.length" class="dlnone">Nothing is downloading.</div>

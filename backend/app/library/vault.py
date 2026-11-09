@@ -88,6 +88,21 @@ def _unlink_stubborn(path: Path, tries: int = 5) -> None:
 # vault beside the media. They live in the chapters directory next to the file
 # they came from, so nothing here may ever be mistaken for the media itself.
 FRAME_KINDS = ("poster", "sheet")
+# The copy the window plays when it cannot play the episode as stored
+# (library/copies.py) — beside the original, which it never replaces.
+COPY_SUFFIX = ".play.mp4"
+
+
+def derived_owner(name: str) -> str | None:
+    """The episode stem a DERIVED file belongs to — a still, a subtitle, the
+    playable copy — or None for anything else. They all live beside the media,
+    and none of them may ever be taken for it."""
+    for k in FRAME_KINDS:
+        if name.endswith(f".{k}.jpg"):
+            return name[: -len(f".{k}.jpg")]
+    if name.endswith(COPY_SUFFIX):
+        return name[: -len(COPY_SUFFIX)]
+    return subtitles.owner_stem(name)
 
 # Ukrainian/Russian Cyrillic → Latin, so a Cyrillic title gets a readable slug.
 _CYR = {
@@ -143,7 +158,23 @@ CoverStamps = tuple[int, int, tuple[tuple[str, int, int], ...]]
 # Bump when the archive-normalization pass learns something new — every vault
 # then earns exactly ONE more sweep.
 NORMALIZE_VERSION = 1
-FASTSTART_VERSION = 1
+# The same for the stored-episode pass. 2: an episode is described by what it
+# holds — an mkv of web codecs plays, and a WebM's index is not at its tail.
+# 3: the picture's profile is read (an mp4's HEVC, any mkv's H.264 or HEVC), and
+# one a browser does not decode — Range Extensions, High 10 — does not play.
+FASTSTART_VERSION = 3
+
+
+def _episode_may_be_stale(side: dict) -> bool:
+    """Whether reading an episode again could change what its sidecar says. The
+    pass opens only these, so a bump of FASTSTART_VERSION that teaches the
+    probe something new widens this to the episodes it is new for."""
+    ext = f".{side.get('container') or ''}"
+    return ("container" not in side or "codec" not in side
+            or (ext in media.MATROSKA_EXTS and "audio" not in side)  # by its name before version 2
+            or (ext in media.FASTSTART_EXTS and not side.get("faststart"))
+            or (side.get("codec") == "hevc" and "profile" not in side)  # version 3
+            or (ext in media.MATROSKA_EXTS and side.get("codec") == "h264" and "profile" not in side))
 
 
 def _translit(s: str) -> str:
@@ -206,6 +237,11 @@ class Vault:
         self._fields_lock = threading.Lock()
         # title-id → type-dir name (the shelf the title currently sits on)
         self._loc: dict[str, str] = {}
+        # Asked before an episode's file is deleted, replaced or moved (a whole
+        # title's when the chapter is None): whatever holds one open — a playable
+        # copy's ffmpeg (library/copies.py) — lets go first. On Windows a file held
+        # without delete-sharing makes the change fail half-way through.
+        self.let_go: Callable[[str, str | None], None] = lambda title_id, chapter_id: None
         self._migrate_flat_layout()
         # NOTE: normalize_chapter_archives() is NOT called here — it is a ONE-TIME
         # migration per vault (the Library runs it in the background when the
@@ -432,6 +468,7 @@ class Vault:
         made = not dest.parent.exists()
         dest.parent.mkdir(parents=True, exist_ok=True)
         old_parent = cur.parent
+        self.let_go(sid, None)
         try:
             os.rename(cur, dest)
         except OSError as e:
@@ -614,6 +651,7 @@ class Vault:
         if dest.exists():
             raise FileExistsError(f"{shelf}/{sid} already exists")
         dest.parent.mkdir(parents=True, exist_ok=True)
+        self.let_go(sid, None)
         os.rename(cur, dest)
         self._loc[sid] = shelf
         try:
@@ -643,6 +681,8 @@ class Vault:
                     children = {e.name for e in entries if e.is_dir()}
                 if not children <= {safe_id(t) for t in ids}:
                     return False
+                for tid in ids:
+                    self.let_go(tid, None)
                 os.rename(src, dst)
             except OSError:
                 return False
@@ -715,6 +755,7 @@ class Vault:
             if not d.is_dir():
                 return False
             parent = d.parent
+            self.let_go(title_id, None)
             shutil.rmtree(d)
             self._loc.pop(safe_id(title_id), None)
             try:
@@ -787,7 +828,7 @@ class Vault:
             name, suffix = p.name, p.suffix.lower()
             if suffix == ".json" or name.endswith(".tmp"):
                 continue
-            if any(name.endswith(f".{k}.jpg") for k in FRAME_KINDS) or subtitles.owner_stem(name):
+            if derived_owner(name):
                 continue
             stem = p.stem
             rank = 0 if suffix == ".zip" else (1 if suffix in media.VIDEO_EXTS else 2)
@@ -819,10 +860,12 @@ class Vault:
                 return video
         for p in sorted(d.glob(f"{stem}.*")):
             if (p.is_file() and p.suffix != ".json" and not p.name.endswith(".tmp")
-                    and not any(p.name.endswith(f".{k}.jpg") for k in FRAME_KINDS)
-                    and not subtitles.owner_stem(p.name)):
+                    and not derived_owner(p.name)):
                 return p
         return None
+
+    def chapter_copy_path(self, title_id: str, chapter_id: str) -> Path:
+        return self._chapters_dir(title_id) / f"{safe_id(chapter_id)}{COPY_SUFFIX}"
 
     def chapter_frames_path(self, title_id: str, chapter_id: str, kind: str) -> Path:
         """Where an episode's stored stills live: beside their media, in the vault.
@@ -909,6 +952,7 @@ class Vault:
             raise media.UnsupportedArchiveError(
                 f"unsupported video file: {video_ext or 'unknown'} content does not match")
         with self._lock(title_id):
+            self.let_go(title_id, chapter_id)
             d = self._chapters_dir(title_id)
             d.mkdir(parents=True, exist_ok=True)
             stem = safe_id(chapter_id)
@@ -943,27 +987,23 @@ class Vault:
             # a re-ingest over an existing chapter continues its revision, so a
             # browser holding the previous pages cannot match the new URLs
             prev = self.chapter_sidecars(title_id).get(stem, {})
-            probe = media.probe_mp4(final) if as_video else {}
+            # what the app can actually open, decided ONCE at ingest — a list
+            # must not have to guess, and the human must not find out by clicking
+            facts = media.probe_video(final) if as_video else {}
             # Do it now, while the file is arriving anyway: an index behind the
             # media costs a fetch of the file's tail before the first frame, and
             # every far seek pays again. A refusal is not a failure — the
             # episode is stored either way, and the sidecar records which it is.
-            if as_video and video_ext in media.FASTSTART_EXTS and not probe.get("faststart"):
+            if as_video and video_ext in media.FASTSTART_EXTS and not facts["faststart"]:
                 if media.remux_faststart(final):
-                    probe = media.probe_mp4(final)
+                    facts = media.probe_video(final)
             sidecar = {**sidecar,
                        # The vault renames every file to the chapter's id, so
                        # this is the only record of what the episode or chapter
                        # was actually called where it came from.
                        "origName": arrived_as,
                        "kind": "video" if as_video else "pages",
-                       **({"codec": probe.get("codec", ""),
-                           "faststart": probe.get("faststart", False),
-                           # what the app can actually open, decided ONCE at
-                           # ingest — a list must not have to guess, and the
-                           # human must not find out by clicking
-                           "playable": video_ext in media.PLAYABLE_VIDEO_EXTS,
-                           "container": video_ext.lstrip(".")} if as_video else {}),
+                       **facts,
                        **({"subtitles": prev["subtitles"]} if as_video and prev.get("subtitles") else {}),
                        "pages": 0 if as_video else len(media.image_entries(final)),
                        "size": final.stat().st_size,
@@ -1050,49 +1090,61 @@ class Vault:
             _atomic_write(self._health_path(),
                           json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8"))
 
-    def refresh_stored_episodes(self, *, stop=None) -> tuple[int, list[str]]:
+    def refresh_stored_episodes(self, episodes: dict[str, dict[str, dict]] | None = None, *,
+                                stop=None) -> tuple[int, list[str]]:
         """Bring stored episodes up to what the app now records: the index moved
         in front of the media where that applies, plus the two facts a listing
         must never guess — which container it is, and whether the app can play
         it. Ingest does all of this for anything arriving now; this is the
         one-time pass for what was already in the vault.
 
+        `episodes` is what the caller's index already holds — title id ->
+        {stem: sidecar} for every episode — and only the files whose sidecar
+        could be out of date are opened: on a network vault, walking every
+        title's chapters to find a handful of videos is the whole cost of the
+        pass. None (an index not filled yet) walks the vault instead.
+
         Returns how many EPISODES changed and which TITLES they belong to — the
         caller has to refresh exactly those index rows, and must not have to
         rediscover them by comparing timestamps."""
         changed = 0
         touched: list[str] = []
-        for sid in self.list_ids():
+        for sid, p in self._episode_files(episodes):
             if stop is not None and stop.is_set():
                 break  # the library is closing — the rest waits for next time
-            home = self._find(sid)
-            d = home / "chapters" if home is not None else None
-            if d is None or not d.is_dir():
-                continue
-            for p in list(d.glob("*")):
-                ext = p.suffix.lower()
-                if ext not in media.VIDEO_EXTS or not p.is_file():
+            with self._lock(sid):
+                if not p.is_file():
                     continue
-                with self._lock(sid):
-                    if not p.is_file():
-                        continue
-                    stamp = {"container": ext.lstrip("."),
-                             "playable": ext in media.PLAYABLE_VIDEO_EXTS}
-                    rewrote = False
-                    if ext in media.FASTSTART_EXTS:
-                        # the file is open anyway — record everything it says,
-                        # not just the one property this pass came for
-                        probe = media.probe_mp4(p)
-                        if not probe.get("faststart") and media.remux_faststart(p):
-                            rewrote, probe = True, media.probe_mp4(p)
-                        stamp["faststart"] = bool(probe.get("faststart"))
-                        if probe.get("codec"):
-                            stamp["codec"] = probe["codec"]
-                    if self._restamp_episode(d, p.stem, stamp, bump=rewrote):
-                        changed += 1
-                        if sid not in touched:
-                            touched.append(sid)
+                stamp = media.probe_video(p)
+                rewrote = False
+                if p.suffix.lower() in media.FASTSTART_EXTS and not stamp["faststart"] \
+                        and media.remux_faststart(p):
+                    rewrote, stamp = True, media.probe_video(p)
+                if self._restamp_episode(p.parent, p.stem, stamp, bump=rewrote):
+                    changed += 1
+                    if sid not in touched:
+                        touched.append(sid)
         return changed, touched
+
+    def _episode_files(self, episodes: dict[str, dict[str, dict]] | None):
+        if episodes is None:
+            for sid in self.list_ids():
+                home = self._find(sid)
+                d = home / "chapters" if home is not None else None
+                if d is None or not d.is_dir():
+                    continue
+                for p in list(d.glob("*")):
+                    if p.suffix.lower() in media.VIDEO_EXTS and not derived_owner(p.name) and p.is_file():
+                        yield sid, p
+            return
+        for sid, sides in episodes.items():
+            for stem, side in sides.items():
+                if not _episode_may_be_stale(side):
+                    continue
+                ext = side.get("container")
+                p = self._chapters_dir(sid) / f"{stem}.{ext}" if ext else self.chapter_media_path(sid, stem)
+                if p is not None:
+                    yield sid, p
 
     def _restamp_episode(self, chapters: Path, stem: str, stamp: dict, *, bump: bool) -> bool:
         """The revision moves ONLY when the bytes did. A remux rearranges them
@@ -1157,7 +1209,7 @@ class Vault:
                 # passes `force`, so not even the remembered failure stopped it.
                 if p.suffix.lower() in media.VIDEO_EXTS:
                     continue
-                if any(p.name.endswith(f".{k}.jpg") for k in FRAME_KINDS):
+                if derived_owner(p.name):
                     continue
                 # A `.zip` the vault has a sidecar for came through ingest, which
                 # enforces the invariant on the way in. Opening it to confirm is
@@ -1234,6 +1286,7 @@ class Vault:
             d = self._chapters_dir(title_id)
             if not d.is_dir():
                 return False
+            self.let_go(title_id, chapter_id)
             files = sorted(d.glob(f"{stem}.*"))
             if not files:
                 return False

@@ -140,7 +140,7 @@ away: a subtitle, an archive, an image or a video lands in the library's own `do
 folder (anything else is refused, and the Activity panel says so). The activity corner counts
 what waits there; the panel lists it, with where it came from.
 
-**What is stored beside it.** At ingest longbox records the duration, container, codec and
+**What is stored beside it.** At ingest longbox records the duration, container, codecs and
 whether the file's index sits before the media; for `mp4`/`m4v` it moves the index to the front
 when it does not (that is what makes playback start at once instead of fetching the tail first).
 The **contact sheet** — nine frames laid out 3×3, plus the single frame a tile wears — is cut
@@ -154,9 +154,16 @@ point survives leaving the page: reopening the title, or opening the episode in 
 player, carries on where you stopped. Reaching the end clears the point, so the next play starts
 over.
 
-**Files a browser cannot open.** `mkv`, `avi`, `mov` and `ts` are stored, listed and catalogued
-like any other episode — they simply have no player here, and say so, with the file offered for
-saving elsewhere. Nothing is silently dropped or hidden.
+**Files a browser cannot open.** An `mkv` plays when what it holds does — H.264, VP9 or AV1
+video with AAC, Opus, Vorbis, MP3 or FLAC sound, which ingest reads from its track list. Everything
+else the window cannot show — every `avi`, `mov` and `ts`, any other mkv, and HEVC beyond Main10
+(4:4:4, which most graphics will not decode in a browser and which would otherwise play its sound
+over a black screen) — gets a **playable copy**, made automatically in the background by the
+ffmpeg that ships with the app and kept in the vault beside the original, which is never touched.
+A picture the window already decodes is only re-containered (lossless, seconds); anything else is
+encoded to H.264 on the graphics card where it can be. Activity shows each copy as it is made; the
+player shows how far it got and plays the copy once it lands
+([design/playable-copies.md](design/playable-copies.md)).
 
 **Streaming, not copying.** An episode is served out of the vault with Range support and read in
 windows, so seeking does not drag the whole file across a network drive, and a file that is
@@ -285,7 +292,10 @@ cd shell && npm run pack                                       # installers into
 
 A packaged app carries the sidecar as a frozen binary (with the built UI inside it) in the app's
 resources, so it needs neither Python nor a checkout. `rar` ingest still needs an `unrar`/`bsdtar`
-on the machine; every other archive format is handled in-process.
+on the machine; every other archive format is handled in-process. The ffmpeg that makes playable
+copies rides inside the sidecar (from the pinned `imageio-ffmpeg` wheel); it is GPL v3, and its
+licence and where its source is ship in the app's `resources/licenses/`
+([packaging/licenses/FFmpeg.txt](packaging/licenses/FFmpeg.txt)).
 
 ## Architecture
 
@@ -304,7 +314,7 @@ frontend/   Vue 3 + Vite + TS UI: library, title page, reader, capture browser, 
 shell/      Electron: sidecar spawn + auth, embedded browser, download interception, preloads
 design/     design docs (state-model.md is the canonical architecture) + mockups and the GUI canvas
 docs/       the project page published at witalic.github.io/longbox
-packaging/  the frozen-sidecar spec and the macOS ad-hoc signing hook
+packaging/  the frozen-sidecar spec, the macOS ad-hoc signing hook and the bundled ffmpeg's licence
 tools/      version.py (the one version, everywhere) · screenshots.py (the project page's images) ·
             bench_metadata.py (what a bulk metadata change costs)
 ```

@@ -17,10 +17,10 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import { api } from '../api'
 import { matches } from '../keys'
-import { setPlaybackPosition } from '../store'
+import { copies, copyJobFor, requestCopy, retryCopy, setPlaybackPosition } from '../store'
 import { SHEET_CELLS, SHEET_COLS, SHEET_GRID, SHEET_ROWS, cellFraction, ensureSheet, isCutting }
   from '../frames'
-import { UNSUPPORTED_HINT, formatDuration, unsupportedTitle, type Chapter, type Title }
+import { UNSUPPORTED_HINT, copyNote, formatDuration, unsupportedTitle, type Chapter, type Title }
   from '../data'
 
 const props = withDefaults(
@@ -28,7 +28,13 @@ const props = withDefaults(
   { autoplay: false })
 
 const el = ref<HTMLVideoElement | null>(null)
-const failed = ref(false)
+// Why the window gave up on an episode the vault calls playable: it refused
+// the file outright, or it opened it and decodes no picture — a codec variant
+// this machine's graphics cannot take, which would otherwise play its sound over
+// a black screen with nothing said. Either way it asks for a playable copy.
+const failed = ref<'' | 'open' | 'picture'>('')
+// the playable copy on its way for this episode (design/playable-copies.md)
+const copyJob = computed(() => copyJobFor(props.title.id, props.chapter.id))
 // The player is MOUNTED only once playback is asked for — an unmounted one
 // fetches nothing, which is the whole point of showing the sheet first.
 const armed = ref(props.autoplay)
@@ -55,6 +61,12 @@ function sampleDrops() {
   const q = v.getVideoPlaybackQuality()
   if (!dropBase) { dropBase = { at: v.currentTime, total: q.totalVideoFrames, dropped: q.droppedVideoFrames }; return }
   if (v.currentTime - dropBase.at < DROP_WINDOW_SECONDS) return
+  // time moved on and not one frame was drawn: a picture track the window kept
+  // and cannot decode — the same black screen as one it dropped on opening
+  if (!q.totalVideoFrames && props.chapter.codec) {
+    noPicture()
+    return
+  }
   const total = q.totalVideoFrames - dropBase.total
   if (total > 0) dropping.value = (q.droppedVideoFrames - dropBase.dropped) / total > DROP_SHARE
   dropBase = { at: v.currentTime, total: q.totalVideoFrames, dropped: q.droppedVideoFrames }
@@ -109,8 +121,8 @@ function play(at?: number) {
   armed.value = true
 }
 
-// A container Chromium cannot open (mkv, avi…) is stored and listed like any
-// other episode — it simply has no surface here until the app can remux it.
+// An episode the window cannot open (avi, ts, an mkv of HEVC…) is stored and
+// listed like any other — it simply has no surface here.
 const playable = computed(() => props.chapter.playable !== false && !failed.value)
 
 // A resume point does not need to be current to the second, and each write
@@ -146,9 +158,25 @@ function finished() {
   void setPlaybackPosition(props.title, props.chapter.id, 0)
 }
 
+// Sound over black, said instead — and the copy that plays asked for.
+function noPicture() {
+  failed.value = 'picture'
+  void requestCopy(props.title.id, props.chapter.id)
+}
+
+function onError() {
+  failed.value = 'open'
+  // a file the vault said would play and the window refuses: the copy is the way out
+  if (props.chapter.playable && !props.chapter.playableCopy) void requestCopy(props.title.id, props.chapter.id)
+}
+
 function onLoaded() {
   const v = el.value
   if (!v) return
+  if (!v.videoWidth && props.chapter.codec) {
+    noPicture()
+    return
+  }
   // a clicked cell wins over the resume point; otherwise carry on where the
   // human stopped, unless they finished it
   const at = startAt.value ?? props.chapter.position
@@ -166,7 +194,7 @@ watch(() => props.chapter.id, (_next, previous) => {
   const at = el.value?.currentTime || lastSeen
   if (previous && at > 0) void setPlaybackPosition(props.title, previous, at)
   lastSeen = 0
-  failed.value = false
+  failed.value = ''
   stalled.value = false
   dropping.value = false
   dropBase = null
@@ -174,11 +202,14 @@ watch(() => props.chapter.id, (_next, previous) => {
   startAt.value = null
   lastSaved = 0
 })
+// new bytes behind the same entry — its playable copy landed, or the file was
+// replaced: whatever the window made of the last one says nothing about these
+watch(() => props.chapter.v, () => { failed.value = '' })
 
 // The sheet is cut on first sight of an episode and kept in the vault, so this
 // asks once per chapter and never again. A surface that autoplays never needs
 // one: it is already showing frames.
-watch(() => [props.chapter.id, props.chapter.sheet], () => {
+watch(() => [props.chapter.id, props.chapter.sheet, props.chapter.v, props.chapter.playable], () => {
   if (!props.autoplay && playable.value) ensureSheet(props.title, props.chapter)
 }, { immediate: true })
 
@@ -266,7 +297,7 @@ onBeforeUnmount(() => {
         @waiting="stalled = true"
         @playing="stalled = false"
         @canplay="stalled = false"
-        @error="failed = true"
+        @error="onError"
       >
         <!-- the episode's subtitles: the player's own CC menu switches them -->
         <track v-for="s in chapter.subtitles ?? []" :key="s.id" kind="subtitles" :label="s.label"
@@ -291,16 +322,23 @@ onBeforeUnmount(() => {
         <div v-if="isCutting(title, chapter)" class="vprenote">Cutting a preview from the episode…</div>
       </div>
 
-      <!-- stored, listed, catalogued — the app simply cannot open this container -->
+      <!-- stored, listed, catalogued — and on its way to a copy the window can play -->
       <div v-else class="vunplayable">
         <Icon name="film" :size="28" :sw="1.6" />
-        <div class="vtitle">{{ unsupportedTitle(chapter) }}</div>
+        <div class="vtitle">{{ copyJob
+          ? (copyJob.state === 'failed' ? 'A playable copy could not be made' : 'Making a playable copy')
+          : unsupportedTitle(chapter) }}</div>
         <div class="vhint">
           {{ chapter.num }}<template v-if="chapter.lang"> · {{ chapter.lang }}</template>
           <template v-if="chapter.duration"> · {{ formatDuration(chapter.duration) }}</template>
-          — {{ UNSUPPORTED_HINT }}
+          — {{ copyJob ? copyNote(copyJob) : UNSUPPORTED_HINT }}
         </div>
-        <a class="btn ghost" :href="src" download>Save a copy</a>
+        <div class="vacts">
+          <button v-if="copyJob?.state === 'failed'" class="btn ghost" @click="retryCopy(copyJob.id)">Try again</button>
+          <button v-else-if="!copyJob && copies.available" class="btn ghost"
+                  @click="requestCopy(title.id, chapter.id)">Make a playable copy</button>
+          <a class="btn ghost" :href="src" download>Save the file</a>
+        </div>
       </div>
 
       <div v-if="playable && stalled" class="vstall">Buffering…</div>
@@ -344,6 +382,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--line);
 }
 .vhint { font: 400 12px/1.5 system-ui; color: var(--tx3); max-width: 420px; }
+.vacts { display: flex; gap: 8px; }
 
 /* the pre-play surface: the sheet, its cells, and the one button that starts it */
 .vpre { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }

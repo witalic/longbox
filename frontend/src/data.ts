@@ -81,10 +81,12 @@ export interface Chapter extends ChapterRow {
   v: string         // media version — page/video URLs are cached under it
   kind: 'pages' | 'video' // a zip of images, or the episode file itself
   duration: number  // seconds (video only), learned from the player
-  playable: boolean // whether this container opens in the app's browser engine
+  playable: boolean // the window plays it: as stored, or through its playable copy
+  playableCopy: boolean // a playable copy stands in for it (design/playable-copies.md)
   container: string // mp4 / mkv / avi … — named in the list when it cannot play
   position: number  // seconds into a video chapter — the resume point
-  codec: string     // h264 / hevc / av1 … — what the file actually holds
+  codec: string     // h264 / hevc / av1 … — what the PLAYED file holds
+  audio: string     // opus / aac / ac3 … — read from an mkv's tracks or a copy, '' elsewhere
   faststart: boolean // its index sits before the media, so playback starts at once
   poster: boolean   // the one frame a tile wears is cut and stored
   sheet: string     // the geometry of the stored contact grid, '' when none
@@ -762,13 +764,34 @@ export function isUnsupported(c: Chapter): boolean {
   return c.dl && c.kind === 'video' && !c.playable
 }
 
-// Why a stored episode has no player. Said once here, so the list and the pane
-// cannot word it differently — and with no promise of a remux the app cannot do.
+// Why a stored episode has no player — no playable copy has been made of it
+// (design/playable-copies.md). Said once here, so the list and the pane cannot
+// word it differently.
 export function unsupportedTitle(c: Chapter): string {
-  return `${(c.container || '').toUpperCase() || 'This format'} is not supported`
+  const holds = [c.codec, c.audio].filter(Boolean).join(' + ').toUpperCase()
+  return `${(c.container || '').toUpperCase() || 'This format'}${holds ? ` with ${holds}` : ''} is not supported`
 }
 export const UNSUPPORTED_HINT =
-  'The file is stored in your vault, but the app cannot play it. MP4, M4V and WebM play.'
+  'The file is stored in your vault, but the app cannot play it. MP4, M4V and WebM play, '
+  + 'and so does MKV with H.264, VP9 or AV1 video and AAC, Opus, Vorbis, MP3 or FLAC sound.'
+// A playable copy being made (design/playable-copies.md) — the sidecar's queue.
+export interface CopyJob {
+  id: string
+  titleId: string
+  chapterId: string
+  title: string
+  label: string // the entry: number · language · name
+  state: 'queued' | 'running' | 'failed'
+  progress: number // 0…1 while running
+  error: string
+}
+// What the player says while an episode it cannot show waits for its copy.
+export function copyNote(job: CopyJob): string {
+  if (job.state === 'failed') return job.error || 'ffmpeg could not convert this file.'
+  const what = 'The app cannot play this file as stored, so it is making a copy it can — kept beside '
+    + 'the original, which stays as it is.'
+  return job.state === 'running' ? `${Math.round(job.progress * 100)}% · ${what}` : `Waiting its turn. ${what}`
+}
 export function unsupportedNote(c: Chapter): string {
   return `${unsupportedTitle(c)} — ${UNSUPPORTED_HINT}`
 }

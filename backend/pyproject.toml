@@ -17,6 +17,9 @@ dependencies = [
     "python-multipart>=0.0.9",
     "py7zr>=0.21",   # 7z → zip conversion at ingest (vault stores only zip)
     "rarfile>=4.1",  # rar → zip conversion (needs an unrar/bsdtar backend at runtime)
+    # ships the ffmpeg binary playable copies of episodes are made with —
+    # pinned, so every build carries the same one (library/transcode.py)
+    "imageio-ffmpeg==0.6.0",
 ]
 
 [project.optional-dependencies]

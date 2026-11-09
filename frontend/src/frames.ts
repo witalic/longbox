@@ -156,6 +156,7 @@ async function grab(tid: string, c: Chapter, wantSheet: boolean):
     // preview cannot label its cells without it. Reporting it now means an
     // episode carries its duration before anyone has played it.
     if (Math.abs(duration - c.duration) > 0.5) cache([await api.setVideoMeta(tid, c.id, duration)])
+    if (!video.videoWidth) return nothing // the window decodes no picture out of this one
 
     const frame = sized(POSTER_EDGE, video.videoWidth, video.videoHeight)
     const one = document.createElement('canvas')

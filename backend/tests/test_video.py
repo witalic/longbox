@@ -60,6 +60,41 @@ def _mp4(path: Path, payload: bytes = b"\x00" * 4096) -> Path:
     return path
 
 
+def _ebml(eid: int, body: bytes) -> bytes:
+    """One EBML element: its ID's own bytes, the shortest size that holds the
+    body, the body."""
+    length = next(n for n in range(1, 9) if len(body) < (1 << (7 * n)) - 1)
+    size = ((1 << (7 * length)) | len(body)).to_bytes(length, "big")
+    return eid.to_bytes((eid.bit_length() + 7) // 8, "big") + size + body
+
+
+def _mkv(path: Path, *tracks: tuple[int, str], doc: str = "matroska",
+         media_first: bool = False) -> Path:
+    """A Matroska file laid out the way a muxer writes one: header, segment
+    info, the track list, then the media. `tracks` are (type, codec ID) —
+    type 1 video, 2 audio, 17 subtitles."""
+    listed = _ebml(0x1654AE6B, b"".join(
+        _ebml(0xAE, _ebml(0xD7, bytes([i + 1])) + _ebml(0x83, bytes([kind])) + _ebml(0x86, codec.encode()))
+        for i, (kind, codec) in enumerate(tracks)))
+    cluster = _ebml(0x1F43B675, b"\x00" * 2048)
+    body = _ebml(0x1549A966, b"") + (cluster + listed if media_first else listed + cluster)
+    path.write_bytes(_ebml(0x1A45DFA3, _ebml(0x4282, doc.encode())) + _ebml(0x18538067, body))
+    return path
+
+
+def _as_an_older_build_left_it(lib: Library, title_id: str, chapter_id: str) -> None:
+    """An mkv's sidecar the way builds before the track list was read wrote it:
+    called unplayable by its name, with no audio, no profile."""
+    side_path = lib.vault.chapters_dir(title_id) / f"{chapter_id}.json"
+    side = json.loads(side_path.read_text(encoding="utf-8"))
+    for key in ("audio", "profile"):
+        side.pop(key, None)
+    side_path.write_text(json.dumps({**side, "playable": False, "faststart": False, "codec": ""}),
+                         encoding="utf-8")
+    lib._sidecar_cache.clear()
+    lib._index(title_id, lib.vault.load(title_id))
+
+
 def _title_with_episode(root: Path, tmp_path: Path) -> tuple[Library, str, str]:
     lib = Library(root)
     out = lib.create(DraftIn(meta=TitleMeta(title="Series", type="anime")))
@@ -408,6 +443,156 @@ def test_a_container_the_app_cannot_play_says_so_before_it_is_opened(tmp_path):
     assert chapter.kind == "video" and chapter.dl is True
     assert chapter.playable is False and chapter.container == "mkv"
     lib.close()
+
+
+@pytest.mark.parametrize("tracks, playable", [
+    (((1, "V_AV1"), (2, "A_OPUS")), True),
+    (((1, "V_MPEG4/ISO/AVC"), (2, "A_AAC/MPEG4/LC"), (17, "S_TEXT/ASS")), True),
+    (((1, "V_VP9"),), True),                                   # no sound at all
+    (((1, "V_MPEGH/ISO/HEVC"), (2, "A_AAC")), False),
+    (((1, "V_MPEG4/ISO/AVC"), (2, "A_AC3"), (2, "A_AAC")), False),  # the FIRST audio plays
+    (((2, "A_OPUS"),), False),                                 # nothing to watch
+])
+def test_an_mkv_plays_when_what_it_holds_does(tmp_path, tracks, playable):
+    """WebM is a profile of Matroska and the window opens both, so an mkv is
+    decided by its tracks — and by its sound as much as its picture: a track
+    the engine cannot decode is dropped silently, not refused."""
+    facts = media.probe_video(_mkv(tmp_path / "ep.mkv", *tracks))
+    assert facts["playable"] is playable
+    assert facts["container"] == "mkv" and facts["faststart"] is True
+
+
+def test_an_episode_the_app_cannot_play_names_what_it_holds(tmp_path):
+    lib = Library(tmp_path / "v")
+    out = lib.create(DraftIn(meta=TitleMeta(title="Series")))
+    src = _mkv(tmp_path / "ep.mkv", (1, "V_MPEGH/ISO/HEVC"), (2, "A_EAC3"))
+    lib.attach_chapter_media(out.id, num="1", lang="", group="", src=src,
+                             sidecar={"filename": "ep.mkv"})
+    chapter = lib.get(out.id).chapters[0]
+    assert chapter.playable is False
+    assert (chapter.container, chapter.codec, chapter.audio) == ("mkv", "hevc", "eac3")
+    lib.close()
+
+
+def test_a_webm_is_not_said_to_keep_its_index_at_the_tail(tmp_path):
+    """The tail-index warning is about the mp4 box layout. A Matroska file
+    describes its tracks ahead of the media, so it starts at once — unless it
+    really does put the media first."""
+    lib = Library(tmp_path / "v")
+    out = lib.create(DraftIn(meta=TitleMeta(title="Series")))
+    lib.attach_chapter_media(out.id, num="1", lang="", group="",
+                             src=_mkv(tmp_path / "ep.webm", (1, "V_VP9"), (2, "A_OPUS"), doc="webm"),
+                             sidecar={"filename": "ep.webm"})
+    chapter = lib.get(out.id).chapters[0]
+    assert chapter.playable is True and chapter.faststart is True
+    assert (chapter.codec, chapter.audio) == ("vp9", "opus")
+    lib.close()
+
+    late = media.probe_video(_mkv(tmp_path / "late.webm", (1, "V_VP9"), doc="webm", media_first=True))
+    assert late["faststart"] is False and late["playable"] is True
+    # an mkv whose tracks cannot be read before the media is not promised to anyone
+    assert media.probe_video(_mkv(tmp_path / "late.mkv", (1, "V_AV1"), media_first=True))["playable"] is False
+
+
+def test_an_mkv_stored_before_the_app_read_its_tracks_is_restamped_once(tmp_path):
+    """Earlier builds called every mkv unplayable by its name. The one-time
+    pass reads what it holds — and since the bytes never move, every cache of
+    the episode stays valid."""
+    lib = Library(tmp_path / "v")
+    out = lib.create(DraftIn(meta=TitleMeta(title="Series")))
+    lib.attach_chapter_media(out.id, num="1", lang="", group="",
+                             src=_mkv(tmp_path / "ep.mkv", (1, "V_AV1"), (2, "A_OPUS")),
+                             sidecar={"filename": "ep.mkv"})
+    cid = lib.get(out.id).chapters[0].id
+
+    side_path = lib.vault.chapters_dir(out.id) / f"{cid}.json"
+    side = json.loads(side_path.read_text(encoding="utf-8"))
+    side.update(playable=False, faststart=False, codec="")
+    del side["audio"]
+    side_path.write_text(json.dumps(side), encoding="utf-8")
+    lib._sidecar_cache.clear()
+    lib._index(out.id, lib.vault.load(out.id))
+    before = lib.get(out.id).chapters[0]
+    assert before.playable is False
+
+    assert lib.refresh_episodes() == 1
+    chapter = lib.get(out.id).chapters[0]
+    assert chapter.playable is True and chapter.faststart is True
+    assert (chapter.codec, chapter.audio) == ("av1", "opus")
+    assert chapter.v == before.v
+    assert lib.refresh_episodes() == 0
+    lib.close()
+
+
+def test_the_episode_pass_opens_only_what_could_have_moved_on(tmp_path, monkeypatch):
+    """The index already carries every episode's sidecar. Walking each title's
+    chapters to find a few videos is what made the pass read a whole network
+    vault — so it walks nothing, and opens only the files whose description
+    could change."""
+    lib = Library(tmp_path / "v")
+    out = lib.create(DraftIn(meta=TitleMeta(title="Series")))
+    moov = b"moov" + b"\x00" * 4 + b"avc1" + b"\x00" * 64
+    fine = tmp_path / "fine.mp4"
+    fine.write_bytes(b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2"
+                     + (len(moov) + 4).to_bytes(4, "big") + moov + b"\x00" * 64)
+    lib.attach_chapter_media(out.id, num="1", lang="", group="", src=fine,
+                             sidecar={"filename": "fine.mp4"})
+    lib.attach_chapter_media(out.id, num="2", lang="", group="",
+                             src=_mkv(tmp_path / "ep.mkv", (1, "V_AV1"), (2, "A_OPUS")),
+                             sidecar={"filename": "ep.mkv"})
+    ids = {c.num: c.id for c in lib.get(out.id).chapters}
+    assert lib.get(out.id).chapters[0].faststart is True
+    _as_an_older_build_left_it(lib, out.id, ids["2"])
+
+    opened: list[str] = []
+    real = media.probe_video
+    monkeypatch.setattr(media, "probe_video", lambda p: opened.append(p.stem) or real(p))
+    monkeypatch.setattr(lib.vault, "list_ids", lambda: pytest.fail("the pass walked the vault"))
+    lib.refresh_episodes()
+    assert opened == [ids["2"]]
+    lib.close()
+
+
+def test_without_an_index_the_episode_pass_walks_the_vault(tmp_path):
+    lib = Library(tmp_path / "v")
+    out = lib.create(DraftIn(meta=TitleMeta(title="Series")))
+    lib.attach_chapter_media(out.id, num="1", lang="", group="",
+                             src=_mkv(tmp_path / "ep.mkv", (1, "V_AV1"), (2, "A_OPUS")),
+                             sidecar={"filename": "ep.mkv"})
+    cid = lib.get(out.id).chapters[0].id
+    side_path = lib.vault.chapters_dir(out.id) / f"{cid}.json"
+    side = json.loads(side_path.read_text(encoding="utf-8"))
+    side_path.write_text(json.dumps({**side, "playable": False}), encoding="utf-8")
+
+    assert lib.vault.refresh_stored_episodes(None) == (1, [out.id])
+    assert json.loads(side_path.read_text(encoding="utf-8"))["playable"] is True
+    lib.close()
+
+
+@pytest.mark.migrations
+def test_a_window_learns_when_a_one_time_pass_rewrote_what_it_drew(tmp_path):
+    """The pass runs behind a window that has already drawn the vault — the
+    status it polls has to say the pass is still going, and then that it
+    changed something, or the stale episode stays on screen."""
+    root = tmp_path / "v"
+    lib = settled(Library(root))
+    out = lib.create(DraftIn(meta=TitleMeta(title="Series")))
+    lib.attach_chapter_media(out.id, num="1", lang="", group="",
+                             src=_mkv(tmp_path / "ep.mkv", (1, "V_AV1"), (2, "A_OPUS")),
+                             sidecar={"filename": "ep.mkv"})
+    _as_an_older_build_left_it(lib, out.id, lib.get(out.id).chapters[0].id)
+    (root / "vault.json").write_text(json.dumps({"zipNormalized": 1, "videoFaststart": 1}),
+                                     encoding="utf-8")
+    lib.close()
+
+    again = Library(root)
+    assert again.migration_state["running"] is True
+    settled(again)
+    with TestClient(create_app(again)) as c:
+        status = c.get("/api/settings/library/status").json()
+        assert status["migrating"] is False and status["migrated"] == 1
+        assert c.get(f"/api/titles/{out.id}").json()["chapters"][0]["playable"] is True
+    again.close()
 
 
 def test_learning_what_a_stored_episode_is_does_not_invalidate_it(tmp_path):

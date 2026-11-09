@@ -22,11 +22,11 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".bmp"}
 # nothing and cost a full rewrite on every edit. The zip invariant is a rule
 # about PAGE media, and this set is where the two kinds part company.
 VIDEO_EXTS = {".mp4", ".m4v", ".webm", ".mkv", ".mov", ".avi", ".ts"}
-# what a browser can actually play; the rest is stored and offered to the
-# system player until the app learns to remux (see design/state-model.md §13)
-PLAYABLE_VIDEO_EXTS = {".mp4", ".m4v", ".webm"}
 # where an index can be moved to the front: the mp4 box layout
 FASTSTART_EXTS = {".mp4", ".m4v"}
+# WebM is a profile of Matroska; the window opens both, so what decides an
+# mkv is the tracks it holds, not its name (see probe_video)
+MATROSKA_EXTS = {".webm", ".mkv"}
 VIDEO_CT_BY_EXT = {
     ".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm",
     ".mkv": "video/x-matroska", ".mov": "video/quicktime",
@@ -87,10 +87,172 @@ def probe_mp4(path: Path) -> dict:
                     if code in blob:
                         out["codec"] = label
                         break
+                if out["codec"] in _PROFILES:
+                    at = blob.find(b"avcC" if out["codec"] == "h264" else b"hvcC")
+                    out["profile"] = _profile(out["codec"], blob[at + 4:at + 6]) if at >= 0 else ""
     except OSError:
         return {"faststart": False, "codec": ""}
     out.pop("_seen_mdat", None)
     return out
+
+
+# The profile a decoder configuration record (avcC, hvcC) names — what a decoder
+# has to handle. Chromium decodes HEVC only through the platform, and only Main
+# and Main10 everywhere: Range Extensions (4:4:4, 4:2:2, 12-bit) reach it on some
+# graphics only, and on the rest the picture is dropped while the sound plays
+# over black. Its H.264 decoder stops at 8-bit 4:2:0, so High 10 — the usual
+# anime encode — fails the same way.
+_PROFILES = {
+    "h264": {66: "baseline", 77: "main", 88: "extended", 100: "high",
+             110: "high10", 122: "high422", 244: "high444"},
+    "hevc": {1: "main", 2: "main10", 3: "main-still", 4: "rext"},
+}
+_UNDECODED_PROFILES = frozenset({"high10", "high422", "high444", "rext", "other"})
+
+
+def _profile(codec: str, config: bytes) -> str:
+    if len(config) < 2:
+        return ""
+    n = config[1] & 0x1F if codec == "hevc" else config[1]
+    return _PROFILES[codec].get(n, "other")
+
+
+# Matroska element IDs on the way from the file's head to each track's codec.
+_EBML_HEADER = 0x1A45DFA3
+_MKV_SEGMENT = 0x18538067
+_MKV_TRACKS = 0x1654AE6B
+_MKV_CLUSTER = 0x1F43B675
+_MKV_TRACK_ENTRY, _MKV_TRACK_TYPE, _MKV_CODEC_ID, _MKV_CODEC_PRIVATE = 0xAE, 0x83, 0x86, 0x63A2
+_MAX_MKV_TRACKS = 4 * 1024 * 1024
+# a track list sits a few elements into the segment; walking further means
+# the file is not laid out the way anything plays it
+_MAX_MKV_TOP_LEVEL = 64
+# Matroska codec ID -> the name the rest of the app uses; any other ID is
+# named by its first part ("A_AAC/MPEG4/LC" -> "aac", "A_EAC3" -> "eac3")
+_MKV_CODECS = {"V_MPEG4/ISO/AVC": "h264", "V_MPEGH/ISO/HEVC": "hevc",
+               "V_MPEG4/ISO/ASP": "mpeg4", "A_MPEG/L3": "mp3", "A_MPEG/L2": "mp2"}
+# What the window decodes out of an mkv. HEVC is out: Chromium takes it only
+# where the platform decodes it. Audio decides as much as video does — a track
+# the engine cannot decode is dropped without an error, and the episode would
+# play in silence.
+_WEB_VIDEO_CODECS = frozenset({"h264", "vp8", "vp9", "av1"})
+_WEB_AUDIO_CODECS = frozenset({"aac", "opus", "vorbis", "mp3", "flac"})
+
+
+def _ebml_vint(buf: bytes, at: int, *, marker: bool) -> tuple[int, int] | None:
+    """The EBML variable-length integer at `at`, as (value, length). An element
+    ID keeps its length marker, a size drops it."""
+    if at >= len(buf) or not buf[at]:
+        return None
+    length = 9 - buf[at].bit_length()
+    if at + length > len(buf):
+        return None
+    value = buf[at] if marker else buf[at] & (0xFF >> length)
+    for b in buf[at + 1:at + length]:
+        value = (value << 8) | b
+    return value, length
+
+
+def _ebml_element(buf: bytes, at: int) -> tuple[int, int, int | None] | None:
+    """(id, header length, body size) of the element at `at`; the size is None
+    when the file leaves it open (a live recording)."""
+    eid = _ebml_vint(buf, at, marker=True)
+    size = eid and _ebml_vint(buf, at + eid[1], marker=False)
+    if not eid or not size:
+        return None
+    unknown = size[0] == (1 << (7 * size[1])) - 1
+    return eid[0], eid[1] + size[1], None if unknown else size[0]
+
+
+def _ebml_children(buf: bytes, start: int, end: int):
+    at = start
+    while at < end:
+        el = _ebml_element(buf, at)
+        if el is None or el[2] is None:
+            return
+        body = at + el[1]
+        yield el[0], body, min(body + el[2], end)
+        at = body + el[2]
+
+
+def _mkv_codec_name(codec_id: str) -> str:
+    return _MKV_CODECS.get(codec_id) or codec_id[2:].split("/")[0].lower()
+
+
+def probe_matroska(path: Path) -> dict:
+    """What a Matroska file (mkv, webm) holds, from its track list: the first
+    video and the first audio track — the pair a browser plays — the picture's
+    profile, and whether the list comes before the media (`faststart`). Nothing
+    is decoded."""
+    out: dict = {"codec": "", "audio": "", "faststart": True}
+    try:
+        with path.open("rb") as fh:
+            def element_at(offset: int):
+                fh.seek(offset)
+                return _ebml_element(fh.read(12), 0)
+
+            head = element_at(0)
+            if head is None or head[0] != _EBML_HEADER or head[2] is None:
+                return out
+            seg_at = head[1] + head[2]
+            seg = element_at(seg_at)
+            if seg is None or seg[0] != _MKV_SEGMENT:
+                return out
+            at, tracks = seg_at + seg[1], None
+            for _ in range(_MAX_MKV_TOP_LEVEL):
+                el = element_at(at)
+                if el is None or el[2] is None:
+                    break
+                if el[0] == _MKV_TRACKS:
+                    tracks = (at + el[1], el[2])
+                    break
+                if el[0] == _MKV_CLUSTER:
+                    out["faststart"] = False  # media before the list that describes it
+                    break
+                at += el[1] + el[2]
+            if tracks is None or tracks[1] > _MAX_MKV_TRACKS:
+                return out
+            fh.seek(tracks[0])
+            buf = fh.read(tracks[1])
+    except OSError:
+        return out
+    for eid, start, end in _ebml_children(buf, 0, len(buf)):
+        if eid != _MKV_TRACK_ENTRY:
+            continue
+        kind, codec, private = 0, "", b""
+        for cid, cs, ce in _ebml_children(buf, start, end):
+            if cid == _MKV_TRACK_TYPE:
+                kind = int.from_bytes(buf[cs:ce], "big")
+            elif cid == _MKV_CODEC_ID:
+                codec = buf[cs:ce].rstrip(b"\0").decode("ascii", "replace")
+            elif cid == _MKV_CODEC_PRIVATE:
+                private = buf[cs:ce]
+        key = {1: "codec", 2: "audio"}.get(kind)
+        if key and codec and not out[key]:
+            out[key] = _mkv_codec_name(codec)
+            if key == "codec" and out[key] in _PROFILES:
+                out["profile"] = _profile(out[key], private)
+    return out
+
+
+def probe_video(path: Path) -> dict:
+    """What the vault records about an episode's bytes. Ingest, the one-time
+    pass and first play all ask HERE, so none of them can describe the same
+    file differently. `playable` is whether the window opens it as it stands:
+    WebM always, an mp4 unless its picture's profile is one a browser does not
+    decode, an mkv when the tracks it would play decode in a browser — mov, avi
+    and ts never. What does not play gets a playable copy (library/copies.py)."""
+    ext = path.suffix.lower()
+    facts: dict = {"container": ext.lstrip("."), "playable": False, "codec": "", "faststart": True}
+    if ext in FASTSTART_EXTS:
+        held = probe_mp4(path)
+        facts.update(held, playable=held.get("profile") not in _UNDECODED_PROFILES)
+    elif ext in MATROSKA_EXTS:
+        held = probe_matroska(path)
+        facts.update(held, playable=ext == ".webm" or (
+            held["codec"] in _WEB_VIDEO_CODECS and held.get("profile") not in _UNDECODED_PROFILES
+            and (not held["audio"] or held["audio"] in _WEB_AUDIO_CODECS)))
+    return facts
 
 
 # Boxes on the path from `moov` down to the sample tables. Anything else is a

@@ -14,11 +14,16 @@ migrations do not run unless a test says it is about them:
     def test_episodes_already_in_the_vault_are_fixed_once(...):
 
 Those tests then wait for the thread themselves — `settled(lib)`.
+
+The playable-copy worker is the same kind of writer (library/copies.py): any
+episode a test stores that the window cannot play would start an ffmpeg behind
+it. It never starts here — a test about copies drives `CopyQueue.work` itself.
 """
 from __future__ import annotations
 
 import pytest
 
+from app.library.copies import CopyQueue
 from app.library.service import Library
 
 
@@ -29,6 +34,7 @@ def pytest_configure(config):
 
 @pytest.fixture(autouse=True)
 def _quiet_migrations(request, monkeypatch):
+    monkeypatch.setattr(CopyQueue, "_start", lambda self: None)
     if "migrations" in request.keywords:
         return
     monkeypatch.setattr(Library, "_migrations_bg", lambda self: None)

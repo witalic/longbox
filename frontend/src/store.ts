@@ -10,7 +10,8 @@ import {
 } from './api'
 import {
   chapterRowsOf, emptyFacets, metaOf, PAGE_FILTER_DEFAULTS, pageFilterOf, readerPrefsOf,
-  sameChapter, type Chapter, type Facets, type FieldDef, type MetaScope, type PageFilter, type PausedImport,
+  sameChapter, type Chapter, type CopyJob, type Facets, type FieldDef, type MetaScope, type PageFilter,
+  type PausedImport,
   type ReaderPrefs, type ReadState, type Source, type Title,
 } from './data'
 import {
@@ -441,6 +442,7 @@ export async function init() {
   void refreshPausedImports()
   // …and the vault check runs behind the window, refreshing it if disk moved on
   watchLibrarySync()
+  void pollCopies()
   // what a previous run left unfinished is already on the sidecar's list
   void pollDownloads(true)
   window.setInterval(() => void pollDownloads(), 1000)
@@ -1429,6 +1431,52 @@ async function sendMedia(job: MediaJob) {
   cache([await api.addChapterPages(job.titleId, cid, job.files)])
 }
 
+// ---- playable copies (design/playable-copies.md) ----
+// Made by the sidecar, which queues them itself — on ingest, on opening a
+// library — so the list is asked for on a slow tick even when nothing is known
+// to be waiting, and a quick one while something is.
+export const copies = reactive<{ available: boolean; jobs: CopyJob[] }>({ available: true, jobs: [] })
+let copyPoll: number | undefined
+// The copies that landed come numbered, so one made start to finish between two
+// slow ticks still reaches the title that shows it. -1: this library not asked
+// yet — whatever landed before then is already in what was loaded.
+let landedSeen = -1
+let landedGen = -1
+export async function pollCopies(): Promise<void> {
+  try {
+    const now = await api.copies()
+    if (landedGen !== store.libraryGen) [landedSeen, landedGen] = [-1, store.libraryGen]
+    const fresh = landedSeen < 0 ? [] : now.landed.filter((l) => l.seq > landedSeen)
+    landedSeen = Math.max(landedSeen, 0, ...now.landed.map((l) => l.seq))
+    Object.assign(copies, { available: now.available, jobs: now.jobs })
+    await Promise.all([...new Set(fresh.map((l) => l.titleId))].map(refreshTitle))
+  } catch { /* the sidecar is busy — the next tick asks again */ }
+  window.clearTimeout(copyPoll)
+  copyPoll = window.setTimeout(() => void pollCopies(),
+    copies.jobs.some((j) => j.state !== 'failed') ? 1000 : 10000)
+}
+export function copyJobFor(titleId: string, chapterId: string): CopyJob | undefined {
+  return copies.jobs.find((j) => j.titleId === titleId && j.chapterId === chapterId)
+}
+// The window could not show an episode, or the human asked for its copy.
+export async function requestCopy(titleId: string, chapterId: string): Promise<void> {
+  try {
+    const got = await api.requestCopy(titleId, chapterId)
+    if (got.state === 'landed') await refreshTitle(titleId) // made already: show it
+    else if (!copyJobFor(titleId, chapterId)) copies.jobs.push(got)
+  } catch { /* no ffmpeg here — the player says what it can */ }
+  void pollCopies()
+}
+export async function retryCopy(id: string): Promise<void> {
+  try { await api.retryCopy(id) } catch { /* it already left the list */ }
+  void pollCopies()
+}
+// a waiting or running copy given up, or a failed one dismissed
+export async function dropCopy(id: string): Promise<void> {
+  try { await api.dropCopy(id) } catch { /* it already left the list */ }
+  void pollCopies()
+}
+
 // The library is served from the index and verified against disk afterwards, so
 // this is what "still reading the folder" looks like to the user. A first-ever
 // open fills the index here; later opens finish before anyone notices.
@@ -1441,11 +1489,16 @@ export function watchLibrarySync() {
     try {
       const s = await api.libraryStatus()
       Object.assign(opening, { active: s.running, path: s.path, done: s.done, total: s.total })
-      if (s.running) return
+      if (s.running || s.migrating) return
       window.clearInterval(syncPoll)
       moveLegacyReaderPrefs() // the library has verified itself: "not found" now means it
-      // the verification found the vault had moved on — show what it now holds
-      if (s.changed) await Promise.all([reloadLibrary(), refreshDerived(), refreshTotal()])
+      // the verification (or a one-time pass) found the vault had moved on —
+      // show what it now holds, in the grid and in titles a tab already drew
+      if (s.changed || s.migrated) await Promise.all([reloadLibrary(), refreshDerived(), refreshTotal()])
+      if (s.migrated) {
+        await Promise.all([...new Set(store.tabs.flatMap((t) =>
+          t.place.kind === 'title' || t.place.kind === 'reader' ? [t.place.id] : []))].map(refreshTitle))
+      }
     } catch { /* the sidecar is busy reading — the next tick reports */ }
   }, 700)
 }

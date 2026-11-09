@@ -182,9 +182,11 @@ def stop_pass() -> dict:
 def library_status(request: Request) -> dict:
     """How the live library's verification against disk is going. A first-ever
     open fills the index here (progress worth showing); later opens find nothing
-    and finish before anyone looks."""
+    and finish before anyone looks. `migrating`/`migrated` follow a one-time
+    vault pass the same way: what it rewrote is already on screen."""
     lib = _lib(request)
-    return {"path": str(lib.root), **lib.sync_state}
+    return {"path": str(lib.root), **lib.sync_state,
+            "migrating": lib.migration_state["running"], "migrated": lib.migration_state["changed"]}
 
 
 class NormalizeOut(BaseModel):

@@ -5,6 +5,7 @@ import type {
   Bookmark, BrowseGroup, DraftCommit, Facets, FieldDef, FieldValues, FrameKind, ImportOverrides,
   ImportPlan, ImportProfile, ImportReport, ImportScan, LooseFile, MetaAction, MetaField, MetaHeld, MetaPreview,
   MetaRun, MetaScope, MetaValue, PageFilter, PageLink, PausedImport, Recipe, Rule, RuleApply, RuleStats, Source,
+  CopyJob,
   StoredPage, Subtitle, Title, UserPatch, ValuePage, ValuePeek,
 } from './data'
 
@@ -228,6 +229,13 @@ export const api = {
   // what only a player can measure without an ffprobe we do not ship
   setVideoMeta: (tid: string, cid: string, duration: number) =>
     req<Title>(`/titles/${tid}/chapters/${cid}/video/meta`, jsonBody('POST', { duration })),
+  // playable copies of episodes the window cannot show (design/playable-copies.md)
+  copies: () => req<{ available: boolean; jobs: CopyJob[]; landed: { seq: number; titleId: string }[] }>(
+    '/copies'),
+  requestCopy: (tid: string, cid: string) =>
+    req<CopyJob | { state: 'landed' }>(`/titles/${tid}/chapters/${cid}/copy`, { method: 'POST' }),
+  retryCopy: (id: string) => reqVoid(`/copies/${id}/retry`, { method: 'POST' }),
+  dropCopy: (id: string) => reqVoid(`/copies/${id}`, { method: 'DELETE' }),
   deleteChapterPages: (tid: string, cid: string, indices: number[]) =>
     req<Title>(`/titles/${tid}/chapters/${cid}/pages/delete`, jsonBody('POST', { indices })),
   // loose images (multi-select or a whole folder) appended to the entry's
@@ -254,7 +262,8 @@ export const api = {
   rebuildIndex: () => req<AppSettings>('/settings/rebuild', { method: 'POST' }),
   // read while a library switch is in flight: opening a populated vault is slow
   libraryStatus: () =>
-    req<{ running: boolean; path: string; done: number; total: number; changed: number }>(
+    req<{ running: boolean; path: string; done: number; total: number; changed: number
+          migrating: boolean; migrated: number }>(
       '/settings/library/status'),
   normalizeArchives: () => req<{ converted: number }>('/settings/normalize-archives', { method: 'POST' }),
   // one pass, three answers — duplicates and gaps ride along on the same walk

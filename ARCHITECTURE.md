@@ -86,10 +86,13 @@ library/
         <chapter-id>.json    download provenance sidecar (source, the name the file
                              ARRIVED under, pages, size, revision, page keys, sha256 of
                              the file + content digest of the pages, the ComicInfo stamp,
-                             and for an episode: container, playable, codec, faststart,
-                             duration, stills)
+                             and for an episode: container, playable, codec, audio
+                             (mkv/webm), profile (HEVC), faststart, duration, stills,
+                             copy / copyFailed (its playable copy, or why there is none))
         <chapter-id>.poster.jpg  the one frame a tile wears
         <chapter-id>.sheet.jpg   the 3x3 contact sheet a preview shows
+        <chapter-id>.play.mp4    an episode's playable copy, when the window cannot play it
+                                 as stored (design/playable-copies.md)
 ```
 
 - **The vault carries everything that describes the library; the app config carries the
@@ -143,7 +146,12 @@ library/
   this, the whole-vault sweep is a **migration, not a startup chore**: it runs once per vault
   (marked by `zipNormalized` in `vault.json`), on a background thread, and Settings can re-run it
   for content dropped into the folder by hand. Its sibling, the episode pass (`videoFaststart`),
-  moves an older mp4's index to the front once per vault, the way ingest does for new ones.
+  moves an older mp4's index to the front once per vault, the way ingest does for new ones, and
+  re-describes stored episodes through the same probe ingest uses (`media.probe_video`: mp4
+  boxes, or a Matroska file's track list — an mkv plays when its first video and audio tracks
+  are web codecs). It takes the episodes from the index's carried sidecars and opens only those
+  whose description could have moved on; only an empty index makes it walk the vault. The
+  library status reports a running pass (`migrating`), and the window re-reads what it rewrote.
 - **Episode stills.** The app ships no video decoder, so a frame cannot be cut on the backend —
   but the WINDOW decodes these files to play them. Episodes on screen get their stills one at a
   time, once each: a tile needs only a poster (three spots, the liveliest wins); a preview asks
@@ -275,11 +283,13 @@ backend/app/
             pages.py (value pages: what is written about a person, a tag…, worked out
             alongside the library's own answer; follows a rename) ·
             subtitles.py (an episode's subtitles: SRT/VTT/ASS → WebVTT, a language off a name) ·
+            copies.py (playable copies: what needs one, the background queue, landing it) ·
+            transcode.py (ffmpeg: finding it, reading streams, remux or H.264 encode) ·
             loose.py (the library's downloads folder: what came with nothing armed) ·
             folder_import.py (a folder already on disk: profiles, scan, plan, run) ·
             models.py (layers + flat DTO) · vault.py (shelves, locks, media ingest, covers,
             the vault/fields/authors/health files) · media.py (zip ops, conversion, thumbnails,
-            mp4 probe + faststart, digests) · index.py · service.py ·
+            mp4/Matroska probe + faststart, digests) · index.py · service.py ·
             migrations.py (title.json schema steps) · versions.py (versions + cache keys) ·
             fields.py (the metadata registry: builtin + per-library custom) ·
             comicinfo.py (the ComicInfo.xml mirror: build, parse, write into an archive)

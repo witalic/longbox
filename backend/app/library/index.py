@@ -263,6 +263,19 @@ class LibraryIndex:
         with self._lock:
             return {r["id"]: r["type"] for r in self._db.execute("SELECT id, type FROM titles")}
 
+    def episodes(self) -> dict[str, dict[str, dict]]:
+        """Every episode's sidecar, by title and stem, off the carried media — so a
+        pass over the episodes knows which files to open without a walk."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT id, media FROM titles WHERE instr(media, '\"video\"') > 0").fetchall()
+        out: dict[str, dict[str, dict]] = {}
+        for r in rows:
+            sides = {stem: s for stem, s in json.loads(r["media"]).items() if s.get("kind") == "video"}
+            if sides:
+                out[r["id"]] = sides
+        return out
+
     def docs_for(self, ids: list[str]) -> list[tuple[str, TitleDoc]]:
         """The indexed documents of these titles, in the order asked."""
         found: dict[str, TitleDoc] = {}
