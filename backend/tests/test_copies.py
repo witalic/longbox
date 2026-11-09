@@ -563,3 +563,6 @@ def test_a_matroska_file_described_by_its_tracks_is_not_reopened_by_a_later_pass
     assert _episode_may_be_stale({k: v for k, v in described.items() if k != "audio"})
     assert _episode_may_be_stale({**described, "codec": "h264"})  # its profile is not known yet
     assert not _episode_may_be_stale({**described, "codec": "h264", "profile": "high"})
+    # version 4: PCM sound plays, and the pass reads it again only where it was called unplayable
+    assert _episode_may_be_stale({**described, "audio": "pcm", "playable": False})
+    assert not _episode_may_be_stale({**described, "audio": "pcm", "playable": True})

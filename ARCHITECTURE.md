@@ -142,7 +142,9 @@ library/
 - **The zip invariant.** Every stored chapter archive is a plain zip: cbz keeps its bytes under
   the `.zip` name, rar/7z are repacked at ingest, single downloaded images append as pages into
   the chapter's zip, and an unreadable file is rejected — never stored opaque. So every page
-  operation (add / delete / move / reorder) works on every stored chapter. Because ingest enforces
+  operation (add / delete / move / reorder) works on every stored chapter. An episode is held to
+  the same rule by its first bytes (`media.video_ext_of`), and stored under the name of the
+  container they show — an mkv that arrived as `.mp4` is kept as `.mkv`. Because ingest enforces
   this, the whole-vault sweep is a **migration, not a startup chore**: it runs once per vault
   (marked by `zipNormalized` in `vault.json`), on a background thread, and Settings can re-run it
   for content dropped into the folder by hand. Its sibling, the episode pass (`videoFaststart`),

@@ -143,6 +143,8 @@ what waits there; the panel lists it, with where it came from.
 **What is stored beside it.** At ingest longbox records the duration, container, codecs and
 whether the file's index sits before the media; for `mp4`/`m4v` it moves the index to the front
 when it does not (that is what makes playback start at once instead of fetching the tail first).
+A file is stored under the name of what its bytes hold: an mkv that arrived called `.mp4` is kept
+as `.mkv`, and one that is no video at all (an error page saved as `.mp4`) is refused.
 The **contact sheet** — nine frames laid out 3×3, plus the single frame a tile wears — is cut
 once, by the window that plays the file (the app ships no decoder), and kept in the vault beside
 the media. Nothing re-reads the video to draw a thumbnail again.
@@ -155,7 +157,7 @@ player, carries on where you stopped. Reaching the end clears the point, so the 
 over.
 
 **Files a browser cannot open.** An `mkv` plays when what it holds does — H.264, VP9 or AV1
-video with AAC, Opus, Vorbis, MP3 or FLAC sound, which ingest reads from its track list. Everything
+video with AAC, Opus, Vorbis, MP3, FLAC or PCM sound, which ingest reads from its track list. Everything
 else the window cannot show — every `avi`, `mov` and `ts`, any other mkv, and HEVC beyond Main10
 (4:4:4, which most graphics will not decode in a browser and which would otherwise play its sound
 over a black screen) — gets a **playable copy**, made automatically in the background by the

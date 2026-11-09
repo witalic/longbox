@@ -119,6 +119,7 @@ def _profile(codec: str, config: bytes) -> str:
 
 # Matroska element IDs on the way from the file's head to each track's codec.
 _EBML_HEADER = 0x1A45DFA3
+_EBML_DOCTYPE = 0x4282
 _MKV_SEGMENT = 0x18538067
 _MKV_TRACKS = 0x1654AE6B
 _MKV_CLUSTER = 0x1F43B675
@@ -130,13 +131,15 @@ _MAX_MKV_TOP_LEVEL = 64
 # Matroska codec ID -> the name the rest of the app uses; any other ID is
 # named by its first part ("A_AAC/MPEG4/LC" -> "aac", "A_EAC3" -> "eac3")
 _MKV_CODECS = {"V_MPEG4/ISO/AVC": "h264", "V_MPEGH/ISO/HEVC": "hevc",
-               "V_MPEG4/ISO/ASP": "mpeg4", "A_MPEG/L3": "mp3", "A_MPEG/L2": "mp2"}
+               "V_MPEG4/ISO/ASP": "mpeg4", "A_MPEG/L3": "mp3", "A_MPEG/L2": "mp2",
+               "A_PCM/INT/LIT": "pcm", "A_PCM/INT/BIG": "pcm-be", "A_PCM/FLOAT/IEEE": "pcm-float"}
 # What the window decodes out of an mkv. HEVC is out: Chromium takes it only
 # where the platform decodes it. Audio decides as much as video does — a track
 # the engine cannot decode is dropped without an error, and the episode would
-# play in silence.
+# play in silence. Little-endian integer PCM was played in Electron 33 (an
+# MMD render's usual sound); big-endian and float PCM were not tried.
 _WEB_VIDEO_CODECS = frozenset({"h264", "vp8", "vp9", "av1"})
-_WEB_AUDIO_CODECS = frozenset({"aac", "opus", "vorbis", "mp3", "flac"})
+_WEB_AUDIO_CODECS = frozenset({"aac", "opus", "vorbis", "mp3", "flac", "pcm"})
 
 
 def _ebml_vint(buf: bytes, at: int, *, marker: bool) -> tuple[int, int] | None:
@@ -403,29 +406,47 @@ def _copy_range(fh, out, offset: int, length: int) -> None:
         out.write(chunk)
 
 
-def looks_like_video(path: Path, ext: str = "") -> bool:
-    """Whether the file's own bytes agree with its video extension — `ext`, or
-    the path's own when the file sits under a scratch name.
+def video_ext_of(path: Path, ext: str = "") -> str | None:
+    """The extension a video file is stored under: its own — `ext`, or the
+    path's when the file sits under a scratch name — while its bytes agree,
+    the one its bytes name when they do not, and None when they are no video.
 
     The same rule the zip invariant applies to page media: never store an
     opaque file. A site that answers a download with an HTML error page names
     it `.mp4` just as readily, and an episode that turns out to be 400 bytes of
-    markup should be refused at ingest, not discovered at play time."""
+    markup is refused at ingest, not discovered at play time. A Matroska file
+    called `.mp4` is another matter — a good episode under a wrong name — and is
+    kept under the name of what it is, since everything after ingest (the
+    probes, the content type it is served with, a playable copy) reads the
+    stored extension."""
     try:
         with path.open("rb") as fh:
-            head = fh.read(16)
+            head = fh.read(512)
     except OSError:
-        return False
+        return None
     ext = (ext or path.suffix).lower()
-    if ext in {".mp4", ".m4v", ".mov"}:
-        return head[4:8] == b"ftyp"
-    if ext in {".webm", ".mkv"}:
-        return head[:4] == bytes((0x1A, 0x45, 0xDF, 0xA3))  # EBML
-    if ext == ".avi":
-        return head[:4] == b"RIFF" and head[8:12] == b"AVI "
-    if ext == ".ts":
-        return head[:1] == bytes((0x47,))  # MPEG-TS sync byte
-    return False
+    if head[4:8] == b"ftyp":
+        return ext if ext in {".mp4", ".m4v", ".mov"} else ".mov" if head[8:12] == b"qt  " else ".mp4"
+    if head[:4] == _EBML_HEADER.to_bytes(4, "big"):
+        return ext if ext in MATROSKA_EXTS else ".webm" if _ebml_doctype(head) == "webm" else ".mkv"
+    if head[:4] == b"RIFF" and head[8:12] == b"AVI ":
+        return ".avi"
+    # one sync byte is all a .ts has to show; under any other name it takes a
+    # run of them, 188 bytes apart, to call a file a transport stream
+    if head[:1] == b"\x47" and (ext == ".ts" or head[188:189] == head[376:377] == b"\x47"):
+        return ".ts"
+    return None
+
+
+def _ebml_doctype(head: bytes) -> str:
+    """What an EBML header calls its document: "webm", "matroska"."""
+    el = _ebml_element(head, 0)
+    if el is None or el[2] is None:
+        return ""
+    for eid, start, end in _ebml_children(head, el[1], min(el[1] + el[2], len(head))):
+        if eid == _EBML_DOCTYPE:
+            return head[start:end].rstrip(b"\0").decode("ascii", "replace")
+    return ""
 
 
 ARCHIVE_EXTS = {".zip", ".cbz", ".rar", ".cbr", ".7z", ".cb7"}

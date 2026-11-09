@@ -18,8 +18,9 @@ from app.library.rules import Rule
 from app.library.service import Library
 from app.main import create_app
 from app.settings import get_settings
+from .test_video import _mkv
 
-JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 64
+JPEG =b"\xff\xd8\xff\xe0" + b"\x00" * 64
 
 
 @pytest.fixture(autouse=True)
@@ -192,6 +193,26 @@ def test_image_folders_and_archives_are_entries_and_a_pattern_numbers_them(lib, 
         ("3", "Berserk Ch. 003", "Vol. 02", "archive", "new"),
         ("", "", "Vol. 02", "archive", "unreadable")]  # listed, never stored
     assert any(i.path == "Berserk/Thumbs.db" for i in pl.ignored)
+
+
+def test_a_video_under_another_containers_name_is_imported_as_what_it_is(lib, tmp_path):
+    """An mkv called `.mp4` is a good episode under a wrong name: imported, and
+    stored as `.mkv`. Bytes that are no video at all are still left out."""
+    src = tmp_path / "src"
+    mp4(src / "Work" / "a.mp4")
+    _mkv(src / "Work" / "b.mp4", (1, "V_MPEG4/ISO/AVC"), (2, "A_PCM/INT/LIT"))
+    (src / "Work" / "c.mp4").write_bytes(b"<html>not found</html>")
+    profile = fi.Profile(levels=[fi.Level(role="collection"), fi.Level(role="work")])
+    pl = fi.plan(lib, fi.scan(src), profile)
+    assert [(e.path, e.state) for e in pl.works[0].entries] == [
+        ("Work/a.mp4", "new"), ("Work/b.mp4", "new"), ("Work/c.mp4", "unreadable")]
+
+    report = go(lib, src, profile)
+    assert (report.imported, report.failed) == (2, [])
+    t = titles(lib)["Work"]
+    assert {c.origName: lib.vault.chapter_media_path(t.id, c.id).suffix for c in t.chapters} == {
+        "a.mp4": ".mp4", "b.mp4": ".mkv"}
+    assert all(c.playable for c in t.chapters)
 
 
 def test_a_folder_of_pages_is_stored_as_one_plain_zip(lib, tmp_path):

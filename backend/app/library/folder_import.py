@@ -250,7 +250,7 @@ class Scan:
 
 def _readable(path: Path, kind: Kind) -> bool:
     if kind == "video":
-        return media.looks_like_video(path)
+        return media.video_ext_of(path) is not None
     if kind == "archive":
         return media.looks_like_archive(path)
     return True

@@ -162,7 +162,8 @@ NORMALIZE_VERSION = 1
 # holds — an mkv of web codecs plays, and a WebM's index is not at its tail.
 # 3: the picture's profile is read (an mp4's HEVC, any mkv's H.264 or HEVC), and
 # one a browser does not decode — Range Extensions, High 10 — does not play.
-FASTSTART_VERSION = 3
+# 4: an mkv's PCM sound is told apart by kind, and the little-endian kind plays.
+FASTSTART_VERSION = 4
 
 
 def _episode_may_be_stale(side: dict) -> bool:
@@ -174,7 +175,8 @@ def _episode_may_be_stale(side: dict) -> bool:
             or (ext in media.MATROSKA_EXTS and "audio" not in side)  # by its name before version 2
             or (ext in media.FASTSTART_EXTS and not side.get("faststart"))
             or (side.get("codec") == "hevc" and "profile" not in side)  # version 3
-            or (ext in media.MATROSKA_EXTS and side.get("codec") == "h264" and "profile" not in side))
+            or (ext in media.MATROSKA_EXTS and side.get("codec") == "h264" and "profile" not in side)
+            or (ext in media.MATROSKA_EXTS and side.get("audio") == "pcm" and not side.get("playable")))
 
 
 def _translit(s: str) -> str:
@@ -941,16 +943,18 @@ class Vault:
         PAGE media becomes `<stem>.zip`: zip content (incl. cbz) moves as-is,
         rar/7z are repacked, and an unreadable archive raises
         UnsupportedArchiveError BEFORE anything in the vault is touched. VIDEO
-        media is stored as the file itself under its own extension — an episode
-        gains nothing from a zip and would pay a full rewrite for every edit.
+        media is stored as the file itself under the extension its bytes give
+        it (`media.video_ext_of`) — an episode gains nothing from a zip and
+        would pay a full rewrite for every edit; one that is no video raises.
         The sidecar always describes the file actually stored.
         """
         arrived_as = Path(filename or src.name).name
-        video_ext = Path(arrived_as).suffix.lower()
-        as_video = video_ext in media.VIDEO_EXTS
-        if as_video and not media.looks_like_video(src, video_ext):
+        named = Path(arrived_as).suffix.lower()
+        as_video = named in media.VIDEO_EXTS
+        video_ext = media.video_ext_of(src, named) if as_video else ""
+        if video_ext is None:
             raise media.UnsupportedArchiveError(
-                f"unsupported video file: {video_ext or 'unknown'} content does not match")
+                f"unsupported video file: {named} content is not a video")
         with self._lock(title_id):
             self.let_go(title_id, chapter_id)
             d = self._chapters_dir(title_id)

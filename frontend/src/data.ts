@@ -773,7 +773,7 @@ export function unsupportedTitle(c: Chapter): string {
 }
 export const UNSUPPORTED_HINT =
   'The file is stored in your vault, but the app cannot play it. MP4, M4V and WebM play, '
-  + 'and so does MKV with H.264, VP9 or AV1 video and AAC, Opus, Vorbis, MP3 or FLAC sound.'
+  + 'and so does MKV with H.264, VP9 or AV1 video and AAC, Opus, Vorbis, MP3, FLAC or PCM sound.'
 // A playable copy being made (design/playable-copies.md) — the sidecar's queue.
 export interface CopyJob {
   id: string

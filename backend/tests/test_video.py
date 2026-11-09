@@ -128,6 +128,55 @@ def test_a_video_that_is_not_one_is_refused_at_ingest(tmp_path):
     lib.close()
 
 
+def _riff_avi(path: Path) -> Path:
+    path.write_bytes(b"RIFF\x00\x10\x00\x00AVI LIST" + b"\x00" * 64)
+    return path
+
+
+def _ts(path: Path, packets: int = 3) -> Path:
+    path.write_bytes((b"\x47" + b"\x00" * 187) * packets)
+    return path
+
+
+@pytest.mark.parametrize("named, write, kept", [
+    (".mp4", _mp4, ".mp4"),
+    (".m4v", _mp4, ".m4v"),
+    (".mkv", _mp4, ".mp4"),                                    # an mp4 called mkv
+    (".mp4", lambda p: _mkv(p, (1, "V_AV1")), ".mkv"),
+    (".mp4", lambda p: _mkv(p, (1, "V_VP9"), doc="webm"), ".webm"),
+    (".mkv", lambda p: _mkv(p, (1, "V_VP9"), doc="webm"), ".mkv"),  # either name is a WebM's own
+    (".mp4", _riff_avi, ".avi"),
+    (".mp4", _ts, ".ts"),
+    (".ts", lambda p: _ts(p, packets=1), ".ts"),
+    (".mp4", lambda p: p.write_bytes(b"GET / HTTP/1.1\r\n" + b"\x00" * 600), None),  # one 0x47 is no stream
+    (".mp4", lambda p: p.write_bytes(b"<html>not found</html>"), None),
+])
+def test_a_video_is_named_by_its_bytes(tmp_path, named, write, kept):
+    path = tmp_path / f"ep{named}"
+    write(path)
+    assert media.video_ext_of(path) == kept
+
+
+def test_a_video_under_another_containers_name_is_stored_as_what_it_is(tmp_path):
+    """A Matroska file called `.mp4` — a renamer's doing, or a site's — is a good
+    episode under a wrong name. It is kept as `.mkv`, so everything that reads
+    the stored name (the probes, the content type, a playable copy) reads it
+    right, and the name it arrived with is remembered."""
+    lib = Library(tmp_path / "v")
+    out = lib.create(DraftIn(meta=TitleMeta(title="Series")))
+    src = _mkv(tmp_path / "ep1.mp4", (1, "V_MPEG4/ISO/AVC"), (2, "A_PCM/INT/LIT"))
+    lib.attach_chapter_media(out.id, num="1", lang="", group="", src=src,
+                             sidecar={"filename": "ep1.mp4"})
+    chapter = lib.get(out.id).chapters[0]
+    assert lib.vault.chapter_media_path(out.id, chapter.id).suffix == ".mkv"
+    assert (chapter.container, chapter.codec, chapter.audio, chapter.playable) == ("mkv", "h264", "pcm", True)
+    assert chapter.origName == "ep1.mp4"
+    with TestClient(create_app(lib)) as c:
+        r = c.get(f"/api/titles/{out.id}/chapters/{chapter.id}/video", headers={"Range": "bytes=0-3"})
+        assert r.status_code == 206 and r.headers["content-type"] == "video/x-matroska"
+    lib.close()
+
+
 def test_the_episode_is_served_with_seeking(tmp_path):
     """Playback needs range requests, or the player can only ever stream from
     the start — no scrubbing, no resume."""
@@ -451,6 +500,8 @@ def test_a_container_the_app_cannot_play_says_so_before_it_is_opened(tmp_path):
     (((1, "V_VP9"),), True),                                   # no sound at all
     (((1, "V_MPEGH/ISO/HEVC"), (2, "A_AAC")), False),
     (((1, "V_MPEG4/ISO/AVC"), (2, "A_AC3"), (2, "A_AAC")), False),  # the FIRST audio plays
+    (((1, "V_MPEG4/ISO/AVC"), (2, "A_PCM/INT/LIT")), True),    # an MMD render's usual sound
+    (((1, "V_MPEG4/ISO/AVC"), (2, "A_PCM/INT/BIG")), False),
     (((2, "A_OPUS"),), False),                                 # nothing to watch
 ])
 def test_an_mkv_plays_when_what_it_holds_does(tmp_path, tracks, playable):
@@ -520,6 +571,28 @@ def test_an_mkv_stored_before_the_app_read_its_tracks_is_restamped_once(tmp_path
     assert chapter.playable is True and chapter.faststart is True
     assert (chapter.codec, chapter.audio) == ("av1", "opus")
     assert chapter.v == before.v
+    assert lib.refresh_episodes() == 0
+    lib.close()
+
+
+def test_an_mkv_whose_pcm_sound_was_called_unplayable_is_restamped_once(tmp_path):
+    """Before version 4 of the pass PCM sound did not count as playable, and a
+    playable copy was queued for an episode the window plays as it is."""
+    lib = Library(tmp_path / "v")
+    out = lib.create(DraftIn(meta=TitleMeta(title="Series")))
+    lib.attach_chapter_media(out.id, num="1", lang="", group="",
+                             src=_mkv(tmp_path / "ep.mkv", (1, "V_MPEG4/ISO/AVC"), (2, "A_PCM/INT/LIT")),
+                             sidecar={"filename": "ep.mkv"})
+    cid = lib.get(out.id).chapters[0].id
+    side_path = lib.vault.chapters_dir(out.id) / f"{cid}.json"
+    side = json.loads(side_path.read_text(encoding="utf-8"))
+    side_path.write_text(json.dumps({**side, "playable": False}), encoding="utf-8")
+    lib._sidecar_cache.clear()
+    lib._index(out.id, lib.vault.load(out.id))
+    assert lib.get(out.id).chapters[0].playable is False
+
+    assert lib.refresh_episodes() == 1
+    assert lib.get(out.id).chapters[0].playable is True
     assert lib.refresh_episodes() == 0
     lib.close()
 

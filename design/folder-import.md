@@ -200,7 +200,9 @@ chosen included — and the preview after it starts from that reading.
 The preview lists the works to be created or extended, and each work's entries with number, name,
 kind, size and a state: **new**, **in library** (skipped), **replace**, **conflict** (a duplicate
 number or title), **unreadable** (checked cheaply at plan time: a zip's directory, an archive's
-header, a video's first bytes — listed and left out, never stored as an opaque file),
+header, a video's first bytes — listed and left out, never stored as an opaque file; a video whose
+bytes are another container than its name says, an mkv called `.mp4`, is no problem: it is stored
+under the name of what it is),
 **ignored**. Each work's row shows the metadata it will receive, and folds its entries away; a work
 left out folds itself. The owner can untick a work or an entry, retype a work's title, or give a
 work values of its own (§4); those choices belong to this run, not to the profile.
