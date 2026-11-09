@@ -14,7 +14,7 @@ import { api } from '../api'
 import { closeReader, keepReaderSpot, setRead, setReaderPrefs, store, titleById } from '../store'
 import {
   READ_COLOR as readColor, coverAt, filterOptions, formatDuration, groupByNum, hueFor,
-  isReadable, mediaLabel, orderedChaptersOf, readerPrefsOf, type Chapter, type Title,
+  isReadable, mediaLabel, opensSection, orderedChaptersOf, readerPrefsOf, type Chapter, type Title,
 } from '../data'
 import { bindingsFor, keyLabel, matches } from '../keys'
 import { isRecord, readLocal, readLocalOne, writeLocal, writeLocalOne } from '../local'
@@ -439,7 +439,8 @@ const WIDTH_PRESETS = [600, 720, 900]
             <Dropdown v-if="groupOpts.length > 2" label="GROUP" :model-value="groupFilter" :options="groupOpts" @update:model-value="groupFilter = String($event)" />
           </div>
           <div class="rlist scroll">
-            <template v-for="node in listTree" :key="node.num">
+            <template v-for="(node, i) in listTree" :key="node.num">
+              <div v-if="opensSection(listTree, i)" class="rpart mono">{{ node.rows[0].section }}</div>
               <!-- one label, several translations → header + guide-lined group -->
               <template v-if="node.rows.length > 1">
                 <div class="rrow rnode">
@@ -546,6 +547,10 @@ const WIDTH_PRESETS = [600, 720, 900]
 .rname b { font: 600 12px/1 ui-monospace, monospace; }
 .rnode { cursor: default; color: var(--tx2); }
 .rnode:hover { background: transparent; }
+/* a section of the contents — the title page's heading (TitleView .chsec) at the rail's scale */
+.rpart { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 8px 3px; font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); text-transform: uppercase; }
+.rpart:first-child { padding-top: 2px; }
+.rpart::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 .rgrp { margin-left: 10px; padding-left: 9px; border-left: 2px solid var(--line); display: flex; flex-direction: column; gap: 2px; }
 .rgrp .rrow { background: color-mix(in srgb, var(--panel) 40%, transparent); }
 .rgrp .rrow:hover { background: var(--hover); }

@@ -801,6 +801,13 @@ export function groupByNum<T extends { num: string }>(rows: T[]): { num: string;
   return order.map((num) => ({ num, rows: by.get(num)! }))
 }
 
+// A section heading opens wherever the part changes — in display order, so a
+// hand-arranged list reads exactly as arranged; an entry with none sits in none.
+export function opensSection(nodes: readonly { rows: readonly { section: string }[] }[], i: number): boolean {
+  const here = nodes[i].rows[0].section
+  return !!here && (i === 0 || nodes[i - 1].rows[0].section !== here)
+}
+
 // The meta layer of a title, copied — draft seeding and targeted commits build
 // the SAME shape from one place, so a meta field can't be missed in either.
 export function metaOf(t: Title, fields: FieldDef[]): TitleMeta {

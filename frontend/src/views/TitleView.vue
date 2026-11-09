@@ -41,7 +41,7 @@ import {
   titleById, visibleFields, type MediaEntry,
 } from '../store'
 import {
-  READ_COLOR as readColor, groupByNum, statusColor, initials,
+  READ_COLOR as readColor, groupByNum, opensSection, statusColor, initials,
   type Chapter, type ReadState, type Title,
 } from '../data'
 
@@ -212,12 +212,6 @@ const tree = computed<ChapterNode[]>(() => groupByNum(orderedChapters.value.filt
   (langFilter.value === 'all' || c.lang === langFilter.value)
   && (groupFilter.value === 'all' || c.group === groupFilter.value))))
 const closedNums = reactive<Record<string, boolean>>({}) // tree nodes default to open
-// A section heading opens wherever the part changes — in display order, so a
-// hand-arranged list reads exactly as arranged; an entry with none sits in none.
-function opensSection(i: number): boolean {
-  const here = tree.value[i].rows[0].section
-  return !!here && (i === 0 || tree.value[i - 1].rows[0].section !== here)
-}
 
 // ---- edit mode: reorder (drag num-groups), delete rows/files/pages ----
 // Per TITLE: this screen is one for every title tab, and the contents being
@@ -1146,7 +1140,7 @@ async function removeRow(c: Chapter) {
 
         <div v-if="tree.length" class="chlist scroll">
           <template v-for="(node, i) in tree" :key="node.num">
-            <div v-if="opensSection(i)" class="chsec mono">{{ node.rows[0].section }}</div>
+            <div v-if="opensSection(tree, i)" class="chsec mono">{{ node.rows[0].section }}</div>
             <!-- GROUP: header row + translations inside a guide-lined block -->
             <template v-if="node.rows.length > 1">
               <div class="chrow node" :class="{ dragging: dragNum === node.num, dropbefore: dropTarget === node.num }"
