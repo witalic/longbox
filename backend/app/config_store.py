@@ -1,9 +1,11 @@
-"""App configuration persisted OUTSIDE the library (so it survives changing the
-library path). A small JSON file in the OS per-user config dir.
+"""What THIS computer keeps: where the vaults are, and nothing else
+(design/vault-home.md). A small JSON file in the app's own folder:
 
-It holds what belongs to THIS machine and nothing that describes a library:
-where the libraries are, the browser's homepage, and transfers a quit cut
-short. Anything a library should carry to another machine lives in its vault.
+    {"libraries": [...], "library_path": "<the vault opened last>"}
+
+Everything the app keeps besides that lives in the vault it serves. The shell
+writes the file when a vault is opened or created; the sidecar reads it, forgets
+a vault on request, and hands what an older build left here to the vault.
 """
 from __future__ import annotations
 
@@ -11,6 +13,7 @@ import json
 import os
 import sys
 import threading
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -31,8 +34,7 @@ def config_dir() -> Path:
         d = Path.home() / "Library" / "Application Support" / "longbox"
     else:
         d = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "longbox"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    return d  # made by the first write (save_config), never by a read
 
 
 def config_path() -> Path:
@@ -51,26 +53,37 @@ def load_config() -> dict:
 
 def save_config(cfg: dict) -> None:
     # atomic tmp → replace: a crash mid-write must never truncate the config
-    # (it holds every registered library path)
+    # (it holds every registered library path); the scratch name is this
+    # write's own — the shell writes the same file
     with _CONFIG_LOCK:
         path = config_path()
         # the directory can be missing on a first run — or after someone cleared
         # it while the app was up; a write must not depend on who made it
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(path.name + ".tmp")
+        tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex[:8]}.tmp")
         tmp.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
         os.replace(tmp, path)
+
+
+class UnreadableConfig(RuntimeError):
+    """config.json is there but cannot be read: it is the only record of where
+    the vaults are, so nothing is written over it."""
 
 
 @contextmanager
 def config_transaction():
     """Load → mutate → save as ONE serialized step; concurrent writers can't
-    clobber each other's fields."""
+    clobber each other's fields. A config that exists but cannot be read is
+    refused, never replaced by what this write alone knows."""
     with _CONFIG_LOCK:
-        cfg = load_config()
+        p = config_path()
+        try:
+            cfg = json.loads(p.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            cfg = {}
+        except (ValueError, OSError) as e:
+            raise UnreadableConfig(f"{p} cannot be read — fix or move it aside") from e
+        if not isinstance(cfg, dict):
+            raise UnreadableConfig(f"{p} cannot be read — fix or move it aside")
         yield cfg
         save_config(cfg)
-
-
-def default_library_path() -> Path:
-    return config_dir() / "library"

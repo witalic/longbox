@@ -110,7 +110,7 @@ class LooseStore:
         """Move a finished download in, under the name it came with — a name
         already there gets ` (2)`, ` (3)`… rather than replacing it."""
         name = clean_name(filename or src.name)
-        self.folder.mkdir(parents=True, exist_ok=True)
+        self.vault.make_dir(self.folder)
         stem, ext = Path(name).stem, Path(name).suffix
         final, n = self.folder / name, 1
         while final.exists():

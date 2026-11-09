@@ -25,6 +25,7 @@ import TabHost from './components/TabHost.vue'
 import TitleView from './views/TitleView.vue'
 import ReaderView from './views/ReaderView.vue'
 import ValuePeek from './components/ValuePeek.vue'
+import VaultLost from './components/VaultLost.vue'
 import SourcesView from './views/SourcesView.vue'
 import BrowserView from './views/BrowserView.vue'
 
@@ -391,6 +392,9 @@ function doRestore(i: number) {
 
 init()
 initSessions()
+// the app came back into a vault that had dropped: the tabs it had are put back
+// (the last run's session is the newest in the history now)
+if (new URLSearchParams(window.location.search).has('restore') && sessionHistory.length) restoreSession(0)
 </script>
 
 <template>
@@ -590,8 +594,7 @@ initSessions()
     <main class="main">
       <div class="viewport scroll">
         <!-- every app tab but a title keeps its screen while it is open -->
-        <!-- a library switch starts every screen over: they all named the old vault -->
-        <KeepAlive :key="store.libraryGen" :include="keptHosts">
+        <KeepAlive :include="keptHosts">
           <component :is="hostOf(hosted.id)" v-if="hosted" :key="hosted.id" :tab="hosted" />
         </KeepAlive>
         <TitleView v-if="store.view === 'title'" />
@@ -616,6 +619,7 @@ initSessions()
     </div>
     <ConfirmModal />
     <ValuePeek />
+    <VaultLost />
   </div>
 </template>
 

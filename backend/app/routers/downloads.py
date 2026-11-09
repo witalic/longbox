@@ -20,7 +20,6 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
-from ..config_store import config_transaction, load_config
 from ..library import loose, media
 from ..library.loose import LooseFile
 from ..library.models import TitleOut
@@ -92,10 +91,9 @@ def _lib(request: Request) -> Library:
 _INTERRUPTED = "interrupted_downloads"
 
 
-def _load_interrupted() -> list[DownloadItem]:
-    rows = load_config().get(_INTERRUPTED) or []
+def _load_interrupted(lib: Library) -> list[DownloadItem]:
     out: list[DownloadItem] = []
-    for row in rows if isinstance(rows, list) else []:
+    for row in lib.state.rows(_INTERRUPTED):
         try:
             out.append(DownloadItem.model_validate(row))
         except ValueError:
@@ -103,9 +101,11 @@ def _load_interrupted() -> list[DownloadItem]:
     return out
 
 
-def _save_interrupted(items: list[DownloadItem]) -> None:
-    with config_transaction() as cfg:
-        cfg[_INTERRUPTED] = [i.model_dump() for i in items[:KEEP_ITEMS]]
+def _save_interrupted(request: Request) -> None:
+    """The transfers waiting to be picked up, kept in the vault they are for."""
+    keep = [i for i in _items(request).values() if i.state == "interrupted"][:KEEP_ITEMS]
+    with _lib(request).state.edit(_INTERRUPTED) as rows:
+        rows[:] = [i.model_dump() for i in keep]
 
 
 def _items(request: Request) -> dict[str, DownloadItem]:
@@ -113,17 +113,8 @@ def _items(request: Request) -> dict[str, DownloadItem]:
         if not hasattr(request.app.state, "downloads"):
             # what a previous run left unfinished is part of the list from the
             # first request, not something the UI has to ask for separately
-            request.app.state.downloads = {i.id: i for i in _load_interrupted()}
+            request.app.state.downloads = {i.id: i for i in _load_interrupted(_lib(request))}
         return request.app.state.downloads
-
-
-def forget_downloads(app) -> None:
-    """Drop the armed slot and the item list. A library switch MUST call this:
-    an arm names a title id, and the same id can exist in the vault we just
-    moved to — the file would land in the wrong library's chapter."""
-    with _DL_LOCK:
-        app.state.armed_download = None
-        app.state.downloads = {}
 
 
 def _armed(request: Request) -> ArmIn | None:
@@ -191,8 +182,7 @@ class FolderOut(BaseModel):
 def loose_folder(request: Request) -> FolderOut:
     """Where the folder is, for the system's file manager — as the library's
     own path spells it (a mapped drive stays a drive letter)."""
-    folder = _lib(request).loose.folder
-    folder.mkdir(parents=True, exist_ok=True)
+    folder = _lib(request).vault.make_dir(_lib(request).loose.folder)
     return FolderOut(path=os.path.abspath(folder))
 
 
@@ -211,7 +201,7 @@ def interrupted(request: Request, download_id: str, body: InterruptIn) -> Downlo
     item.state = "interrupted"
     item.error = body.reason or "stopped"
     item.resume = body.resume
-    _save_interrupted([i for i in _items(request).values() if i.state == "interrupted"])
+    _save_interrupted(request)
     return item
 
 
@@ -227,7 +217,7 @@ def resumed(request: Request, download_id: str) -> DownloadItem:
         raise HTTPException(status_code=404, detail="that title is gone")
     item.state = "downloading"
     item.error = ""
-    _save_interrupted([i for i in _items(request).values() if i.state == "interrupted"])
+    _save_interrupted(request)
     return item
 
 
@@ -238,7 +228,7 @@ def forget(request: Request, download_id: str) -> Response:
     the human has read. Declared AFTER /arm: a wildcard swallows it otherwise."""
     dropped = _items(request).pop(download_id, None)
     if dropped is not None and dropped.state == "interrupted":
-        _save_interrupted([i for i in _items(request).values() if i.state == "interrupted"])
+        _save_interrupted(request)
     return Response(status_code=204)
 
 

@@ -96,11 +96,12 @@ tags or cover, and longbox learns a reusable per-site recipe.
   becomes a source the moment you bookmark a page on it, and sits under **no recipe** until you
   teach it one.
 - **Local-first storage** — one directory per title on a per-type shelf; a rebuildable SQLite index
-  (deleting it never loses content); atomic writes; multiple switchable library locations.
-  Everything that describes a library lives in it — recipes, sources with their groups and
-  bookmarks, your fields, how the reader shows each title — so copying the folder to another
-  machine moves the whole library. The app's own folder keeps only what belongs to the machine:
-  where its libraries are, unfinished transfers, caches and your sign-ins.
+  (deleting it never loses content); atomic writes; several vaults, one open at a time.
+  Everything the app keeps lives in the vault — recipes, sources with their groups and bookmarks,
+  your fields, how the reader shows each title, the window's settings, the embedded browser's
+  sign-ins and cache, unfinished transfers, previews — so copying the folder to another machine
+  moves the whole library, and two vaults never share a thing. The app's own folder keeps only
+  where your vaults are.
 - **Integrity** — every stored file is checksummed as it lands, and a revision pass checks the vault
   against its own records: damaged archives, files gone missing, records without media, leftovers
   from an interrupted write. Content stored twice is found by what the pages *are*, not by the file
@@ -175,13 +176,29 @@ close first.
 ## Settings
 
 One section at a time, chosen from the rail the rest of the app already uses, each carrying its
-own state so you can see what needs you without opening it: **Storage** (library folders),
+own state so you can see what needs you without opening it: **Storage** (your vaults: opening
+another restarts the app into it; create one, add one, forget one),
 **Health** (below), **Maintenance** (rebuild the index, convert archives, write metadata into
 them), **Fields**, **Browser**, **Appearance**, **Keyboard**, **About**.
 
 Everything that walks the library — a check, a conversion, a sweep, a field retype — takes the
 same single slot, shows the same progress and can be stopped from where it was started. The
 sidecar names what is running, so leaving the page does not lose it.
+
+## Where the library lives
+
+The library is a folder — the **vault** — that you choose: on this disk, another one, or a network
+drive. Nothing is created unasked: the first launch asks where to make a vault or which one to
+open, and a folder that holds anything else is never taken for one. When the last vault answers at
+once the app opens straight into it; when it does not — a network drive still waking up, or gone —
+a small window says which and keeps trying, opening the vault the moment it answers, with the
+other vaults one click away. A vault open on another computer is reported rather than shared:
+two apps writing into one vault would damage its index and the browser data in it.
+
+If the vault drops while the app is open, the app stops using it: nothing is read from it and
+nothing is written anywhere until it is back, the browser's pages and running transfers are
+stopped, and the window says what stopped. When the vault answers again the app restarts into it
+and reopens your tabs ([design/vault-home.md](design/vault-home.md)).
 
 ## Keeping the vault honest
 

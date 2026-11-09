@@ -1,26 +1,23 @@
-"""Settings endpoints: the registered libraries (switchable on the fly), the
-browser homepage, and index maintenance."""
+"""Settings endpoints: the registered libraries, the browser homepage and the
+window's preferences (both kept in the vault), and index maintenance. Opening
+another library is the shell's: it restarts the app into it
+(design/vault-home.md)."""
 from __future__ import annotations
 
 import json
 import sys
-import threading
-from contextlib import contextmanager
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from ..config_store import config_transaction, load_config
 from ..passes import PASS, _pass, stop_event
 from ..library.service import Library
-from .downloads import forget_downloads
+from ..library.app_docs import DEFAULT_HOMEPAGE
+from ..library.vault import UnreadableDocument
 
 router = APIRouter(prefix="/api")
-
-
-DEFAULT_HOMEPAGE = "https://www.google.com"
-
 
 
 # ONE source of app identity: app-meta.json (name, version, updated).
@@ -63,6 +60,15 @@ class HomepageIn(BaseModel):
     homepage: str
 
 
+class PrefsOut(BaseModel):
+    prefs: dict[str, str]
+
+
+class PrefsIn(BaseModel):
+    put: dict[str, str] = {}
+    drop: list[str] = []
+
+
 def _lib(request: Request) -> Library:
     return request.app.state.library
 
@@ -79,13 +85,22 @@ def _libraries(cfg: dict, current: str) -> list[str]:
     return libs
 
 
+def _homepage(lib: Library) -> str:
+    # settings.json broken, or a newer build's: the browser starts on the default
+    # — the rest of what /settings answers must not go down with it
+    try:
+        return lib.settings.homepage()
+    except UnreadableDocument:
+        return DEFAULT_HOMEPAGE
+
+
 def _out(request: Request, cfg: dict | None = None) -> SettingsOut:
     cfg = cfg if cfg is not None else load_config()
     lib = _lib(request)
     current = str(lib.root)
     return SettingsOut(
         library_path=current, title_count=lib.count(),
-        homepage=cfg.get("homepage") or DEFAULT_HOMEPAGE,
+        homepage=_homepage(lib),
         libraries=_libraries(cfg, current),
         app=app_meta(),
     )
@@ -98,58 +113,20 @@ def get_settings_ep(request: Request) -> SettingsOut:
 
 @router.put("/settings/homepage", response_model=SettingsOut)
 def set_homepage(request: Request, body: HomepageIn) -> SettingsOut:
-    with config_transaction() as cfg:
-        cfg["homepage"] = body.homepage.strip() or DEFAULT_HOMEPAGE
-    return _out(request, cfg)
+    _lib(request).settings.set_homepage(body.homepage)
+    return _out(request)
 
 
-@router.put("/settings/library-path", response_model=SettingsOut)
-def set_library_path(request: Request, body: LibraryPathIn) -> SettingsOut:
-    """Switch the ACTIVE library (registering the path). Existing content at the
-    target is simply indexed — switching never touches files."""
-    if PASS["running"]:
-        # a pass writes into THIS library; switching under it would close the
-        # index it is writing to
-        raise HTTPException(status_code=409, detail=f"{PASS['op']} is running — let it finish first")
-    path = Path(_norm(body.path))
-    try:
-        path.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        raise HTTPException(status_code=400, detail=f"cannot use that path: {exc}")
+@router.get("/settings/prefs", response_model=PrefsOut)
+def window_prefs(request: Request) -> PrefsOut:
+    """The window's preferences, read once before it draws anything."""
+    return PrefsOut(prefs=_lib(request).settings.window())
 
-    old = _lib(request)
-    if path.resolve() == Path(old.root).resolve():
-        return _out(request)  # already there — a second Library over one vault
-                              # would mean two lock sets guarding the same files
 
-    # Open the new location FIRST: if it can't be indexed, the switch fails with
-    # the old library still live. Writing the config before that would point the
-    # next launch at a folder the app cannot open — with no UI left to fix it.
-    try:
-        # the index is enough to answer with; the disk is verified behind us
-        new = Library(path, defer_sync=True)
-    except Exception as exc:  # noqa: BLE001 — an unreadable vault must not strand the app
-        raise HTTPException(status_code=400, detail=f"cannot open that library: {exc}")
-    new.sync_in_background()
-
-    with config_transaction() as cfg:
-        cfg["library_path"] = str(path)
-        libs = [x for x in (cfg.get("libraries") or []) if isinstance(x, str) and x.strip()]
-        # switching must REGISTER both sides: the library we're leaving (which may
-        # predate the list entirely) and the one we're entering — nothing vanishes
-        previous = str(old.root)
-        if previous not in libs:
-            libs.insert(0, previous)
-        if str(path) not in libs:
-            libs.append(str(path))
-        cfg["libraries"] = libs
-
-    forget_downloads(request.app)  # an arm belongs to the vault it was made in
-    request.app.state.library = new
-    # the old one closes on a delay: requests already holding it mid-query must
-    # not hit a closed SQLite connection
-    threading.Timer(5.0, old.close).start()
-    return _out(request, cfg)
+@router.patch("/settings/prefs", status_code=204)
+def change_window_prefs(request: Request, body: PrefsIn) -> Response:
+    _lib(request).settings.change_window(body.put, body.drop)
+    return Response(status_code=204)
 
 
 @router.delete("/settings/libraries", response_model=SettingsOut)

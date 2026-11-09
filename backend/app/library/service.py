@@ -23,6 +23,7 @@ from urllib.parse import urlsplit
 from ..scraper.recipes import RecipeStore
 from ..scraper.sources import SourcePrefs
 from . import comicinfo, copies, fields, media, subtitles
+from .app_docs import AppSettings, AppState
 from .loose import LooseStore
 from . import rules as rules_mod
 from .index import LibraryIndex
@@ -32,7 +33,7 @@ from .rules import RuleStore
 from .models import (
     AuthorWork, BrowseGroup, ChapterRow, DraftIn, Source, TitleDoc, TitleOut, UserPatch,
 )
-from .vault import FRAME_KINDS, UnreadableDocument, Vault, derived_owner, safe_id
+from .vault import APP_DIR, FRAME_KINDS, UnreadableDocument, Vault, derived_owner, safe_id
 from .versions import cache_key, chapter_version, cover_version, page_image_version, stills_version
 
 
@@ -295,6 +296,9 @@ class Library:
         self.rules = RuleStore(self.vault)
         self.pages = PageStore(self.vault)
         self.loose = LooseStore(self.vault)
+        # …and what the app itself keeps: nothing of it stays on this computer
+        self.settings = AppSettings(self.vault)
+        self.state = AppState(self.vault)
         self.index = LibraryIndex(root / "index.db")
         # two concurrent creates may derive the same fresh id — serialize the
         # pick-unique-id → first-commit step
@@ -937,6 +941,14 @@ class Library:
                 progress(i + 1, len(ids))
         self.index.rebuild(docs, touched, media, media_at, covers)
         self._record("rebuild index", started, f"{len(docs)} title(s) re-read")
+
+    def lose(self) -> None:
+        """The vault stopped answering (app/vault_watch.py). Everything that works
+        on it in the background stops where it is — the verification, the
+        one-time passes, a playable copy's ffmpeg — and nothing picks up again in
+        this process: the app restarts into the vault once it answers."""
+        self._closing.set()
+        self.copies.close()
 
     def close(self) -> None:
         # tell the sweep to stop, give it a moment, then close the index it uses
@@ -1860,16 +1872,15 @@ class Library:
             self.vault.delete_chapter_media(title_id, chapter_id)
             return self._recommit(title_id, doc)
 
-    @staticmethod
-    def _cached_thumb(key: str, source: Callable[[], tuple[bytes, str]], width: int,
+    def _cached_thumb(self, key: str, source: Callable[[], tuple[bytes, str]], width: int,
                       cap: float | None = None) -> tuple[bytes, str]:
         """A downscaled JPEG cached on disk under `key` (which the caller stamps
         with the chapter/cover version, so an edited file misses the cache by
         construction). `source` is called only on a MISS — a cache hit must not
         read the original, which on a network vault is the entire request cost.
-        Undecodable formats serve the original."""
-        from ..config_store import config_dir
-        cfile = config_dir() / "cache" / "thumbs" / f"{key}.jpg"
+        Undecodable formats serve the original. The cache is the vault's own,
+        so a vault opened on another computer brings its previews along."""
+        cfile = self.vault.root / APP_DIR / "cache" / "thumbs" / f"{key}.jpg"
         if cfile.is_file():
             try:
                 return cfile.read_bytes(), "image/jpeg"
@@ -1879,7 +1890,10 @@ class Library:
         thumb = media.thumbnail(data, width, cap)
         if thumb is None:
             return data, ct
-        cfile.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.vault.make_dir(cfile.parent)
+        except OSError:
+            return thumb, "image/jpeg"  # a cache that cannot be written is only a miss next time
         # unique temp name: two requests for the same tile are normal, and a
         # shared one would interleave into a corrupt cached JPEG
         tmp = cfile.with_name(f"{cfile.name}.{uuid.uuid4().hex[:8]}.tmp")

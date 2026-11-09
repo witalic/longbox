@@ -14,9 +14,10 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from .config_store import UnreadableConfig
 from .legacy_config import move_site_data_into
 from .library.service import Library
-from .library.vault import UnreadableDocument
+from .library.vault import UnreadableDocument, VaultGone, is_vault
 from .routers import downloads as downloads_router
 from .routers import imports as imports_router
 from .routers import library as library_router
@@ -26,6 +27,7 @@ from .routers import recipes as recipes_router
 from .routers import settings as settings_router
 from .security import ApiGuard
 from .settings import get_settings, resolve_library_path
+from .vault_watch import VaultWatch
 
 log = logging.getLogger("longbox")
 
@@ -71,28 +73,35 @@ def _quiet_client_resets(loop: asyncio.AbstractEventLoop) -> None:
 async def lifespan(app: FastAPI):
     _quiet_client_resets(asyncio.get_running_loop())
     provided: Library | None = getattr(app.state, "provided_library", None)
-    owns = provided is None
+    watch: VaultWatch | None = None
     if provided is not None:
         lib = provided
     else:
         root = resolve_library_path()
+        # Never a vault made to stand in: the launcher creates vaults, on purpose
+        # (design/vault-home.md). The shell checked this one answers before it
+        # started the sidecar.
+        if root is None:
+            raise RuntimeError("no vault named — the app's launch window names one; "
+                               "run on its own, the sidecar needs LONGBOX_LIBRARY_PATH")
+        if not is_vault(root):
+            raise RuntimeError(f"{root} is not a vault — longbox creates vaults from its launch window")
         # Serve from the index immediately; the vault is verified right after, so
         # a big (or networked) library never stands between launch and a window.
         lib = Library(root, defer_sync=True)
         log.info("library ready at %s (%d titles indexed)", root, lib.count())
         move_site_data_into(lib)
         lib.sync_in_background()
+        watch = VaultWatch(lib)
+        watch.start()
     app.state.library = lib
+    app.state.vault_watch = watch
     try:
         yield
     finally:
-        # close whatever library is live NOW — a library switch replaces it, and
-        # closing the original would leave the active one's SQLite handle open
-        if owns:
-            current = getattr(app.state, "library", lib)
-            current.close()
-            if current is not lib:
-                lib.close()
+        if watch is not None:
+            watch.close()
+            lib.close()
 
 
 def create_app(library: Library | None = None) -> FastAPI:
@@ -108,18 +117,44 @@ def create_app(library: Library | None = None) -> FastAPI:
     app.include_router(pages_router.router)
 
     @app.exception_handler(UnreadableDocument)
-    def unreadable(_request: Request, exc: UnreadableDocument) -> JSONResponse:
+    @app.exception_handler(UnreadableConfig)
+    def unreadable(_request: Request, exc: RuntimeError) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @app.exception_handler(OSError)
+    def vault_io_failed(request: Request, exc: OSError) -> JSONResponse:
+        """A read or write that failed may be the vault going: the watch asks at
+        once instead of at its next tick."""
+        watch: VaultWatch | None = getattr(request.app.state, "vault_watch", None)
+        if watch is not None:
+            watch.poke()
+        if isinstance(exc, VaultGone):
+            return JSONResponse(status_code=503, content={"detail": str(exc), "vault": "lost"})
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
+
+    @app.middleware("http")
+    async def vault_gate(request: Request, call_next):
+        """While the vault does not answer, nothing waits on it and nothing is
+        written anywhere: every API request is refused at once."""
+        watch: VaultWatch | None = getattr(request.app.state, "vault_watch", None)
+        if watch is not None and watch.state != "ok" and request.url.path.startswith("/api"):
+            return JSONResponse(status_code=503, content={"detail": "the vault is unreachable",
+                                                          "vault": watch.state})
+        return await call_next(request)
 
     @app.get("/health")
     def health() -> dict:
         # Open (pre-guard). Echoes sha256(token) so the shell can confirm it reached
-        # its own sidecar without exposing the secret.
+        # its own sidecar without exposing the secret. `vault` is what the shell
+        # watches: `lost` covers the window, `back` restarts the app into it.
+        # Nothing here touches the vault: the shell asks every few seconds.
         token = get_settings().auth_token
+        watch: VaultWatch | None = app.state.vault_watch
         return {
             "status": "ok",
             "sha256": hashlib.sha256(token.encode()).hexdigest() if token else None,
-            "titles": app.state.library.count(),
+            "vault": watch.state if watch is not None else "ok",
+            "since": watch.since if watch is not None else "",
         }
 
     if _FRONTEND_DIST.is_dir():

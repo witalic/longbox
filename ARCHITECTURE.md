@@ -55,7 +55,8 @@ echo before loading the UI. **Never send the library or a token over a non-TLS r
 library/
   index.db                   rebuildable cache — plus the journal of bulk metadata runs and
                              the rules' fired counts, which a rebuild leaves alone
-  vault.json                 one-time migration markers (zipNormalized, videoFaststart)
+  vault.json                 the vault's identity (`id`) + one-time migration markers
+                             (zipNormalized, videoFaststart); a folder without one is not a vault
   fields.json                the library's own metadata fields (registry additions)
   authors.json               author favorites (user layer, vault-level)
   recipes.json               per-site recipes (versioned per domain) + the page-capture filter
@@ -71,6 +72,15 @@ library/
                              a shelf (a type called "downloads" gets downloads-shelf/)
   health.json                what was done to this library + the last check report — its
                              own file, so startup never parses it
+  settings.json              what the human set: the browser's homepage, the window's
+                             preferences (every `lb.*` key local.ts keeps)
+  .longbox/                  the app's own working files (design/vault-home.md):
+    lock.json                who has the vault open — one app per vault
+    browser/                 the embedded browser's profile (sign-ins, site storage, caches)
+    state.json               interrupted transfers, paused imports, import reports
+    partial-downloads/       transfers being written
+    adblock/                 the ad blocker's switch, paused sites and compiled lists
+    cache/thumbs/            downscaled previews
   <type-shelf>/              one directory per TYPE (manga/, image-set/, …; typeless → other/)
     <title-id>/
       title.json             schema-versioned, layered:
@@ -95,13 +105,22 @@ library/
                                  as stored (design/playable-copies.md)
 ```
 
-- **The vault carries everything that describes the library; the app config carries the
-  machine.** Recipes, the source layer, fields, author favorites and how the reader shows each
-  title all live in the vault, so a library moved to another machine arrives whole. The config
-  dir keeps only what cannot travel: where this machine's libraries are, transfers it was in
-  the middle of, the thumbnail cache — and the Electron session (sign-ins). An older build kept
-  recipes and the source layer in the config; on first start this build moves them into the
-  library it opens and removes them there (`legacy_config.py`).
+- **The vault is home** (design/vault-home.md). Everything the app keeps lives in the vault it
+  serves — recipes, the source layer, fields, author favorites, how the reader shows each title,
+  the window's preferences, the homepage, the embedded browser's profile, transfers, paused
+  imports, the preview cache — so a library moved to another machine arrives whole, and two
+  vaults keep two of everything. The app's folder on this computer keeps `config.json` and
+  nothing else: the registered vaults and the one opened last. Chromium's own default profile
+  and crash dumps are pointed at the system's temporary folder. What an older build kept in the
+  app's folder moves once into the first vault this build opens: the shell copies the browser
+  profile, the ad blocker and partial transfers (`vaults.legacyPlan`), hands the window's old
+  preferences over in `.longbox/legacy-window.json`, and only then drops the old folder's known
+  names; the sidecar takes in the config's keys, recipes and the handed-over preferences
+  (`legacy_config.py`). Old previews are a cache and are made again.
+- **A vault is made on purpose, never by opening a path.** The launch window creates one (an
+  empty folder, its `vault.json` with a fresh `id`); `Vault` refuses a root that is not there,
+  and every folder it makes goes through `Vault.make_dir`, which refuses a root that no longer
+  holds its `vault.json` — an emptied mount point or another share under the same letter.
 - **Bulk metadata changes** (`design/metadata-management.md`) cost the titles that CHANGE, not
   the library: the change is worked out from the index (that is the preview), each changed
   title is read once and written once (`Vault.rewrite_in_place`, its stamp stepped by two
@@ -183,8 +202,14 @@ Endpoints run sync on FastAPI's threadpool, so races are real and handled struct
   it. `sort=updated` reads the document's own mtime, so a rebuilt cache keeps the shelf order.
 - App config uses `config_transaction()` (one process-wide lock + atomic save); the armed-download
   slot is consumed atomically; index rebuild and the archive sweep are each single-flight.
-- Switching the library opens the new location BEFORE the config records it — an unreadable vault
-  fails the request instead of stranding the next launch — and the old one closes on a delay.
+- **One app per vault, one vault per run.** The shell checks a vault answers, is one, and is not
+  in use (`.longbox/lock.json`, refreshed every 30 s) before any sidecar exists; opening another
+  is a restart into it.
+- **A vault that drops while the app is open** (`app/vault_watch.py`): the sidecar asks
+  `vault.json` every 5 s with a deadline; two failed answers in a row and every `/api` request is
+  refused at once (503), background work stops, the shell covers the window, unloads the
+  browser's pages and stops transfers; two good answers and the shell restarts the app into the
+  vault — the handles to its index and browser profile are not trusted after a drop.
 - A corrupt index cannot lose content — it never owned any; rebuild rescans the files, skipping
   documents it cannot parse rather than aborting.
 - **One vault pass at a time** (`backend/app/passes.py`). Checking the vault, converting
@@ -258,8 +283,8 @@ Endpoints run sync on FastAPI's threadpool, so races are real and handled struct
   Windows `PermissionError`, so the media goes first and a refusal leaves the chapter untouched,
   answered as 409 with what to close.
 - **Interrupted transfers outlive the run.** Pausing one, or stopping everything for a quit, keeps
-  each transfer's partial file (in the app's own data, `partial-downloads/` — never the system
-  temp folder) and records — in the app config, not in memory — the chapter it was claiming, the
+  each transfer's partial file (in the vault, `.longbox/partial-downloads/` — never the system
+  temp folder) and records — in the vault's `.longbox/state.json`, not in memory — the chapter it was claiming, the
   byte offset, the URL chain and the `ETag`/`Last-Modified` it would have to match. Resuming asks
   the session to re-open the file at that offset, and the transfer carries on in its OWN record
   (`/{id}/resumed`, no arm consumed); whether the range is honoured is the source's call, and the
@@ -277,9 +302,12 @@ Endpoints run sync on FastAPI's threadpool, so races are real and handled struct
 
 ```
 backend/app/
-  main.py security.py settings.py config_store.py (this machine's config)
-  legacy_config.py (moves what an older build kept in the config into the vault, once)
+  main.py (the vault gate: refuses /api while the vault is gone) security.py
+  settings.py (the vault the sidecar serves is named, never assumed) ·
+  config_store.py (this computer's config: where the vaults are, and nothing else)
+  legacy_config.py (moves what an older build kept in the app's folder into the vault, once)
   passes.py (the one vault pass at a time: progress, stop, who is running)
+  vault_watch.py (does the vault still answer: lost / back, and what stops when it is lost)
   library/  operations.py (bulk metadata: apply, preview from the index, run, revert) ·
             rules.py (what a value becomes on its way in; rules.json) ·
             pages.py (value pages: what is written about a person, a tag…, worked out
@@ -288,6 +316,7 @@ backend/app/
             copies.py (playable copies: what needs one, the background queue, landing it) ·
             transcode.py (ffmpeg: finding it, reading streams, remux or H.264 encode) ·
             loose.py (the library's downloads folder: what came with nothing armed) ·
+            app_docs.py (the app's own documents: settings.json, .longbox/state.json) ·
             folder_import.py (a folder already on disk: profiles, scan, plan, run) ·
             models.py (layers + flat DTO) · vault.py (shelves, locks, media ingest, covers,
             the vault/fields/authors/health files) · media.py (zip ops, conversion, thumbnails,
@@ -302,7 +331,8 @@ frontend/src/
   App.vue (the frame: views, tabs, activity panel, close guard) · styles.css (the design tokens)
   store.ts (app state, navigation: the app tabs and their places, facets, user layer, downloads) ·
   draft.ts (THE draft) · browser.ts (the web's tabs)
-  api.ts (the sidecar client) · local.ts (validated localStorage) · data.ts (domain helpers)
+  api.ts (the sidecar client) · local.ts (the window's preferences, kept in the vault) ·
+  data.ts (domain helpers)
   sessions.ts (tab-session restore) · keys.ts (physical-key bindings) · normalize.ts
   pagecapture.ts (the page-capture activity) · frames.ts (episode stills, cut in the window)
   views/      LibraryView · AuthorsView (browse by any axis) · TitleView · ReaderView ·
@@ -320,16 +350,24 @@ frontend/src/
               VideoSurface (preview + player, one per app) · ActivityPanel · PickInspector ·
               CoverArt (covers, rotating on hover) · EntryFields · FilterBlock · FieldVisibility ·
               MenuButton · RailSection · SearchBox · Pager · Combo · ConfirmModal · Dropdown ·
-              Stars · Icon
+              Stars · Icon · VaultLost (the cover while the vault does not answer)
+  launcher/   LauncherApp (the launch window: a second page of the build, loaded from disk)
 shell/
-  main.js (sidecar spawn on a stable port + /health handshake, auth cookie, frameless chrome,
+  main.js (boot: the vault, the one-time move, then the sidecar on a free port + /health
+           handshake; the vault's browser session for pages, an in-memory one for the window;
+           the vault watch and the restart into a vault; auth cookie, frameless chrome,
            will-download + resume, page-image fetches, browser keys, page context menu,
            close guard, browsing data, session hardening)
   adblock.js (ad blocking in guest pages: the lists fetched from their makers, the engine
               called from the shell's own webRequest listeners, cosmetic filters, per-site
-              pause; prefs in userData/adblock.json, the built engine cached in
-              userData/adblock-engine.bin with what it was built from beside it)
-  app-preload.js (folder picker, titlebar, browsing data, download control, close guard,
+              pause; its switch, paused sites and the compiled lists in the vault's
+              .longbox/adblock/)
+  launcher.js (the launch window: which vault opens, what to say when it cannot, creating one,
+               the one-time move with its progress)
+  vaults.js (config.json, does a vault answer, is it one, its lock, making one, the move of
+             what an older build kept on this computer)
+  app-preload.js (folder picker, vaults, titlebar, browsing data, download control, close guard,
                   page-image fetch, page keys, ad blocking)
+  launcher-preload.js (the launch window's state and choices)
   pick-preload.js (pick/snapshot, page scan, page-context fetch fallback, background-tab links)
 ```

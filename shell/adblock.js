@@ -8,7 +8,7 @@
 // app's own pages), and it registers its preload with an API this Electron does
 // not have. The shell calls the engine from its own listeners instead — for a
 // guest page only, and never on a site the blocking is paused for.
-const { app, BrowserWindow, ipcMain, net, webContents } = require('electron')
+const { BrowserWindow, ipcMain, net, webContents } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
 const { ElectronBlocker } = require('@ghostery/adblocker-electron')
@@ -47,9 +47,12 @@ const STALE_MS = 4 * 24 * 60 * 60 * 1000
 const CHECK_MS = 6 * 60 * 60 * 1000 // how often a running app looks
 const FETCH_MS = 60 * 1000          // a list that has not come by then fails the update
 
-const prefsFile = () => path.join(app.getPath('userData'), 'adblock.json')
-const engineFile = () => path.join(app.getPath('userData'), 'adblock-engine.bin')
-const metaFile = () => path.join(app.getPath('userData'), 'adblock-engine.json')
+// The vault's: its switch, its paused sites and the lists compiled for it live
+// in `<vault>/.longbox/adblock/` (design/vault-home.md) — set by `wire`.
+let home = ''
+const prefsFile = () => path.join(home, 'prefs.json')
+const engineFile = () => path.join(home, 'engine.bin')
+const metaFile = () => path.join(home, 'engine.json')
 
 // `paused`: sites, as the app names them; `annoyances`: cookie banners, pop-ups
 let prefs = { on: true, annoyances: false, paused: [] }
@@ -85,7 +88,7 @@ function tellApp(channel, payload) {
 }
 
 async function writeAtomic(file, data) {
-  const tmp = `${file}.tmp`
+  const tmp = `${file}.${process.pid}-${Date.now()}.tmp` // its own: a vault is shared by computers
   await fs.promises.writeFile(tmp, data)
   await fs.promises.rename(tmp, file)
 }
@@ -213,10 +216,13 @@ function onHeadersReceived(details, cb) {
   engine.onHeadersReceived(details, cb)
 }
 
-function wire(sess, appContents) {
+function wire(sess, appContents, dir) {
+  home = dir
+  fs.mkdirSync(home, { recursive: true })
   readPrefs()
   sess.webRequest.onBeforeRequest(onBeforeRequest)
-  // The preload runs in every page of the session, the app's own included; the
+  // The preload runs in every page of the session (only the browser's pages use
+  // it: the app's window has an in-memory session of its own); the
   // handlers answer only a guest page that is being blocked for.
   sess.setPreloads([...sess.getPreloads(), PRELOAD])
   // The engine puts its styles and scriptlets in through `event.sender`. Handed the

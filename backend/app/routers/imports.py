@@ -16,7 +16,6 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
-from ..config_store import config_transaction, load_config
 from ..library import folder_import as fi
 from ..library.service import Library
 from ..passes import PASS, _pass, stop_event
@@ -24,7 +23,7 @@ from ..passes import PASS, _pass, stop_event
 router = APIRouter(prefix="/api/import")
 
 KEEP_SCANS = 4   # trees held for the preview; an old one is scanned again on demand
-KEEP_RUNS = 10   # reports kept per machine — they name this machine's paths
+KEEP_RUNS = 10   # reports kept in the vault they went into
 KEEP_PAUSED = 10
 _RUNS = "import_runs"
 _PAUSED = "paused_imports"
@@ -107,12 +106,10 @@ def plan(request: Request, body: PlanIn) -> fi.Plan:
 
 
 class PausedImport(BaseModel):
-    """An import put down to be carried on — later, or after a restart. Kept with
-    this machine (it names this machine's folders) and with the library it was
-    going into. Carrying it on reads the folder again and runs the same plan, so
-    what is already stored is skipped, never stored twice."""
+    """An import put down to be carried on — later, or after a restart. Kept in
+    the vault it was going into. Carrying it on reads the folder again and runs
+    the same plan, so what is already stored is skipped, never stored twice."""
     id: str
-    library: str
     root: str
     profile: fi.Profile
     overrides: fi.Overrides = fi.Overrides()
@@ -128,29 +125,23 @@ def _same_path(a: str, b: str) -> bool:
     return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
 
 
-def _keep_paused(change: Callable[[list[PausedImport]], list[PausedImport]]) -> None:
-    with config_transaction() as cfg:
-        rows = []
-        for raw in cfg.get(_PAUSED) or []:
-            try:
-                rows.append(PausedImport.model_validate(raw))
-            except ValueError:
-                continue  # a record from an older shape is not worth a failed import
-        cfg[_PAUSED] = [p.model_dump() for p in change(rows)][:KEEP_PAUSED]
+def _read_paused(raws: list) -> list[PausedImport]:
+    out = []
+    for raw in raws:
+        try:
+            out.append(PausedImport.model_validate(raw))
+        except ValueError:
+            continue  # a record from an older shape is not worth a failed import
+    return out
+
+
+def _keep_paused(lib: Library, change: Callable[[list[PausedImport]], list[PausedImport]]) -> None:
+    with lib.state.edit(_PAUSED) as rows:
+        rows[:] = [p.model_dump() for p in change(_read_paused(rows))][:KEEP_PAUSED]
 
 
 def _paused(request: Request) -> list[PausedImport]:
-    """This library's paused imports — another library's wait for it."""
-    lib = str(_lib(request).root)
-    out = []
-    for raw in load_config().get(_PAUSED) or []:
-        try:
-            p = PausedImport.model_validate(raw)
-        except ValueError:
-            continue
-        if _same_path(p.library, lib):
-            out.append(p)
-    return out
+    return _read_paused(_lib(request).state.rows(_PAUSED))
 
 
 def _run(request: Request, root: Path, profile: fi.Profile, overrides: fi.Overrides, *,
@@ -169,8 +160,7 @@ def _run(request: Request, root: Path, profile: fi.Profile, overrides: fi.Overri
             scans = _scans(request)  # takes the scans' lock itself
             with _SCANS_LOCK:
                 scans[scan_id] = s  # the next preview starts from this reading too
-        _keep_paused(lambda rows: [p for p in rows if not (_same_path(p.root, str(root))
-                                                           and _same_path(p.library, str(lib.root)))])
+        _keep_paused(lib, lambda rows: [p for p in rows if not _same_path(p.root, str(root))])
         n0, b0 = (carried.done, carried.doneBytes) if carried else (0, 0)
 
         def counted(done: int, total: int, detail: str = "", done_bytes: int = 0, total_bytes: int = 0) -> None:
@@ -180,12 +170,12 @@ def _run(request: Request, root: Path, profile: fi.Profile, overrides: fi.Overri
         if report.stopped and _PAUSE.is_set():
             report.paused = True
             held = PausedImport(
-                id=uuid.uuid4().hex[:12], library=str(lib.root), root=str(root), profile=profile,
+                id=uuid.uuid4().hex[:12], root=str(root), profile=profile,
                 overrides=overrides, at=report.at, done=PASS["done"], total=PASS["total"],
                 doneBytes=PASS["doneBytes"], totalBytes=PASS["totalBytes"])
-            _keep_paused(lambda rows: [held, *rows])
-    with config_transaction() as cfg:
-        cfg[_RUNS] = [report.model_dump(), *(cfg.get(_RUNS) or [])][:KEEP_RUNS]
+            _keep_paused(lib, lambda rows: [held, *rows])
+    with lib.state.edit(_RUNS) as rows:
+        rows[:] = [report.model_dump(), *rows][:KEEP_RUNS]
     return report
 
 
@@ -238,15 +228,14 @@ def resume(request: Request, paused_id: str) -> fi.Report:
 
 @router.delete("/paused/{paused_id}", status_code=204)
 def forget_paused(request: Request, paused_id: str) -> Response:
-    lib = str(_lib(request).root)
-    _keep_paused(lambda rows: [p for p in rows if not (p.id == paused_id and _same_path(p.library, lib))])
+    _keep_paused(_lib(request), lambda rows: [p for p in rows if p.id != paused_id])
     return Response(status_code=204)
 
 
 @router.get("/runs", response_model=list[fi.Report])
-def runs() -> list[fi.Report]:
+def runs(request: Request) -> list[fi.Report]:
     out = []
-    for raw in load_config().get(_RUNS) or []:
+    for raw in _lib(request).state.rows(_RUNS):
         try:
             out.append(fi.Report.model_validate(raw))
         except ValueError:

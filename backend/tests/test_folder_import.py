@@ -507,22 +507,21 @@ def test_a_paused_import_is_carried_on_where_it_stopped(tmp_path, monkeypatch):
     lib.close()
 
 
-def test_a_paused_import_waits_for_its_own_library_and_can_be_forgotten(tmp_path):
+def test_a_paused_import_is_kept_in_its_own_vault_and_can_be_forgotten(tmp_path):
     from app.routers import imports
 
     lib = Library(tmp_path / "lib")
+    other = Library(tmp_path / "other")
     src = creator_tree(tmp_path / "src")
-    imports._keep_paused(lambda rows: [
-        imports.PausedImport(id="elsewhere", library=str(tmp_path / "other"), root=str(src), profile=by_creator()),
-        imports.PausedImport(id="here", library=str(lib.root), root=str(src), profile=by_creator())])
+    imports._keep_paused(lib, lambda rows: [imports.PausedImport(id="here", root=str(src), profile=by_creator())])
+    assert (tmp_path / "lib" / ".longbox" / "state.json").is_file()
+    with TestClient(create_app(other)) as c:
+        assert c.get("/api/import/paused").json() == []  # another vault's is not this one's
     with TestClient(create_app(lib)) as c:
         assert [p["id"] for p in c.get("/api/import/paused").json()] == ["here"]
-        assert c.post("/api/import/paused/elsewhere/resume").status_code == 404
         assert c.delete("/api/import/paused/here").status_code == 204
         assert c.get("/api/import/paused").json() == []
-    # the other library's is still kept for when it is open again
-    assert [p.id for p in (imports.PausedImport.model_validate(r) for r in
-                           imports.load_config()[imports._PAUSED])] == ["elsewhere"]
+    other.close()
     lib.close()
 
 

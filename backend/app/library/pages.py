@@ -156,7 +156,7 @@ class PageStore:
     def edit(self, vocab: str) -> Iterator[dict[str, Page]]:
         """Load → change → save one vocabulary's pages as one step. A page left
         with nothing written is not stored."""
-        (self.vault.root / DIR).mkdir(exist_ok=True)
+        self.vault.make_dir(self.vault.root / DIR)
         name = self._name(vocab)
         with self.vault.doc_transaction(name, schema=SCHEMA) as doc:
             pages = {p.key: p for p in Vault.doc_items(doc, name, "pages", Page, "a page", schema=SCHEMA)}
@@ -169,7 +169,7 @@ class PageStore:
         """A new image file — its own name, never reused, so the name is the
         version every cache keys it by."""
         d = self.image_dir(vocab)
-        d.mkdir(parents=True, exist_ok=True)
+        self.vault.make_dir(d)
         name = f"{safe_id(value)[:40]}-{uuid.uuid4().hex[:8]}.{ext.lstrip('.').lower()}"
         _atomic_write(d / name, data)
         return name

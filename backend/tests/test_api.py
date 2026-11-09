@@ -69,10 +69,10 @@ def client(tmp_path):
 
 # ---- health & the wire contract ----
 
-def test_health_open_and_counts(client):
+def test_health_is_open_and_never_asks_the_vault(client):
     body = client.get("/health").json()
     assert body["status"] == "ok" and body["sha256"] is None
-    assert body["titles"] == 3
+    assert body["vault"] == "ok" and "titles" not in body  # asked every few seconds: no index query
 
 
 def test_dto_is_flat_and_composed_from_layers(client):
@@ -382,30 +382,20 @@ def test_get_settings_reports_real_path(client, tmp_path):
     assert body["library_path"] == str(tmp_path)
 
 
-def test_change_library_path_swaps_the_live_library(client, tmp_path, monkeypatch):
-    monkeypatch.setenv("LONGBOX_CONFIG_DIR", str(tmp_path / "cfg"))  # isolate the config file
-    new_dir = tmp_path / "other-library"
-    r = client.put("/api/settings/library-path", json={"path": str(new_dir)})
-    assert r.status_code == 200 and r.json()["title_count"] == 0
-    assert client.get("/api/library").json() == []
-    assert client.get("/api/settings").json()["library_path"] == str(new_dir)
-
-
-def test_library_list_switch_and_forget(client, tmp_path, monkeypatch):
-    """Multiple registered libraries: switching registers, forgetting only
-    drops the entry (never files), the active one cannot be forgotten."""
+def test_the_library_list_and_forgetting_one(client, tmp_path, monkeypatch):
+    """The registered libraries are the config's (the shell registers them as
+    they are opened or created); the open one is always listed, forgetting only
+    drops the entry (never files), and the open one cannot be forgotten."""
     monkeypatch.setenv("LONGBOX_CONFIG_DIR", str(tmp_path / "cfg"))
-    a, b = tmp_path / "lib-a", tmp_path / "lib-b"
-    body = client.put("/api/settings/library-path", json={"path": str(a)}).json()
-    # the library we LEFT (never registered before) must appear in the list too
-    assert str(tmp_path) in body["libraries"] and str(a) in body["libraries"]
-    body = client.put("/api/settings/library-path", json={"path": str(b)}).json()
-    assert body["library_path"] == str(b)
-    assert str(a) in body["libraries"] and str(b) in body["libraries"]
-    # the ACTIVE library refuses to be forgotten
-    assert client.request("DELETE", "/api/settings/libraries", json={"path": str(b)}).status_code == 409
+    from app.config_store import save_config
+    a = tmp_path / "lib-a"
+    a.mkdir()
+    save_config({"libraries": [str(a)], "library_path": str(tmp_path)})
+    body = client.get("/api/settings").json()
+    assert body["libraries"] == [str(tmp_path), str(a)]
+    assert client.request("DELETE", "/api/settings/libraries", json={"path": str(tmp_path)}).status_code == 409
     body = client.request("DELETE", "/api/settings/libraries", json={"path": str(a)}).json()
-    assert str(a) not in body["libraries"]
+    assert body["libraries"] == [str(tmp_path)]
     assert a.is_dir()  # forgetting never touches the folder
 
 

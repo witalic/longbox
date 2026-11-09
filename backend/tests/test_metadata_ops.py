@@ -238,16 +238,6 @@ def test_a_chapter_stored_before_a_rule_is_still_found_by_its_spelling(client, t
     assert [c["id"] for c in again["chapters"]] == [t["chapters"][0]["id"]]
 
 
-def test_the_library_does_not_switch_under_a_running_pass(client, tmp_path):
-    from app.passes import PASS
-    PASS.update(running=True, op="metadata: something")
-    try:
-        r = client.put("/api/settings/library-path", json={"path": str(tmp_path / "other")})
-        assert r.status_code == 409
-    finally:
-        PASS.update(running=False, op="")
-
-
 def test_a_broken_rules_file_does_not_take_the_values_down(client, tmp_path):
     title(client, "A", tags=["x"])
     (tmp_path / "lib" / "rules.json").write_text("{", encoding="utf-8")

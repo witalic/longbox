@@ -129,9 +129,10 @@ all of its titles; recipes live on disk, so they survive reload and restart.
 **The owner's layer over the sources** — which group a site sits in and the groups' order,
 the bookmarks kept on it, whether it is frozen or removed — is not recipe material (a recipe
 is what longbox LEARNED; a bookmark is where the owner likes to start), but it describes the
-same library's sites, so it lives beside the recipes (`sources.json`). The app config keeps
-only what belongs to the machine: where its libraries are, transfers it was in the middle
-of, and caches. The site's own session (cookies) stays in the browser (§2).
+same library's sites, so it lives beside the recipes (`sources.json`). Everything else the app
+keeps lives in the vault too (design/vault-home.md) — the window's settings, transfers, caches,
+and the embedded browser's own profile, where the site's session (cookies) stays (§2). The app's
+folder on the computer keeps only where the vaults are.
 
 **Resilience** (§7.2 — "independent of any single technique"): a field's extractor is not
 one rule but an **ordered list of candidates** — e.g. picked CSS selector → row-label
@@ -161,7 +162,7 @@ about "rows visible now".
 ```
 library/
   index.db                  # rebuildable cache (never authoritative) + the bulk-run journal
-  vault.json                # one-time migration markers (zipNormalized, videoFaststart)
+  vault.json                # the vault's identity (id) + one-time migration markers
   fields.json               # this library's own metadata fields (registry additions)
   authors.json              # author favorites (user layer, vault-level)
   recipes.json              # what longbox learned per site (§6) + the page-capture filter
@@ -170,6 +171,10 @@ library/
   .pages/<vocabulary>.json  # what the owner wrote about values, + images/ (design/value-pages.md)
   downloads/               # what the browser downloaded with nothing armed (design/subtitles.md)
   health.json               # what was done to this library + the last check report
+  settings.json             # the homepage + the window's preferences (design/vault-home.md)
+  .longbox/                 # the app's working files: lock.json, browser/ (the embedded
+                            #   browser's profile), state.json, partial-downloads/, adblock/,
+                            #   cache/thumbs/
   <type-shelf>/             # one per type (manga/, image-set/, …); typeless → other/
     <title-id>/
       title.json            # layered: meta + provenance + chapters + user
@@ -273,7 +278,7 @@ fetches chapters itself):
    when the library can use it, and refused otherwise (design/subtitles.md). Arms expire
    (15 minutes). The arm is consumed when the transfer STARTS, so the next chapter can be
    armed while one still streams.
-5. A transfer paused, or interrupted by a quit, is remembered in the app config — the chapter
+5. A transfer paused, or interrupted by a quit, is remembered in the vault (`.longbox/state.json`) — the chapter
    it was claiming, its byte offset, URL chain and `ETag`/`Last-Modified` — and is resumed in its
    own record, which claimed its chapter when it first started; whether the range is honoured
    is the source's call.
@@ -412,7 +417,8 @@ GET/PUT /api/page-filter          what page capture accepts as a page
 /api/downloads                    GET list · POST/DELETE /arm · POST /start ·
                                   POST /{id}/progress|complete|failed|interrupted|resumed · DELETE /{id}
 
-GET    /api/settings · PUT /api/settings/homepage|library-path · DELETE /api/settings/libraries
+GET    /api/settings · PUT /api/settings/homepage · DELETE /api/settings/libraries
+GET    /api/settings/prefs · PATCH /api/settings/prefs   the window's preferences (settings.json)
 GET    /api/settings/pass/status · POST /api/settings/pass/stop · GET /api/settings/library/status
 POST   /api/settings/check|normalize-archives|comicinfo|leftovers|rebuild   the vault passes
 GET    /api/settings/health · /api/settings/gaps

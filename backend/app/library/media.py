@@ -671,7 +671,6 @@ def repack_to_zip(src: Path, dst: Path) -> int:
     name keeping its stem). Returns the image-page count. This is how non-zip
     content enters the vault — nothing opaque is ever stored."""
     entries = _read_all_entries(src)
-    dst.parent.mkdir(parents=True, exist_ok=True)
     tmp = tmp_path(dst)
     with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as z:
         for name, data in entries:
@@ -694,7 +693,6 @@ def pack_images(files: list[Path], dst: Path) -> int:
     page under its own name in the order given — the way a folder enters the
     vault. WebP/AVIF pages convert as they would from any archive. Files are
     read one at a time: a folder of large scans never sits in memory whole."""
-    dst.parent.mkdir(parents=True, exist_ok=True)
     tmp = tmp_path(dst)
     taken: set[str] = set()
 
@@ -844,7 +842,6 @@ def _write_renumbered(path: Path, pages: list[tuple[bytes, str]], junk: list[tup
     (001.jpg …) with WebP/AVIF converted to a standard format, non-image
     entries carried over as-is."""
     width = max(3, len(str(len(pages))))
-    path.parent.mkdir(parents=True, exist_ok=True)
     tmp = tmp_path(path)
     with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as z:
         for i, (data, ext) in enumerate(pages, start=1):
@@ -889,7 +886,6 @@ def renumber_and_append(path: Path, extra: list[tuple[bytes, str]]) -> int:
     width = _canonical_width(names)
     # a wider page count (999 → 1000) needs the full renumber to stay sorted
     if width and len(names) + len(extra) < 10 ** width:
-        path.parent.mkdir(parents=True, exist_ok=True)
         tmp = tmp_path(path)
         # copyfile, NOT copy2: copy2 carries the source's timestamps over, and
         # an archive that keeps its old mtime after an edit is indistinguishable

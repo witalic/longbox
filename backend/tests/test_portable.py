@@ -77,14 +77,33 @@ def test_each_library_has_its_own_sites(client, tmp_path):
     client.put("/api/sources/example.org", json={"group": "Manga"})
     client.put("/api/source-groups", json={"groups": ["Manga"]})
 
-    client.put("/api/settings/library-path", json={"path": str(tmp_path / "other")})
-    assert client.get("/api/recipes/example.org").status_code == 404
-    assert client.get("/api/sources").json() == []
-    assert client.get("/api/source-groups").json() == []
+    other = Library(tmp_path / "other")
+    with TestClient(create_app(other)) as c:
+        assert c.get("/api/recipes/example.org").status_code == 404
+        assert c.get("/api/sources").json() == []
+        assert c.get("/api/source-groups").json() == []
+    other.close()
 
-    client.put("/api/settings/library-path", json={"path": str(tmp_path / "lib")})
     assert client.get("/api/recipes/example.org").json()["version"] == 1
     assert client.get("/api/source-groups").json() == ["Manga"]
+
+
+def test_each_library_has_its_own_homepage_and_window(client, tmp_path):
+    client.put("/api/settings/homepage", json={"homepage": "https://start.example"})
+    client.patch("/api/settings/prefs", json={"put": {"lb.theme": "light", "lb.keys": '{"next":"KeyJ"}',
+                                                       "not.ours": "x"}})
+    assert client.get("/api/settings").json()["homepage"] == "https://start.example"
+    assert client.get("/api/settings/prefs").json()["prefs"] == {"lb.theme": "light", "lb.keys": '{"next":"KeyJ"}'}
+    assert _doc(tmp_path / "lib" / "settings.json")["window"]["lb.theme"] == "light"
+    client.patch("/api/settings/prefs", json={"drop": ["lb.keys"]})
+    assert client.get("/api/settings/prefs").json()["prefs"] == {"lb.theme": "light"}
+
+    other = Library(tmp_path / "other")
+    with TestClient(create_app(other)) as c:
+        assert c.get("/api/settings").json()["homepage"] == "https://www.google.com"
+        assert c.get("/api/settings/prefs").json()["prefs"] == {}
+    other.close()
+    assert not config_path().exists() or set(_doc(config_path())) <= {"libraries", "library_path"}
 
 
 def test_a_removed_source_stays_removed_until_it_is_taught_again(client, tmp_path):
@@ -268,10 +287,12 @@ def test_a_schema_3_document_opens_with_no_reader_settings():
 # ---- what an older build left in the app config ----------------------------
 
 def _legacy(cfg, recipes: list[Recipe], **keys) -> None:
+    """What an older build left in the app folder, with the library it was
+    opening — the vault the move goes into."""
     (cfg / "recipes").mkdir(parents=True, exist_ok=True)
     for r in recipes:
         (cfg / "recipes" / f"{r.domain}.json").write_text(r.model_dump_json(), encoding="utf-8")
-    save_config({"library_path": "kept", "homepage": "https://start.example", **keys})
+    save_config({"library_path": str(cfg.parent / "lib"), "homepage": "https://start.example", **keys})
 
 
 def test_the_config_hands_its_site_data_to_the_open_library_and_forgets_it(tmp_path, cfg):
@@ -288,8 +309,9 @@ def test_the_config_hands_its_site_data_to_the_open_library_and_forgets_it(tmp_p
     assert layer.groups == ["Manga", "Art"]
     assert layer.removed == {"gone.example"}
 
-    # the config keeps what belongs to this machine, and nothing else
-    assert _doc(config_path()) == {"library_path": "kept", "homepage": "https://start.example"}
+    # the config keeps where the vaults are, and nothing else
+    assert _doc(config_path()) == {"library_path": str(tmp_path / "lib")}
+    assert lib.settings.homepage() == "https://start.example"
     assert not (cfg / "recipes").exists()
     assert move_site_data_into(lib) is False  # once
     lib.close()
@@ -347,15 +369,71 @@ def test_an_unreadable_config_is_neither_moved_from_nor_written(tmp_path, cfg):
     lib.close()
 
 
-def test_a_library_opened_by_override_is_not_the_one_to_move_into(tmp_path, cfg, monkeypatch):
+def test_a_library_the_config_is_not_opening_is_not_the_one_to_move_into(tmp_path, cfg):
     _legacy(cfg, [recipe("a.example")], source_groups=["Manga"])
-    monkeypatch.setenv("LONGBOX_LIBRARY_PATH", str(tmp_path / "lib"))
-    get_settings.cache_clear()
-    lib = Library(tmp_path / "lib")
+    lib = Library(tmp_path / "elsewhere")
 
     assert move_site_data_into(lib) is False
     assert _doc(config_path())["source_groups"] == ["Manga"]
     lib.close()
+
+
+def test_the_config_hands_its_transfers_and_imports_to_the_vault(tmp_path, cfg):
+    here, there = str(tmp_path / "lib"), str(tmp_path / "other")
+    partial = str(cfg / "partial-downloads" / "123-ep1.mp4")
+    _legacy(cfg, [], interrupted_downloads=[{"id": "d1", "resume": {"path": partial, "offset": 9}}],
+            import_runs=[{"at": "x"}],
+            paused_imports=[{"id": "p1", "library": here, "root": "D:/in"},
+                            {"id": "p2", "library": there, "root": "D:/in"}],
+            libraries=[here, there])
+    lib = Library(tmp_path / "lib")
+
+    assert move_site_data_into(lib) is True
+    # the shell moved the partial file into the vault; the record follows it
+    moved = str(tmp_path / "lib" / ".longbox" / "partial-downloads" / "123-ep1.mp4")
+    assert lib.state.rows("interrupted_downloads") == [{"id": "d1", "resume": {"path": moved, "offset": 9}}]
+    assert lib.state.rows("import_runs") == [{"at": "x"}]
+    assert lib.state.rows("paused_imports") == [{"id": "p1", "root": "D:/in"}]  # only this vault's
+    assert _doc(config_path()) == {"library_path": here, "libraries": [here, there]}
+    assert sorted(p.name for p in cfg.iterdir()) == ["config.json"]
+    lib.close()
+
+
+def test_the_window_preferences_the_shell_hands_over_are_taken_in_once(tmp_path, cfg):
+    lib = Library(tmp_path / "lib")
+    lib.settings.change_window({"lb.theme": "light"}, [])
+    handed = tmp_path / "lib" / ".longbox" / "legacy-window.json"
+    handed.parent.mkdir(parents=True, exist_ok=True)
+    handed.write_text(json.dumps({"lb.theme": "dark", "lb.density": "dense", "other": "x"}), encoding="utf-8")
+
+    assert move_site_data_into(lib) is True
+    # what the vault already says wins; what it did not, arrives
+    assert lib.settings.window() == {"lb.theme": "light", "lb.density": "dense"}
+    assert not handed.exists()
+    assert move_site_data_into(lib) is False
+    lib.close()
+
+
+def test_a_sidecar_run_on_its_own_moves_nothing(tmp_path, cfg, monkeypatch):
+    """Without the shell it reads the OS's default config folder — an installed
+    build's, whose data is not this run's to move."""
+    _legacy(cfg, [recipe("a.example")], source_groups=["Manga"])
+    monkeypatch.delenv("LONGBOX_CONFIG_DIR")
+    monkeypatch.setattr("app.legacy_config.config_path", lambda: cfg / "config.json")
+    lib = Library(tmp_path / "lib")
+    assert move_site_data_into(lib) is False
+    assert _doc(cfg / "config.json")["source_groups"] == ["Manga"]
+    lib.close()
+
+
+def test_a_config_that_cannot_be_read_is_never_written_over(tmp_path, cfg):
+    from app.config_store import UnreadableConfig, config_transaction
+    config_path().parent.mkdir(parents=True, exist_ok=True)
+    config_path().write_text('{"libraries": ["D:/Comics"], "library_pa', encoding="utf-8")
+    with pytest.raises(UnreadableConfig):
+        with config_transaction() as live:
+            live["libraries"] = []
+    assert config_path().read_text(encoding="utf-8").startswith('{"libraries": ["D:/Comics"]')
 
 
 def test_a_recipe_file_the_build_cannot_read_stays_where_it_was(tmp_path, cfg):

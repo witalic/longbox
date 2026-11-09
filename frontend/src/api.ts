@@ -257,10 +257,9 @@ export const api = {
     req<Title>(`/titles/${tid}/chapters/import${qs({ num: ch.num, lang: ch.lang, group: ch.group, filename: file.name, url: ch.url, section: ch.section, chapter_id: ch.chapterId })}`,
       { method: 'POST', body: file }),
   settings: () => req<AppSettings>('/settings'),
-  setLibraryPath: (path: string) => req<AppSettings>('/settings/library-path', jsonBody('PUT', { path })),
   removeLibrary: (path: string) => req<AppSettings>('/settings/libraries', jsonBody('DELETE', { path })),
   rebuildIndex: () => req<AppSettings>('/settings/rebuild', { method: 'POST' }),
-  // read while a library switch is in flight: opening a populated vault is slow
+  // read while the library verifies itself against disk: a first open fills the index
   libraryStatus: () =>
     req<{ running: boolean; path: string; done: number; total: number; changed: number
           migrating: boolean; migrated: number }>(
@@ -304,6 +303,10 @@ export const api = {
     req<Title>(`/titles/${encodeURIComponent(titleId)}/chapters/${encodeURIComponent(chapterId)}/pages/capture`,
       jsonBody('POST', { pageUrl, images })),
   setHomepage: (homepage: string) => req<AppSettings>('/settings/homepage', jsonBody('PUT', { homepage })),
+  // the window's preferences, kept in the vault (local.ts)
+  prefs: () => req<{ prefs: Record<string, string> }>('/settings/prefs'),
+  changePrefs: (change: { put: Record<string, string>; drop: string[] }, keepalive = false) =>
+    reqVoid('/settings/prefs', { ...jsonBody('PATCH', change), keepalive }),
 }
 
 export interface AppSettings {

@@ -12,7 +12,7 @@ import {
   type ChapterRow, type FieldProvenance, type FieldValues, type Flags, type Provenance, type Title,
   type TitleMeta,
 } from './data'
-import { isRecord, readLocal } from './local'
+import { isRecord, readLocal, writeLocal } from './local'
 import { captureValue, type CleanFlags } from './normalize'
 import { askConfirm, cache, refreshLibrary, store } from './store'
 
@@ -88,10 +88,7 @@ function newDraftDefaults(): NewDraftDefaults {
   }
 }
 function rememberDraftDefaults(meta: TitleMeta) {
-  try {
-    localStorage.setItem(DEFAULTS_KEY, JSON.stringify(
-      { type: meta.type, status: meta.status, flags: meta.flags } satisfies NewDraftDefaults))
-  } catch { /* storage unavailable */ }
+  writeLocal(DEFAULTS_KEY, { type: meta.type, status: meta.status, flags: meta.flags } satisfies NewDraftDefaults)
 }
 
 export function newDraft() {

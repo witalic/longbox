@@ -16,9 +16,26 @@ declare global {
     failed: string
     paused: string[]
   }
+  // the vault stopped answering (design/vault-home.md); `share`: what a mapped
+  // drive letter names, '' when it is none
+  interface VaultEvent {
+    state: 'lost' | 'ok'
+    since: string
+    path: string
+    name: string
+    share: string
+  }
   interface Window {
     longbox?: {
       pickFolder: (title?: string) => Promise<string | null>
+      // a vault to add (mode 'open'), or an empty folder made one ('create'); registered when ok
+      pickVault: (mode: 'open' | 'create') => Promise<{ ok: boolean; path?: string; reason?: string }>
+      // a restart into another registered vault; false when it is not one
+      switchVault: (root: string) => Promise<boolean>
+      // a restart into the launch window
+      openLauncher: () => Promise<boolean>
+      quit: () => Promise<void>
+      onVault: (fn: (v: VaultEvent) => void) => () => void
       // a folder in the system's file manager; false when it is not one
       openFolder: (dir: string) => Promise<boolean>
       clearBrowsing: (what: 'cookies' | 'cache') => Promise<boolean>

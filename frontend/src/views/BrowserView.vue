@@ -23,7 +23,7 @@ import { isBoolMap, readLocal, writeLocal } from '../local'
 import { pageCapture, pageKeyFor, stopCaptureFor, type PickField } from '../pagecapture'
 import { hostOf, matchTitles, type Candidate, type FieldRule, type Recipe } from '../data'
 import type { CleanFlags } from '../normalize'
-import { cache, pageFilter, refreshDerived, sourcesKnown, store } from '../store'
+import { cache, pageFilter, refreshDerived, sourcesKnown, store, vault } from '../store'
 
 const isElectron = typeof navigator !== 'undefined' && navigator.userAgent.includes('Electron')
 
@@ -290,15 +290,12 @@ function devtools() { wv()?.openDevTools?.() }
 const recipes = reactive<Record<string, Recipe | null>>({})
 async function getRecipe(host: string): Promise<Recipe | null> {
   if (host in recipes) return recipes[host]
-  const gen = store.libraryGen
   let r: Recipe | null = null
   try {
     r = await api.recipe(host)
   } catch (e) {
     if (!(e instanceof ApiError && e.status === 404)) throw e
   }
-  // an answer from the library we left knows nothing about this one
-  if (gen !== store.libraryGen) throw new Error('the library changed while its recipe was being read')
   recipes[host] = r
   return r
 }
@@ -315,11 +312,6 @@ async function recipeToBuildOn(host: string): Promise<{ cur: Recipe | null } | n
     return null
   }
 }
-// recipes belong to the library: another one knows other sites
-watch(() => store.libraryGen, () => {
-  for (const host of Object.keys(recipes)) delete recipes[host]
-  if (!pageCapture.active) pageCapture.selector = ''
-})
 watch(domain, async (h) => {
   if (!h) return
   // the star reads this domain's saved links, and the browser can be the first
@@ -1142,9 +1134,10 @@ function onReady(tabId: string) {
 
     <div v-else class="split">
       <div class="pagearea">
-        <!-- allowpopups: a page's new-tab link reaches the shell, which makes it a tab -->
+        <!-- allowpopups: a page's new-tab link reaches the shell, which makes it a tab.
+             None while the vault is gone: a page writes into the vault's browser profile. -->
         <webview
-          v-for="t in browser.tabs" :key="t.id" :ref="wvRef(t.id)" allowpopups
+          v-for="t in (vault.lost ? [] : browser.tabs)" :key="t.id" :ref="wvRef(t.id)" allowpopups
           v-show="t.id === browser.activeId" :src="t.initialUrl" class="wv"
           :class="{ full: t.id === fullTab }" :style="t.id === fullTab ? screenBox() : undefined"
           @enter-html-full-screen="fullTab = t.id"

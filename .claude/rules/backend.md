@@ -12,11 +12,15 @@ content). Full model: `design/state-model.md`; layout: `ARCHITECTURE.md`.
   (`tmp → rename`, unique temp names) under the per-title reentrant lock, keyed by `safe_id`.
   Any service-level load→mutate→commit sequence takes `Vault.title_lock(title_id)` end-to-end.
   App-config read-modify-write goes through `config_transaction()` only.
-- **Vault vs app config.** Anything that describes the library (recipes, the source layer,
-  fields, per-title prefs) lives IN THE VAULT so it moves with it; the app config keeps only
-  the machine's (library paths, homepage, interrupted transfers, paused imports, caches). `recipes.json`,
-  `sources.json`, `rules.json`, `import-profiles.json`, `.pages/<vocabulary>.json` and
-  `downloads/index.json` go through
+- **The vault is home** (design/vault-home.md). EVERYTHING the app keeps lives in the vault it
+  serves — recipes, the source layer, fields, per-title prefs, the window's settings and the
+  homepage (`settings.json`), interrupted transfers, paused imports and import reports
+  (`.longbox/state.json`), caches (`.longbox/cache/`); the app config keeps only where the vaults
+  are (`libraries`, `library_path`). Nothing creates a vault by opening a path: `Vault` refuses a
+  missing root, and every folder under it is made through `Vault.make_dir` (refuses a root without
+  its `vault.json`). `recipes.json`,
+  `sources.json`, `rules.json`, `import-profiles.json`, `.pages/<vocabulary>.json`,
+  `settings.json`, `.longbox/state.json` and `downloads/index.json` go through
   `Vault.read_doc()` / `Vault.doc_transaction()` (a list in one is read with `Vault.doc_items`):
   "absent" is the only empty answer — an unparseable file raises (409), a failed read raises as
   itself, and a newer build's document is never written — so ANY change to the shape of one of

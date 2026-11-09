@@ -99,9 +99,8 @@ def _counted(counter: Counter) -> list[dict]:
 
 
 class LibraryIndex:
-    def __init__(self, db_path: Path | str) -> None:
-        if db_path != ":memory:":
-            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    def __init__(self, db_path: Path) -> None:
+        # the vault it sits in exists already (Vault refuses one that does not)
         self._db = sqlite3.connect(str(db_path), check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         # ONE connection shared by the threadpool means one transaction context:

@@ -15,7 +15,7 @@ import {
   type ReaderPrefs, type ReadState, type Source, type Title,
 } from './data'
 import {
-  isBoolMap, isRecord, localKeys, readLocal, readLocalOne, removeLocal, writeLocal, writeLocalOne,
+  flushPrefs, isBoolMap, isRecord, localKeys, readLocal, readLocalOne, removeLocal, writeLocal, writeLocalOne,
 } from './local'
 import { stopCaptureFor } from './pagecapture'
 
@@ -121,15 +121,13 @@ interface State {
   libFocus: string   // the library tab `library` belongs to — the last one in front
   activeTitle: string | null
   browseHomepage: string
+  libraryPath: string // the vault this window serves
   // data from the backend
   titles: Title[] // current (filtered) library results
   total: number
   sources: Source[]
   sourceGroups: string[] // the user's ordered group names
-  sourcesRead: boolean   // both of those came from the ACTIVE library (not a failed read)
-  // bumps when the active library changes: what a view caches per library
-  // outside this store (recipes, say) watches it and lets go
-  libraryGen: number
+  sourcesRead: boolean   // both of those came from the library (not a failed read)
   facets: Facets // linked counts for the CURRENT selection
   globalFacets: Facets // unfiltered counts — the STABLE row order for the sidebar
   // Counts under the SHELF alone: what an axis would actually find if you
@@ -162,12 +160,12 @@ export const store = reactive<State>({
   libFocus: HOME,
   activeTitle: null,
   browseHomepage: 'https://www.google.com',
+  libraryPath: '',
   titles: [],
   total: 0,
   sources: [],
   sourceGroups: [],
   sourcesRead: false,
-  libraryGen: 0,
   facets: emptyFacets(),
   globalFacets: emptyFacets(),
   shelfFacets: emptyFacets(),
@@ -213,27 +211,23 @@ watchEffect(() => {
 
 // ---- what page capture accepts as a page ----
 //
-// The ACTIVE library's: it lives in the vault beside the recipes, so it loads
-// with the library and switches with it. A change shows at once and is written
-// a moment after the last one — a dragged slider is one write, not forty.
+// The library's: it lives in the vault beside the recipes, so it loads with the
+// library. A change shows at once and is written a moment after the last one —
+// a dragged slider is one write, not forty.
 //
 // Until the library has answered, a change has nothing true to build on and is
-// refused: written over a read that failed, it would replace what is stored. A
-// switch waits for a write already on its way, and an answer from the library
-// it left is dropped (libraryGen).
+// refused: written over a read that failed, it would replace what is stored.
 export const pageFilter = reactive<PageFilter>({ ...PAGE_FILTER_DEFAULTS })
 let pageFilterKnown = false
 const LEGACY_PAGE_FILTER = 'lb.pageFilter' // where an older build kept it, on this machine
 
 let pageFilterTimer: number | undefined
-let pageFilterWrite: Promise<void> = Promise.resolve()
 function writePageFilter(): Promise<void> {
   window.clearTimeout(pageFilterTimer)
   pageFilterTimer = undefined
-  pageFilterWrite = api.savePageFilter({ ...pageFilter }).then(() => undefined, (e) => {
+  return api.savePageFilter({ ...pageFilter }).then(() => undefined, (e) => {
     store.error = e instanceof Error ? e.message : String(e)
   })
-  return pageFilterWrite
 }
 export function savePageFilter(patch: Partial<PageFilter>) {
   if (!pageFilterKnown) {
@@ -245,23 +239,14 @@ export function savePageFilter(patch: Partial<PageFilter>) {
   pageFilterTimer = window.setTimeout(() => void writePageFilter(), 400)
 }
 export function resetPageFilter() { savePageFilter(PAGE_FILTER_DEFAULTS) }
-// what is waiting, or already on its way, belongs to the library being left
-async function settlePageFilter() {
-  if (pageFilterTimer !== undefined) await writePageFilter()
-  else await pageFilterWrite
-}
 
 async function loadPageFilter() {
-  const gen = store.libraryGen
-  pageFilterKnown = false
-  Object.assign(pageFilter, PAGE_FILTER_DEFAULTS)
   let stored: PageFilter
   try {
     stored = await api.pageFilter()
   } catch {
     return // an older build's value waits for a library that answers
   }
-  if (gen !== store.libraryGen) return
   Object.assign(pageFilter, stored)
   pageFilterKnown = true
   const legacy = readLocal(LEGACY_PAGE_FILTER, isRecord, null as Record<string, unknown> | null)
@@ -270,11 +255,8 @@ async function loadPageFilter() {
   const untouched = stored.minPx === PAGE_FILTER_DEFAULTS.minPx
     && stored.widthRatio === PAGE_FILTER_DEFAULTS.widthRatio
   if (untouched) {
-    const write = api.savePageFilter(pageFilterOf(legacy))
-    pageFilterWrite = write.then(() => undefined, () => undefined) // a switch waits for it
     try {
-      const saved = await write
-      if (gen === store.libraryGen) Object.assign(pageFilter, saved)
+      Object.assign(pageFilter, await api.savePageFilter(pageFilterOf(legacy)))
     } catch {
       return // kept for the next start
     }
@@ -380,14 +362,11 @@ export function hiddenAxes(): FieldDef[] { return hiddenOf(axisSurface(), liveAx
 // or delete, or the source list and the suggestions go stale. Browse groups are
 // NOT here: that view loads the axis it is actually showing.
 export async function refreshDerived() {
-  const gen = store.libraryGen
   try {
     const [sources, groups] = await Promise.all([api.sources(), api.sourceGroups()])
-    if (gen === store.libraryGen) {
-      store.sources = sources
-      store.sourceGroups = groups
-      store.sourcesRead = true
-    }
+    store.sources = sources
+    store.sourceGroups = groups
+    store.sourcesRead = true
   } catch { /* leave the previous values in place */ }
   await Promise.all([refreshVocab(), refreshShelfFacets()])
 }
@@ -407,6 +386,7 @@ export async function refreshLibrary() {
 }
 
 export async function init() {
+  watchVault() // a vault that drops covers the window, whatever is on it
   // Startup waits for the LIBRARY and nothing else: the grid is what the window
   // opens on, and a big vault makes every extra call visible as an empty screen.
   store.loading = true
@@ -430,6 +410,7 @@ export async function init() {
     store.shelfFacets = facets
     if (settings.homepage) store.browseHomepage = settings.homepage
     store.appMeta = settings.app || {}
+    store.libraryPath = settings.library_path
   } catch (e) {
     store.error = e instanceof Error ? e.message : String(e)
   } finally {
@@ -908,19 +889,6 @@ watch(() => `${store.libFocus}\n${libKey(libraryTab().place)}`, () => {
     recordStep()
   }, 700)
 })
-// A library switch: every tab names a place in the vault being left.
-function resetTabs() {
-  window.clearTimeout(stepTimer)
-  stepTimer = undefined
-  settled.clear()
-  store.tabs = [homeTab({ ...blankLibrary(), density: store.library.density })]
-  store.libFocus = HOME
-  store.library = (store.tabs[0].place as LibraryPlace).sel
-  settle(store.tabs[0])
-  beforeDraft = HOME
-  store.reader = { chapterId: null, page: 0 }
-  showTab(HOME)
-}
 
 // Combo suggestions for entry LANG / GROUP fields — the chapters at hand
 // first, then the library-wide vocabulary (shared by the title page's entry
@@ -1201,18 +1169,16 @@ export async function setReaderPrefs(t: Title, prefs: ReaderPrefs) {
 // that library has verified itself against disk — then a title the library
 // does not know (404) is not in it, and its key is dropped: an id from another
 // library may name a different title here. A key whose title could not be
-// asked about, or whose write failed, stays for the next start. A library
-// switch stops the move before its next request and waits for the one in flight.
+// asked about, or whose write failed, stays for the next start.
 const LEGACY_READER = 'lb.reader.'
-let legacyReader: { stop: boolean; run: Promise<void> } | null = null
+let legacyReaderMoved = false
 
 function moveLegacyReaderPrefs() {
-  if (legacyReader || store.libraryGen !== 0) return
-  const state = { stop: false, run: Promise.resolve() }
-  state.run = (async () => {
+  if (legacyReaderMoved) return
+  legacyReaderMoved = true
+  void (async () => {
     for (const key of localKeys(LEGACY_READER)) {
-      if (state.stop) return
-      if (key === 'lb.reader.default') continue // this machine's default, still used
+      if (key === 'lb.reader.default') continue // the vault's default, still used
       const raw = readLocal(key, isRecord, null as Record<string, unknown> | null)
       let t: Title
       try {
@@ -1221,7 +1187,6 @@ function moveLegacyReaderPrefs() {
         if (e instanceof ApiError && e.status === 404) removeLocal(key)
         continue
       }
-      if (state.stop) return
       if (raw && !Object.keys(t.reader ?? {}).length) {
         const prefs = readerPrefsOf(raw)
         try {
@@ -1235,7 +1200,6 @@ function moveLegacyReaderPrefs() {
       removeLocal(key)
     }
   })()
-  legacyReader = state
 }
 
 export async function setRead(t: Title, chapterId: string, state: ReadState) {
@@ -1438,14 +1402,12 @@ async function sendMedia(job: MediaJob) {
 export const copies = reactive<{ available: boolean; jobs: CopyJob[] }>({ available: true, jobs: [] })
 let copyPoll: number | undefined
 // The copies that landed come numbered, so one made start to finish between two
-// slow ticks still reaches the title that shows it. -1: this library not asked
-// yet — whatever landed before then is already in what was loaded.
+// slow ticks still reaches the title that shows it. -1: not asked yet — whatever
+// landed before then is already in what was loaded.
 let landedSeen = -1
-let landedGen = -1
 export async function pollCopies(): Promise<void> {
   try {
     const now = await api.copies()
-    if (landedGen !== store.libraryGen) [landedSeen, landedGen] = [-1, store.libraryGen]
     const fresh = landedSeen < 0 ? [] : now.landed.filter((l) => l.seq > landedSeen)
     landedSeen = Math.max(landedSeen, 0, ...now.landed.map((l) => l.seq))
     Object.assign(copies, { available: now.available, jobs: now.jobs })
@@ -1513,44 +1475,48 @@ export async function refreshTotal() {
   try { store.total = (await api.libraryCount()).total } catch { /* keep the previous total */ }
 }
 
-export async function setLibraryPath(path: string): Promise<string | null> {
-  const held = store.tabs.find((t) => t.hold)
-  if (held && !(await askConfirm({
-    title: 'Switch the library', danger: true, okLabel: 'Switch',
-    message: `${held.hold} Switching closes every tab and drops it.`,
-  }))) return null
-  Object.assign(opening, { active: true, path, done: 0, total: 0 })
-  // what is waiting, or already on its way, belongs to the library being left
-  if (legacyReader) legacyReader.stop = true
-  await Promise.all([settlePageFilter(), legacyReader?.run])
-  try {
-    const s = await api.setLibraryPath(path)
-    // the backend swapped to the new location — from here on, anything asked
-    // of the library we left is stale, and everything is reloaded
-    store.libraryGen++
-    store.sourcesRead = false
-    pageFilterKnown = false
-    Object.assign(pageFilter, PAGE_FILTER_DEFAULTS)
-    stopCaptureFor() // the armed entry belongs to the library we are leaving
-    store.byId = {}
-    resetTabs() // every tab names a place in the OLD vault
-    const all = await api.library()
-    cache(all)
-    store.total = all.length
-    store.titles = all.map((t) => store.byId[t.id])
-    await refreshDerived() // authors + sources + vocab all belong to the NEW vault
-    void refreshLoose() // and so does its downloads folder
-    void refreshPausedImports() // …and the imports waiting to go into it
-    void loadPageFilter() // …and so does what it knows about pages
-    store.facets = await api.facets()
-    watchLibrarySync() // the new library verifies itself behind us
-    return s.library_path
-  } catch (e) {
-    store.error = e instanceof Error ? e.message : String(e)
-    opening.active = false
-    return null
-  }
+// ---- the vault (design/vault-home.md) ----------------------------------------
+//
+// Everything the app keeps lives in the vault it serves, the browser's profile
+// included — so opening another vault is a restart into it, made by the shell.
+// While the vault does not answer the window is covered (VaultLost.vue): the
+// sidecar refuses every request, and the shell restarts the app into the vault
+// the moment it answers again. Lost is the sidecar's watch to say (two answers
+// in a row), never one failed request's.
+export const vault = reactive({ lost: false, since: '', path: '', name: '', share: '' })
+
+export function watchVault() {
+  window.longbox?.onVault((v) => {
+    if (v.state === 'lost') Object.assign(vault, { lost: true, since: v.since, path: v.path, name: v.name, share: v.share })
+  })
 }
+
+// Opening another vault: asked first, refused while a pass writes into this one
+// (the restart would cut it off mid-way), and the window's last preferences
+// reach this vault before it goes.
+export async function switchVault(path: string): Promise<boolean> {
+  if (!window.longbox) return false
+  if (vaultPass.running) {
+    store.error = `${vaultPass.op || 'a vault pass'} is running — let it finish first`
+    return false
+  }
+  const name = vaultName(path)
+  const here = vaultName(vault.path || store.libraryPath)
+  const held = store.tabs.find((t) => t.hold)
+  const moving = runningDownloads().length
+  const ok = await askConfirm({
+    title: `Switch to ${name}?`, okLabel: `Restart into ${name}`, danger: !!held,
+    message: `longbox restarts into ${path}. Its titles, recipes, settings and the browser's sign-ins `
+      + `come with it; ${here}'s stay in ${here}.`
+      + (moving ? ` ${moving} download${moving === 1 ? '' : 's'} in progress stop, to be picked up when ${here} is open again.` : '')
+      + (held ? ` ${held.hold}` : ''),
+  })
+  if (!ok) return false
+  await flushPrefs()
+  return window.longbox.switchVault(path)
+}
+
+export const vaultName = (path: string): string => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path
 
 // ---- styled confirm dialog (replaces native window.confirm) ----
 export interface ConfirmReq { title?: string; message: string; okLabel?: string; danger?: boolean }

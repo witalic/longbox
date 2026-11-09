@@ -24,6 +24,8 @@ const P: Record<string, string> = {
   edit: 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',
   refresh: 'M21 12a9 9 0 1 1-2.6-6.3M21 4v4h-4',
   lock: 'M6 10V8a6 6 0 0 1 12 0v2M5 10h14v10H5z',
+  // the vault stopped answering (VaultLost.vue)
+  offline: 'M2 2l20 20M8.5 16.5a5 5 0 0 1 7 0M5 12.9a10 10 0 0 1 5-2.8M19 12.9a10 10 0 0 0-2.3-1.6M2 8.8a15 15 0 0 1 4.2-2.6M22 8.8A15 15 0 0 0 11 5M12 20h.01',
   x: 'M6 6l12 12M18 6L6 18',
   check: 'M20 6L9 17l-5-5',
   grid: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',

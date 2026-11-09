@@ -6,6 +6,19 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('longbox', {
   pickFolder: (title) => ipcRenderer.invoke('lb-pick-folder', String(title || '')),
+  // the vaults (design/vault-home.md): pick one to add, or an empty folder to
+  // make one in ('open' | 'create'); open another (a restart into it); go to
+  // the launch window; quit
+  pickVault: (mode) => ipcRenderer.invoke('lb-vault-pick', mode === 'create' ? 'create' : 'open'),
+  switchVault: (root) => ipcRenderer.invoke('lb-vault-switch', String(root || '')),
+  openLauncher: () => ipcRenderer.invoke('lb-vault-launcher'),
+  quit: () => ipcRenderer.invoke('lb-quit'),
+  // the vault stopped answering ({ state: 'lost', since, path, name, share }); returns unsubscribe
+  onVault: (fn) => {
+    const h = (_e, v) => fn(v)
+    ipcRenderer.on('lb-vault', h)
+    return () => ipcRenderer.removeListener('lb-vault', h)
+  },
   // a folder (never a file) opened in the system's file manager
   openFolder: (dir) => ipcRenderer.invoke('lb-open-folder', String(dir || '')),
   // global embedded-browser hygiene: 'cookies' (site cookies; the app's own

@@ -1,9 +1,11 @@
 'use strict'
-// Electron main process. Spawns the FastAPI sidecar on a free loopback port,
-// guards it with a per-launch secret (delivered as an HttpOnly SameSite=Strict
-// cookie), confirms it reached its own sidecar via the /health identity echo,
-// then loads the UI the sidecar serves at /app/. Locks down navigation,
-// window-open, and permissions.
+// Electron main process. Decides which vault the app opens (launcher.js — the
+// launch window, only when it is needed), then spawns the FastAPI sidecar on a
+// free loopback port to serve it, guards it with a per-launch secret (delivered
+// as an HttpOnly SameSite=Strict cookie), confirms it reached its own sidecar via
+// the /health identity echo, and loads the UI the sidecar serves at /app/. Locks
+// down navigation, window-open, and permissions. Everything the app keeps lives
+// in the vault (design/vault-home.md): this computer keeps only config.json.
 
 const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, net: electronNet, session, shell } =
   require('electron')
@@ -13,6 +15,8 @@ const fs = require('node:fs')
 const net = require('node:net')
 const path = require('node:path')
 const adblock = require('./adblock')
+const launcher = require('./launcher')
+const vaults = require('./vaults')
 
 const ROOT = path.join(__dirname, '..')
 const IS_WIN = process.platform === 'win32'
@@ -24,6 +28,17 @@ const ASSETS = app.isPackaged ? process.resourcesPath : ROOT
 // ONE source of app identity (window title, taskbar) — see <repo>/app-meta.json
 let APP_META = { name: 'longbox', version: '0.0.0' }
 try { APP_META = { ...APP_META, ...JSON.parse(fs.readFileSync(path.join(ASSETS, 'app-meta.json'), 'utf-8')) } } catch { /* defaults */ }
+
+// The browser's data lives in the vault the app opens (its profile is a session at
+// a path there); Chromium's own default profile, which nothing uses, and its crash
+// dumps go to the system's temporary folder — so the app's folder on this
+// computer holds config.json and nothing else.
+app.setPath('sessionData', path.join(app.getPath('temp'), `${app.getName()}-chromium`))
+app.setPath('crashDumps', path.join(app.getPath('temp'), `${app.getName()}-crashes`))
+// The built UI on disk: the launch window is drawn from it before any sidecar
+// exists to serve it.
+const UI_DIR = app.isPackaged ? path.join(process.resourcesPath, 'ui') : path.join(ROOT, 'frontend', 'dist')
+const ICON = path.join(__dirname, IS_WIN ? 'icon.ico' : 'icon.png')
 
 // Chromium spams stderr with WebRTC STUN resolution failures (socket_manager:
 // "Failed to resolve address for stun.l.google.com, errorcode: -105") whenever
@@ -37,6 +52,12 @@ const PYTHON = process.env.LONGBOX_PYTHON ||
 const SIDECAR_BIN = path.join(ASSETS, 'sidecar', IS_WIN ? 'longbox-sidecar.exe' : 'longbox-sidecar')
 
 let sidecar = null
+let vaultRoot = ''        // the vault this run serves
+let vaultSession = null   // the embedded browser's profile, inside that vault
+let letGoOfVault = () => {} // drops the vault's lock
+let vaultLost = false     // the vault stopped answering: nothing more is asked of its drive
+let windowShown = false   // until then a failure goes back to the launch window, not away
+let partialHome = ''      // the vault's folder for transfers being written
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -50,47 +71,19 @@ function freePort() {
   })
 }
 
-function isPortFree(port) {
-  return new Promise((resolve) => {
-    const srv = net.createServer()
-    srv.unref()
-    srv.on('error', () => resolve(false))
-    srv.listen(port, '127.0.0.1', () => srv.close(() => resolve(true)))
-  })
-}
-
-// A STABLE port across launches: the renderer's localStorage (theme, key
-// bindings, reader prefs, session restore) is keyed by origin — a random port
-// each run would wipe it all. The chosen port persists in the shell's own
-// config; a squatted port falls back to a fresh one (and re-persists).
-function shellCfgPath() {
-  return path.join(app.getPath('userData'), 'shell.json')
-}
-function readShellCfg() {
-  try { return JSON.parse(fs.readFileSync(shellCfgPath(), 'utf-8')) } catch { return {} }
-}
-async function stablePort() {
-  const cfg = readShellCfg()
-  if (Number.isInteger(cfg.port) && cfg.port > 1024 && (await isPortFree(cfg.port))) return cfg.port
-  const port = await freePort()
-  try { fs.writeFileSync(shellCfgPath(), JSON.stringify({ ...cfg, port }, null, 2)) } catch { /* non-fatal */ }
-  return port
-}
-
 function sha256(s) {
   return crypto.createHash('sha256').update(s).digest('hex')
 }
 
-function spawnSidecar(port, token) {
+function spawnSidecar(port, token, root) {
   const opts = {
     env: {
       ...process.env,
       LONGBOX_AUTH_TOKEN: token,
       LONGBOX_PORT: String(port),
-      // Config (incl. the chosen library path) lives in this stable per-app dir, so
-      // the path the user picks in Settings survives restarts. The library path
-      // itself is NOT forced here — it comes from that config, defaulting to
-      // <configDir>/library.
+      // the vault the shell opened — the sidecar never picks or makes one itself
+      LONGBOX_LIBRARY_PATH: root,
+      // where the registered vaults are kept (and what an older build left there)
       LONGBOX_CONFIG_DIR: app.getPath('userData'),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -110,12 +103,23 @@ function spawnSidecar(port, token) {
       `The local server did not launch.\n\n${app.isPackaged ? SIDECAR_BIN : PYTHON}\n\n${e.message}`)
   })
   child.stdout.on('data', (d) => process.stdout.write(`[sidecar] ${d}`))
-  child.stderr.on('data', (d) => process.stderr.write(`[sidecar] ${d}`))
+  // the end of what it said, for the launch window if it does not come up
+  let said = ''
+  child.stderr.on('data', (d) => {
+    process.stderr.write(`[sidecar] ${d}`)
+    said = (said + d).slice(-4000)
+  })
   child.on('exit', (code) => {
-    if (!app.isQuitting) {
-      console.error(`sidecar exited (${code}); quitting`)
-      app.quit()
+    if (app.isQuitting) return
+    console.error(`sidecar exited (${code})`)
+    // before the window is up it was the vault that could not be opened: the
+    // launch window says why, instead of the next launch trying it again blind
+    if (!windowShown) {
+      const last = said.trim().split(/\r?\n/).filter((l) => /error|refused|denied|not a vault|cannot/i.test(l)).pop()
+      relaunch(['--launcher', `--why=${encodeURIComponent(`The library could not be opened${last ? `: ${last.trim()}` : '.'}`)}`])
+      return
     }
+    app.quit()
   })
   return child
 }
@@ -168,8 +172,7 @@ function hardenSession(sess, origin) {
   // `fullscreen` is asked for through the request handler and re-checked through
   // the sync one, so denying either leaves a player's fullscreen button dead
   // with nothing in the console to say why. Our own pages may, and so may a page
-  // in the capture <webview> (it shares this session): a site's player is
-  // expected to fill the screen. A scraped page never KEEPS it — Escape ends a
+  // in the capture <webview>: a site's player is expected to fill the screen. A scraped page never KEEPS it — Escape ends a
   // guest's fullscreen from the shell, whatever the page does with the key
   // (EXIT_FULLSCREEN_WORLD). A check with no webContents is a cross-origin frame,
   // which only a guest page holds: ours frame nothing foreign.
@@ -242,12 +245,12 @@ let dlApi = null // the sidecar's downloads API, once the origin and token exist
 // told from a new one at `will-download`.
 const resuming = new Map()
 
-// Where a transfer writes until it is done: the app's own data, not the system
-// temp folder, which may be cleared while one waits to be picked up.
+// Where a transfer writes until it is done: the vault it is for, not the system
+// temp folder, which may be cleared while one waits to be picked up — and the
+// ingest that ends it is then a rename on the same drive, not a copy.
+// Made once, when the vault is opened (main).
 function partialDir() {
-  const dir = path.join(app.getPath('userData'), 'partial-downloads')
-  fs.mkdirSync(dir, { recursive: true })
-  return dir
+  return partialHome
 }
 const inPartialDir = (file) => path.resolve(String(file || '')).startsWith(partialDir() + path.sep)
 
@@ -362,8 +365,11 @@ function wireDownloads(sess, origin, token) {
       // stopped on purpose: the partial file STAYS, and the record was already
       // written by whoever stopped it
       if (id && interrupting.delete(id)) return
+      // a partial file on a vault that is gone is not asked about: the next
+      // launch's sweep takes what no record names
+      const drop = () => { if (!vaultLost) fs.promises.unlink(tempFile).catch(() => {}) }
       if (!id) {
-        fs.promises.unlink(tempFile).catch(() => {})
+        drop()
         return
       }
       try {
@@ -371,41 +377,130 @@ function wireDownloads(sess, origin, token) {
           const res = await api(`/${id}/complete`, { path: tempFile })
           if (!res.ok) {
             console.error(`download ingest failed: ${res.status}`)
-            fs.promises.unlink(tempFile).catch(() => {})
+            drop()
           }
           // on success the sidecar MOVED the file into the vault
         } else {
           await api(`/${id}/failed`, { reason: state })
-          fs.promises.unlink(tempFile).catch(() => {})
+          drop()
         }
       } catch (err) {
         console.error('download ingest failed:', err)
-        fs.promises.unlink(tempFile).catch(() => {})
+        drop()
       }
       downloadsChanged()
     })
   })
 }
 
-async function main() {
-  const port = await stablePort()
+// The window's preferences an older build kept in the browser's localStorage,
+// keyed by the page's origin — which held the port the sidecar used then. Read
+// out of the profile the one-time move put in the vault, by a hidden page at
+// that origin that never reaches the network, and handed to the sidecar in the
+// vault (`.longbox/legacy-window.json`), which takes them into settings.json.
+// Nothing is cleared: until this computer's old folder is dropped, the next
+// launch reads them again.
+async function readLegacyPrefs(sess, port) {
+  const origin = `http://127.0.0.1:${port}`
+  sess.protocol.handle('http', () => new Response('<!doctype html><title>longbox</title>',
+    { headers: { 'content-type': 'text/html' } }))
+  const page = new BrowserWindow({ show: false, webPreferences: { session: sess, sandbox: true, contextIsolation: true } })
+  try {
+    await page.loadURL(`${origin}/`)
+    return await page.webContents.executeJavaScript(`(() => {
+      const out = {}
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)
+        if (k && k.startsWith('lb.')) out[k] = localStorage.getItem(k)
+      }
+      return out
+    })()`)
+  } catch (err) {
+    console.error('reading the old window preferences failed:', err)
+    return null
+  } finally {
+    page.destroy()
+    sess.protocol.unhandle('http')
+  }
+}
+
+// Start over: the sidecar, the window, the browser profile — into the vault the
+// config names, or into the launch window (`--launcher`). Switching vaults and
+// a vault coming back after a drop both end here (design/vault-home.md).
+function relaunch(extra = []) {
+  app.isQuitting = true
+  // a vault that is gone is not written to — its lock goes stale on its own
+  if (!vaultLost) letGoOfVault()
+  if (sidecar && !sidecar.killed) sidecar.kill()
+  const own = (a) => a === '--launcher' || a === '--restore' || a.startsWith('--why=')
+  app.relaunch({ args: [...process.argv.slice(1).filter((a) => !own(a)), ...extra] })
+  app.exit(0)
+}
+
+// Whether the vault still answers is the sidecar's to know (app/vault_watch.py);
+// the shell asks it, covers the window while the vault is gone, stops the
+// transfers that write into it, and restarts into it once it answers again.
+function watchVault(origin, win) {
+  let known = 'ok'
+  const timer = setInterval(async () => {
+    let body
+    try {
+      body = await (await fetch(`${origin}/health`, { signal: AbortSignal.timeout(2500) })).json()
+    } catch { return } // the sidecar is busy, or gone (then the app quits on its own)
+    const now = body.vault || 'ok'
+    if (now === known) return
+    known = now
+    if (now === 'back') {
+      clearInterval(timer)
+      relaunch(['--restore']) // and the window reopens the tabs it had
+      return
+    }
+    if (now === 'lost') {
+      vaultLost = true
+      for (const item of liveDownloads.values()) { try { item.cancel() } catch { /* done */ } }
+    }
+    if (!win.isDestroyed()) {
+      win.webContents.send('lb-vault', { state: now, since: body.since || '', path: vaultRoot,
+        name: vaults.nameOf(vaultRoot), share: await vaults.shareOf(vaultRoot) })
+    }
+  }, 3000)
+}
+
+async function main(root, legacy) {
+  vaultRoot = root
+  partialHome = path.join(root, vaults.APP_DIR, 'partial-downloads')
+  await fs.promises.mkdir(partialHome, { recursive: true })
+  // the embedded browser's profile is the vault's; the app window's session is
+  // in memory — nothing of the window's own is kept in a browser any more
+  vaultSession = session.fromPath(path.join(root, vaults.APP_DIR, 'browser'))
+  const appSession = session.fromPartition('lb-app')
+  if (legacy) {
+    const prefs = legacy.oldPort ? await readLegacyPrefs(vaultSession, legacy.oldPort) : null
+    if (prefs && Object.keys(prefs).length) {
+      await vaults.writeAtomic(path.join(root, vaults.APP_DIR, 'legacy-window.json'), JSON.stringify(prefs, null, 2))
+    }
+    // everything this computer kept is in the vault now: its old folder goes
+    await vaults.dropLegacy(legacy).catch((err) => console.error('dropping the old app data failed:', err))
+  }
+
+  const port = await freePort()
   const token = crypto.randomBytes(32).toString('hex')
   const origin = `http://127.0.0.1:${port}`
 
-  sidecar = spawnSidecar(port, token)
+  sidecar = spawnSidecar(port, token, root)
   await waitForHealth(port, token)
 
-  const sess = session.defaultSession
+  const sess = vaultSession
+  hardenSession(appSession, origin)
   hardenSession(sess, origin)
+  wireDownloads(appSession, origin, token)
   wireDownloads(sess, origin, token)
   void sweepPartials(origin, token)
   // Deliver the secret as an HttpOnly, SameSite=Strict cookie the backend guard requires.
-  await sess.cookies.set({
+  await appSession.cookies.set({
     url: origin, name: 'lb_auth', value: token,
     httpOnly: true, sameSite: 'strict',
   })
-
-  Menu.setApplicationMenu(null) // no native File/Edit/View menu bar
 
   const win = new BrowserWindow({
     width: 1280, height: 820, minWidth: 960, minHeight: 620,
@@ -416,7 +511,7 @@ async function main() {
     show: false,
     autoHideMenuBar: true,
     title: APP_META.name,
-    icon: path.join(__dirname, IS_WIN ? 'icon.ico' : 'icon.png'),
+    icon: ICON,
     // FRAMELESS: the app draws its own chrome; the OS contributes only the
     // native minimize/maximize/close overlay (recolored on theme change) and
     // the tab strip doubles as the drag region (CSS -webkit-app-region)
@@ -424,12 +519,12 @@ async function main() {
     titleBarOverlay: { color: '#0f1115', symbolColor: '#9aa1ad', height: 39 },
     webPreferences: {
       contextIsolation: true, nodeIntegration: false, sandbox: true, webviewTag: true,
-      preload: path.join(__dirname, 'app-preload.js'),
+      preload: path.join(__dirname, 'app-preload.js'), session: appSession,
     },
   })
 
   appWindow = win // guest-page handlers pop their menus over this one
-  adblock.wire(sess, win.webContents)
+  adblock.wire(sess, win.webContents, path.join(root, vaults.APP_DIR, 'adblock'))
 
   // DevTools, on the app window only. The one class of problem that cannot be
   // diagnosed from outside — playback stalls, a decode fallback, request timing
@@ -514,7 +609,7 @@ async function main() {
     if (!rec || !rec.id || !r.path || !Array.isArray(r.urlChain) || !r.urlChain.length) return false
     resuming.set(path.resolve(r.path), String(rec.id))
     try {
-      session.defaultSession.createInterruptedDownload({
+      sess.createInterruptedDownload({
         path: r.path,
         urlChain: r.urlChain,
         offset: Math.max(0, Number(r.offset) || 0),
@@ -541,7 +636,51 @@ async function main() {
     return true
   })
 
-  // Native folder picker (Settings → Storage). Only the app window may ask.
+  // The vaults (Settings → Storage, the lost-vault cover). Opening another one
+  // is a restart into it; every check of the launch applies to it there.
+  ipcMain.handle('lb-vault-pick', async (e, mode) => {
+    if (e.sender !== win.webContents) return null
+    const res = await dialog.showOpenDialog(win, {
+      title: mode === 'create' ? 'Choose an empty folder for the new vault' : 'Choose a vault',
+      properties: ['openDirectory', 'createDirectory'],
+    })
+    if (res.canceled || !res.filePaths.length) return { ok: false, reason: '' }
+    const picked = res.filePaths[0]
+    const got = await vaults.inspectFolder(picked)
+    if (mode === 'create') {
+      if (got.state !== 'empty') {
+        const why = { vault: 'is a vault already — add it instead',
+          files: `holds ${got.files} other item(s) — a vault needs a folder of its own`,
+          missing: 'is not there', unreachable: 'does not answer' }
+        return { ok: false, reason: `${picked} ${why[got.state] || 'cannot hold a vault'}` }
+      }
+      try { await vaults.createVault(picked) } catch (err) { return { ok: false, reason: err.message } }
+    } else if (got.state !== 'vault') {
+      return { ok: false, reason: `${picked} ${got.state === 'unreachable' ? 'does not answer' : 'is not a vault'}` }
+    }
+    vaults.register(picked)
+    return { ok: true, path: picked }
+  })
+  // a restart cuts transfers off: they are put down with their place kept, in
+  // the vault being left, to be picked up when it is open again
+  ipcMain.handle('lb-vault-switch', async (e, root) => {
+    if (e.sender !== win.webContents || !vaults.known().libraries.some((p) => vaults.same(p, String(root || '')))) return false
+    await interruptAll('the app switched to another vault')
+    vaults.register(String(root), { last: true })
+    relaunch()
+    return true
+  })
+  ipcMain.handle('lb-vault-launcher', async (e) => {
+    if (e.sender !== win.webContents) return false
+    if (!vaultLost) await interruptAll('the app switched to another vault')
+    relaunch(['--launcher'])
+    return true
+  })
+  ipcMain.handle('lb-quit', (e) => {
+    if (e.sender === win.webContents) app.quit()
+  })
+
+  // Native folder picker (an import's folders). Only the app window may ask.
   ipcMain.handle('lb-pick-folder', async (e, title) => {
     if (e.sender !== win.webContents) return null
     const res = await dialog.showOpenDialog(win, {
@@ -692,9 +831,9 @@ async function main() {
     } catch { /* not supported on this platform */ }
   })
 
-  // Embedded-browser hygiene (Settings → Browser). 'cookies' removes every
-  // site cookie EXCEPT the app origin's auth cookie; 'cache' drops HTTP cache.
-  // localStorage is untouched — the app's own prefs live there too.
+  // Embedded-browser hygiene (Settings → Browser), in this vault's browser:
+  // 'cookies' signs out of every site; 'cache' drops the HTTP cache. The app's
+  // own auth cookie lives in the window's session and is not touched.
   ipcMain.handle('lb-clear-browsing', async (e, what) => {
     if (e.sender !== win.webContents) return false
     if (what === 'cache') {
@@ -702,12 +841,7 @@ async function main() {
       return true
     }
     if (what === 'cookies') {
-      const cookies = await sess.cookies.get({})
-      for (const c of cookies) {
-        const url = `${c.secure ? 'https' : 'http'}://${(c.domain || '').replace(/^\./, '')}${c.path || '/'}`
-        if (url.startsWith(origin)) continue // keep lb_auth — the app stays signed in
-        await sess.cookies.remove(url, c.name).catch(() => {})
-      }
+      await sess.clearStorageData({ storages: ['cookies'] })
       return true
     }
     return false
@@ -723,18 +857,56 @@ async function main() {
 
   win.once('ready-to-show', () => {
     win.show()
+    windowShown = true
+    launcher.close()
     void adblock.load() // a stale list is fetched and read here, not before the window is up
   })
-  // A launch-unique query so a rebuilt UI always reaches the window: the entry
-  // document carries no content hash, and a cached copy of it pins the window to
-  // the bundle it referenced (the assets under it ARE hashed, so they cache hard).
-  win.loadURL(`${origin}/app/?b=${Date.now()}`)
+  watchVault(origin, win)
+  // `restore`: the app came back into a vault that had dropped — the window
+  // reopens the tabs it had
+  win.loadURL(`${origin}/app/${process.argv.includes('--restore') ? '?restore=1' : ''}`)
 }
 
-app.whenReady().then(main).catch((err) => {
-  console.error(err)
+async function boot() {
+  Menu.setApplicationMenu(null) // no native File/Edit/View menu bar
+  const opts = { uiDir: UI_DIR, icon: ICON }
+  const why = process.argv.find((a) => a.startsWith('--why='))
+  const { root, letGo } = await launcher.choose({ ...opts, forced: process.argv.includes('--launcher'),
+    why: why ? decodeURIComponent(why.slice(6)) : '' })
+  letGoOfVault = letGo
+  try {
+    const legacy = await vaults.legacyPlan(root)
+    if (legacy) await launcher.moving(legacy, opts)
+    await main(root, legacy)
+  } catch (err) {
+    // the vault could not be opened after all: back to the launch window, which
+    // says why — never a quiet exit the next launch would repeat
+    console.error(err)
+    if (!windowShown) {
+      relaunch(['--launcher', `--why=${encodeURIComponent(`The library could not be opened: ${err.message || err}`)}`])
+      return
+    }
+    throw err
+  }
+}
+
+// One app per computer: a second launch hands over to the one running — and so
+// a vault's lock from this computer can only be one a crash left behind.
+if (!app.requestSingleInstanceLock()) {
   app.quit()
-})
+} else {
+  app.on('second-instance', () => {
+    const w = appWindow && !appWindow.isDestroyed() ? appWindow : launcher.window()
+    if (!w) return
+    if (w.isMinimized()) w.restore()
+    w.focus()
+  })
+  app.whenReady().then(boot).catch((err) => {
+    console.error(err)
+    dialog.showErrorBox('longbox could not start', String((err && err.message) || err))
+    app.quit()
+  })
+}
 
 // The Browse view embeds source sites in a <webview>. Force our pick-mode
 // preload from the main process (don't trust a renderer-set attribute), and keep
@@ -752,6 +924,8 @@ const EXIT_FULLSCREEN_WORLD = 1001
 
 app.on('web-contents-created', (_e, contents) => {
   contents.on('will-attach-webview', (_evt, webPreferences) => {
+    // the pages run in the vault's browser profile: its sign-ins, its cache
+    webPreferences.session = vaultSession
     webPreferences.preload = path.join(__dirname, 'pick-preload.js')
     webPreferences.nodeIntegration = false
     webPreferences.contextIsolation = true
@@ -866,6 +1040,8 @@ app.on('web-contents-created', (_e, contents) => {
 
 app.on('before-quit', () => {
   app.isQuitting = true
+  // a quit while the vault is gone leaves its lock behind: the next launch finds it stale
+  if (!vaultLost) letGoOfVault()
   if (sidecar && !sidecar.killed) sidecar.kill()
 })
 

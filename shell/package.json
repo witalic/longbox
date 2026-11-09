@@ -27,10 +27,12 @@
       "output": "../dist-app",
       "buildResources": "."
     },
-    "files": ["main.js", "adblock.js", "app-preload.js", "pick-preload.js", "icon.*", "package.json"],
+    "files": ["main.js", "adblock.js", "launcher.js", "vaults.js", "app-preload.js", "launcher-preload.js",
+              "pick-preload.js", "icon.*", "package.json"],
     "extraResources": [
       { "from": "../dist-sidecar/longbox-sidecar", "to": "sidecar" },
       { "from": "../app-meta.json", "to": "app-meta.json" },
+      { "from": "../frontend/dist", "to": "ui" },
       { "from": "../packaging/licenses", "to": "licenses" }
     ],
     "afterPack": "../packaging/adhoc-sign.js",

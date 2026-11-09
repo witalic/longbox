@@ -4,7 +4,7 @@
 // last 3 sessions — one click reopens their tabs in the background.
 import { reactive, watch } from 'vue'
 import { browser, newTabBackground } from './browser'
-import { isRecord, readLocal } from './local'
+import { isRecord, readLocal, removeLocal, writeLocal } from './local'
 import {
   editInMetadata, editValueInMetadata, HOME, newLibraryTab, openSection, openTitleBackground, openValuePage,
   store, type Place,
@@ -38,8 +38,8 @@ export function initSessions() {
   const hist = readLocal<SessionSnap[]>(HIST, isSnapList, [])
   if (prev && (listOf(prev.places).length || listOf(prev.web).length)) hist.unshift(prev)
   sessionHistory.splice(0, sessionHistory.length, ...hist.slice(0, MAX))
-  try { localStorage.setItem(HIST, JSON.stringify([...sessionHistory])) } catch { /* ignore */ }
-  try { localStorage.removeItem(CUR) } catch { /* ignore */ }
+  writeLocal(HIST, [...sessionHistory])
+  removeLocal(CUR)
 
   // live snapshot of THIS session
   watch(
@@ -50,7 +50,7 @@ export function initSessions() {
         places: store.tabs.filter((t) => t.id !== HOME).map((t) => t.place),
         web: browser.tabs.filter((t) => t.url).map((t) => ({ url: t.url, title: t.title || t.label })),
       }
-      try { localStorage.setItem(CUR, JSON.stringify(snap)) } catch { /* ignore */ }
+      writeLocal(CUR, snap)
     },
   )
 }

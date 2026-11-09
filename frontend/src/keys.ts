@@ -2,7 +2,7 @@
 // `matches(action, event)` instead of hardcoding keys; Settings → Keyboard
 // rebinds actions (persisted) and resets to the defaults below.
 import { reactive } from 'vue'
-import { isRecord, readLocal } from './local'
+import { isRecord, readLocal, writeLocal } from './local'
 
 export interface KeyAction {
   id: string
@@ -60,7 +60,7 @@ function loadOverrides(): Record<string, string[]> {
 export const keyOverrides = reactive<Record<string, string[]>>(loadOverrides())
 
 function persist() {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(keyOverrides)) } catch { /* ignore */ }
+  writeLocal(STORE_KEY, keyOverrides)
 }
 
 export function bindingsFor(id: string): string[] {

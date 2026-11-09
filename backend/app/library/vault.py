@@ -21,6 +21,7 @@ import re
 import shutil
 import threading
 import time
+import uuid
 import zipfile
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator
@@ -48,6 +49,23 @@ class NewerDocument(RuntimeError):
 class ShelfMoveError(RuntimeError):
     """A type change whose folder could not move to its shelf — the title stays
     where it was, unchanged."""
+
+
+class VaultGone(OSError):
+    """The folder is no longer the vault that was opened: a drive that dropped,
+    an emptied mount point, another share under the same letter."""
+
+
+# The vault's identity and its one-time migration markers. A folder that holds
+# one is a vault; so is one an older build left with only its index.
+VAULT_FILE = "vault.json"
+# The app's own working files inside the vault (design/vault-home.md): the
+# browser's profile, transfers, caches. A dot name, so it is never a shelf.
+APP_DIR = ".longbox"
+
+
+def is_vault(root: Path) -> bool:
+    return (root / VAULT_FILE).is_file() or (root / "index.db").is_file()
 
 
 _Item = TypeVar("_Item", bound=BaseModel)
@@ -227,8 +245,15 @@ def _atomic_write(path: Path, data: bytes) -> None:
 
 class Vault:
     def __init__(self, root: Path) -> None:
+        """Opens a vault that exists. Nothing here makes its root: only the
+        launcher creates a vault, so a path whose drive is gone fails instead of
+        a new vault appearing wherever the path now leads."""
         self.root = root
-        self.root.mkdir(parents=True, exist_ok=True)
+        if not root.is_dir():
+            raise VaultGone(f"{root} is not there")
+        # what the watchdog compares against: another folder at the same path is
+        # not this vault, however much it looks like one
+        self.id: str = self._identity()
         # One serialized write point per title (state-model §8): FastAPI runs sync
         # endpoints on a threadpool, so a commit and a write-through may race.
         # RLock so a service-level critical section (title_lock) can call the
@@ -343,6 +368,11 @@ class Vault:
                                          "this one reads it but does not change it")
             yield doc
             doc["schema"] = schema
+            # a document read as absent from an emptied mount point must not be
+            # written there as a fresh one (make_dir says why)
+            if not (self.root / VAULT_FILE).is_file():
+                raise VaultGone(f"{self.root} is no longer the vault — {name} is not written")
+            self.make_dir(path.parent)
             _atomic_write(path, json.dumps(doc, ensure_ascii=False, indent=2).encode("utf-8"))
 
     # ---- the per-type layout ----
@@ -368,7 +398,7 @@ class Vault:
                     # type manga) — moving it into itself would fail; step aside
                     src = self.root / (p.name + ".lb-migrating")
                     p.rename(src)
-                dest.parent.mkdir(parents=True, exist_ok=True)
+                self.make_dir(dest.parent)
                 os.rename(src, dest)  # one volume — and a refused rename leaves it whole
                 self._loc[p.name] = shelf
             except OSError:
@@ -468,7 +498,7 @@ class Vault:
             self._loc[sid] = cur.parent.name if cur.parent != self.root else "other"
             return
         made = not dest.parent.exists()
-        dest.parent.mkdir(parents=True, exist_ok=True)
+        self.make_dir(dest.parent)
         old_parent = cur.parent
         self.let_go(sid, None)
         try:
@@ -567,7 +597,7 @@ class Vault:
         return sorted(ids)
 
     def _save(self, title_id: str, doc: TitleDoc) -> None:
-        self._dir(title_id).mkdir(parents=True, exist_ok=True)
+        self.make_dir(self._dir(title_id))
         payload = doc.model_dump_json(indent=2, by_alias=True).encode("utf-8")
         _atomic_write(self._doc_path(title_id), payload)
 
@@ -652,7 +682,7 @@ class Vault:
             return dest
         if dest.exists():
             raise FileExistsError(f"{shelf}/{sid} already exists")
-        dest.parent.mkdir(parents=True, exist_ok=True)
+        self.make_dir(dest.parent)
         self.let_go(sid, None)
         os.rename(cur, dest)
         self._loc[sid] = shelf
@@ -783,7 +813,7 @@ class Vault:
         """Where a NEW chapter archive lives (zip) — for pages added by hand to
         a row that has no file yet. Ensures the directory exists."""
         d = self._chapters_dir(title_id)
-        d.mkdir(parents=True, exist_ok=True)
+        self.make_dir(d)
         return d / f"{safe_id(chapter_id)}.zip"
 
     def chapters_dir(self, title_id: str) -> Path:
@@ -796,7 +826,7 @@ class Vault:
         copy, and named `.tmp`, so whatever an interruption leaves behind is
         what the stray sweep collects."""
         d = self._chapters_dir(title_id)
-        d.mkdir(parents=True, exist_ok=True)
+        self.make_dir(d)
         return media.tmp_path(d / f"incoming{suffix}")
 
     def chapters_stamp(self, title_id: str) -> int:
@@ -883,7 +913,7 @@ class Vault:
     def write_chapter_frames(self, title_id: str, chapter_id: str, kind: str,
                              data: bytes) -> None:
         with self._lock(title_id):
-            self._chapters_dir(title_id).mkdir(parents=True, exist_ok=True)
+            self.make_dir(self._chapters_dir(title_id))
             _atomic_write(self.chapter_frames_path(title_id, chapter_id, kind), data)
 
     # an episode's subtitles live beside it (library/subtitles.py)
@@ -894,7 +924,7 @@ class Vault:
                        original: bytes, ext: str) -> None:
         with self._lock(title_id):
             d = self._chapters_dir(title_id)
-            d.mkdir(parents=True, exist_ok=True)
+            self.make_dir(d)
             stem = safe_id(chapter_id)
             _atomic_write(d / subtitles.orig_name(stem, n, ext), original)
             _atomic_write(d / subtitles.vtt_name(stem, n), vtt)
@@ -932,7 +962,7 @@ class Vault:
     def write_chapter_sidecar(self, title_id: str, chapter_id: str, sidecar: dict) -> None:
         with self._lock(title_id):
             d = self._chapters_dir(title_id)
-            d.mkdir(parents=True, exist_ok=True)
+            self.make_dir(d)
             _atomic_write(d / f"{safe_id(chapter_id)}.json",
                           json.dumps(sidecar, indent=2, ensure_ascii=False).encode("utf-8"))
 
@@ -958,7 +988,7 @@ class Vault:
         with self._lock(title_id):
             self.let_go(title_id, chapter_id)
             d = self._chapters_dir(title_id)
-            d.mkdir(parents=True, exist_ok=True)
+            self.make_dir(d)
             stem = safe_id(chapter_id)
             final = d / (f"{stem}{video_ext}" if as_video else f"{stem}.zip")
             tmp = media.tmp_path(final)
@@ -1028,33 +1058,75 @@ class Vault:
     # migration for content that predates it (or was dropped into the vault by
     # hand). It runs once per vault; Settings can re-run it on demand.
 
-    def _vault_meta_path(self) -> Path:
-        return self.root / "vault.json"
-
     def _vault_meta(self) -> dict:
-        p = self._vault_meta_path()
-        if not p.is_file():
-            return {}
         try:
-            return json.loads(p.read_text(encoding="utf-8"))
+            return json.loads((self.root / VAULT_FILE).read_text(encoding="utf-8"))
         except (ValueError, OSError):
             return {}
+
+    def _meta_to_change(self) -> dict:
+        """vault.json is the vault's identity as well as its markers, so it is
+        changed only on top of what it SAYS: a read that failed (a share that
+        blinked) raises instead of answering "nothing" and having the write that
+        follows drop the id. A file that does not parse holds nothing worth
+        keeping — markers that make a pass run once more, an id the next open
+        replaces."""
+        try:
+            meta = json.loads((self.root / VAULT_FILE).read_text(encoding="utf-8"))
+        except (FileNotFoundError, ValueError):
+            return {}
+        return meta if isinstance(meta, dict) else {}
+
+    def _write_vault_meta(self, meta: dict) -> None:
+        _atomic_write(self.root / VAULT_FILE, json.dumps(meta, indent=2, ensure_ascii=False).encode("utf-8"))
+
+    def _identity(self) -> str:
+        with _doc_lock(self.root / VAULT_FILE):
+            meta = self._meta_to_change()
+            if not (isinstance(meta.get("id"), str) and meta["id"]):
+                meta["id"] = uuid.uuid4().hex  # a vault from before vaults had one
+                self._write_vault_meta(meta)
+            return meta["id"]
+
+    def _update_vault_meta(self, **changes: object) -> None:
+        with _doc_lock(self.root / VAULT_FILE):
+            meta = self._meta_to_change()
+            meta.update(changes)
+            self._write_vault_meta(meta)
+
+    def still_here(self) -> bool:
+        """Whether the folder at the vault's path is still this vault. Asked by
+        the watchdog off the request path: on a drive that dropped this read can
+        take the network's whole timeout."""
+        try:
+            meta = json.loads((self.root / VAULT_FILE).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        return isinstance(meta, dict) and meta.get("id") == self.id
+
+    def make_dir(self, path: Path) -> Path:
+        """Every folder the vault makes is made here, and only under a root that
+        still holds its vault.json. A share that dropped leaves its mount point
+        behind as an empty local folder, and a drive letter can come back as
+        another share: making the folders a write needs would quietly build a
+        second, local library there. One stat, paid only when a folder is new."""
+        if not path.is_dir():
+            if not (self.root / VAULT_FILE).is_file():
+                raise VaultGone(f"{self.root} is no longer the vault — nothing is written there")
+            path.mkdir(parents=True, exist_ok=True)
+        return path
 
     def needs_normalize(self) -> bool:
         return int(self._vault_meta().get("zipNormalized", 0)) < NORMALIZE_VERSION
 
     def mark_normalized(self) -> None:
-        meta = {**self._vault_meta(), "zipNormalized": NORMALIZE_VERSION}
-        _atomic_write(self._vault_meta_path(),
-                      json.dumps(meta, indent=2, ensure_ascii=False).encode("utf-8"))
+        self._update_vault_meta(zipNormalized=NORMALIZE_VERSION)
 
     def needs_faststart(self) -> bool:
         return int(self._vault_meta().get("videoFaststart", 0)) < FASTSTART_VERSION
 
     def mark_faststart(self) -> None:
-        meta = {**self._vault_meta(), "videoFaststart": FASTSTART_VERSION}
-        _atomic_write(self._vault_meta_path(),
-                      json.dumps(meta, indent=2, ensure_ascii=False).encode("utf-8"))
+        self._update_vault_meta(videoFaststart=FASTSTART_VERSION)
 
     # ---- what has been done to this vault -----------------------------------
     #
@@ -1361,7 +1433,7 @@ class Vault:
         """Store cover bytes in one slot, replacing whatever that slot held."""
         with self._lock(title_id):
             d = self._dir(title_id)
-            d.mkdir(parents=True, exist_ok=True)
+            self.make_dir(d)
             before = None
             for old in _COVER_EXTS:
                 p = d / _cover_name(slot, old)
