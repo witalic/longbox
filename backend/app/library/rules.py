@@ -21,8 +21,9 @@ from urllib.parse import urlsplit
 from dataclasses import dataclass
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
+from .migrations import folded
 from .models import TitleDoc
 from .operations import FLAG_NAMES, FOLDED, Action, place, shape, values_of
 from .vault import Vault
@@ -49,6 +50,16 @@ class Rule(BaseModel):
     to: str = ""                 # rename / move: what the value becomes; add: the value added
     toField: str = ""            # move / add: the field it goes to
     domains: list[str] = []      # only for values captured from these sites; empty = any
+
+    @model_validator(mode="before")
+    @classmethod
+    def _now_named(cls, raw: object) -> object:
+        # a rule written before a field was folded into another names the old one
+        if isinstance(raw, dict):
+            for k in ("field", "toField"):
+                if isinstance(raw.get(k), str) and folded(raw[k]) != raw[k]:
+                    raw = {**raw, k: folded(raw[k])}
+        return raw
 
 
 class InvalidRule(ValueError):

@@ -111,7 +111,7 @@ function clearField(f: FieldDef) {
 const cleared = (f: FieldDef) => has(f.id, 'clear')
 function suggestions(f: FieldDef): string[] {
   const full = new Set(heldIn(f.id).values.filter((v) => v.titles === total.value).map((v) => v.value))
-  return (store.vocab[f.vocab] ?? []).filter((v) => !full.has(v) && !has(f.id, 'add', v))
+  return (store.vocab[f.id] ?? []).filter((v) => !full.has(v) && !has(f.id, 'add', v))
 }
 // pending adds of values the selection does not hold yet — a held one shows on
 // its own chip, unless the field is being emptied first
@@ -324,7 +324,7 @@ async function toMetadata() {
               <div v-if="setting === f.id" v-focus-in class="setin">
                 <input v-if="f.control === 'date' || f.control === 'number'" class="in" :type="f.control"
                        @change="setValue(f, ($event.target as HTMLInputElement).value)" @keydown.esc="setting = ''" />
-                <Combo v-else wide lazy :suggestions="store.vocab[f.vocab] ?? []" :placeholder="f.placeholder"
+                <Combo v-else wide lazy :suggestions="store.vocab[f.id] ?? []" :placeholder="f.placeholder"
                        @update:model-value="setValue(f, $event)" />
                 <button class="lnk" @mousedown.prevent @click="setting = ''">cancel</button>
               </div>

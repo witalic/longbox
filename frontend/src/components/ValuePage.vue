@@ -58,24 +58,14 @@ const isPerson = computed(() => p.value?.vocab === 'authors')
 // ---- the works: the library, scoped to this value ----
 // The same query the library runs, with the value as a filter the page always
 // carries — so every work is reachable, a page at a time, under the library's
-// own search, sort and filter block. The page's selection, a person's role and
-// the page number live in its place: Back and Forward keep them, another page
-// starts clean, and the library's own filters are never touched.
+// own search, sort and filter block. The page's selection and the page number
+// live in its place: Back and Forward keep them, another page starts clean, and
+// the library's own filters are never touched.
 const PAGE_SIZE = 48
-const personPlace = computed(() =>
-  (store.fields.find((f) => f.id === at.value?.field)?.vocab || at.value?.field) === 'authors')
-// A person is the people facet, authors and artists both — or, by role, the one
-// field: drawing is a facet of its own, and writing narrows the people below.
-const baseFacet = computed(() => {
-  const r = at.value
-  if (!r) return ''
-  if (!personPlace.value) return r.field
-  return r.role === 'artists' ? 'artists' : 'authors'
-})
 function worksQuery() {
   const r = at.value!
   const q = buildQuery(r.sel)
-  return { ...q, f: [...(q.f ?? []), `${baseFacet.value}:${r.value}`] }
+  return { ...q, f: [...(q.f ?? []), `${r.field}:${r.value}`] }
 }
 const results = ref<Title[]>([])
 const workFacets = ref<Facets>(emptyFacets())
@@ -98,10 +88,6 @@ async function loadWorks() {
     if (n === wseq) worksLoading.value = false
   }
 }
-const works = computed(() => {
-  const r = at.value
-  return r?.role === 'authors' ? results.value.filter((t) => t.authors.includes(r.value)) : results.value
-})
 // A changed selection starts from page 1 and asks again — a burst of typing
 // once. Arriving at another place (Back, Forward, a neighbour) keeps its page.
 let worksTimer: ReturnType<typeof setTimeout> | undefined
@@ -115,9 +101,9 @@ watch(() => [at.value, at.value ? JSON.stringify(worksQuery()) : ''] as const, (
 }, { immediate: true })
 onBeforeUnmount(() => clearTimeout(worksTimer))
 
-const totalPages = computed(() => Math.max(1, Math.ceil(works.value.length / PAGE_SIZE)))
+const totalPages = computed(() => Math.max(1, Math.ceil(results.value.length / PAGE_SIZE)))
 const curPage = computed(() => Math.min(Math.max(1, at.value?.page ?? 1), totalPages.value))
-const pageWorks = computed(() => works.value.slice((curPage.value - 1) * PAGE_SIZE, curPage.value * PAGE_SIZE))
+const pageWorks = computed(() => results.value.slice((curPage.value - 1) * PAGE_SIZE, curPage.value * PAGE_SIZE))
 const worksEl = ref<HTMLElement | null>(null)
 function goPage(v: number) {
   if (!at.value) return
@@ -126,9 +112,9 @@ function goPage(v: number) {
 }
 // narrowed below what holds the value — not yet known while the first answer is on its way
 const filtered = computed(() => !!p.value && !(worksLoading.value && !results.value.length)
-  && works.value.length !== p.value.titles)
+  && results.value.length !== p.value.titles)
 const rangeLabel = computed(() => {
-  const n = works.value.length
+  const n = results.value.length
   const all = filtered.value ? ` · ${p.value?.titles} in all` : ''
   if (!n) return `0 works${all}`
   const a = (curPage.value - 1) * PAGE_SIZE + 1
@@ -142,17 +128,6 @@ const baseChip = computed(() => (p.value ? `${p.value.kind.toLowerCase()}: ${p.v
 function clearWorkFilters() {
   if (!at.value) return
   resetFilters(at.value.sel)
-  at.value.role = ''
-}
-
-const ROLE_WORD: Record<string, string> = { authors: 'Wrote', artists: 'Drew' }
-const ROLE_NOUN: Record<string, string> = { authors: 'author', artists: 'artist' }
-const roleBadge = computed(() => Object.entries(p.value?.roles ?? {})
-  .map(([f, n]) => `${(ROLE_WORD[f] ?? labelOf(f)).toUpperCase()} ${n}`).join(' · '))
-// the fields a person holds the value in on one work: W·D on its cover
-function rolesOf(t: Title): string {
-  const v = at.value?.value ?? ''
-  return [t.authors.includes(v) && 'W', t.artists.includes(v) && 'D'].filter(Boolean).join('·')
 }
 
 // the side strip can hide — this machine's preference, the same on every page
@@ -162,7 +137,7 @@ watch(sideOpen, (v) => writeLocalOne('lb.pageSide', v ? '1' : '0'))
 // the library filtered to this value — and to what the page has filtered it to
 function inLibrary() {
   const v = p.value
-  if (v && at.value) showInLibrary(baseFacet.value, v.value, at.value.sel)
+  if (v && at.value) showInLibrary(at.value.field, v.value, at.value.sel)
 }
 // the crumb: the list this value belongs to, in the library tab
 function toList() {
@@ -173,7 +148,7 @@ function toList() {
 const mosaic = computed(() => (p.value?.works ?? []).filter((w) => w.cover).slice(0, 4))
 
 // ---- the rules about it ----
-// other spellings, each once — a person's are kept as author AND as artist
+// other spellings, each once — a site's rule and a general one may share one
 const alsoWritten = computed(() => {
   const out = new Map<string, number[]>()
   for (const n of p.value?.rules ?? []) {
@@ -476,7 +451,7 @@ function lookUp() {
                 <input v-model="spellInput" class="spin" :placeholder="isPerson ? 'add a name…' : 'add a spelling…'"
                        @keydown.enter.prevent="addSpelling" @blur="addSpelling" />
               </div>
-              <div class="hint">Each {{ isPerson ? 'name — as author and as artist —' : 'spelling' }} is a <b>rename rule</b>
+              <div class="hint">Each {{ isPerson ? 'name' : 'spelling' }} is a <b>rename rule</b>
                 (Metadata › Rules): capture and your typing turn it into “{{ p.value }}” from now on. Titles that already
                 hold one can be renamed from the Rules list here.</div>
             </div>
@@ -486,7 +461,6 @@ function lookUp() {
         <div v-else class="info">
           <div class="badges">
             <span class="typebadge">{{ p.kind }}</span>
-            <span v-if="roleBadge" class="rolebadge mono">{{ roleBadge }}</span>
           </div>
           <h1 class="pname">{{ p.value }}</h1>
           <div v-if="alsoWritten.length" class="also">{{ isPerson ? 'also known as' : 'also written' }}
@@ -532,12 +506,7 @@ function lookUp() {
           <div v-if="at" ref="worksEl" class="sec">
             <div class="sechead">
               <span class="eyebrow">Works</span>
-              <span class="cnt mono">{{ filtered ? `${works.length} of ${p.titles}` : p.titles }}</span>
-              <div v-if="Object.keys(p.roles).length > 1" class="seg text">
-                <button class="opt" :class="{ on: !at.role }" @click="at.role = ''">All</button>
-                <button v-for="(n, f) in p.roles" :key="f" class="opt" :class="{ on: at.role === f }"
-                        @click="at.role = String(f)">{{ ROLE_WORD[f] ?? labelOf(String(f)) }} <span class="c mono">{{ n }}</span></button>
-              </div>
+              <span class="cnt mono">{{ filtered ? `${results.length} of ${p.titles}` : p.titles }}</span>
               <div class="right">
                 <SearchBox v-model="at.sel.search" placeholder="Search these works…" :width="220" />
                 <Dropdown :model-value="at.sel.sort" :options="TITLE_SORTS" @update:model-value="at.sel.sort = String($event)" />
@@ -550,9 +519,9 @@ function lookUp() {
                         @click="sideOpen = !sideOpen"><Icon name="panel" :size="14" :sw="1.9" /></button>
               </div>
             </div>
-            <div v-if="!works.length && worksLoading" class="none">Loading…</div>
-            <div v-else-if="!works.length && !p.titles" class="none">No title holds it now.</div>
-            <div v-else-if="!works.length" class="nomatch">
+            <div v-if="!results.length && worksLoading" class="none">Loading…</div>
+            <div v-else-if="!results.length && !p.titles" class="none">No title holds it now.</div>
+            <div v-else-if="!results.length" class="nomatch">
               <span class="none">No work matches these filters.</span>
               <button class="btn ghost small" @click="clearWorkFilters">Clear filters</button>
             </div>
@@ -560,7 +529,6 @@ function lookUp() {
               <div v-for="t in pageWorks" :key="t.id" class="cov" :style="coverStyle(t, 220)"
                    :title="t.title" @click="openTitle(t.id)" @mousedown.middle.prevent="openTitleBackground(t.id)">
                 <span v-if="!t.cover" class="m">{{ (t.title[0] || '?').toUpperCase() }}</span>
-                <span v-if="isPerson && rolesOf(t)" class="r mono">{{ rolesOf(t) }}</span>
                 <span class="w">{{ t.title }}</span>
               </div>
             </div>
@@ -570,8 +538,8 @@ function lookUp() {
             <div class="chips">
               <button v-for="n in g.items" :key="n.field + n.value" class="chip link" @click="followValue(n.field, n.value)"
                       @mousedown.middle.prevent="openValuePage(n.field, n.value, true)">
-                <span v-if="isPerson && ['authors', 'artists'].includes(n.field)" class="av" :style="{ background: hueFor(n.value) }">{{ initials(n.value) }}</span>
-                {{ n.value }}<span class="n mono">{{ n.n }}<template v-if="p.vocab !== (n.field === 'artists' ? 'authors' : n.field)"> · {{ labelOf(n.field).toLowerCase() }}</template></span>
+                <span v-if="isPerson && n.field === 'authors'" class="av" :style="{ background: hueFor(n.value) }">{{ initials(n.value) }}</span>
+                {{ n.value }}<span class="n mono">{{ n.n }}<template v-if="p.vocab !== n.field"> · {{ labelOf(n.field).toLowerCase() }}</template></span>
               </button>
             </div>
           </div>
@@ -604,8 +572,7 @@ function lookUp() {
             <div v-for="n in p.rules" :key="n.id" class="rule" :class="{ off: !n.enabled }">
               <span class="k mono">{{ n.kind === 'spelling' && isPerson ? 'NAME' : RULE_KIND[n.kind] }}</span>
               <span class="rt">
-                <template v-if="n.kind === 'spelling'"><b>{{ n.values.join(', ') }}</b> → {{ p.value }}<template
-                  v-if="isPerson"> · as {{ ROLE_NOUN[n.field] ?? labelOf(n.field).toLowerCase() }}</template></template>
+                <template v-if="n.kind === 'spelling'"><b>{{ n.values.join(', ') }}</b> → {{ p.value }}</template>
                 <template v-else>{{ ruleText(n) }}</template>
                 <template v-if="n.domains.length"> · on {{ n.domains.join(', ') }}</template>
                 <template v-if="!n.enabled"> · off</template>
@@ -660,7 +627,6 @@ function lookUp() {
 .info { flex: 1; min-width: 0; }
 .badges { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .typebadge { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; font: 600 10px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--accent); border: 1px solid var(--accent); border-radius: 5px; text-transform: uppercase; }
-.rolebadge { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; font-size: 10px; letter-spacing: .1em; color: var(--tx3); border: 1px solid var(--line); border-radius: 5px; }
 .pname { margin: 0; font: 600 30px/1.08 system-ui; letter-spacing: -.6px; color: var(--tx); overflow-wrap: anywhere; }
 .also { margin-top: 6px; font: 400 13px/1.4 system-ui; color: var(--tx3); }
 .also .sp { color: var(--tx2); }
@@ -721,7 +687,6 @@ function lookUp() {
 .sechead { display: flex; align-items: center; gap: 10px; min-height: 26px; margin-bottom: 10px; }
 .sechead .cnt { font-size: 10.5px; color: var(--tx3); }
 .sechead .right { margin-left: auto; display: flex; gap: 10px; align-items: center; }
-.seg .opt .c { font-size: 10px; color: var(--tx3); }
 .lnk { font: 600 11.5px/1 system-ui; color: var(--accent); cursor: pointer; }
 .none { font: 400 12px/1.45 system-ui; color: var(--tx3); }
 .none.pad { padding: 24px; }
@@ -730,7 +695,6 @@ function lookUp() {
 .cov:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
 .cov .m { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 600 30px/1 Georgia, serif; color: rgba(242, 237, 230, .16); }
 .cov .w { position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 7px 7px; background: linear-gradient(transparent, rgba(9, 10, 13, .88)); font: 600 10.5px/1.2 system-ui; color: #f2ede6; }
-.cov .r { position: absolute; top: 6px; left: 6px; font-size: 8px; font-weight: 700; letter-spacing: .08em; color: #f2ede6; background: rgba(9, 10, 13, .6); border-radius: 3px; padding: 3px 4px; }
 .nomatch { display: flex; align-items: center; gap: 12px; }
 .kv { display: grid; grid-template-columns: 1fr auto; row-gap: 9px; column-gap: 10px; font: 500 12px/1.2 system-ui; color: var(--tx2); }
 .kv .v { font-size: 11.5px; color: var(--tx); text-align: right; }

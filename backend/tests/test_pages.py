@@ -27,10 +27,10 @@ def client(tmp_path, monkeypatch):
     get_settings.cache_clear()
 
 
-def title(c, name, *, tags=(), genres=(), authors=(), artists=(), source="", prov=None):
+def title(c, name, *, tags=(), genres=(), authors=(), source="", prov=None):
     return c.post("/api/titles", json={
         "meta": {"title": name, "type": "manga", "tags": list(tags), "genres": list(genres),
-                 "authors": list(authors), "artists": list(artists),
+                 "authors": list(authors),
                  "source": {"domain": source, "url": f"https://{source}/x" if source else ""}},
         "provenance": {k: {"origin": v} for k, v in (prov or {"tags": "auto"}).items()},
         "chapters": [],
@@ -66,18 +66,17 @@ def test_a_value_nobody_wrote_about_still_has_a_page(client):
         ("mangadex.org", False, 2), ("", True, 1)]
 
 
-def test_a_person_has_one_page_whether_they_wrote_or_drew(client, tmp_path):
+def test_a_person_has_one_page_however_the_name_is_cased(client, tmp_path):
     title(client, "A", authors=["Mitsuki Arata"])
-    title(client, "B", artists=["mitsuki arata"], authors=["Kei Yamada"])
+    title(client, "B", authors=["mitsuki arata", "Kei Yamada"])
     client.post("/api/authors/mitsuki-arata/favorite", params={"value": True})
 
-    p = page(client, "artists", "Mitsuki Arata")
-    assert (p["kind"], p["vocab"], p["titles"], p["roles"]) == ("Person", "authors", 2,
-                                                                {"authors": 1, "artists": 1})
+    p = page(client, "authors", "Mitsuki Arata")
+    assert (p["kind"], p["vocab"], p["titles"]) == ("Person", "authors", 2)
     assert p["fav"] is True
     assert [n["value"] for g in p["groups"] if g["label"] == "Worked with" for n in g["items"]] == ["Kei Yamada"]
     save(client, "authors", "Mitsuki Arata", desc="Draws fantasy.")
-    assert page(client, "artists", "MITSUKI ARATA")["desc"] == "Draws fantasy."
+    assert page(client, "authors", "MITSUKI ARATA")["desc"] == "Draws fantasy."
 
 
 def test_what_the_owner_writes_lives_in_the_vault(client, tmp_path):
@@ -120,9 +119,7 @@ def test_other_spellings_are_rename_rules(client):
     assert sorted(p["spellings"]) == ["Arata M.", "新田みつき"]
     assert p["held"] == {"Arata M.": 1, "新田みつき": 0}
     rules = client.get("/api/metadata/rules").json()["rules"]
-    # a person's spelling holds wherever a person is written — as author and as artist
-    assert sorted((r["field"], tuple(r["match"]), r["to"]) for r in rules) == [
-        ("artists", ("Arata M.", "新田みつき"), "Mitsuki Arata"),
+    assert [(r["field"], tuple(r["match"]), r["to"]) for r in rules] == [
         ("authors", ("Arata M.", "新田みつき"), "Mitsuki Arata")]
     # what arrives from now on is renamed by them
     out = client.post("/api/metadata/rules/apply", json={"values": {"authors": ["arata m."]}}).json()
@@ -289,7 +286,7 @@ def test_a_blank_value_has_no_page(client):
 
 
 def test_a_title_holding_a_name_twice_counts_once(client):
-    title(client, "A", authors=["Arata M."], artists=["Arata M."])
+    title(client, "A", authors=["Arata M.", "arata m."])
     title(client, "B", authors=["Mitsuki Arata"])
     p = save(client, "authors", "Mitsuki Arata", spellings=["Arata M."]).json()
     assert p["held"] == {"Arata M.": 1}

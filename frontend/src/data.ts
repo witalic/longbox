@@ -102,7 +102,6 @@ export interface TitleMeta {
   title: string
   alt: string
   authors: string[]
-  artists: string[]
   characters: string[]
   studio: string[]
   type: MediaType
@@ -203,7 +202,7 @@ export interface AuthorWork { id: string; title: string; cover: string }
 // ---- value pages (design/value-pages.md) ----
 
 export interface PageLink { url: string; label: string }
-export interface PageWork { id: string; title: string; cover: string; rating: number; roles: string[] }
+export interface PageWork { id: string; title: string; cover: string; rating: number }
 export interface PageNeighbour { field: string; value: string; n: number }
 export interface PageRuleNote {
   id: string
@@ -231,7 +230,6 @@ export interface ValuePage {
   read: number
   rated: number
   rating: number
-  roles: Record<string, number>
   works: PageWork[]
   groups: { label: string; items: PageNeighbour[] }[]
   sources: { source: string; typed: boolean; n: number }[]
@@ -360,8 +358,8 @@ export interface RuleStats { fired: number; last: string }
 export type FieldValues = Record<string, string | string[]>
 export interface RuleApply { values: FieldValues; fired: { rule: string; n: number; field: string }[] }
 
-// Titles grouped by ONE value of ONE list field. People are this plus the two
-// things only they have (a role, a favourite mark) — not a separate shape.
+// Titles grouped by ONE value of ONE list field. People are this plus the one
+// thing only they have (a favourite mark) — not a separate shape.
 export interface BrowseGroup {
   id: string
   field: string
@@ -370,7 +368,6 @@ export interface BrowseGroup {
   titles: number
   chapters: number
   topTags: string[]
-  role: 'author' | 'artist' | 'both' | null
   fav: boolean
   // what the owner wrote on the value's page (design/value-pages.md)
   described: boolean
@@ -407,7 +404,6 @@ export interface FieldDef {
   editable: boolean
   facet: boolean
   placeholder: string
-  vocab: string // the field id whose suggestions this one offers
   group: string // which block of the editor draws it
 }
 

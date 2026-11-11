@@ -69,7 +69,7 @@ const hiddenFieldsHere = computed(() => hiddenOf('title', editableFields.value))
 // The order is the REGISTRY's, which is the order the editor draws them in —
 // so a field appears where you would look for it, and one source decides that.
 const DRAWN = new Set(['title', 'alt', 'cover', 'type', 'status', 'year', 'flags',
-                       'authors', 'artists', 'studio', 'characters', 'genres', 'tags', 'desc'])
+                       'authors', 'studio', 'characters', 'genres', 'tags', 'desc'])
 
 const extraRows = computed(() => {
   const title = t.value
@@ -88,13 +88,12 @@ const extraRows = computed(() => {
 function asList(v: string | string[]): string[] {
   return Array.isArray(v) ? v : []
 }
-// Story, Art and Studio are three rows, not three runs on one line.
+// Who made it and the studio are two rows, not two runs on one line.
 const makers = computed(() => {
   const title = t.value
   if (!title) return []
   return [
-    { label: 'STORY', field: 'authors', names: title.authors },
-    { label: 'ART', field: 'artists', names: title.artists },
+    { label: 'BY', field: 'authors', names: title.authors },
     { label: 'STUDIO', field: 'studio', names: title.studio },
   ].filter((r) => r.names.length)
 })

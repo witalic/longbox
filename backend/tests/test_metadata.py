@@ -227,26 +227,25 @@ def test_a_number_field_is_drawn_as_one_and_stored_as_text(tmp_path):
 
 def test_browse_groups_titles_by_any_list_field(tmp_path):
     """The axis is whatever the registry says is a list — people are not a
-    special kind of grouping, only a grouping with two extras."""
+    special kind of grouping, only a grouping with one extra."""
     lib = Library(tmp_path)
     with TestClient(create_app(lib)) as c:
         c.put("/api/fields/shelf", json={"label": "Shelf", "type": "list"})
         lib.create(DraftIn(meta=TitleMeta(title="A", studio=["Kyoani"], tags=["slice"],
                                           custom={"shelf": ["boxed"]})))
-        lib.create(DraftIn(meta=TitleMeta(title="B", studio=["Kyoani"], authors=["Naoko"],
-                                          artists=["Naoko"])))
+        lib.create(DraftIn(meta=TitleMeta(title="B", studio=["Kyoani"], authors=["Naoko"])))
 
         studios = c.get("/api/browse/studio").json()
         assert [(g["value"], g["titles"]) for g in studios] == [("Kyoani", 2)]
         assert sorted(w["title"] for w in studios[0]["works"]) == ["A", "B"]
-        assert studios[0]["role"] is None and studios[0]["fav"] is False
+        assert studios[0]["fav"] is False
 
         # a user-defined list field is an axis like any other
         assert [g["value"] for g in c.get("/api/browse/shelf").json()] == ["boxed"]
 
         # people keep what only people have
         people = c.get("/api/browse/authors").json()
-        assert [(g["value"], g["role"]) for g in people] == [("Naoko", "both")]
+        assert [g["value"] for g in people] == ["Naoko"]
         # the favourite endpoint answers with the same groups, not a twin shape
         starred = c.post(f"/api/authors/{people[0]['id']}/favorite?value=true").json()
         assert [(g["value"], g["fav"]) for g in starred] == [("Naoko", True)]

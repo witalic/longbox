@@ -12,7 +12,9 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from ..library.migrations import FOLDED_FIELDS
 
 CandidateKind = Literal["css", "anchor", "meta"]
 
@@ -68,6 +70,43 @@ class Recipe(BaseModel):
     # studio should not show a STUDIO row in the 344px dock — and that is a fact
     # about the SITE, so it belongs to the recipe, not to the user's settings.
     hidden: list[str] = []
+
+    @model_validator(mode="before")
+    @classmethod
+    def _now_named(cls, raw: object) -> object:
+        """A recipe learned before a field was folded into another: the folded
+        field's rule becomes the joined field's when that has none, else stands
+        behind it — its candidates tried when the joined field's find nothing.
+        The joined field's row shows wherever the site filled the folded one."""
+        if not isinstance(raw, dict):
+            return raw
+        rules = raw.get("fields")
+        hidden = raw.get("hidden")
+        if not ((isinstance(rules, dict) and FOLDED_FIELDS.keys() & rules.keys())
+                or (isinstance(hidden, list) and FOLDED_FIELDS.keys() & set(hidden))):
+            return raw
+        rules = dict(rules) if isinstance(rules, dict) else {}
+        filled: set[str] = set()
+
+        def sig(c: dict) -> tuple:
+            return c.get("kind", "css"), c.get("selector"), c.get("attr")
+
+        for old, into in FOLDED_FIELDS.items():
+            rule = rules.pop(old, None)
+            if not isinstance(rule, dict):
+                continue
+            filled.add(into)
+            have = rules.get(into)
+            if not isinstance(have, dict) or not have.get("candidates"):
+                rules[into] = rule
+                continue
+            known = {sig(c) for c in have["candidates"] if isinstance(c, dict)}
+            behind = [c for c in rule.get("candidates") or [] if isinstance(c, dict) and sig(c) not in known]
+            rules[into] = {**have, "candidates": [*have["candidates"], *behind]}
+        out = {**raw, "fields": rules}
+        if isinstance(hidden, list):
+            out["hidden"] = [f for f in hidden if f not in FOLDED_FIELDS and f not in filled]
+        return out
 
 
 class PageFilter(BaseModel):

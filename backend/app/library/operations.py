@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel
 
 from . import fields
+from .migrations import folded
 from .models import FieldProvenance, TitleDoc
 from .vault import safe_id, type_dir_name
 
@@ -48,10 +49,9 @@ Progress = Callable[[int, int], None] | None
 Shape = Literal["list", "single", "flags", "chapter"]
 CHAPTER_FIELDS = {"language": "lang", "group": "group", "section": "section"}
 FLAG_NAMES = ("adult", "ai", "censored")
-_LIST = {"authors", "artists", "characters", "studio", "genres", "tags"}
+_LIST = {"authors", "characters", "studio", "genres", "tags"}
 _SINGLE = {"title", "alt", "type", "status", "year", "desc"}
 FOLDED = {"type", "status"}  # open vocabularies stored lowercase (models.TitleMeta)
-PEOPLE = {"authors", "artists"}  # whose favourite marks are kept by name (authors.json)
 
 
 def shape(field_id: str) -> Shape | None:
@@ -536,10 +536,10 @@ def _rewrite_all(lib: Library, ids: list[str], change_for: Callable[[str], Calla
 
 def _carry_favourites(lib: Library, actions: list[Action]) -> None:
     """A person merged into another keeps their favourite mark: the marks are
-    kept by name, so the name it is carried to inherits it."""
+    kept by name (authors.json), so the name it is carried to inherits it."""
     favs = lib.vault.author_favorites()
     for a in actions:
-        if a.kind == "rename" and a.field in PEOPLE and any(safe_id(v) in favs for v in a.values):
+        if a.kind == "rename" and a.field == "authors" and any(safe_id(v) in favs for v in a.values):
             lib.vault.set_author_favorite(safe_id(a.to), True)
 
 
@@ -597,7 +597,10 @@ def revert(lib: Library, run_id: int, *, progress: Progress = None,
         if not tid and f.startswith(pages.PAGE_NOTE):
             moved.append((f, b, a))
         else:
-            by_title[tid].append((f, b, a))
+            # a run journaled before a fold is put back into the field that
+            # holds those values now
+            note = PROV_NOTE if f.startswith(PROV_NOTE) else ""
+            by_title[tid].append((note + folded(f.removeprefix(note)), b, a))
     kept: list[int] = []  # one entry per value changed since the run — workers append
 
     def undo_for(tid: str) -> Callable[[TitleDoc], bool]:

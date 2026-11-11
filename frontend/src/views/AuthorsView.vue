@@ -3,7 +3,7 @@
 // characters, or a field the user defined. The registry decides what can be an
 // axis (only lists have anything to group by), so this view gains an axis the
 // moment a field exists. People are not a special case, only the axis that
-// carries a role and a favourite mark. A group's name opens its value page
+// carries a favourite mark. A group's name opens its value page
 // (design/value-pages.md) in a tab of its own; this list stays in the library
 // tab it belongs to. Middle-click on a work or a name opens its tab behind.
 import { computed, ref, watch } from 'vue'
@@ -61,7 +61,6 @@ const mode = ref<(typeof MODES)[number]>(
   readLocalOne('lb.browseMode', MODES, 'rows'))
 watch(mode, (v) => writeLocalOne('lb.browseMode', v))
 
-const role = ref<'all' | 'author' | 'artist' | 'both'>('all')
 const search = ref('')
 
 // the whole filter sidebar can hide (shared preference with the Library)
@@ -96,9 +95,7 @@ function matchesFav(a: BrowseGroup): boolean {
   return !favOnly.value || a.fav
 }
 const list = computed(() => {
-  const out = bySearch.value.filter((a) =>
-    (!isPeople.value || role.value === 'all' || a.role === role.value) && matchesFav(a)
-    && (!undescribed.value || !a.described))
+  const out = bySearch.value.filter((a) => matchesFav(a) && (!undescribed.value || !a.described))
   return undescribed.value ? [...out].sort((a, b) => b.titles - a.titles) : out
 })
 const undescribedCount = computed(() => bySearch.value.filter((a) => !a.described).length)
@@ -134,25 +131,12 @@ async function toggleAuthorFav(a: BrowseGroup) {
   }
 }
 
-// linked counts: each facet is counted with the OTHER filters applied
-const roleRows = computed(() => {
-  const pool = bySearch.value.filter((a) => matchesFav(a))
-  const n = (r: string) => pool.filter((a) => a.role === r).length
-  return [
-    { v: 'all', label: 'All', n: pool.length },
-    { v: 'author', label: 'Authors', n: n('author') },
-    { v: 'artist', label: 'Artists', n: n('artist') },
-    { v: 'both', label: 'Both', n: n('both') },
-  ] as const
-})
-const favCount = computed(() =>
-  bySearch.value.filter((a) => (role.value === 'all' || a.role === role.value) && a.fav).length)
+const favCount = computed(() => bySearch.value.filter((a) => a.fav).length)
 
 // ---- pagination ----
 const amainEl = ref<HTMLElement | null>(null)
-watch(() => JSON.stringify([search.value, role.value, favOnly.value, undescribed.value]), () => goPage(1))
+watch(() => JSON.stringify([search.value, favOnly.value, undescribed.value]), () => goPage(1))
 
-const roleLabel: Record<string, string> = { author: 'AUTHOR', artist: 'ARTIST', both: 'AUTHOR · ARTIST' }
 const initials = initialsOf
 
 </script>
@@ -233,7 +217,6 @@ const initials = initialsOf
                   <div class="aname" :title="`${a.value} — its page`"
                        @click="openValuePage(a.field, a.value)"
                        @mousedown.middle.prevent="openValuePage(a.field, a.value, true)">{{ a.value }}</div>
-                  <div v-if="a.role" class="arole mono">{{ roleLabel[a.role] }}</div>
                 </div>
               </div>
               <div v-if="a.excerpt" class="aex">{{ a.excerpt }}</div>
@@ -260,7 +243,7 @@ const initials = initialsOf
                   <div class="wtitle">{{ w.title }}</div>
                 </div>
                 <div v-if="moreWorks(a)" class="wmore" :title="`Show all ${a.titles} in the library`"
-                     @click="showInLibrary(a.field === 'artists' ? 'authors' : a.field, a.value)">+{{ moreWorks(a) }}</div>
+                     @click="showInLibrary(a.field, a.value)">+{{ moreWorks(a) }}</div>
               </div>
             </div>
           </div>
@@ -277,13 +260,6 @@ const initials = initialsOf
     <FilterBlock v-if="fsideOpen" @close="fsideOpen = false">
       <template #yours>
         <template v-if="isPeople">
-          <div class="urow">
-            <span class="uname">Role</span>
-            <div class="seg text">
-              <button v-for="r in roleRows" :key="r.v" class="opt" :class="{ on: role === r.v }"
-                      :title="`${r.n}`" @click="role = r.v">{{ r.label }}</button>
-            </div>
-          </div>
           <div class="urow" @click="favOnly = !favOnly">
             <span class="fbox" :class="{ on: favOnly }"><Icon v-if="favOnly" name="check" :size="9" :sw="3.2" /></span>
             <span class="uname">Only favourite people</span>
@@ -344,7 +320,6 @@ const initials = initialsOf
 .avatar { width: 56px; height: 56px; flex: none; border-radius: 50%; background: linear-gradient(135deg, #4a4f5e, #24262e); display: flex; align-items: center; justify-content: center; font: 600 17px/1 system-ui; color: #cfd3dc; }
 .aname { cursor: pointer; font: 600 16px/1.15 system-ui; color: var(--tx); }
 .aname:hover { color: var(--accent); text-decoration: underline; }
-.arole { margin-top: 5px; font-size: 8.5px; letter-spacing: .1em; color: var(--tx3); border: 1px solid var(--line); padding: 3px 6px; border-radius: 4px; display: inline-block; }
 .atags { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .atags .tlabel { font: 700 8.5px/1 ui-monospace, monospace; letter-spacing: .1em; color: var(--tx3); margin-right: 2px; }
 .atag { font: 500 10.5px/1 system-ui; color: var(--tx2); background: var(--panel2); border: 1px solid var(--line); padding: 4px 8px; border-radius: 5px; cursor: pointer; }

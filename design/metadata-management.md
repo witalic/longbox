@@ -26,7 +26,7 @@ Two tools answer two different questions, and they share one vocabulary of actio
 
 Every field of the registry (built-in and the owner's own), not just tags.
 
-**List fields** (genres, tags, authors, artists, characters, studio, flags, custom lists):
+**List fields** (genres, tags, authors, characters, studio, flags, custom lists):
 
 - **Rename / merge** — one or several values become one value (`Romance`, `романтика` →
   `romance`). Merging is renaming several values to the same target.

@@ -8,7 +8,7 @@ tags or cover, and longbox learns a reusable per-site recipe.
 ## Features
 
 - **Library** — cover grid, dense list and expanded views with linked faceted filters (type,
-  status, genres, tags, languages, flags, authors, artists, characters, studio), full-text search
+  status, genres, tags, languages, flags, authors, characters, studio), full-text search
   over titles and alternate names, favorites, ratings, reading progress, and footer pagination.
   **Select titles** to delete them, or to **edit them at once**: a panel shows every value the
   picked titles hold with how many hold it — add a tag to all, take a character from all, give a
@@ -91,10 +91,10 @@ tags or cover, and longbox learns a reusable per-site recipe.
 - **Reader** — page and strip modes, fit controls, a hideable rail of page thumbnails, label-wise
   chapter navigation that keeps your current translation, per-title remembered settings, and
   rebindable (layout-independent) hotkeys. Reading progress writes through instantly.
-- **People & sources** — authors and artists aggregated from the library with roles, works and
-  favorites; source sites grouped as you like, each with its recipe status and saved links. A site
-  becomes a source the moment you bookmark a page on it, and sits under **no recipe** until you
-  teach it one.
+- **People & sources** — the people who made the works (one Authors field, writers and artists
+  alike), aggregated from the library with their works and favorites; source sites grouped as you
+  like, each with its recipe status and saved links. A site becomes a source the moment you
+  bookmark a page on it, and sits under **no recipe** until you teach it one.
 - **Local-first storage** — one directory per title on a per-type shelf; a rebuildable SQLite index
   (deleting it never loses content); atomic writes; several vaults, one open at a time.
   Everything the app keeps lives in the vault — recipes, sources with their groups and bookmarks,

@@ -13,7 +13,7 @@ function open() {
 function showInLibrary() {
   const d = peek.data
   peekClose()
-  if (d) filterLibrary(d.field === 'artists' ? 'authors' : d.field, d.value)
+  if (d) filterLibrary(d.field, d.value)
 }
 </script>
 

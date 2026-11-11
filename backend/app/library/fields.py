@@ -59,10 +59,9 @@ class Field:
     column: str = ""            # an indexed SQL column, for single-valued built-ins
     attr: str = ""              # the TitleMeta attribute holding it (built-ins only)
     placeholder: str = ""       # UI copy: the editor's empty-state text
-    vocab: str = ""             # whose suggestions to offer ("" = this field's own)
     # How to read the field's filterable values off a document. Not always the
-    # attribute: `authors` folds in artists, `language` comes off the chapters,
-    # `flags` is computed. Custom fields get this generated.
+    # attribute: `language` comes off the chapters, `flags` is computed. Custom
+    # fields get this generated.
     values: Callable[[TitleDoc], set[str]] | None = dataclass_field(
         default=None, compare=False, repr=False)
 
@@ -100,15 +99,7 @@ BUILTIN: tuple[Field, ...] = (
     Field("year", "Year", "text", "line", attr="year", placeholder="Year", group="about"),
     Field("flags", "Flags", "list", "flags", facet=True, attr="flags", values=_flag_values, group="about"),
     Field("authors", "Authors", "list", "chips", facet=True, attr="authors",
-          placeholder="add author…",
-          values=lambda d: {n for n in (*d.meta.authors, *d.meta.artists) if n}, group="people"),
-    # Artists share the people VOCABULARY with authors — one person is often
-    # both — but they are counted on their own: without that they can be typed
-    # onto a title and then never browsed to or filtered by, because the joint
-    # `authors` facet is the only one that ever had a count.
-    Field("artists", "Artists", "list", "chips", facet=True, attr="artists",
-          placeholder="add artist…", vocab="authors", values=_attr_values("artists"),
-          group="people"),
+          placeholder="add author…", values=_attr_values("authors"), group="people"),
     Field("characters", "Characters", "list", "chips", facet=True, attr="characters",
           placeholder="add character…", values=_attr_values("characters"), group="topics"),
     Field("studio", "Studio", "list", "chips", facet=True, attr="studio",

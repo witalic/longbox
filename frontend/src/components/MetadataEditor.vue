@@ -81,7 +81,7 @@ function badge(field: string): 'auto' | 'manual' | '' {
 // `comic` and `comics` with one title under each.
 const COMMON: Record<string, readonly string[]> = { status: DEFAULT_STATUSES }
 function suggestions(f: FieldDef): string[] {
-  const all = [...new Set([...(COMMON[f.id] ?? []), ...(store.vocab[f.vocab] ?? [])])]
+  const all = [...new Set([...(COMMON[f.id] ?? []), ...(store.vocab[f.id] ?? [])])]
   return f.control === 'chips' ? all.filter((v) => !list(f).includes(v)) : all
 }
 

@@ -51,7 +51,7 @@ function toggleFlag(key: string) {
 // Open vocabularies offer what the library already holds — and STATUS its small
 // closed set, as the title editor does.
 function suggestions(f: FieldDef): string[] {
-  const all = [...new Set([...(f.id === 'status' ? DEFAULT_STATUSES : []), ...(store.vocab[f.vocab] ?? [])])]
+  const all = [...new Set([...(f.id === 'status' ? DEFAULT_STATUSES : []), ...(store.vocab[f.id] ?? [])])]
   return f.control === 'chips' ? all.filter((v) => !own(f.id).includes(v) && !theirs(f.id).includes(v)) : all
 }
 const placeholder = (f: FieldDef) => (theirs(f.id)[0] ? `every work: ${theirs(f.id)[0]}` : 'leave as it is')

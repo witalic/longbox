@@ -20,7 +20,6 @@ from .versions import chapter_version, stills_version
 MediaType = str
 Status = str
 ReadState = Literal["read", "reading", "unread"]
-Role = Literal["author", "artist", "both"]
 Origin = Literal["auto", "manual"]
 
 
@@ -53,8 +52,7 @@ class TitleMeta(BaseModel):
     """The metadata layer — written ONLY through draft → commit."""
     title: str = ""
     alt: str = ""
-    authors: list[str] = []
-    artists: list[str] = []
+    authors: list[str] = []  # who made the work — writer, artist, both
     characters: list[str] = []
     studio: list[str] = []  # a list: co-productions are normal
     # empty = the user hasn't chosen yet; nothing is ever auto-substituted
@@ -228,7 +226,6 @@ class TitleOut(BaseModel):
     title: str
     alt: str
     authors: list[str]
-    artists: list[str]
     studio: list[str]
     year: str
     type: MediaType
@@ -299,7 +296,7 @@ class TitleOut(BaseModel):
                 subtitles=subtitles_of(side),
             ))
         return cls(
-            id=title_id, title=m.title, alt=m.alt, authors=m.authors, artists=m.artists,
+            id=title_id, title=m.title, alt=m.alt, authors=m.authors,
             studio=m.studio,
             year=m.year, type=m.type, status=m.status, genres=m.genres, tags=m.tags,
             characters=m.characters,
@@ -320,8 +317,8 @@ class AuthorWork(BaseModel):
 
 class BrowseGroup(BaseModel):
     """Titles grouped by ONE value of ONE list field: a person, a studio, a
-    character, or a value of a field the user defined. People carry two extras
-    (a role and a favourite mark); nothing else needs them, so they are optional."""
+    character, or a value of a field the user defined. People carry one extra,
+    a favourite mark; nothing else needs it, so it is optional."""
     id: str
     field: str
     value: str
@@ -329,7 +326,6 @@ class BrowseGroup(BaseModel):
     titles: int = 0
     chapters: int = 0
     topTags: list[str] = []  # most common tags across this group's titles
-    role: Role | None = None
     fav: bool = False        # user layer — persisted in the vault's authors.json
     # what the owner wrote on the value's page (design/value-pages.md)
     described: bool = False

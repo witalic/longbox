@@ -187,13 +187,13 @@ library/
         <chapter-id>.sheet.jpg    # the 3x3 contact sheet a preview shows
 ```
 
-`title.json` (schema 5):
+`title.json` (schema 6):
 
 ```jsonc
 {
-  "schema": 5,
+  "schema": 6,
   "meta": {                       // written ONLY via draft → commit
-    "title": "…", "alt": "…", "authors": [], "artists": [], "characters": [], "studio": [],
+    "title": "…", "alt": "…", "authors": [], "characters": [], "studio": [],
     "type": "manga", "status": "ongoing", "year": "",   // type/status stored lowercase
     "genres": [], "tags": [], "flags": {"adult": false, "ai": false, "censored": false},
     "desc": "",

@@ -34,7 +34,7 @@ one click away from where these titles are being edited.
 The fields in the editor's own blocks (who made it, what it is, topics, your fields), each
 drawn by its shape:
 
-- **A list** (authors, artists, studio, characters, genres, tags, your lists): every value at
+- **A list** (authors, studio, characters, genres, tags, your lists): every value at
   least one selected title holds, as a chip with how many hold it. A value **all** of them hold
   is a plain chip; one only **some** hold is dashed, with its count (`drama 12/37`).
   - `+ add…` (the field's own suggestions) adds a value to every selected title;

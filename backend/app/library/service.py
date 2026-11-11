@@ -1227,8 +1227,8 @@ class Library:
         """Titles grouped by one LIST field. The registry decides what can be an
         axis: a number or a date has nothing to group by, so only lists qualify.
 
-        `authors` is not a separate code path — it is this, plus the two things
-        only people have: the role they played and the favourite mark."""
+        `authors` is not a separate code path — it is this, plus the one thing
+        only people have: the favourite mark."""
         f = fields.by_id().get(field_id)
         if f is None or f.type != "list":
             return []
@@ -1244,11 +1244,7 @@ class Library:
                 name = value.strip()
                 if not name:
                     continue
-                g = agg.setdefault(name, {"works": {}, "chapters": 0, "tags": Counter(),
-                                          "author": False, "artist": False})
-                if people:
-                    g["author"] = g["author"] or name in m.authors
-                    g["artist"] = g["artist"] or name in m.artists
+                g = agg.setdefault(name, {"works": {}, "chapters": 0, "tags": Counter()})
                 if tid not in g["works"]:
                     shown = self.shown_covers(tid, doc, media, covers)
                     g["works"][tid] = AuthorWork(id=tid, title=m.title,
@@ -1265,11 +1261,8 @@ class Library:
         for name, g in sorted(agg.items()):
             gid = safe_id(name)
             page = written.get(page_key(name))
-            role = None
-            if people:
-                role = "both" if g["author"] and g["artist"] else ("artist" if g["artist"] else "author")
             out.append(BrowseGroup(
-                id=gid, field=field_id, value=name, role=role, fav=people and gid in favs,
+                id=gid, field=field_id, value=name, fav=people and gid in favs,
                 works=list(g["works"].values()), titles=len(g["works"]),
                 chapters=g["chapters"], topTags=[t for t, _ in g["tags"].most_common(5)],
                 described=page is not None, excerpt=excerpt_of(page.desc) if page else "",

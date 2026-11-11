@@ -7,9 +7,9 @@ library. Everything else a page shows (its works, its numbers, the values it
 travels with, the rules about it) is worked out from the index every time, so a
 value nobody wrote about costs nothing and is never out of date.
 
-A page is keyed by its vocabulary and the value case-folded: authors and artists
-share one vocabulary, so a person has one page; `Romance` and `romance` are one
-value to a rule, so they are one page.
+A page is keyed by its vocabulary — the field the value is held in — and the
+value case-folded: `Romance` and `romance` are one value to a rule, so they are
+one page.
 """
 from __future__ import annotations
 
@@ -62,15 +62,10 @@ def _qualifies(f: fields.Field) -> bool:
 
 
 def vocab_of(field_id: str) -> str | None:
-    """The vocabulary a field's values belong to — `artists` speak `authors`."""
+    """The vocabulary a field's pages are kept in — the field's own; None for a
+    field whose values have no pages."""
     f = fields.by_id().get(field_id)
-    if f is None or not _qualifies(f):
-        return None
-    return f.vocab or f.id
-
-
-def vocab_fields(vocab: str) -> list[str]:
-    return [f.id for f in fields.registry() if _qualifies(f) and (f.vocab or f.id) == vocab]
+    return f.id if f is not None and _qualifies(f) else None
 
 
 _KIND = {"authors": "Person", "studio": "Studio", "characters": "Character",
@@ -186,7 +181,6 @@ class Work(BaseModel):
     title: str
     cover: str = ""
     rating: int = 0
-    roles: list[str] = []      # the fields of the vocabulary that hold the value here
 
 
 class Neighbour(BaseModel):
@@ -233,7 +227,6 @@ class PageOut(BaseModel):
     read: int = 0
     rated: int = 0
     rating: float = 0
-    roles: dict[str, int] = {}
     works: list[Work] = []
     groups: list[Group] = []
     sources: list[SourceCount] = []
@@ -261,8 +254,8 @@ def image_url(field_id: str, value: str, image: str) -> str:
 
 
 _GROUPS: dict[str, list[tuple[str, tuple[str, ...]]]] = {
-    "authors": [("Worked with", ("authors", "artists", "studio")), ("Their tags", ("tags", "genres"))],
-    "studio": [("People", ("authors", "artists")), ("Their tags", ("tags", "genres"))],
+    "authors": [("Worked with", ("authors", "studio")), ("Their tags", ("tags", "genres"))],
+    "studio": [("People", ("authors",)), ("Their tags", ("tags", "genres"))],
     "characters": [("Alongside", ("characters",)), ("Tags", ("tags", "genres"))],
 }
 _NEIGHBOURS = 14
@@ -270,7 +263,7 @@ _NEIGHBOURS = 14
 
 def _groups_for(vocab: str) -> list[tuple[str, tuple[str, ...]]]:
     return _GROUPS.get(vocab) or [("Often together", tuple(dict.fromkeys(
-        [*vocab_fields(vocab), "tags", "genres"])))]
+        [vocab, "tags", "genres"])))]
 
 
 def excerpt_of(desc: str) -> str:
@@ -284,19 +277,17 @@ def view(lib: Library, field_id: str, value: str) -> PageOut | None:
     if vocab is None or not value.strip():
         return None
     k = key(value)
-    mine = vocab_fields(vocab)
     try:
         rules = lib.rules.rules()
         rules_error = ""
     except (UnreadableDocument, OSError) as e:
         rules, rules_error = [], str(e)
-    notes = _rule_notes(rules, mine, k)
+    notes = _rule_notes(rules, vocab, k)
     spelled = {key(s) for n in notes if n.kind == "spelling" for s in n.values}
 
     spellings: Counter = Counter()
     held: Counter = Counter()
     works: list[Work] = []
-    roles: Counter = Counter()
     sources: Counter = Counter()
     groups = _groups_for(vocab)
     near: list[Counter] = [Counter() for _ in groups]
@@ -305,32 +296,28 @@ def view(lib: Library, field_id: str, value: str) -> PageOut | None:
     chapters = read = rated = rating_sum = 0
 
     for tid, doc, sidecars, covers in lib.index.query():
-        here: list[str] = []
+        here = False
         holds: set[str] = set()
-        for f in mine:
-            vals = ops.read(doc, f)
-            for v in vals:
-                kv = key(v)
-                if kv == k:
-                    spellings[v] += 1
-                    if f not in here:
-                        here.append(f)
-                elif kv in spelled:
-                    holds.add(kv)
-        held.update(holds)  # a title is counted once, as author and artist alike
+        for v in ops.read(doc, vocab):
+            kv = key(v)
+            if kv == k:
+                spellings[v] += 1
+                here = True
+            elif kv in spelled:
+                holds.add(kv)
+        held.update(holds)  # a title is counted once, however often it holds a spelling
         if not here:
             continue
-        roles.update(here)
         shown = lib.shown_covers(tid, doc, sidecars, covers)
         works.append(Work(id=tid, title=doc.meta.title, cover=shown[0] if shown else "",
-                          rating=doc.user.rating, roles=here))
+                          rating=doc.user.rating))
         chapters += len(doc.chapters)
         states = [doc.user.read.get(c.id, "unread") for c in doc.chapters]
         read += bool(states) and all(s == "read" for s in states)
         if doc.user.rating:
             rated += 1
             rating_sum += doc.user.rating
-        typed = any(ops.typed_by_owner(doc, f) for f in here)
+        typed = ops.typed_by_owner(doc, vocab)
         sources[("" if typed else doc.meta.source.domain or "", typed)] += 1
         for gi, (_label, gfields) in enumerate(groups):
             seen: set[tuple[str, str]] = set()
@@ -352,8 +339,7 @@ def view(lib: Library, field_id: str, value: str) -> PageOut | None:
     display = spellings.most_common(1)[0][0] if spellings else (page.value if page else value.strip())
     out = PageOut(field=field_id, vocab=vocab, kind=kind_of(vocab), value=display, key=k,
                   stored=page is not None, titles=len(works), chapters=chapters, read=read,
-                  rated=rated, rating=round(rating_sum / rated, 1) if rated else 0,
-                  roles=dict(roles) if len(mine) > 1 else {}, works=works,
+                  rated=rated, rating=round(rating_sum / rated, 1) if rated else 0, works=works,
                   sources=[SourceCount(source=s, typed=t, n=n) for (s, t), n in sources.most_common()],
                   rules=notes, rulesError=rules_error,
                   spellings=_spellings(notes, k), held={s: held[key(s)] for s in _all_spellings(notes, k)})
@@ -379,11 +365,10 @@ def peek(lib: Library, field_id: str, value: str) -> PeekOut | None:
     if vocab is None or not value.strip():
         return None
     k = key(value)
-    mine = vocab_fields(vocab)
     spellings: Counter = Counter()
     holders: list[str] = []
     for tid, doc in lib.index.all_docs():
-        hit = [v for f in mine for v in ops.read(doc, f) if key(v) == k]
+        hit = [v for v in ops.read(doc, vocab) if key(v) == k]
         if hit:
             spellings.update(set(hit))
             holders.append(tid)
@@ -402,18 +387,18 @@ def peek(lib: Library, field_id: str, value: str) -> PeekOut | None:
                    excerpt=excerpt_of(page.desc) if page else "", titles=len(holders), covers=covers)
 
 
-def _rule_notes(rules: list[R.Rule], mine: list[str], k: str) -> list[RuleNote]:
+def _rule_notes(rules: list[R.Rule], field: str, k: str) -> list[RuleNote]:
     out: list[RuleNote] = []
     for n, r in enumerate(rules, 1):
         base = dict(id=r.id, n=n, field=r.field, domains=r.domains, enabled=r.enabled)
         matched = k in {key(m) for m in r.match}
-        if r.field in mine and r.action == "rename" and key(r.to) == k:
+        if r.field == field and r.action == "rename" and key(r.to) == k:
             # a rule that only fixes the case (romance → Romance) shows what it fixes
             out.append(RuleNote(kind="spelling", values=[m for m in r.match if key(m) != k] or r.match, **base))
-        elif r.field in mine and matched:
+        elif r.field == field and matched:
             kind = {"rename": "renames", "remove": "removes", "move": "moves", "add": "implies"}[r.action]
             out.append(RuleNote(kind=kind, values=r.match, target=r.to, targetField=r.toField, **base))
-        elif r.action in ("add", "move") and r.toField in mine and key(r.to) == k:
+        elif r.action in ("add", "move") and r.toField == field and key(r.to) == k:
             out.append(RuleNote(kind="impliedBy", values=r.match, target=r.to, targetField=r.toField, **base))
     return out
 
@@ -448,10 +433,9 @@ def spelling_of(lib: Library, vocab: str, value: str) -> str:
     """How a value is written: as most titles hold it, else as its page was
     written, else as asked — the page may have been opened by any spelling."""
     k = key(value)
-    mine = vocab_fields(vocab)
     seen: Counter = Counter()
     for _tid, doc in lib.index.all_docs():
-        seen.update({v for f in mine for v in ops.read(doc, f) if key(v) == k})
+        seen.update({v for v in ops.read(doc, vocab) if key(v) == k})
     if seen:
         return seen.most_common(1)[0][0]
     page = lib.pages.get(vocab, value)
@@ -487,22 +471,19 @@ def set_spellings(lib: Library, vocab: str, value: str, wanted: list[str]) -> No
     k = key(value)
     want = {key(s): s.strip() for s in wanted if s.strip() and key(s) != k}
     with lib.rules.edit() as rules:
-        for f in vocab_fields(vocab):
-            ours = [r for r in rules if r.field == f and r.action == "rename" and r.enabled
-                    and not r.domains and key(r.to) == k]
-            have = {key(m) for r in ours for m in r.match}
-            for r in ours:
-                r.match = [m for m in r.match if key(m) in want or key(m) == k]
-            gone = {id(r) for r in ours if not r.match}
-            rules[:] = [r for r in rules if id(r) not in gone]
-            missing = [s for kk, s in want.items() if kk not in have]
-            if not missing:
-                continue
-            keep = [r for r in ours if id(r) not in gone]
-            if keep:
-                keep[0].match = [*keep[0].match, *missing]
-            else:
-                rules.append(R.Rule(field=f, match=missing, action="rename", to=value))
+        ours = [r for r in rules if r.field == vocab and r.action == "rename" and r.enabled
+                and not r.domains and key(r.to) == k]
+        have = {key(m) for r in ours for m in r.match}
+        for r in ours:
+            r.match = [m for m in r.match if key(m) in want or key(m) == k]
+        gone = {id(r) for r in ours if not r.match}
+        rules[:] = [r for r in rules if id(r) not in gone]
+        missing = [s for kk, s in want.items() if kk not in have]
+        keep = [r for r in ours if id(r) not in gone]
+        if missing and keep:
+            keep[0].match = [*keep[0].match, *missing]
+        elif missing:
+            rules.append(R.Rule(field=vocab, match=missing, action="rename", to=value))
     # the counts of a rule that went go with it
     lib.index.rule_stats_keep([r.id for r in rules if r.id])
 
@@ -539,8 +520,7 @@ def drop_image(lib: Library, field_id: str, value: str) -> None:
 
 
 def held_keys(lib: Library, vocab: str) -> set[str]:
-    mine = vocab_fields(vocab)
-    return {key(v) for _tid, doc in lib.index.all_docs() for f in mine for v in ops.read(doc, f)}
+    return {key(v) for _tid, doc in lib.index.all_docs() for v in ops.read(doc, vocab)}
 
 
 class Stored(BaseModel):

@@ -61,7 +61,6 @@ def build(doc: TitleDoc, ch: ChapterRow) -> bytes:
     put("Summary", m.desc)
     put("Year", _num(m.year))
     put("Writer", _LIST_SEP.join(m.authors))
-    put("Penciller", _LIST_SEP.join(m.artists))
     put("Publisher", _LIST_SEP.join(m.studio))
     put("Genre", _LIST_SEP.join(m.genres))
     put("Tags", _LIST_SEP.join(m.tags))
@@ -109,12 +108,18 @@ def parse(data: bytes) -> dict:
     take("Tags", "tags", as_list=True)
     take("Characters", "characters", as_list=True)
     take("Publisher", "studio", as_list=True)
-    take("Penciller", "artists", as_list=True)
     # Writer covers several credits in the wild; the first one carrying names wins
     for tag in ("Writer", "Author", "Creator"):
         take(tag, "authors", as_list=True)
         if out.get("authors"):
             break
+    # whoever drew it made it too: one field holds them all, each name once
+    take("Penciller", "drew", as_list=True)
+    names: dict[str, str] = {}
+    for name in [*out.get("authors", []), *out.pop("drew", [])]:
+        names.setdefault(name.casefold(), name)
+    if names:
+        out["authors"] = list(names.values())
     return out
 
 

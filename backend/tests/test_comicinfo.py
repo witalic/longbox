@@ -48,7 +48,7 @@ def test_a_stored_chapter_describes_itself(lib, tmp_path):
     """Komga and Kavita read the library as it stands — no export step."""
     out = lib.create(DraftIn(meta=TitleMeta(
         title="Paper Lanterns", alt="Papierlaternen", desc="A summary.", year="2021",
-        authors=["Aoi Mori"], artists=["Kenji Sato"], genres=["drama"], tags=["slow burn"],
+        authors=["Aoi Mori"], genres=["drama"], tags=["slow burn"],
         characters=["Rin"], studio=["Edge"])))
     lib.attach_chapter_media(out.id, num="12", lang="EN", group="dex",
                              src=_zip(tmp_path / "dl.zip"), sidecar={})
@@ -59,7 +59,7 @@ def test_a_stored_chapter_describes_itself(lib, tmp_path):
     assert said["num"] == "12"
     assert said["lang"] == "en"
     assert said["group"] == "dex"
-    assert said["authors"] == ["Aoi Mori"] and said["artists"] == ["Kenji Sato"]
+    assert said["authors"] == ["Aoi Mori"]
     assert said["genres"] == ["drama"] and said["tags"] == ["slow burn"]
     assert said["alt"] == "Papierlaternen" and said["year"] == "2021"
 

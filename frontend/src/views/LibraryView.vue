@@ -275,14 +275,10 @@ async function undoApplied() {
           </div>
           <span class="dpeople">
             <span v-if="t.authors.length" class="pline">
-              <span class="prole mono">STORY</span>
+              <span class="prole mono">BY</span>
               <a v-for="a in t.authors" :key="a" class="pchip" :title="`${a} — open the page`" @click.stop="openValuePage('authors', a)" @mousedown.middle.prevent.stop="openValuePage('authors', a, true)"><span class="pavatar">{{ initials(a) }}</span>{{ a }}</a>
             </span>
-            <span v-if="t.artists.length" class="pline">
-              <span class="prole mono">ART</span>
-              <a v-for="a in t.artists" :key="a" class="pchip" :title="`${a} — open the page`" @click.stop="openValuePage('artists', a)" @mousedown.middle.prevent.stop="openValuePage('artists', a, true)"><span class="pavatar">{{ initials(a) }}</span>{{ a }}</a>
-            </span>
-            <span v-if="!t.authors.length && !t.artists.length" style="color:var(--tx3)">—</span>
+            <span v-else style="color:var(--tx3)">—</span>
           </span>
           <span class="dts">
             <span class="mono type">{{ t.type }}</span>
@@ -311,12 +307,8 @@ async function undoApplied() {
             <div class="estatus">
               <span class="sdot" :style="{ background: statusColor(t.status) }"></span><span class="cap">{{ t.status }}</span>
               <template v-if="t.authors.length">
-                <span class="edot">·</span><span class="prole mono">STORY</span>
+                <span class="edot">·</span><span class="prole mono">BY</span>
                 <a v-for="a in t.authors" :key="a" class="pchip" :title="`${a} — open the page`" @click.stop="openValuePage('authors', a)" @mousedown.middle.prevent.stop="openValuePage('authors', a, true)"><span class="pavatar">{{ initials(a) }}</span>{{ a }}</a>
-              </template>
-              <template v-if="t.artists.length">
-                <span class="edot">·</span><span class="prole mono">ART</span>
-                <a v-for="a in t.artists" :key="'x' + a" class="pchip" :title="`${a} — open the page`" @click.stop="openValuePage('artists', a)" @mousedown.middle.prevent.stop="openValuePage('artists', a, true)"><span class="pavatar">{{ initials(a) }}</span>{{ a }}</a>
               </template>
               <template v-if="t.year"><span class="edot">·</span><span style="color:var(--tx3)">{{ t.year }}</span></template>
             </div>
@@ -443,8 +435,8 @@ async function undoApplied() {
 .dts { width: 118px; display: flex; align-items: center; gap: 7px; font: 500 11px/1 system-ui; color: var(--tx2); }
 .dnum { text-align: right; font-size: 11px; flex: none; }
 
-/* people: Story/Art split, every name a proper CHIP (like the title page) —
-   unmistakably clickable, opens the Authors tab focused on that person */
+/* people: every name a proper CHIP (like the title page) — unmistakably
+   clickable, opens the Authors tab focused on that person */
 .dpeople { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; font: 400 11.5px/1.3 system-ui; }
 .pline { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; }
 .prole { font-size: 8px; letter-spacing: .1em; color: var(--tx3); flex: none; }

@@ -65,7 +65,7 @@ library/
   rules.json                 what a value becomes on its way into a title (ordered)
   import-profiles.json       how folders already on disk are read into works (no paths)
   .pages/                    what the owner wrote about values (design/value-pages.md): one
-    <vocabulary>.json        document per vocabulary (authors.json covers artists too) + images/;
+    <vocabulary>.json        document per vocabulary (the field's own id) + images/;
                              a dot name, so no type shelf can ever take it
   downloads/                 what the browser downloaded with nothing armed (design/subtitles.md);
     index.json               where each file came from. One of the vault's own folders — never

@@ -479,9 +479,9 @@ export interface LibraryPlace { kind: 'library'; sel: LibraryFilters; axis: stri
 export interface TitlePlace { kind: 'title'; id: string }
 export interface ReaderPlace { kind: 'reader'; id: string; chapterId: string; page: number }
 // a value's page: its works are the library scoped to it, under the page's own
-// selection, a person's role (the field they hold the value in, '' — any) and page
+// selection and page
 export interface PagePlace {
-  kind: 'page'; field: string; value: string; sel: LibraryFilters; role: string; page: number
+  kind: 'page'; field: string; value: string; sel: LibraryFilters; page: number
 }
 // the titles it was handed (null — the filters of library tab `lib`, the one it
 // was opened from), and a value to open on
@@ -772,14 +772,13 @@ export function keepReaderSpot(chapterId: string, page: number) {
 }
 
 // ---- value pages (design/value-pages.md): a value's page is a tab of its own ----
-// one tab per value — authors and artists share the people's pages
+// one tab per value, however it is cased
 function pageKey(field: string, value: string): string {
-  const vocab = store.fields.find((f) => f.id === field)?.vocab || field
-  return `${vocab}\n${value.trim().toLowerCase()}`
+  return `${field}\n${value.trim().toLowerCase()}`
 }
 // a page opens on all its works: another page's filters are that page's own
 function pagePlace(field: string, value: string): PagePlace {
-  return { kind: 'page', field, value, sel: blankLibrary(), role: '', page: 1 }
+  return { kind: 'page', field, value, sel: blankLibrary(), page: 1 }
 }
 export function openValuePage(field: string, value: string, background = false, from: OpenedFrom = 'page') {
   const k = pageKey(field, value)

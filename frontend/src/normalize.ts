@@ -58,7 +58,7 @@ export interface CleanFlags { lower: boolean; stripCounts: boolean; join?: strin
 // same way; known type/status synonyms map onto the canonical vocabulary first.
 export function defaultClean(key: string): CleanFlags {
   if (key === 'genres' || key === 'tags' || key === 'type' || key === 'status') return { lower: true, stripCounts: true }
-  if (key === 'authors' || key === 'artists') return { lower: false, stripCounts: true }
+  if (key === 'authors') return { lower: false, stripCounts: true }
   return { lower: false, stripCounts: false }
 }
 

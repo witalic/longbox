@@ -138,9 +138,9 @@ def test_a_creator_shared_by_every_work_is_the_folder_picked(lib, tmp_path):
     src = creator_tree(tmp_path / "src") / "vidhub @kumo Kumo Works"
     p = fi.Profile(levels=[fi.Level(role="creator", pattern="{site} @{handle} {creator}"),
                            fi.Level(role="work")],
-                   workTitle="{creator} {folder}", creatorTo=["artists"])
+                   workTitle="{creator} {folder}", creatorTo=["studio"])
     pl = fi.plan(lib, fi.scan(src), p)
-    assert [(w.title, w.meta.get("artists")) for w in pl.works] == [
+    assert [(w.title, w.meta.get("studio")) for w in pl.works] == [
         ("Kumo Works 2025.1", ["Kumo Works"]), ("Kumo Works 2025.2", ["Kumo Works"])]
 
 

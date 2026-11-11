@@ -21,11 +21,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from . import media
 from . import operations as ops
 from . import rules as R
+from .migrations import fold_values, folded
 from .models import DraftIn, FieldProvenance, TitleDoc
 from .service import Library, chapter_num_key
 from .vault import Vault, safe_id
@@ -87,12 +88,43 @@ class Profile(BaseModel):
     entryExists: Literal["skip", "replace"] = "skip"
     cover: bool = True
 
+    @model_validator(mode="before")
+    @classmethod
+    def _now_named(cls, raw: object) -> object:
+        """A profile saved before a field was folded into another: its creators,
+        values and hidden rows go to the field that holds them now — shown when
+        the profile filled the folded one."""
+        if not isinstance(raw, dict):
+            return raw
+        raw = dict(raw)
+        meta = raw.get("meta") if isinstance(raw.get("meta"), dict) else {}
+        to = raw.get("creatorTo") if isinstance(raw.get("creatorTo"), list) else []
+        filled = {f for f in [*to, *meta] if isinstance(f, str) and folded(f) != f}
+        if meta:
+            raw["meta"] = fold_values(meta)
+        if to:
+            raw["creatorTo"] = list(dict.fromkeys(folded(f) if isinstance(f, str) else f for f in to))
+        hidden = raw.get("hidden")
+        if isinstance(hidden, list):
+            shown = {folded(f) for f in filled}
+            raw["hidden"] = [f for f in hidden
+                             if not isinstance(f, str) or (folded(f) == f and f not in shown)]
+        return raw
+
 
 class Overrides(BaseModel):
     """What the owner decided for this run only — never part of a profile."""
     off: list[str] = []                                 # work keys and entry paths left out
     titles: dict[str, str] = {}                         # work key → a title typed by hand
     meta: dict[str, dict[str, str | list[str]]] = {}    # work key → that work's own values
+
+    @field_validator("meta", mode="before")
+    @classmethod
+    def _now_named(cls, raw: object) -> object:
+        # a paused run from before a field was folded into another
+        if not isinstance(raw, dict):
+            return raw
+        return {k: fold_values(v) if isinstance(v, dict) else v for k, v in raw.items()}
 
 
 _TOKEN = re.compile(r"\{(\w+)\}")

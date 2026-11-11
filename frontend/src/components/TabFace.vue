@@ -5,7 +5,7 @@
 import { computed } from 'vue'
 import Icon from './Icon.vue'
 import { coverAt, hueFor, initials } from '../data'
-import { store, titleById, type AppTab } from '../store'
+import { titleById, type AppTab } from '../store'
 
 const props = defineProps<{ tab: AppTab }>()
 const SECTION_ICON: Record<string, string> = { library: 'library', metadata: 'meta', import: 'import', settings: 'settings' }
@@ -18,7 +18,7 @@ const cover = computed(() => {
 })
 const person = computed(() => {
   const p = props.tab.place
-  return p.kind === 'page' && (store.fields.find((f) => f.id === p.field)?.vocab || p.field) === 'authors'
+  return p.kind === 'page' && p.field === 'authors'
 })
 </script>
 

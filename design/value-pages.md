@@ -19,14 +19,15 @@ a face, and the owner gets a place to write.
 
 ## 2. What has a page
 
-Every value of a **list** field — the set Browse can group by: authors and artists, studio,
+Every value of a **list** field — the set Browse can group by: authors, studio,
 characters, genres, tags, and the owner's own list fields. Single fields (type, status, year)
 and chapter values are vocabularies, not things, and get none.
 
-**One page per value of one vocabulary.** Authors and artists share the people vocabulary
-(`vocab: authors`), so a person has ONE page whether they wrote, drew, or both — the page says
-which. Genres and tags are separate vocabularies, so `romance` the genre and `romance` the tag
-are two pages, as they are two facets.
+**One page per value of one vocabulary** — a field's values are its vocabulary. Authors hold
+everyone who made a work, whether they wrote it, drew it or both (one field since 2026-11-11,
+when artists were folded into it), so a person has ONE page. Genres and tags are separate
+vocabularies, so `romance` the genre and `romance` the tag are two pages, as they are two
+facets.
 
 A page is keyed by the value **case-folded**: `Romance` and `romance` are one page, as they are
 one value to a rule. It shows the spelling most titles use.
@@ -56,10 +57,10 @@ The favourite mark people already have (`authors.json`) is shown on a person's p
   filter the page always carries (`design/value-page-works-mockup.html`). A page at a time (48,
   the pager in the view's closing band), with the library's search, sort and filter block —
   its counts are the value's works', and the value shows among its chips, dashed, as what the
-  page is rather than a filter to drop. For a person, by role too (all / wrote / drew). The
-  selection belongs to the page's tab: Back and Forward keep it, another page starts clean,
-  the library's own filters are never touched; *Show in library* carries it along. A list the
-  owner keeps out of the filter block still scopes its pages.
+  page is rather than a filter to drop. The selection belongs to the page's tab: Back and
+  Forward keep it, another page starts clean, the library's own filters are never touched;
+  *Show in library* carries it along. A list the owner keeps out of the filter block still
+  scopes its pages.
 - **In your library** — titles, chapters, how many are read, the average of your ratings,
   first and last added, and the sources that brought the value in (`mangadex.org 6 · typed 2`)
   — for an unknown tag, often the best clue to what it means.
@@ -166,7 +167,7 @@ DELETE /api/pages/{field}/image?value=
 ```
 
 The value travels as a query parameter — values hold slashes. `{field}` is the field the value
-was met in (`artists`); the server resolves its vocabulary (`authors`). Works, counts and
+was met in, and names its vocabulary. Works, counts and
 neighbours are computed in one pass over the index. Browse groups carry `described`, `excerpt`
 and `image`; Metadata values carry `page`.
 

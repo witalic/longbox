@@ -84,7 +84,6 @@ class FieldOut(BaseModel):
     editable: bool
     facet: bool
     placeholder: str
-    vocab: str
     group: str  # which block of the editor draws it
 
 
@@ -92,8 +91,7 @@ class FieldOut(BaseModel):
 def list_fields() -> list[FieldOut]:
     return [FieldOut(id=f.id, label=f.label, type=f.type, control=f.control,
                      builtin=f.builtin, required=f.required, editable=f.editable,
-                     facet=f.facet, placeholder=f.placeholder, vocab=f.vocab or f.id,
-                     group=f.group)
+                     facet=f.facet, placeholder=f.placeholder, group=f.group)
             for f in fields.registry()]
 
 

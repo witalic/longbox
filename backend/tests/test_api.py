@@ -33,7 +33,7 @@ def draft(**meta) -> dict:
 def seed(c: TestClient) -> None:
     """A small library exercising every filter axis, created via the API."""
     c.post("/api/titles", json={
-        "meta": {"title": "Berserk", "authors": ["Kentaro Miura"], "artists": ["Kentaro Miura"],
+        "meta": {"title": "Berserk", "authors": ["Kentaro Miura"],
                  "type": "manga", "status": "Paused", "year": "1989",
                  "genres": ["Action", "Dark Fantasy"], "tags": ["Revenge"],
                  "flags": {"adult": True, "ai": False, "censored": False},
@@ -238,22 +238,6 @@ def test_facets_carry_counts(client):
     assert _facet(f, "authors")["Bai Ye"] == 2
 
 
-def test_artists_are_counted_and_filtered_on_their_own(client):
-    """Artists share the people VOCABULARY with authors, not their count. Without
-    a count of their own an artist could be typed onto a title and then never
-    browsed to or filtered by — the joint `authors` facet was the only one that
-    ever had one, so an ARTISTS axis was offered nowhere."""
-    f = client.get("/api/library/facets").json()
-    assert _facet(f, "artists") == {"Kentaro Miura": 1}
-    assert _facet(f, "authors")["Kentaro Miura"] == 1  # still in the joint one
-
-    only = client.get("/api/library", params={"f": "artists:Kentaro Miura"}).json()
-    assert [t["title"] for t in only] == ["Berserk"]
-
-    groups = client.get("/api/browse/artists").json()
-    assert [g["value"] for g in groups] == ["Kentaro Miura"]
-
-
 def test_facets_are_linked_to_the_selection(client):
     # with tag=Cultivation applied, the other facets count only its two titles —
     # while the single-valued type facet keeps showing the alternatives
@@ -321,10 +305,9 @@ def test_cover_rejects_bad_payloads(client):
 
 # ---- derived collections ----
 
-def test_authors_derived_with_roles_and_tags(client):
+def test_authors_derived_with_tags(client):
     authors = {a["value"]: a for a in client.get("/api/browse/authors").json()}
-    assert authors["Kentaro Miura"]["role"] == "both"      # in authors[] and artists[]
-    assert authors["Bai Ye"]["role"] == "author"
+    assert authors["Kentaro Miura"]["titles"] == 1
     assert authors["Bai Ye"]["titles"] == 2
     assert authors["Bai Ye"]["works"][0]["id"] in {"solo-ascension", "immortal-ledger"}
     assert "Cultivation" in authors["Bai Ye"]["topTags"]

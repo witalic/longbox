@@ -27,7 +27,7 @@ from . import fields
 from .fields import Field
 from .models import TitleDoc
 
-_SCHEMA_VERSION = 5
+_SCHEMA_VERSION = 6
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS titles (
@@ -139,7 +139,7 @@ class LibraryIndex:
         return {
             # `people` is a denormalized search column: alt title + all names
             "id": title_id, "title": m.title,
-            "people": " ".join([m.alt, *m.authors, *m.artists]),
+            "people": " ".join([m.alt, *m.authors]),
             "type": m.type, "status": m.status, "rating": u.rating, "fav": int(u.fav),
             "unread": total - read_done,
             "started": int(any(s in ("read", "reading") for s in states)),

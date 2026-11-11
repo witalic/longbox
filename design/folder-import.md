@@ -112,8 +112,8 @@ for it waits until it is shown again.
 
 Any value may hold a token — `{site}`, `{creator}`, `{folder}`, `{part}` — filled in per work:
 `tags: {site}` gives each work the site its creator folder names. The Creator role (§2) shows up
-here as a locked `{creator}` chip in the fields the owner chose for it — **authors**, **artists**,
-**studio**, any of them (a circle that draws is an artist, an animation house is a studio); it is
+here as a locked `{creator}` chip in the fields the owner chose for it — **authors**, **studio**,
+any of them (a circle that draws is an author, an animation house is a studio); it is
 changed in the structure, not here.
 
 **Type** decides the shelf, so it is marked as such; leaving it empty leaves the work typeless.
