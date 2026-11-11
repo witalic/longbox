@@ -18,7 +18,12 @@ content). Full model: `design/state-model.md`; layout: `ARCHITECTURE.md`.
   (`.longbox/state.json`), caches (`.longbox/cache/`); the app config keeps only where the vaults
   are (`libraries`, `library_path`). Nothing creates a vault by opening a path: `Vault` refuses a
   missing root, and every folder under it is made through `Vault.make_dir` (refuses a root without
-  its `vault.json`). `recipes.json`,
+  its `vault.json`). **Every path a vault document stores is relative to the vault** (posix, e.g.
+  `.longbox/partial-downloads/<file>` — `PARTIAL_DIR`), written relative and resolved against
+  `lib.vault.root` when read, never the vault's own absolute path; a reader of an older record that
+  holds a whole path re-points it by what it names (the interrupted-transfer records in
+  `routers/downloads.py` are the pattern). Absolute paths are kept only for places outside the
+  vault (an import's source folder). `recipes.json`,
   `sources.json`, `rules.json`, `import-profiles.json`, `.pages/<vocabulary>.json`,
   `settings.json`, `.longbox/state.json` and `downloads/index.json` go through
   `Vault.read_doc()` / `Vault.doc_transaction()` (a list in one is read with `Vault.doc_items`):

@@ -62,6 +62,8 @@ VAULT_FILE = "vault.json"
 # The app's own working files inside the vault (design/vault-home.md): the
 # browser's profile, transfers, caches. A dot name, so it is never a shelf.
 APP_DIR = ".longbox"
+# Where the shell writes a transfer until it is done.
+PARTIAL_DIR = f"{APP_DIR}/partial-downloads"
 
 
 def is_vault(root: Path) -> bool:

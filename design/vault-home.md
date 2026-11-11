@@ -73,6 +73,15 @@ without them, and two vaults on one computer share them.
 `settings.json` and `state.json` are vault documents like `recipes.json`: read and written through
 `Vault.read_doc()` / `Vault.doc_transaction()`, each with its own `SCHEMA`.
 
+**Every path the vault keeps is relative to it** (owner, 2026-11-11). A vault is a folder that can
+be moved, or opened from another computer under another drive letter or a UNC path, and must work
+as it is: so nothing in it names the vault by its own absolute path. A path is written relative to
+the vault, with forward slashes (`.longbox/partial-downloads/123-ep1.mp4`), and resolved against
+the vault open now when it is read; a record an older build wrote with a whole path is re-pointed
+by what it names. Only references to places outside the vault — an import's source folder — are
+absolute. The browser's profile is Chromium's own and relocatable as a folder (it was moved here
+from the app's folder with every sign-in intact).
+
 **The window's preferences leave localStorage.** `local.ts` stays the one door to them, but behind
 it is a copy of `settings.json` the window loads before it mounts and writes back (debounced)
 through the API. Two things follow: the preferences no longer depend on the page's origin, so the

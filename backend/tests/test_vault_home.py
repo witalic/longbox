@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
 import threading
 import time
 import zipfile
@@ -227,3 +228,29 @@ def test_an_interrupted_transfer_is_kept_in_the_vault(tmp_path):
     with TestClient(create_app(again)) as c:
         assert [i["id"] for i in c.get("/api/downloads").json()["items"]] == [did]
     again.close()
+
+
+def test_a_moved_vault_finds_its_transfers_where_they_are(tmp_path):
+    """Every path the vault keeps is relative to it: moved — or opened from
+    another computer under another drive letter — it still finds its partial
+    files, and the shell's sweep never takes them for nobody's."""
+    lib = Library(tmp_path / "v")
+    out = lib.create(DraftIn(meta=TitleMeta(title="Series")))
+    partial = tmp_path / "v" / ".longbox" / "partial-downloads" / "123-ep1.mp4"
+    with TestClient(create_app(lib)) as c:
+        c.post("/api/downloads/arm", json={"titleId": out.id, "num": "1", "lang": "EN", "group": ""})
+        did = c.post("/api/downloads/start", json={"filename": "ep1.mp4"}).json()["id"]
+        c.post(f"/api/downloads/{did}/interrupted",
+               json={"reason": "paused", "resume": {"path": str(partial), "urlChain": ["https://a/b"]}})
+    assert lib.state.rows("interrupted_downloads")[0]["resume"]["path"] == ".longbox/partial-downloads/123-ep1.mp4"
+    with lib.state.edit("interrupted_downloads") as rows:  # and one an older build wrote whole
+        rows.append({**rows[0], "id": "old", "resume": {**rows[0]["resume"], "path": "Y:\\LongBox\\.longbox\\partial-downloads\\9-ep2.mp4"}})
+    lib.close()
+
+    shutil.move(str(tmp_path / "v"), str(tmp_path / "elsewhere"))
+    moved = Library(tmp_path / "elsewhere")
+    with TestClient(create_app(moved)) as c:
+        paths = {i["id"]: i["resume"]["path"] for i in c.get("/api/downloads").json()["items"]}
+    here = tmp_path / "elsewhere" / ".longbox" / "partial-downloads"
+    assert paths == {did: str(here / "123-ep1.mp4"), "old": str(here / "9-ep2.mp4")}
+    moved.close()

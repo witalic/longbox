@@ -35,5 +35,7 @@ paths:
   styled from the host via `:deep()` so the CSS keeps one source.
 - Shell: the app's folder holds `config.json` only — the browser's profile is the vault's
   (`session.fromPath`, for `<webview>`s), the window's session is in memory, Chromium's default
-  profile goes to temp. Guard every `ipcMain` handler with an `e.sender` check, and remember
+  profile goes to temp. What the shell writes into the vault names nothing by the vault's own
+  absolute path; the paths it hands the sidecar are made relative there (CLAUDE.md, "The vault
+  is home"). Guard every `ipcMain` handler with an `e.sender` check, and remember
   frameless drag regions live in GLOBAL css (`html.frameless`), not scoped styles.

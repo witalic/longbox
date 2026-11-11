@@ -11,6 +11,7 @@ use — a subtitle, an archive, an image, a video — and is refused otherwise.
 from __future__ import annotations
 
 import os
+import re
 import threading
 import time
 import uuid
@@ -24,6 +25,7 @@ from ..library import loose, media
 from ..library.loose import LooseFile
 from ..library.models import TitleOut
 from ..library.service import Library
+from ..library.vault import PARTIAL_DIR
 
 router = APIRouter(prefix="/api/downloads")
 
@@ -50,7 +52,7 @@ class Resume(BaseModel):
     every one of them to re-open the same byte range on the same file. Without
     the validators the server would happily answer from byte 0 into a file that
     already holds half the episode."""
-    path: str = ""            # the partial file, still on disk
+    path: str = ""            # the partial file, still on disk (absolute on the wire, see _stored)
     urlChain: list[str] = []  # the redirects it went through, in order
     offset: int = 0           # bytes already on disk
     total: int = 0
@@ -91,11 +93,38 @@ def _lib(request: Request) -> Library:
 _INTERRUPTED = "interrupted_downloads"
 
 
+# A record names its partial file the way every path in the vault is written:
+# relative to the vault (CLAUDE.md, "The vault is home"). The shell speaks in
+# absolute paths, so a record is resolved against the vault open NOW when it is
+# read — a vault moved, or opened from another computer under another drive
+# letter, finds its transfers where they are. The partial file always lives in
+# PARTIAL_DIR, so a record an older build wrote with a whole path is read by the
+# file's name.
+def _file_name(path: str) -> str:
+    return re.split(r"[\\/]", path)[-1]  # a Windows path read on macOS too
+
+
+def _stored(item: DownloadItem) -> dict:
+    row = item.model_dump()
+    if item.resume and item.resume.path:
+        row["resume"]["path"] = f"{PARTIAL_DIR}/{_file_name(item.resume.path)}"
+    return row
+
+
+def _here(lib: Library, row: dict) -> dict:
+    resume = row.get("resume")
+    at = resume.get("path") if isinstance(resume, dict) else None
+    if isinstance(at, str) and at:
+        where = lib.vault.root.joinpath(*PARTIAL_DIR.split("/"), _file_name(at))
+        row = {**row, "resume": {**resume, "path": str(where)}}
+    return row
+
+
 def _load_interrupted(lib: Library) -> list[DownloadItem]:
     out: list[DownloadItem] = []
     for row in lib.state.rows(_INTERRUPTED):
         try:
-            out.append(DownloadItem.model_validate(row))
+            out.append(DownloadItem.model_validate(_here(lib, row) if isinstance(row, dict) else row))
         except ValueError:
             continue  # a record from an older shape is not worth a crash
     return out
@@ -105,7 +134,7 @@ def _save_interrupted(request: Request) -> None:
     """The transfers waiting to be picked up, kept in the vault they are for."""
     keep = [i for i in _items(request).values() if i.state == "interrupted"][:KEEP_ITEMS]
     with _lib(request).state.edit(_INTERRUPTED) as rows:
-        rows[:] = [i.model_dump() for i in keep]
+        rows[:] = [_stored(i) for i in keep]
 
 
 def _items(request: Request) -> dict[str, DownloadItem]:

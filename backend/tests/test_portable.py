@@ -389,8 +389,9 @@ def test_the_config_hands_its_transfers_and_imports_to_the_vault(tmp_path, cfg):
     lib = Library(tmp_path / "lib")
 
     assert move_site_data_into(lib) is True
-    # the shell moved the partial file into the vault; the record follows it
-    moved = str(tmp_path / "lib" / ".longbox" / "partial-downloads" / "123-ep1.mp4")
+    # the shell moved the partial file into the vault; the record follows it,
+    # written relative to the vault
+    moved = ".longbox/partial-downloads/123-ep1.mp4"
     assert lib.state.rows("interrupted_downloads") == [{"id": "d1", "resume": {"path": moved, "offset": 9}}]
     assert lib.state.rows("import_runs") == [{"at": "x"}]
     assert lib.state.rows("paused_imports") == [{"id": "p1", "root": "D:/in"}]  # only this vault's

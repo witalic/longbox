@@ -20,7 +20,7 @@ import os
 
 from .config_store import config_dir, config_path, config_transaction
 from .library.service import Library
-from .library.vault import APP_DIR
+from .library.vault import APP_DIR, PARTIAL_DIR
 from .scraper.models import Recipe
 
 log = logging.getLogger("longbox")
@@ -62,15 +62,15 @@ def _paused_here(rows: object, lib: Library) -> list[dict]:
 
 def _transfers_here(rows: object, lib: Library) -> list:
     """The shell moved the transfers' partial files into the vault before this
-    ran; a record still naming the old folder is pointed at where the file is."""
+    ran; a record still naming the old folder is pointed at where the file is —
+    relative to the vault, as every path in it is."""
     old = os.path.normcase(os.path.abspath(config_dir() / "partial-downloads"))
-    new = lib.vault.root / APP_DIR / "partial-downloads"
     out = []
     for row in rows if isinstance(rows, list) else []:
         resume = row.get("resume") if isinstance(row, dict) else None
         at = resume.get("path") if isinstance(resume, dict) else None
         if isinstance(at, str) and at and os.path.normcase(os.path.dirname(os.path.abspath(at))) == old:
-            row = {**row, "resume": {**resume, "path": str(new / os.path.basename(at))}}
+            row = {**row, "resume": {**resume, "path": f"{PARTIAL_DIR}/{os.path.basename(at)}"}}
         out.append(row)
     return out
 

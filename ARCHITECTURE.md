@@ -109,7 +109,9 @@ library/
   serves — recipes, the source layer, fields, author favorites, how the reader shows each title,
   the window's preferences, the homepage, the embedded browser's profile, transfers, paused
   imports, the preview cache — so a library moved to another machine arrives whole, and two
-  vaults keep two of everything. The app's folder on this computer keeps `config.json` and
+  vaults keep two of everything. Every path the vault stores is relative to it, resolved against
+  the vault open now (`PARTIAL_DIR` records in `routers/downloads.py`), so a moved vault, or one
+  opened under another drive letter, works as it is. The app's folder on this computer keeps `config.json` and
   nothing else: the registered vaults and the one opened last. Chromium's own default profile
   and crash dumps are pointed at the system's temporary folder. What an older build kept in the
   app's folder moves once into the first vault this build opens: the shell copies the browser
