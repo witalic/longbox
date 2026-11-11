@@ -5,6 +5,7 @@
 import { reactive } from 'vue'
 import { confirmDiscard, draftFromTitle, draftState, newDraft } from './draft'
 import { showApp, showDraft, store, titleById } from './store'
+import { adoptChildren, forgetOpeners, inStripOrder, insertionIndex, nextAfterClose, type Opening } from './tabstrip'
 
 export interface BrowserTab {
   id: string
@@ -17,6 +18,7 @@ export interface BrowserTab {
   loading: boolean   // a page request is in flight — the tab shows a spinner
   audible: boolean   // something is playing in it — the strip says which tab
   muted: boolean     // …and the same mark is the switch that silences it
+  opener: string | null // the tab it was opened from, while the run lasts (tabstrip.ts)
 }
 
 export const browser = reactive<{
@@ -33,7 +35,17 @@ function labelFor(url: string): string {
 
 function makeTab(url: string): BrowserTab {
   return { id: `bt-${++tabSeq}`, initialUrl: url, url, label: labelFor(url), title: '',
-           pinned: false, zoom: 1, loading: false, audible: false, muted: false }
+           pinned: false, zoom: 1, loading: false, audible: false, muted: false, opener: null }
+}
+
+// A new tab into the strip where Chrome would put it (tabstrip.ts), opened
+// from the tab `from`.
+function place(t: BrowserTab, how: Opening, from: string | null = null) {
+  if (how === 'front') forgetOpeners(browser.tabs)
+  t.opener = from
+  const shown = inStripOrder(browser.tabs)
+  const before = shown[insertionIndex(shown, from, how, browser.tabs.filter((x) => x.pinned).length)]
+  browser.tabs.splice(before ? browser.tabs.indexOf(before) : browser.tabs.length, 0, t)
 }
 
 // The last few closed tabs, newest first — Ctrl+Shift+T walks back through
@@ -99,17 +111,33 @@ export function searchUrl(q: string): string {
   return 'https://www.google.com/search?q=' + encodeURIComponent(q)
 }
 
+// A tab opened from outside a page — +, a bookmark, the app's own links: at the
+// end. Opened while browsing, it remembers the tab it was opened over, so
+// closing it goes back there, as Chrome's new tab does.
 export function newTab(url?: string) {
   const t = makeTab(url || store.browseHomepage)
-  browser.tabs.push(t)
+  place(t, 'end', store.view === 'browser' ? browser.activeId : null)
   browser.activeId = t.id
   store.view = 'browser'
+}
+
+// A link the page in tab `from` opened as a tab: behind it, after what it
+// opened before — or, switched to, right after it.
+export function openFromPage(url: string, background: boolean, from: string) {
+  const t = makeTab(url)
+  place(t, background ? 'link' : 'front', from)
+  if (!background) browser.activeId = t.id
+}
+
+// An address typed into a tab: the runs end, as Chrome's do.
+export function typedAddress() {
+  forgetOpeners(browser.tabs)
 }
 
 // Add a tab WITHOUT activating it or leaving the current view (session restore).
 export function newTabBackground(url: string) {
   const t = makeTab(url)
-  browser.tabs.push(t)
+  place(t, 'end')
   if (!browser.activeId) browser.activeId = t.id
 }
 
@@ -121,14 +149,16 @@ export function activateTab(id: string) {
 export function closeTab(id: string) {
   const i = browser.tabs.findIndex((t) => t.id === id)
   if (i < 0) return
+  const shown = inStripOrder(browser.tabs)
+  const next = browser.activeId === id ? nextAfterClose(shown, shown.findIndex((t) => t.id === id)) : null
   const [gone] = browser.tabs.splice(i, 1)
-  if (gone?.url) {
+  adoptChildren(browser.tabs, gone)
+  if (gone.url) {
     closed.unshift(gone.url)
     closed.length = Math.min(closed.length, CLOSED_KEPT)
   }
   if (browser.activeId === id) {
-    const next = browser.tabs[i] ?? browser.tabs[i - 1] ?? null
-    browser.activeId = next?.id ?? null
+    browser.activeId = next
     if (!next) showApp()
   }
 }

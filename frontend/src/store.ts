@@ -18,6 +18,7 @@ import {
   flushPrefs, isBoolMap, isRecord, localKeys, readLocal, readLocalOne, removeLocal, writeLocal, writeLocalOne,
 } from './local'
 import { stopCaptureFor } from './pagecapture'
+import { adoptChildren, forgetOpeners, inStripOrder, insertionIndex, nextAfterClose, type Opening } from './tabstrip'
 
 export type View = 'library' | 'title' | 'reader' | 'authors' | 'page' | 'sources' | 'metadata' | 'import'
   | 'settings' | 'browser'
@@ -494,17 +495,36 @@ export interface AppTab {
   forward: Place[]
   pinned: boolean
   hold: string // why the tab may not move or close quietly (a page being edited) — '' when it may
+  opener: string | null // the tab it was opened from, while the run lasts (tabstrip.ts)
 }
 type LibraryTab = AppTab & { place: LibraryPlace }
+// Where a request to open a place comes from: the tab in front ('page' — a
+// title, a value, a link on it), or outside any page ('outside' — the rail, +,
+// a restored session), which opens at the end of the strip.
+export type OpenedFrom = 'page' | 'outside'
 
 const MAX_STEPS = 50
 let tabSeq = 0
-function addTab(place: Place): AppTab {
-  store.tabs.push({ id: `t${++tabSeq}`, place, back: [], forward: [], pinned: false, hold: '' })
-  const tab = store.tabs[store.tabs.length - 1]
+// The strip's own order: the library tab, the pinned ones, the rest.
+export function appStripOrder(): AppTab[] {
+  return inStripOrder(store.tabs, (t) => t.id === HOME || t.pinned)
+}
+// A new tab, where Chrome would put it (tabstrip.ts): opened from the app tab in
+// front — or from the end of the strip when nothing in front opened it.
+function addTab(place: Place, how: Opening = 'end'): AppTab {
+  const from = how !== 'end' && store.view !== 'browser' && store.view !== 'sources' ? tabById(store.activeTab) : undefined
+  if (how === 'front') forgetOpeners(store.tabs)
+  const shown = appStripOrder()
+  const before = shown[insertionIndex(shown, from?.id ?? null, from ? how : 'end',
+    1 + store.tabs.filter((t) => t.pinned).length)]
+  const fresh: AppTab = { id: `t${++tabSeq}`, place, back: [], forward: [], pinned: false, hold: '', opener: from?.id ?? null }
+  store.tabs.splice(before ? store.tabs.indexOf(before) : store.tabs.length, 0, fresh)
+  const tab = tabById(fresh.id)!
   settle(tab)
   return tab
 }
+const openedAs = (background: boolean, from: OpenedFrom): Opening =>
+  from === 'outside' ? 'end' : background ? 'link' : 'front'
 export function tabById(id: string): AppTab | undefined {
   return store.tabs.find((t) => t.id === id)
 }
@@ -667,11 +687,11 @@ function flushStep() {
 }
 // ---- titles: one tab per title ----
 export function openTitle(id: string) {
-  showTab((titleTab(id) ?? addTab({ kind: 'title', id })).id)
+  showTab((titleTab(id) ?? addTab({ kind: 'title', id }, 'front')).id)
 }
 // Middle-click: the tab opens behind the one in front.
-export function openTitleBackground(id: string) {
-  if (!titleTab(id)) addTab({ kind: 'title', id })
+export function openTitleBackground(id: string, from: OpenedFrom = 'page') {
+  if (!titleTab(id)) addTab({ kind: 'title', id }, openedAs(true, from))
   void ensureTitle(id)
 }
 // A title that no longer exists cannot be captured into — the session ends with
@@ -699,7 +719,10 @@ function dropTab(id: string) {
   const i = store.tabs.findIndex((t) => t.id === id)
   if (i <= 0) return // the home tab is first, and stays
   if (store.libFocus === id) flushStep()
-  store.tabs.splice(i, 1)
+  const shown = appStripOrder()
+  const next = nextAfterClose(shown, shown.findIndex((t) => t.id === id))
+  const [gone] = store.tabs.splice(i, 1)
+  adoptChildren(store.tabs, gone)
   settled.delete(id)
   if (store.libFocus === id) {
     const lib = (store.tabs.find((t) => t.place.kind === 'library') ?? store.tabs[0]) as LibraryTab
@@ -708,9 +731,9 @@ function dropTab(id: string) {
   }
   if (beforeDraft === id) beforeDraft = HOME
   if (store.activeTab !== id) return
-  const next = store.tabs[i] ?? store.tabs[i - 1]
-  if (store.view === 'browser' || store.view === 'sources') store.activeTab = next.id
-  else showTab(next.id)
+  const after = tabById(next ?? HOME) ?? store.tabs[0]
+  if (store.view === 'browser' || store.view === 'sources') store.activeTab = after.id
+  else showTab(after.id)
 }
 export function toggleTabPin(id: string) {
   const tab = tabById(id)
@@ -729,7 +752,7 @@ export function moveTabBefore(dragId: string, targetId: string) {
 
 // ---- the reader: a step inside the title's own tab ----
 export function openReader(titleId: string, chapterId: string, page = 0) {
-  const tab = titleTab(titleId) ?? addTab({ kind: 'title', id: titleId })
+  const tab = titleTab(titleId) ?? addTab({ kind: 'title', id: titleId }, 'front')
   const spot: ReaderPlace = { kind: 'reader', id: titleId, chapterId, page }
   if (tab.place.kind === 'reader') tab.place = spot // already reading: another spot, not another step
   else step(tab, spot)
@@ -758,10 +781,10 @@ function pageKey(field: string, value: string): string {
 function pagePlace(field: string, value: string): PagePlace {
   return { kind: 'page', field, value, sel: blankLibrary(), role: '', page: 1 }
 }
-export function openValuePage(field: string, value: string, background = false) {
+export function openValuePage(field: string, value: string, background = false, from: OpenedFrom = 'page') {
   const k = pageKey(field, value)
   const tab = store.tabs.find((t) => t.place.kind === 'page' && pageKey(t.place.field, t.place.value) === k)
-    ?? addTab(pagePlace(field, value))
+    ?? addTab(pagePlace(field, value), openedAs(background, from))
   if (!background) showTab(tab.id)
 }
 // A neighbour reached FROM a page continues in that page's tab — Back returns.
@@ -777,7 +800,10 @@ export function goLibrary() {
 }
 export function newLibraryTab(init: Partial<LibraryFilters> & { axis?: string } = {}, background = false) {
   const { axis = '', ...sel } = init
+  // switched to (+), it remembers the tab it was opened over: closing it goes back there
+  const from = background ? null : activeAppTab()?.id ?? null
   const tab = addTab({ kind: 'library', sel: { ...blankLibrary(), density: store.library.density, ...sel }, axis, page: 1 })
+  tab.opener = from
   if (!background) showTab(tab.id)
 }
 // the library tab in focus, browsed by this axis ('' — its grid)
@@ -816,17 +842,17 @@ export function openSection(kind: Section, background = false) {
     ?? addTab(kind === 'metadata' ? { kind, ids: null, focus: null, lib: store.libFocus } : { kind })
   if (!background) showTab(tab.id)
 }
-export function editInMetadata(ids: string[], background = false) {
+export function editInMetadata(ids: string[], background = false, from: OpenedFrom = 'page') {
   const key = JSON.stringify(ids)
   const tab = store.tabs.find((t) => t.place.kind === 'metadata' && !!t.place.ids && JSON.stringify(t.place.ids) === key)
-    ?? addTab({ kind: 'metadata', ids: [...ids], focus: null, lib: store.libFocus })
+    ?? addTab({ kind: 'metadata', ids: [...ids], focus: null, lib: store.libFocus }, openedAs(background, from))
   if (!background) showTab(tab.id)
 }
 // a value page's "In Metadata": its field, the value searched and selected
-export function editValueInMetadata(field: string, value: string, background = false) {
+export function editValueInMetadata(field: string, value: string, background = false, from: OpenedFrom = 'page') {
   const tab = store.tabs.find((t) => t.place.kind === 'metadata'
     && t.place.focus?.field === field && t.place.focus.value === value)
-    ?? addTab({ kind: 'metadata', ids: null, focus: { field, value }, lib: store.libFocus })
+    ?? addTab({ kind: 'metadata', ids: null, focus: { field, value }, lib: store.libFocus }, openedAs(background, from))
   if (!background) showTab(tab.id)
 }
 
@@ -878,7 +904,8 @@ export function useShown(): { shown: Ref<boolean>; whenShown: (fn: () => void) =
 
 // the home tab: the library the window opens on — always there, never closed
 function homeTab(sel: LibraryFilters): AppTab {
-  return { id: HOME, place: { kind: 'library', sel, axis: '', page: 1 }, back: [], forward: [], pinned: false, hold: '' }
+  return { id: HOME, place: { kind: 'library', sel, axis: '', page: 1 }, back: [], forward: [], pinned: false, hold: '',
+           opener: null }
 }
 store.tabs.push(homeTab(store.library))
 settle(store.tabs[0])

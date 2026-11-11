@@ -7,8 +7,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { api, ApiError } from '../api'
 import {
-  activateTabAt, activeTab, browser, closeTab as closeBrowserTab, newTab, newTabBackground,
-  onTabNavigated, reopenClosedTab, searchUrl, setTabAudible, setTabLoading, setTabTitle, tabById,
+  activateTabAt, activeTab, browser, closeTab as closeBrowserTab, newTab, onTabNavigated, openFromPage,
+  reopenClosedTab, searchUrl, setTabAudible, setTabLoading, setTabTitle, tabById, typedAddress,
 } from '../browser'
 import CapturePanel from '../components/CapturePanel.vue'
 import MenuButton from '../components/MenuButton.vue'
@@ -141,6 +141,7 @@ function go() {
     : /^[^\s]+\.[a-z]{2,}([/:?].*)?$/i.test(q)
       ? 'https://' + q
       : searchUrl(q)
+  typedAddress()
   loadInActive(url)
 }
 function nav(dir: 'back' | 'forward' | 'reload' | 'reload-hard') {
@@ -961,8 +962,7 @@ function onIpc(e: any, tabId: string) {
     case 'open-tab': {
       // middle-click / ctrl+click arrives as background — the current page stays fronted
       const req = typeof msg === 'string' ? { url: msg, background: false } : (msg as { url: string; background?: boolean })
-      if (req.background) newTabBackground(req.url)
-      else newTab(req.url)
+      openFromPage(req.url, !!req.background, tabId)
       break
     }
   }

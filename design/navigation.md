@@ -42,6 +42,13 @@ One principle: **a click stays in the tab when it continues the same kind of thi
 tab when it reaches another record.** Middle-click (or Ctrl+click) always opens a new tab in
 the background.
 
+Where the new tab goes is Chrome's rule, in both strips (`tabstrip.ts`,
+`design/tab-strip-mockup.html`): opened from the tab in front, it goes right after it — in the
+background after the tabs that tab opened before, so they stay in order; switched to, right
+after it as the start of a new run. Opened from outside any page — `+`, the rail, a restored
+session — it goes at the end. Closing the tab in front brings up the first tab it opened, else the
+next one its own page opened, else that page.
+
 | You click | It goes |
 |---|---|
 | a title (card, row, work on a page) | its tab — switched to if already open (as today) |

@@ -10,8 +10,9 @@ import {
   store, closeTab, toggleTabPin, moveTabBefore, init, shownAxes, runningDownloads,
   unfinishedDownloads, vaultPass, passIcon, passPercent, pausedImports, mediaJobs, copies, activeAppTab, tabById, showTab, showDraft,
   leaveDraft, goLibrary, goBrowse, newLibraryTab, openSection, showApp, showSources, placeLabel, goBack, goForward,
-  DRAFT, HOME, type AppTab, type LibraryPlace, type Section,
+  appStripOrder, DRAFT, HOME, type AppTab, type LibraryPlace, type Section,
 } from './store'
+import { inStripOrder, TAB_GAP, TAB_MAX, TAB_NARROW, TAB_TINY, tabWidths } from './tabstrip'
 import {
   browser, openBrowse, activateTab, closeTab as closeBrowserTab, newTab, toggleTabPin as toggleBrowserTabPin,
   moveBrowserTabBefore, toggleTabMute,
@@ -66,12 +67,8 @@ function navClick(key: string) {
 
 // Two strips, never mixed (design/navigation.md, D1): the app's places in the
 // app's views, the web's pages in Web and Sources. The all-tabs menu lists both.
-const appTabs = computed(() => {
-  const [home, ...rest] = store.tabs
-  return [home, ...rest.filter((t) => t.pinned), ...rest.filter((t) => !t.pinned)]
-})
-const browserTabs = computed(() =>
-  [...browser.tabs.filter((t) => t.pinned), ...browser.tabs.filter((t) => !t.pinned)])
+const appTabs = computed(() => appStripOrder())
+const browserTabs = computed(() => inStripOrder(browser.tabs))
 const stripMode = computed(() => (['browser', 'sources'].includes(store.view) ? 'web' : 'app'))
 
 // Back / Forward for the app tab in front: Alt+← / Alt+→ and the mouse's side
@@ -242,6 +239,44 @@ async function closeDraft() {
 // draft's place empty: back to the tab it was started from.
 watch(draftTab, (name) => { if (!name && store.activeTab === DRAFT) leaveDraft() })
 
+// ---- how wide the tabs are (tabstrip.ts): they share the strip before it scrolls ----
+const stripEl = ref<HTMLElement | null>(null)
+const tabWidth = reactive({ w: TAB_MAX, front: TAB_MAX })
+// A tab closed with the pointer leaves the others their width while the pointer
+// stays on the strip, so the next × is right under it; leaving the strip, a new
+// tab or another window width gives them the strip again.
+const heldWidth = ref<number | null>(null)
+function layoutTabs() {
+  const strip = stripEl.value
+  const scroller = tabScrollEl.value
+  if (!strip || !scroller) return
+  const tabs = [...scroller.querySelectorAll<HTMLElement>('.tab:not(.tabslide-leave-active)')]
+  const kept = tabs.filter((el) => el.classList.contains('pinned') || el.classList.contains('home'))
+  const plus = strip.querySelector<HTMLElement>('.stripbtn')?.offsetWidth ?? 0
+  const room = strip.clientWidth - plus - kept.reduce((n, el) => n + el.offsetWidth, 0)
+    - TAB_GAP * Math.max(0, tabs.length - 1)
+  Object.assign(tabWidth, tabWidths(room, tabs.length - kept.length, heldWidth.value))
+  void nextTick(measureStrip)
+}
+function closeFromStrip(kind: 't' | 'b', id: string) {
+  heldWidth.value = tabWidth.w
+  if (kind === 't') void closeTab(id)
+  else closeBrowserTab(id)
+}
+function releaseWidths() {
+  heldWidth.value = null
+}
+const shownCount = computed(() => (stripMode.value === 'app' ? store.tabs.length + (draftTab.value ? 1 : 0) : browser.tabs.length))
+watch(shownCount, (n, was) => { if (n > was) heldWidth.value = null })
+watch(() => [shownCount.value, stripMode.value, heldWidth.value, store.tabs.filter((t) => t.pinned).length,
+  browser.tabs.filter((t) => t.pinned).length, placeLabel(store.tabs[0].place)], () => void nextTick(layoutTabs))
+let widthWatch: ResizeObserver | null = null
+onMounted(() => {
+  widthWatch = new ResizeObserver(() => { heldWidth.value = null; layoutTabs() })
+  if (stripEl.value) widthWatch.observe(stripEl.value)
+})
+onBeforeUnmount(() => widthWatch?.disconnect())
+
 // a notice goes by itself after a while; a newer one starts the wait over
 let noticeTimer: number | undefined
 watch(() => store.notice, (text) => {
@@ -406,8 +441,10 @@ if (new URLSearchParams(window.location.search).has('restore') && sessionHistory
         <svg class="logo" viewBox="0 0 72 72" aria-hidden="true"><defs><linearGradient id="lbgrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8194f4"/><stop offset="1" stop-color="#3e4eb2"/></linearGradient></defs><rect width="72" height="72" rx="17" fill="url(#lbgrad)"/><path d="M27 19h9v25h13v9H27z" fill="#fff"/></svg>
         <span class="name">{{ store.appMeta.name || 'longbox' }}</span>
       </div>
+      <div ref="stripEl" class="strip" @pointerleave="releaseWidths">
       <div ref="tabScrollEl" class="tabscroll"
-           :class="{ moreL: tabsMore.left, moreR: tabsMore.right }"
+           :class="{ moreL: tabsMore.left, moreR: tabsMore.right, narrow: tabWidth.w < TAB_NARROW, tiny: tabWidth.w < TAB_TINY }"
+           :style="{ '--tab-w': `${tabWidth.w}px`, '--tab-w-on': `${tabWidth.front}px` }"
            @wheel.prevent="onTabWheel" @scroll="measureStrip">
         <div v-if="stripMode === 'app' && draftTab" class="tab draft" :class="{ on: onDraft }"
              :title="`${draftTab} — unsaved`" @click="showDraft">
@@ -424,14 +461,14 @@ if (new URLSearchParams(window.location.search).has('restore') && sessionHistory
                :title="x.id === HOME ? `${placeLabel(x.place)} — the library` : placeLabel(x.place)"
                @pointerdown="tabPointerDown('t', x.id, $event)" @pointermove="tabPointerMove"
                @pointerup="tabPointerUp" @pointercancel="tabPointerUp"
-               @auxclick.prevent="$event.button === 1 && closeTab(x.id)"
+               @auxclick.prevent="$event.button === 1 && closeFromStrip('t', x.id)"
                @click="tabClick('t', x.id)">
             <TabFace :tab="x" />
             <template v-if="!x.pinned">
               <span class="lbl">{{ placeLabel(x.place) }}</span>
               <template v-if="x.id !== HOME">
                 <span class="tact pinbtn" title="Pin tab" @click.stop="toggleTabPin(x.id)"><Icon name="pin" :size="10" :sw="2" /></span>
-                <span class="tact" title="Close" @click.stop="closeTab(x.id)"><Icon name="x" :size="10" :sw="2.4" /></span>
+                <span class="tact" title="Close" @click.stop="closeFromStrip('t', x.id)"><Icon name="x" :size="10" :sw="2.4" /></span>
               </template>
             </template>
             <span v-else class="tact unpin" title="Unpin tab" @click.stop="toggleTabPin(x.id)"><Icon name="pin" :size="10" :sw="2" /></span>
@@ -444,7 +481,7 @@ if (new URLSearchParams(window.location.search).has('restore') && sessionHistory
                :title="t.title || t.url"
                @pointerdown="tabPointerDown('b', t.id, $event)" @pointermove="tabPointerMove"
                @pointerup="tabPointerUp" @pointercancel="tabPointerUp"
-               @auxclick.prevent="$event.button === 1 && closeBrowserTab(t.id)"
+               @auxclick.prevent="$event.button === 1 && closeFromStrip('b', t.id)"
                @click="tabClick('b', t.id)">
             <span v-if="t.loading" class="tabspin" title="Loading…"></span>
             <span v-else class="fav">{{ (t.label[0] || '?').toUpperCase() }}</span>
@@ -457,7 +494,7 @@ if (new URLSearchParams(window.location.search).has('restore') && sessionHistory
             <template v-if="!t.pinned">
               <span class="lbl">{{ t.title || t.label }}</span>
               <span class="tact pinbtn" title="Pin tab" @click.stop="toggleBrowserTabPin(t.id)"><Icon name="pin" :size="10" :sw="2" /></span>
-              <span class="tact" title="Close" @click.stop="closeBrowserTab(t.id)"><Icon name="x" :size="10" :sw="2.4" /></span>
+              <span class="tact" title="Close" @click.stop="closeFromStrip('b', t.id)"><Icon name="x" :size="10" :sw="2.4" /></span>
             </template>
             <span v-else class="tact unpin" title="Unpin tab" @click.stop="toggleBrowserTabPin(t.id)"><Icon name="pin" :size="10" :sw="2" /></span>
           </div>
@@ -466,6 +503,7 @@ if (new URLSearchParams(window.location.search).has('restore') && sessionHistory
       <button class="stripbtn" :title="stripMode === 'web' ? 'New browser tab' : 'New library tab'" @click="newStripTab">
         <Icon name="plus" :size="14" :sw="2.2" />
       </button>
+      </div>
       <div ref="tabsMenuRoot" class="alltabs">
         <button class="stripbtn" :class="{ on: tabsMenu }" title="All tabs" @click="tabsMenu = !tabsMenu"><Icon name="chevron" :size="12" :sw="2.2" /></button>
         <div v-if="tabsMenu" class="tabsmenu scroll">
@@ -669,7 +707,9 @@ if (new URLSearchParams(window.location.search).has('restore') && sessionHistory
    continues (.moreL / .moreR), and over a long ramp with a soft knee, so a tab
    being scrolled away fades out instead of meeting a gradient-shaped wall.
    With both flags off the mask is fully opaque and costs nothing. */
-.tabscroll { flex: 1; min-width: 0; height: 100%; display: flex; align-items: flex-end; gap: 3px; padding-top: 5px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+/* the tabs and the + right after them; the rest of the strip is the window's to drag */
+.strip { flex: 1; min-width: 0; height: 100%; display: flex; }
+.tabscroll { flex: 0 1 auto; min-width: 0; height: 100%; display: flex; align-items: flex-end; gap: 3px; padding-top: 5px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
   --fadeL: 0px; --fadeR: 0px;
   -webkit-mask-image: var(--strip-mask); mask-image: var(--strip-mask);
   --strip-mask: linear-gradient(to right,
@@ -680,11 +720,11 @@ if (new URLSearchParams(window.location.search).has('restore') && sessionHistory
 .tabscroll::-webkit-scrollbar { display: none; }
 /* every tab reads as a tab: a visible card even when inactive; the active one
    shares the content background so it visually connects to the page below */
-.tab { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 35px; padding: 0 10px; width: 190px; min-width: 0; border: 1px solid color-mix(in srgb, var(--line) 55%, transparent); border-bottom: none; border-radius: 8px 8px 0 0; background: color-mix(in srgb, var(--panel) 55%, transparent); color: var(--tx3); font: 500 12px/1 system-ui; cursor: pointer; user-select: none; }
+.tab { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 35px; padding: 0 10px; width: var(--tab-w, 190px); min-width: 0; overflow: hidden; transition: width .18s ease; border: 1px solid color-mix(in srgb, var(--line) 55%, transparent); border-bottom: none; border-radius: 8px 8px 0 0; background: color-mix(in srgb, var(--panel) 55%, transparent); color: var(--tx3); font: 500 12px/1 system-ui; cursor: pointer; user-select: none; }
 .tab:hover { background: var(--panel); color: var(--tx); }
 /* the ACTIVE tab carries an accent top bar — background alone is too subtle
    in the light theme */
-.tab.on { background: var(--bg); color: var(--tx); border-color: var(--line); box-shadow: inset 0 2.5px 0 var(--accent); }
+.tab.on { background: var(--bg); color: var(--tx); border-color: var(--line); box-shadow: inset 0 2.5px 0 var(--accent); width: var(--tab-w-on, var(--tab-w, 190px)); }
 .tab.pinned { width: auto; padding: 0 8px; }
 /* home: as wide as what it says it shows, and never closed */
 .tab.home { width: auto; max-width: 190px; }
@@ -692,6 +732,16 @@ if (new URLSearchParams(window.location.search).has('restore') && sessionHistory
 .tab.draft { border-style: dashed; color: var(--warn); }
 .tab.draft.on { color: var(--warn); box-shadow: inset 0 2.5px 0 var(--warn); }
 .tab .lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* sharing the strip (tabstrip.ts): narrow, only the tab in front keeps its
+   buttons (a playing tab keeps its sound mark); narrower still, an icon */
+.tabscroll.narrow .tab:not(.on):not(.pinned) .tact:not(.snd),
+.tabscroll.narrow .tab .pinbtn { display: none; }
+.tabscroll.tiny .tab:not(.pinned):not(.home) .lbl { display: none; }
+.tabscroll.tiny .tab:not(.on):not(.pinned):not(.home) { padding: 0; justify-content: center; }
+.tabscroll.tiny .tab:not(.on):not(.pinned) .tact { display: none; }
+/* a tab opens from nothing and closes into nothing, as Chrome's do */
+.tab.tabslide-enter-active, .tab.tabslide-leave-active { transition: width .18s ease, padding .18s ease; }
+.tab.tabslide-enter-from, .tab.tabslide-leave-to { width: 0; padding-left: 0; padding-right: 0; border-width: 0; }
 .fav { width: 16px; height: 16px; border-radius: 4px; background: var(--panel2); display: inline-flex; align-items: center; justify-content: center; font: 700 8px/1 system-ui; color: var(--tx3); flex: none; }
 .tact { width: 16px; height: 16px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; color: var(--tx3); flex: none; }
 /* the sound mark is a STATE first and a button second: it is there because the

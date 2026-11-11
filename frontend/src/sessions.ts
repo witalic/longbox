@@ -72,12 +72,12 @@ function reopen(raw: unknown): boolean {
     case 'title': case 'reader': {
       const id = str(raw.id)
       if (!store.byId[id]) return false
-      openTitleBackground(id)
+      openTitleBackground(id, 'outside')
       return true
     }
     case 'page':
       if (!str(raw.field) || !str(raw.value)) return false
-      openValuePage(str(raw.field), str(raw.value), true)
+      openValuePage(str(raw.field), str(raw.value), true, 'outside')
       return true
     case 'library': {
       const sel = isRecord(raw.sel) ? raw.sel : {}
@@ -93,8 +93,8 @@ function reopen(raw: unknown): boolean {
     case 'metadata': {
       const ids = strings(raw.ids)
       const focus = isRecord(raw.focus) ? raw.focus : null
-      if (ids) editInMetadata(ids, true)
-      else if (focus && str(focus.field)) editValueInMetadata(str(focus.field), str(focus.value), true)
+      if (ids) editInMetadata(ids, true, 'outside')
+      else if (focus && str(focus.field)) editValueInMetadata(str(focus.field), str(focus.value), true, 'outside')
       else openSection('metadata', true)
       return true
     }

@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Tab strip — mockup</title>
+<style>
+/* ---- the app's own tokens (frontend/src/styles.css), verbatim ---- */
+:root {
+  --bg: #0a0b0d; --bg2: #0f1115; --panel: #15171b; --panel2: #1b1e24;
+  --line: #262a31; --hover: #2a2e36;
+  --tx: #e8eaef; --tx2: #9aa1ad; --tx3: #697080;
+  --accent: #7089e6; --accent-ink: #0d0e11; --accentSoft: rgba(112, 137, 230, .14);
+  --fav: #e0687a; --good: #5fb88a; --warn: #d6a44f; --adult: #e0687a; color-scheme: dark;
+}
+html[data-theme="light"] {
+  --bg: #f0eeea; --bg2: #e6e3dd; --panel: #faf9f6; --panel2: #edeae4;
+  --line: #d2cdc2; --hover: #e2ded6;
+  --tx: #2a2c31; --tx2: #575d67; --tx3: #8d95a1;
+  --accent: #5f77d4; --accent-ink: #ffffff; --accentSoft: rgba(95, 119, 212, .15);
+  --fav: #d6516a; --good: #3f9e6f; --warn: #b07d2a; --adult: #d6516a; color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--tx); font: 400 13px/1.45 system-ui; -webkit-font-smoothing: antialiased; }
+.mono { font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; }
+.page { max-width: 1180px; margin: 0 auto; padding: 26px 24px 60px; }
+.page > h1 { font: 700 22px/1.1 system-ui; margin: 0 0 4px; letter-spacing: -.3px; }
+.lede { color: var(--tx2); max-width: 96ch; margin: 0 0 18px; }
+.lede b { color: var(--tx); font-weight: 600; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--tx); border-radius: 6px; height: 30px; padding: 0 13px; cursor: pointer; font: 600 12px/1 system-ui; white-space: nowrap; }
+.btn:hover { border-color: var(--accent); }
+.btn.on { border-color: var(--accent); color: var(--accent); }
+.btn.small { height: 26px; padding: 0 10px; font-size: 11px; }
+.ic { width: 15px; height: 15px; flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.bar .sp { flex: 1; }
+.bar label { display: inline-flex; align-items: center; gap: 8px; font: 500 12px/1 system-ui; color: var(--tx2); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { height: 28px; border: none; background: transparent; color: var(--tx2); padding: 0 12px; font: 600 12px/1 system-ui; cursor: pointer; }
+.seg button.on { background: var(--accentSoft); color: var(--accent); }
+
+/* ---- the window ---- */
+.win { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--bg); margin: 0 auto; }
+.tabbar { height: 40px; background: var(--bg2); border-bottom: 1px solid var(--line); display: flex; align-items: center; padding-left: 14px; }
+.brand { display: flex; align-items: center; gap: 8px; margin-right: 10px; flex: none; }
+.brand .logo { width: 18px; height: 18px; border-radius: 5px; background: linear-gradient(#8194f4, #3e4eb2); }
+.brand .name { font: 700 12px/1 system-ui; color: var(--tx2); }
+/* the strip: tabs, then the + button right after the last one */
+.strip { flex: 1; min-width: 0; height: 100%; display: flex; align-items: flex-end; padding-top: 5px; position: relative; }
+.tabs { display: flex; align-items: flex-end; gap: 3px; height: 100%; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 35px; padding: 0 10px; min-width: 0; overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--line) 55%, transparent); border-bottom: none; border-radius: 8px 8px 0 0;
+  background: color-mix(in srgb, var(--panel) 55%, transparent); color: var(--tx3); font: 500 12px/1 system-ui; cursor: pointer; user-select: none;
+  transition: width .18s ease, padding .18s ease; position: relative; }
+.tab:hover { background: var(--panel); color: var(--tx); }
+.tab.on { background: var(--bg); color: var(--tx); border-color: var(--line); box-shadow: inset 0 2.5px 0 var(--accent); }
+.tab.gone { width: 0 !important; padding: 0 !important; border-width: 0; }
+.tab .lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.fav { width: 16px; height: 16px; border-radius: 4px; background: var(--panel2); display: inline-flex; align-items: center; justify-content: center; font: 700 8px/1 system-ui; color: var(--tx3); flex: none; }
+.swatch { width: 14px; height: 19px; border-radius: 3px; flex: none; border: 1px solid var(--line); }
+.tact { width: 16px; height: 16px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; color: var(--tx3); flex: none; }
+.tact:hover { background: var(--hover); color: var(--tx); }
+.tact .ic { width: 10px; height: 10px; stroke-width: 2.4; }
+.tab .pinbtn { opacity: 0; }
+.tab:hover .pinbtn { opacity: 1; }
+.tab .unpin { color: var(--accent); }
+/* narrow: the inactive lose their buttons, the narrowest their label */
+.tab.narrow:not(.on) .tact { display: none; }
+.tab.narrow .pinbtn { display: none; }
+.tab.tiny { padding: 0; justify-content: center; }
+.tab.tiny .lbl { display: none; }
+.tab.tiny.on { padding: 0 6px; justify-content: space-between; }
+.tab.pinned { padding: 0 8px; }
+/* who opened what — shown on demand, to read the rules off the strip */
+.tab .run { position: absolute; left: 8px; right: 8px; bottom: 0; height: 2px; border-radius: 2px; display: none; }
+.showruns .tab .run { display: block; }
+.stripbtn { width: 28px; height: 28px; border: none; background: transparent; color: var(--tx2); border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex: none; margin: 0 4px 3px; align-self: flex-end; }
+.stripbtn:hover { background: var(--hover); color: var(--tx); }
+.ctl { width: 46px; height: 40px; display: flex; align-items: center; justify-content: center; color: var(--tx3); flex: none; }
+.frozen-note { position: absolute; right: 8px; top: 2px; font: 700 8.5px/1 ui-monospace, monospace; letter-spacing: .1em; color: var(--warn); display: none; }
+.isfrozen .frozen-note { display: block; }
+
+/* ---- the page under the active tab ---- */
+.content { min-height: 300px; display: grid; grid-template-columns: 1fr 300px; }
+.pagebody { padding: 18px 22px; border-right: 1px solid var(--line); }
+.pagebody h2 { font: 700 15px/1.2 system-ui; margin: 0 0 4px; }
+.pagebody .url { font: 400 11px/1 ui-monospace, monospace; color: var(--tx3); margin-bottom: 14px; }
+.addr { display: flex; gap: 8px; margin-bottom: 14px; }
+.addr input { flex: 1; height: 30px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--tx); padding: 0 10px; font: 400 12px/1 ui-monospace, monospace; outline: none; }
+.addr input:focus { border-color: var(--accent); }
+.links { display: flex; flex-direction: column; gap: 6px; }
+.link { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.link .t { flex: 1; color: var(--accent); cursor: pointer; }
+.link .t:hover { text-decoration: underline; }
+.hint { font: 400 11px/1.4 system-ui; color: var(--tx3); margin-top: 12px; }
+.side { padding: 14px 16px; font: 400 12px/1.5 system-ui; color: var(--tx2); }
+.side h3 { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); margin: 0 0 8px; text-transform: uppercase; }
+.side ol { margin: 0; padding-left: 18px; }
+.side li { margin-bottom: 4px; }
+.side li b { color: var(--tx); }
+.log { margin-top: 14px; font: 400 11px/1.5 ui-monospace, monospace; color: var(--tx3); max-height: 150px; overflow: auto; }
+.log div:first-child { color: var(--tx); }
+.notes { margin-top: 22px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.note { border: 1px solid var(--line); border-radius: 10px; background: var(--bg2); padding: 14px 16px; font: 400 12px/1.6 system-ui; color: var(--tx2); }
+.note h3 { font: 600 13px/1.2 system-ui; color: var(--tx); margin: 0 0 8px; }
+.note b { color: var(--tx); font-weight: 600; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 17v5M9 3h6l-1 6 3 3v2H7v-2l3-3z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="i-lib" viewBox="0 0 24 24"><path d="M4 5h11v14H4zM17 7h3v12h-3"/></symbol>
+</svg>
+
+<div class="page">
+  <h1>Tab strip</h1>
+  <p class="lede">The app's two strips — its own tabs and the browser's — behave the way Chrome's does: tabs <b>shrink</b>
+    to share the strip before it scrolls; tabs closed one after another <b>keep their width</b> while the pointer stays on the
+    strip, so the next × lands under it; a tab opened from a page goes <b>next to it</b>, after the ones it opened before; and
+    closing one hands the strip to the tab Chrome would pick. Everything below is live — try it.</p>
+
+  <div class="bar">
+    <div class="seg" id="mode"><button class="on" data-m="web">Browser tabs</button><button data-m="app">App tabs</button></div>
+    <button class="btn small" id="add8">Add 8 tabs</button>
+    <button class="btn small" id="reset">Reset</button>
+    <label>Window width <input id="width" type="range" min="560" max="1180" value="1180"></label>
+    <span class="sp"></span>
+    <button class="btn small" id="runs">Show who opened what</button>
+    <button class="btn small" id="theme">Theme</button>
+  </div>
+
+  <div class="win" id="win">
+    <div class="tabbar">
+      <div class="brand"><span class="logo"></span><span class="name">longbox</span></div>
+      <div class="strip" id="strip">
+        <div class="tabs" id="tabs"></div>
+        <button class="stripbtn" id="newtab" title="New tab"><svg class="ic"><use href="#i-plus"/></svg></button>
+        <span class="frozen-note">WIDTHS HELD — LEAVE THE STRIP</span>
+      </div>
+      <button class="stripbtn" title="All tabs"><svg class="ic" style="width:12px;height:12px"><use href="#i-chev"/></svg></button>
+      <span class="ctl">—</span><span class="ctl">▢</span><span class="ctl">✕</span>
+    </div>
+    <div class="content">
+      <div class="pagebody" id="pagebody"></div>
+      <div class="side">
+        <h3>What happened</h3>
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note">
+      <h3>1 · Shrinking</h3>
+      Tabs share the strip: each is as wide as the strip allows, up to the usual <b>190 px</b>. Narrower than ~110 px an
+      inactive tab drops its buttons (the active one keeps its ×; middle-click still closes any); narrower than ~56 px it
+      drops its label and shows only its icon. Only when every tab is at its narrowest (36 px, the active one 62 px) does
+      the strip scroll — as it does today, with the edge fades. Pinned tabs and the library tab keep their own width.
+      The <b>+</b> sits right after the last tab, and stays at the edge once the strip scrolls.
+    </div>
+    <div class="note">
+      <h3>2 · Closing in a row</h3>
+      A tab closed with the pointer — its ×, or a middle-click — <b>does not give its room to the others</b> while the
+      pointer stays on the strip: the tabs to its right slide left at the width they had, so the next × is right under
+      the pointer and a row of tabs closes with clicks in one place. When the pointer leaves the strip, the tabs grow back
+      to share it. A new tab, or a change of window width, lets go at once. Closing from the keyboard or the all-tabs
+      menu does not hold anything.
+    </div>
+    <div class="note">
+      <h3>3 · Where a tab opens, and who comes next</h3>
+      A link opened <b>in the background</b> (middle-click, Ctrl+click, "Open link in new tab") goes right after the tab
+      it came from — after the tabs that page already opened, so they stay in order. One opened <b>and switched to</b>
+      goes right after its page and starts a new run. <b>+</b> / Ctrl+T opens at the end. The runs are forgotten when you
+      type an address in a tab. Closing a tab moves to the first tab it opened; else to the next tab its page opened
+      (right, then left); else to the page that opened it; else to its right neighbour.
+    </div>
+  </div>
+</div>
+
+<script>
+const MAX = 190, MIN = 36, MIN_ACTIVE = 62, NARROW = 110, TINY = 56, GAP = 3
+const HUES = ['#e0687a', '#7089e6', '#5fb88a', '#d6a44f', '#6bb6c4', '#c48fd0', '#e08a4f', '#8fc46b']
+const SITES = ['mangadex.org', 'anilist.co', 'nhentai.net', 'hanime1.me', 'kemono.cr', 'iwara.tv', 'pixiv.net', 'danbooru.donmai.us']
+const TITLES = ['Berserk', 'Vinland Saga', 'Frieren', 'Dandadan', 'Chainsaw Man', 'Blue Period', 'Pluto', 'Monster', 'Mushishi', 'Kaiji']
+
+let mode = 'web'
+let seq = 0
+const state = { web: null, app: null }
+let frozen = null      // the width tabs keep while the pointer stays on the strip after a close
+let pointerIn = false
+const els = new Map()  // tab id → its element, kept across renders
+
+const $ = (id) => document.getElementById(id)
+const log = (msg) => { const d = document.createElement('div'); d.textContent = msg; $('log').prepend(d) }
+
+function freshWeb() {
+  const a = tab('mangadex.org', 'MangaDex — Home', null)
+  return { tabs: [a], active: a.id }
+}
+function freshApp() {
+  const home = { id: 'home', home: true, label: 'Library', opener: null, kind: 'lib' }
+  return { tabs: [home, tab(null, 'Berserk', null)], active: 'home' }
+}
+function tab(site, title, opener) {
+  return { id: `t${++seq}`, site, label: title, opener, kind: site ? 'web' : 'title', hue: HUES[seq % HUES.length], pinned: false }
+}
+const S = () => state[mode]
+const idx = (id) => S().tabs.findIndex((t) => t.id === id)
+const byId = (id) => S().tabs.find((t) => t.id === id)
+
+// ---- where a tab goes (Chrome's TabStripModel) ----
+// the run: what the page opened, and what those opened, right after it
+function lastOpenedBy(openerId, start) {
+  const run = new Set([openerId])
+  let last = -1
+  for (let i = start + 1; i < S().tabs.length; i++) {
+    const t = S().tabs[i]
+    if (t.pinned || t.home) continue
+    if (!run.has(t.opener)) break
+    run.add(t.id)
+    last = i
+  }
+  return last
+}
+function forgetOpeners() { for (const t of S().tabs) t.opener = null }
+function openLink(foreground) {
+  const s = S(), cur = idx(s.active)
+  const t = mode === 'web' ? tab(SITES[seq % SITES.length], `Page ${seq + 1}`, null) : tab(null, TITLES[seq % TITLES.length], null)
+  let at
+  if (foreground) {
+    forgetOpeners()                       // one run at a time
+    at = cur + 1
+  } else {
+    const last = lastOpenedBy(s.active, cur)
+    at = (last >= 0 ? last : cur) + 1     // after what this page opened before
+  }
+  t.opener = s.active
+  s.tabs.splice(at, 0, t)
+  frozen = null
+  log(`${foreground ? 'opened + switched' : 'opened in background'}: ${t.label} at #${at + 1}, from ${byId(s.active).label}`)
+  if (foreground) s.active = t.id
+  render(t.id)
+}
+function newTabAtEnd() {
+  const s = S()
+  const t = mode === 'web' ? tab(null, 'New tab', s.active) : tab(null, 'Library', s.active)
+  if (mode === 'web') { t.kind = 'web'; t.site = '' }
+  else { t.kind = 'lib' }
+  s.tabs.push(t)
+  s.active = t.id
+  frozen = null
+  log(`+ new tab at the end (#${s.tabs.length})`)
+  render(t.id)
+}
+function typed() {
+  forgetOpeners()
+  const t = byId(S().active)
+  t.label = `Typed ${seq + 1}`
+  t.site = 'example.org'
+  log(`typed an address in ${t.label}: every run is forgotten`)
+  render()
+}
+
+// ---- which tab is in front after a close (Chrome's DetermineNewSelectedIndex) ----
+function nextAfterClose(i) {
+  const tabs = S().tabs, gone = tabs[i]
+  const child = tabs.findIndex((t, k) => k > i && t.opener === gone.id)
+  if (child >= 0) return tabs[child].id
+  if (gone.opener) {
+    const right = tabs.findIndex((t, k) => k > i && t.opener === gone.opener)
+    if (right >= 0) return tabs[right].id
+    for (let k = i - 1; k >= 0; k--) if (tabs[k].opener === gone.opener) return tabs[k].id
+    if (tabs.some((t) => t.id === gone.opener)) return gone.opener
+  }
+  return (tabs[i + 1] || tabs[i - 1]).id
+}
+function close(id, byPointer) {
+  const s = S(), i = idx(id), t = s.tabs[i]
+  if (!t || t.home) return
+  if (byPointer) frozen = currentWidth()  // the row keeps its width under the pointer
+  if (s.active === id) s.active = nextAfterClose(i)
+  for (const o of s.tabs) if (o.opener === id) o.opener = t.opener // its children are its page's now
+  log(`closed ${t.label}${byPointer && pointerIn ? ' — widths held' : ''}; in front: ${byId(s.active).label}`)
+  setTimeout(() => { if (idx(id) >= 0) { s.tabs.splice(idx(id), 1); render() } }, 180)
+  render(null, id)
+}
+function activate(id) {
+  S().active = id
+  render()
+}
+
+// ---- widths ----
+function stripWidth() {
+  return $('strip').clientWidth - 36 // the + button after the last tab
+}
+function fixedWidth(t) { return t.pinned ? 56 : t.home ? 94 : null }
+function currentWidth() {
+  const el = [...document.querySelectorAll('.tab:not(.fixed)')].find((e) => !e.classList.contains('on')) || document.querySelector('.tab:not(.fixed)')
+  return el ? el.getBoundingClientRect().width : MAX
+}
+function widths(hidden) {
+  const tabs = S().tabs.filter((t) => t.id !== hidden)
+  const flex = tabs.filter((t) => fixedWidth(t) === null)
+  if (frozen) return Object.fromEntries(flex.map((t) => [t.id, t.id === S().active ? Math.max(frozen, MIN_ACTIVE) : frozen]))
+  const fixed = tabs.reduce((n, t) => n + (fixedWidth(t) || 0), 0)
+  const avail = stripWidth() - fixed - GAP * Math.max(0, tabs.length - 1)
+  let w = Math.min(MAX, avail / Math.max(1, flex.length))
+  const out = {}
+  if (w >= MIN_ACTIVE) {
+    for (const t of flex) out[t.id] = w
+  } else {
+    const rest = Math.max(MIN, (avail - MIN_ACTIVE) / Math.max(1, flex.length - 1))
+    for (const t of flex) out[t.id] = t.id === S().active ? MIN_ACTIVE : rest
+  }
+  return out
+}
+
+// ---- drawing ----
+function face(t) {
+  if (t.kind === 'lib') return '<svg class="ic" style="width:13px;height:13px;color:var(--tx2)"><use href="#i-lib"/></svg>'
+  if (t.kind === 'title') return `<span class="swatch" style="background:${t.hue}"></span>`
+  return `<span class="fav">${(t.site || t.label || '?')[0].toUpperCase()}</span>`
+}
+function render(grow, closing) {
+  const s = S(), w = widths(closing)
+  const order = [...s.tabs.filter((t) => t.home), ...s.tabs.filter((t) => t.pinned && !t.home), ...s.tabs.filter((t) => !t.pinned && !t.home)]
+  const openerHue = {}
+  for (const t of s.tabs) if (t.opener && !openerHue[t.opener]) openerHue[t.opener] = HUES[Object.keys(openerHue).length % HUES.length]
+  // the tabs are kept, not redrawn: a width that changes animates, as Chrome's does
+  const box = $('tabs')
+  const keep = new Set(order.map((t) => t.id))
+  for (const [id, el] of els) if (!keep.has(id) || el.dataset.mode !== mode) { el.remove(); els.delete(id) }
+  order.forEach((t, i) => {
+    const fixed = fixedWidth(t)
+    const width = fixed ?? w[t.id] ?? MAX
+    let el = els.get(t.id)
+    const fresh = !el
+    if (fresh) { el = document.createElement('div'); el.dataset.id = t.id; el.dataset.mode = mode; els.set(t.id, el) }
+    el.className = ['tab', t.id === s.active ? 'on' : '', fixed ? 'fixed' : '', !fixed && width < NARROW ? 'narrow' : '',
+      !fixed && width < TINY ? 'tiny' : '', t.pinned ? 'pinned' : '', t.id === closing ? 'gone' : ''].filter(Boolean).join(' ')
+    el.title = t.label
+    const run = t.opener ? `<span class="run" style="background:${openerHue[t.opener]}" title="opened from ${byId(t.opener)?.label || '…'}"></span>` : ''
+    const buttons = t.home ? '' : t.pinned
+      ? `<span class="tact unpin" data-pin="${t.id}" title="Unpin"><svg class="ic"><use href="#i-pin"/></svg></span>`
+      : `<span class="tact pinbtn" data-pin="${t.id}" title="Pin"><svg class="ic"><use href="#i-pin"/></svg></span>
+         <span class="tact" data-x="${t.id}" title="Close"><svg class="ic"><use href="#i-x"/></svg></span>`
+    el.innerHTML = `${face(t)}${t.pinned ? '' : `<span class="lbl">${t.label}</span>`}${buttons}${run}`
+    if (box.children[i] !== el) box.insertBefore(el, box.children[i] || null)
+    if (fresh && t.id === grow) {
+      el.style.width = '0px'
+      void el.offsetWidth // from nothing to its width: it opens, it does not appear
+    }
+    el.style.width = `${width}px`
+  })
+  $('strip').classList.toggle('isfrozen', !!frozen)
+  drawPage()
+}
+function drawPage() {
+  const s = S(), t = byId(s.active)
+  const links = (mode === 'web' ? SITES : TITLES).slice(0, 5)
+  $('pagebody').innerHTML = `
+    <h2>${t.label}</h2>
+    <div class="url">${mode === 'web' ? (t.site ? 'https://' + t.site + '/' : 'new tab') : 'longbox · ' + (t.home ? 'the library' : t.label)}</div>
+    ${mode === 'web' ? `<div class="addr"><input id="addr" placeholder="Type an address and press Enter — forgets every run"></div>` : ''}
+    <div class="links">${links.map((l) => `<div class="link"><span class="t" data-open>${mode === 'web' ? 'A link on this page → ' + l : l}</span>
+      <button class="btn small" data-bg>Open in new tab</button><button class="btn small" data-fg>Open and switch</button></div>`).join('')}</div>
+    <div class="hint">Middle-click a link = <b>Open in new tab</b> (background). Middle-click a tab closes it — with the pointer, so the row holds its width.</div>`
+}
+
+// ---- events ----
+$('tabs').addEventListener('click', (e) => {
+  const x = e.target.closest('[data-x]'), p = e.target.closest('[data-pin]'), t = e.target.closest('.tab')
+  if (x) return close(x.dataset.x, true)
+  if (p) { const o = byId(p.dataset.pin); o.pinned = !o.pinned; frozen = null; return render() }
+  if (t) activate(t.dataset.id)
+})
+$('tabs').addEventListener('auxclick', (e) => {
+  const t = e.target.closest('.tab')
+  if (t && e.button === 1) { e.preventDefault(); close(t.dataset.id, true) }
+})
+$('tabs').addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault() })
+$('strip').addEventListener('pointerenter', () => { pointerIn = true })
+$('strip').addEventListener('pointerleave', () => {
+  pointerIn = false
+  if (frozen) { frozen = null; log('pointer left the strip: tabs share it again'); render() }
+})
+$('pagebody').addEventListener('click', (e) => {
+  if (e.target.closest('[data-bg]')) openLink(false)
+  else if (e.target.closest('[data-fg]')) openLink(true)
+  else if (e.target.closest('[data-open]') && (e.ctrlKey || e.metaKey)) openLink(e.shiftKey)
+})
+$('pagebody').addEventListener('auxclick', (e) => { if (e.button === 1 && e.target.closest('[data-open]')) { e.preventDefault(); openLink(false) } })
+$('pagebody').addEventListener('keydown', (e) => { if (e.target.id === 'addr' && e.key === 'Enter') typed() })
+$('newtab').addEventListener('click', newTabAtEnd)
+$('add8').addEventListener('click', () => { for (let i = 0; i < 8; i++) { const t = mode === 'web' ? tab(SITES[i % SITES.length], `Page ${seq + 1}`, null) : tab(null, TITLES[(seq + i) % TITLES.length], null); S().tabs.push(t) } frozen = null; render() })
+$('reset').addEventListener('click', () => { state[mode] = mode === 'web' ? freshWeb() : freshApp(); frozen = null; $('log').innerHTML = ''; render() })
+$('width').addEventListener('input', (e) => { $('win').style.width = `${e.target.value}px`; frozen = null; render() })
+$('runs').addEventListener('click', (e) => { $('win').classList.toggle('showruns'); e.currentTarget.classList.toggle('on') })
+$('theme').addEventListener('click', () => { const h = document.documentElement; h.dataset.theme = h.dataset.theme === 'dark' ? 'light' : 'dark' })
+$('mode').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return
+  mode = b.dataset.m
+  for (const x of $('mode').children) x.classList.toggle('on', x === b)
+  frozen = null
+  render()
+})
+window.addEventListener('resize', () => { frozen = null; render() })
+
+state.web = freshWeb()
+state.app = freshApp()
+for (let i = 0; i < 4; i++) state.web.tabs.push(tab(SITES[(i + 1) % SITES.length], `Page ${seq + 1}`, null))
+render()
+</script>
+</body>
+</html>
