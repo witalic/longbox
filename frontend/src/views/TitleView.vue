@@ -192,9 +192,16 @@ const activeFlags = computed(() => FLAG_DEFS.filter((f) => t.value?.flags[f.key]
 interface ChapterNode { num: string; rows: Chapter[] }
 const orderedChapters = computed<Chapter[]>(() =>
   orderedChaptersOf(t.value?.chapters, t.value?.chapterOrder))
-// language / translator filters over the chapter list
-const langFilter = ref('all')
-const groupFilter = ref('all')
+// language / translator filters over the chapter list — the TITLE's, like its
+// edit mode: this screen is one for every title tab, and a filter picked on one
+// title emptied the next one's list, where no control was there to undo it
+const chapterFilters = reactive<Record<string, { lang: string; group: string }>>({})
+const filtersHere = computed(() => (t.value && chapterFilters[t.value.id]) || { lang: 'all', group: 'all' })
+const langFilter = computed(() => filtersHere.value.lang)
+const groupFilter = computed(() => filtersHere.value.group)
+function setFilter(change: Partial<{ lang: string; group: string }>) {
+  if (t.value) chapterFilters[t.value.id] = { ...filtersHere.value, ...change }
+}
 const langOpts = computed(() => filterOptions(orderedChapters.value, (c) => c.lang))
 const groupOpts = computed(() => filterOptions(orderedChapters.value, (c) => c.group))
 const filtersActive = computed(() => langFilter.value !== 'all' || groupFilter.value !== 'all')
@@ -1076,8 +1083,8 @@ async function removeRow(c: Chapter) {
           <span class="mono" style="color:var(--tx3);font-size:12px">{{ t.chapters.length }}</span>
           <!-- media still on its way in, from the add form and the rows alike — Activity has each -->
           <span v-if="addingHere" class="adding mono" title="Being added in the background — see Activity">+ {{ addingHere }} being added</span>
-          <Dropdown v-if="langOpts.length > 2" label="LANG" :model-value="langFilter" :options="langOpts" @update:model-value="langFilter = String($event)" />
-          <Dropdown v-if="groupOpts.length > 2" label="GROUP" :model-value="groupFilter" :options="groupOpts" @update:model-value="groupFilter = String($event)" />
+          <Dropdown v-if="langOpts.length > 2" label="LANG" :model-value="langFilter" :options="langOpts" @update:model-value="setFilter({ lang: String($event) })" />
+          <Dropdown v-if="groupOpts.length > 2" label="GROUP" :model-value="groupFilter" :options="groupOpts" @update:model-value="setFilter({ group: String($event) })" />
           <div style="flex:1"></div>
           <template v-if="editMode">
             <button class="btn ghost small" @click="importOpen = !importOpen"><Icon name="plus" :size="12" :sw="2.2" />Add entry</button>
