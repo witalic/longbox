@@ -15,13 +15,14 @@ import MenuButton from '../components/MenuButton.vue'
 import MetadataEditor from '../components/MetadataEditor.vue'
 import VideoSurface from '../components/VideoSurface.vue'
 import EntryFields from '../components/EntryFields.vue'
+import EntryPreview from '../components/EntryPreview.vue'
 import Dropdown from '../components/Dropdown.vue'
 import { openInBrowser } from '../browser'
 import { hasValuePage, peekOff, peekOn } from '../peek'
 import {
   commitDraft, confirmDiscard, discardDraft, draftFromTitle, draftState, isDirty,
 } from '../draft'
-import { readLocalOne, writeLocalOne } from '../local'
+import { readLocal, readLocalOne, writeLocal, writeLocalOne } from '../local'
 import { api, type Gap } from '../api'
 import {
   ARCHIVE_RE, FILE_ACCEPT, FLAG_DEFS, IMAGE_RE, MAX_COVERS, MEDIA_ACCEPT, VIDEO_RE, compareChapterNums,
@@ -42,7 +43,7 @@ import {
 } from '../store'
 import {
   READ_COLOR as readColor, groupByNum, opensSection, statusColor, initials,
-  type Chapter, type ReadState, type Title,
+  type Chapter, type ContentsView, type ReadState, type Title,
 } from '../data'
 
 const t = computed<Title | undefined>(() => titleById(store.activeTitle))
@@ -224,6 +225,69 @@ const editMode = computed({
     else editingContents.delete(t.value.id)
   },
 })
+// How the entries are laid out (design/contents-views-mockup.html), and how many
+// cards side by side, are chosen per TYPE — the title's shelf: every manga alike,
+// every collection alike — and kept with the window's settings, in the vault. A
+// type never chosen for lays out by what the entries are: episodes on the wall,
+// page entries as rows. Editing them is always the list: dragging and the row
+// actions live there. Pages is offered where there are pages to show.
+const VIEWS: { id: ContentsView; icon: string; title: string }[] = [
+  { id: 'list', icon: 'rows', title: 'List' },
+  { id: 'tiles', icon: 'tiles', title: 'Tiles — a card per entry beside the open one' },
+  { id: 'wall', icon: 'grid', title: 'Wall — cards across the whole width; a card opens the reader or the player' },
+  { id: 'pages', icon: 'pages', title: 'Pages — every page of every entry; a page opens the reader there' },
+]
+const COLS = { tiles: [1, 2], wall: [3, 4, 5, 6, 7, 8], pages: [4, 5, 6, 7, 8, 9, 10, 11, 12] } as const
+interface TypeView { view?: unknown; tiles?: unknown; wall?: unknown; pages?: unknown }
+const hasPages = computed(() => !!t.value?.chapters.some((c) => c.kind === 'pages'))
+const views = computed(() => VIEWS.filter((v) => v.id !== 'pages' || hasPages.value))
+const isTypeViews = (v: unknown): v is Record<string, TypeView> =>
+  !!v && typeof v === 'object' && !Array.isArray(v) && Object.values(v).every((x) => !!x && typeof x === 'object')
+const typeViews = reactive(readLocal('lb.contentsViews', isTypeViews, {}))
+const ofType = computed<TypeView>(() => typeViews[t.value?.type ?? ''] ?? {})
+function setOfType(change: TypeView) {
+  typeViews[t.value?.type ?? ''] = { ...ofType.value, ...change }
+  writeLocal('lb.contentsViews', typeViews)
+}
+const chosenView = computed<ContentsView>(() => {
+  const v = ofType.value.view
+  if (v === 'list' || v === 'tiles' || v === 'wall' || (v === 'pages' && hasPages.value)) return v
+  const tt = t.value
+  return tt?.chapters.length && tt.chapters.every((c) => c.kind === 'video') ? 'wall' : 'list'
+})
+const shownView = computed<ContentsView>(() => (editMode.value ? 'list' : chosenView.value))
+const cardView = computed(() => (shownView.value === 'list' ? null : shownView.value))
+// the wall and the pages have the whole width: no pane beside them
+const paneless = computed(() => shownView.value === 'wall' || shownView.value === 'pages')
+const allowed = (opts: readonly number[], v: unknown, fallback: number) =>
+  (typeof v === 'number' && opts.includes(v) ? v : fallback)
+const cols = computed(() => ({
+  tiles: allowed(COLS.tiles, ofType.value.tiles, 1),
+  wall: allowed(COLS.wall, ofType.value.wall, 3),
+  pages: allowed(COLS.pages, ofType.value.pages, 8),
+}))
+// The entries in blocks, sections marked where they begin. As cards or pages, a
+// title in more than one language shows each as a block of its own, its
+// sections inside.
+const entryBlocks = computed(() => {
+  const rows = tree.value.flatMap((n) => n.rows.map((c) => ({
+    c, title: c.title || n.rows.find((r) => r.title)?.title || '' })))
+  const langs = cardView.value ? [...new Set(rows.map((r) => r.c.lang))] : []
+  const groups = langs.length > 1
+    ? langs.map((lang) => ({ lang: lang as string | null, rows: rows.filter((r) => r.c.lang === lang) }))
+    : [{ lang: null, rows }]
+  return groups.map((g) => ({
+    lang: g.lang,
+    cards: g.rows.map((r, i) => ({
+      ...r, section: r.c.section && (i === 0 || g.rows[i - 1].c.section !== r.c.section) ? r.c.section : '' })),
+  }))
+})
+// a card opens what a row opens; on the wall, with no pane, straight into the reader or the player
+function openCard(c: Chapter) {
+  if (!t.value || !isReadable(c)) return
+  if (shownView.value === 'wall') openReader(t.value.id, c.id, 0)
+  else void selectPages(c)
+}
 const dragNum = ref<string | null>(null)
 const dropTarget = ref<string | null>(null) // num we'd land BEFORE; '#end' = the end
 const canDrag = computed(() => editMode.value && !filtersActive.value)
@@ -577,7 +641,7 @@ function measureHead() {
   const el = bandEl.value
   if (el) headClipped.value = el.scrollHeight > el.clientHeight + 4
 }
-// The pane is ONE box: the row's whole right side, the same for a page grid, a
+// The pane is ONE box: the row's whole left side, the same for a page grid, a
 // preview sheet and a playing episode. Nothing is measured and nothing resizes
 // when playback starts — only what is drawn inside it changes.
 let headWatch: ResizeObserver | null = null
@@ -1077,7 +1141,87 @@ async function removeRow(c: Chapter) {
     <!-- CONTENTS: entries with ONE free-text label; a label with several
          translations groups into a guide-lined block (contents-editor-mockup v3) -->
     <div v-if="t && !editing" class="lower">
-      <div class="chapters">
+      <!-- the pages pane: what is open, on the left — the reader and the player
+           keep their list on the right too. Open by default; the wall has none. -->
+      <div v-if="!paneless && (editMode || t.chapters.some(isReadable))" class="pagespane">
+        <div class="pghead">
+          <span v-if="openChapter" class="mono pglabel">{{ openChapter.num }}<template v-if="openChapter.lang"> · {{ openChapter.lang }}</template> — {{ openChapter.kind === 'video' ? (mediaLabel(openChapter) || 'video') : `${pageCount} pages` }}<template v-if="selPages.length"> · <span style="color:var(--accent)">{{ selPages.length }} selected</span></template></span>
+          <div style="flex:1"></div>
+          <button v-if="openChapter?.kind === 'video' && openChapter.dl" class="btn ghost small"
+                  title="Open this episode in the full window — the episode list travels with it. The player's own button is what fills the screen."
+                  @click="t && openReader(t.id, openChapter.id, 0)">
+            <Icon name="forward" :size="12" :sw="2" />Open player
+          </button>
+          <template v-if="editMode && openChapter">
+            <!-- pages are added to page media only: an episode is its video file -->
+            <template v-if="openChapter.kind !== 'video'">
+              <button class="btn ghost small" title="Append image files to this entry (its archive is created on first add)" @click="addImgEl?.click()">
+                <Icon name="plus" :size="12" :sw="2.2" />Add images
+              </button>
+              <button class="btn ghost small" title="Pick a folder and append every image in it to this entry" @click="addDirEl?.click()">Add folder…</button>
+            </template>
+            <span ref="moveRoot" class="movewrap">
+              <button v-if="selPages.length" class="btn small" title="Move the selected pages into another entry" @click="moveOpen = !moveOpen">Move to…</button>
+              <div v-if="moveOpen" class="movemenu">
+                <template v-for="node in moveTargets" :key="node.num">
+                  <div v-if="node.rows.length > 1" class="mvhead mono">{{ node.num }}</div>
+                  <template v-for="c in node.rows" :key="c.id">
+                    <div v-if="c.id !== openPages" class="mvrow" :class="{ sub: node.rows.length > 1 }" @click="movePagesTo(c.id)">
+                      <span v-if="node.rows.length === 1" class="mono mvnum">{{ c.num }}</span>
+                      <span v-if="node.rows.length > 1 || c.lang || c.group" class="trbadge"><span class="mono" style="color:var(--accent);font-size:9px">{{ c.lang || '?' }}</span><template v-if="c.group">{{ c.group }}</template></span>
+                      <span class="mvpg mono">{{ mediaLabel(c, '+ creates file') || '+ creates file' }}</span>
+                    </div>
+                  </template>
+                </template>
+                <div v-if="!newFromSel" class="mvrow new" @click.stop="newFromSel = true">+ New entry from selection…</div>
+                <div v-else class="mvform" @click.stop>
+                  <input v-model="nLabel" class="iin" placeholder="Label *" />
+                  <div style="display:flex;gap:6px">
+                    <input v-model="nLang" class="iin" style="width:64px" placeholder="EN" />
+                    <input v-model="nGroup" class="iin" style="flex:1;min-width:0" placeholder="group" />
+                  </div>
+                  <button class="btn accent small" :disabled="!nLabel.trim()" @click="createEntryFromSelection">Create + move {{ selPages.length }}</button>
+                </div>
+              </div>
+            </span>
+            <button v-if="selPages.length" class="btn dangerbtn small" @click="deleteSelectedPages">
+              <Icon name="x" :size="12" :sw="2.2" />Delete {{ selPages.length }}
+            </button>
+            <input ref="addImgEl" type="file" accept="image/*" multiple style="display:none" @change="onAddImages" />
+            <input ref="addDirEl" type="file" webkitdirectory style="display:none" @change="onAddImages" />
+          </template>
+          <!-- page thumbnails have a size; an episode's surface is the pane -->
+          <div v-if="openChapter?.kind !== 'video'" class="seg zseg">
+            <button v-for="k in (['s', 'm', 'l'] as const)" :key="k" :class="{ on: thumbKey === k }"
+                    :title="`Thumbnail size: ${k.toUpperCase()}`" @click="thumbKey = k">{{ k.toUpperCase() }}</button>
+          </div>
+        </div>
+        <VideoSurface v-if="openChapter?.kind === 'video' && openChapter.dl && t"
+                      :title="t" :chapter="openChapter" class="panevideo" />
+        <div v-else-if="pagesError" class="pgerror">Could not read the archive's pages: {{ pagesError }}</div>
+        <div v-else-if="openChapter && openChapter.kind !== 'video' && !pageCount" class="pgerror">
+          {{ openChapter.dl ? "No readable pages in this archive." : "No pages yet — use “Add images” to start this entry." }}
+        </div>
+        <div v-else-if="openChapter" class="pgrid scroll">
+          <div v-for="(srcIdx, pos) in pageMap" :key="`${openChapter.id}-${srcIdx}`" class="ptile"
+               :class="{ sel: selPages.includes(srcIdx), selectable: editMode, pdragging: dragPage === pos, pdrop: pageDrop === pos && dragPage !== null }"
+               :style="{ width: thumb.grid + 'px' }"
+               :title="editMode ? 'Click to select · Shift+click selects a range · drag to rearrange' : `Read from page ${pos + 1}`"
+               :draggable="editMode"
+               @dragstart="dragPage = pos" @dragend="dragPage = null; pageDrop = null"
+               @dragover.prevent="pageDrop = pos" @drop.prevent="onPageDrop(pos)"
+               @click="onTileClick(pos, srcIdx, $event)">
+            <img :src="pageSrc(openChapter.id, srcIdx, openChapter.v)" loading="lazy" alt="" />
+            <span class="pnum mono">{{ pos + 1 }}</span>
+            <span v-if="editMode" class="pcheck" :class="{ on: selPages.includes(srcIdx) }">
+              <Icon v-if="selPages.includes(srcIdx)" name="check" :size="10" :sw="3" />
+            </span>
+          </div>
+          <div v-if="dragPage !== null" class="pgend" :class="{ hot: pageDrop === -1 }"
+               @dragover.prevent="pageDrop = -1" @drop.prevent="onPageDrop(-1)">move to the end</div>
+        </div>
+      </div>
+      <div class="chapters" :class="{ wide: paneless }">
         <div class="chhead">
           <h2>Contents</h2>
           <span class="mono" style="color:var(--tx3);font-size:12px">{{ t.chapters.length }}</span>
@@ -1091,7 +1235,16 @@ async function removeRow(c: Chapter) {
             <button v-if="t.chapterOrder === 'manual'" class="btn ghost small" title="Back to smart number order" @click="sortAuto">Sort №</button>
             <button class="btn accent small" @click="editMode = false; selPages = []; importOpen = false; editRow = null">Done</button>
           </template>
-          <button v-else class="iconbtn chedit" title="Edit contents: add/edit entries, attach files, drag to reorder" @click="startContentsEdit()">
+          <div v-if="cardView" class="seg colseg" title="Cards side by side">
+            <span class="k mono">COLS</span>
+            <button v-for="n in COLS[cardView]" :key="n" class="opt" :class="{ on: cols[cardView] === n }"
+                    @click="setOfType({ [cardView]: n })">{{ n }}</button>
+          </div>
+          <div v-if="!editMode" class="seg vseg">
+            <button v-for="v in views" :key="v.id" class="opt" :class="{ on: shownView === v.id }" :title="v.title"
+                    @click="setOfType({ view: v.id })"><Icon :name="v.icon" :size="14" :sw="1.9" /></button>
+          </div>
+          <button v-if="!editMode" class="iconbtn chedit" title="Edit contents: add/edit entries, attach files, drag to reorder" @click="startContentsEdit()">
             <Icon name="edit" :size="13" :sw="1.9" />
           </button>
         </div>
@@ -1124,7 +1277,63 @@ async function removeRow(c: Chapter) {
         </div>
         <input ref="attachEl" type="file" :accept="FILE_ACCEPT" style="display:none" @change="onAttachFile" />
 
-        <div v-if="tree.length" class="chlist scroll">
+        <!-- PAGES: every page of every entry, under the entry it belongs to -->
+        <div v-if="tree.length && shownView === 'pages'" class="pagewall scroll" :style="{ '--cols': cols.pages }">
+          <template v-for="b in entryBlocks" :key="b.lang ?? ''">
+            <div v-if="b.lang !== null" class="chsec langsec mono">{{ b.lang || 'No language' }}<span class="n">{{ b.cards.length }}</span></div>
+            <template v-for="{ c, title, section } in b.cards" :key="c.id">
+            <div v-if="section" class="chsec mono">{{ section }}</div>
+            <div class="pwentry">
+              <div class="pwhead">
+                <span class="chdot s" :style="{ background: readColor[c.read] }" :title="`${c.read} — click to change`" @click.stop="cycleRead(c)"></span>
+                <span class="chtitle"><b class="chnum mono">{{ c.num }}</b><template v-if="title"> {{ title }}</template></span>
+                <span v-if="c.lang || c.group" class="trbadge"><span class="mono" style="color:var(--accent);font-size:9px">{{ c.lang || '?' }}</span><template v-if="c.group">{{ c.group }}</template></span>
+                <span v-if="c.subtitles?.length" class="ccmark mono" :title="ccTitle(c)">CC {{ ccLangs(c) }}</span>
+                <span class="pgcol mono" :class="{ unsup: isUnsupported(c) }"
+                      :title="isUnsupported(c) ? unsupportedNote(c) : mediaTitle(c)">{{ mediaLabel(c) }}</span>
+              </div>
+              <div v-if="!isReadable(c)" class="pwnone mono">{{ c.dl ? 'nothing to show' : 'not downloaded' }}</div>
+              <div v-else class="pwgrid">
+                <!-- an episode among the pages: its poster, two pages wide -->
+                <div v-if="c.kind === 'video'" class="pwep" :title="`Play ${c.num}`" @click="openReader(t.id, c.id, 0)">
+                  <EntryPreview :title-id="t.id" :chapter="c" />
+                </div>
+                <template v-else>
+                  <div v-for="i in c.pages" :key="i" class="pwtile" :title="`Read ${c.num} from page ${i}`"
+                       @click="openReader(t.id, c.id, i - 1)">
+                    <img :src="pageSrc(c.id, i - 1, c.v)" loading="lazy" alt="" />
+                    <span class="n mono">{{ i }}</span>
+                  </div>
+                </template>
+              </div>
+            </div>
+            </template>
+          </template>
+        </div>
+        <div v-else-if="tree.length && cardView" class="cards scroll" :class="cardView" :style="{ '--cols': cols[cardView] }">
+          <template v-for="b in entryBlocks" :key="b.lang ?? ''">
+            <div v-if="b.lang !== null" class="chsec langsec mono">{{ b.lang || 'No language' }}<span class="n">{{ b.cards.length }}</span></div>
+            <template v-for="{ c, title, section } in b.cards" :key="c.id">
+            <div v-if="section" class="chsec mono">{{ section }}</div>
+            <div class="card"
+                 :class="{ open: cardView === 'tiles' && openPages === c.id, off: !isReadable(c) }"
+                 @click="openCard(c)">
+              <EntryPreview :title-id="t.id" :chapter="c" />
+              <div class="cmeta">
+                <div class="ct1"><b class="chnum mono">{{ c.num }}</b><span class="ctt">{{ title }}</span></div>
+                <div class="ct2">
+                  <span class="chdot s" :style="{ background: readColor[c.read] }" :title="`${c.read} — click to change`" @click.stop="cycleRead(c)"></span>
+                  <span v-if="c.lang || c.group" class="trbadge"><span class="mono" style="color:var(--accent);font-size:9px">{{ c.lang || '?' }}</span><template v-if="c.group">{{ c.group }}</template></span>
+                  <span v-if="c.subtitles?.length" class="ccmark mono" :title="ccTitle(c)">CC {{ ccLangs(c) }}</span>
+                  <span class="pgcol mono" :class="{ unsup: isUnsupported(c) }"
+                        :title="isUnsupported(c) ? unsupportedNote(c) : mediaTitle(c)">{{ mediaLabel(c) }}</span>
+                </div>
+              </div>
+            </div>
+            </template>
+          </template>
+        </div>
+        <div v-else-if="tree.length" class="chlist scroll">
           <template v-for="(node, i) in tree" :key="node.num">
             <div v-if="opensSection(tree, i)" class="chsec mono">{{ node.rows[0].section }}</div>
             <!-- GROUP: header row + translations inside a guide-lined block -->
@@ -1237,85 +1446,6 @@ async function removeRow(c: Chapter) {
         </div>
       </div>
 
-      <!-- the pages pane: fills the right side, open by default -->
-      <div v-if="editMode || t.chapters.some(isReadable)" class="pagespane">
-        <div class="pghead">
-          <span v-if="openChapter" class="mono pglabel">{{ openChapter.num }}<template v-if="openChapter.lang"> · {{ openChapter.lang }}</template> — {{ openChapter.kind === 'video' ? (mediaLabel(openChapter) || 'video') : `${pageCount} pages` }}<template v-if="selPages.length"> · <span style="color:var(--accent)">{{ selPages.length }} selected</span></template></span>
-          <div style="flex:1"></div>
-          <button v-if="openChapter?.kind === 'video' && openChapter.dl" class="btn ghost small"
-                  title="Open this episode in the full window — the episode list travels with it. The player's own button is what fills the screen."
-                  @click="t && openReader(t.id, openChapter.id, 0)">
-            <Icon name="forward" :size="12" :sw="2" />Open player
-          </button>
-          <template v-if="editMode && openChapter">
-            <!-- pages are added to page media only: an episode is its video file -->
-            <template v-if="openChapter.kind !== 'video'">
-              <button class="btn ghost small" title="Append image files to this entry (its archive is created on first add)" @click="addImgEl?.click()">
-                <Icon name="plus" :size="12" :sw="2.2" />Add images
-              </button>
-              <button class="btn ghost small" title="Pick a folder and append every image in it to this entry" @click="addDirEl?.click()">Add folder…</button>
-            </template>
-            <span ref="moveRoot" class="movewrap">
-              <button v-if="selPages.length" class="btn small" title="Move the selected pages into another entry" @click="moveOpen = !moveOpen">Move to…</button>
-              <div v-if="moveOpen" class="movemenu">
-                <template v-for="node in moveTargets" :key="node.num">
-                  <div v-if="node.rows.length > 1" class="mvhead mono">{{ node.num }}</div>
-                  <template v-for="c in node.rows" :key="c.id">
-                    <div v-if="c.id !== openPages" class="mvrow" :class="{ sub: node.rows.length > 1 }" @click="movePagesTo(c.id)">
-                      <span v-if="node.rows.length === 1" class="mono mvnum">{{ c.num }}</span>
-                      <span v-if="node.rows.length > 1 || c.lang || c.group" class="trbadge"><span class="mono" style="color:var(--accent);font-size:9px">{{ c.lang || '?' }}</span><template v-if="c.group">{{ c.group }}</template></span>
-                      <span class="mvpg mono">{{ mediaLabel(c, '+ creates file') || '+ creates file' }}</span>
-                    </div>
-                  </template>
-                </template>
-                <div v-if="!newFromSel" class="mvrow new" @click.stop="newFromSel = true">+ New entry from selection…</div>
-                <div v-else class="mvform" @click.stop>
-                  <input v-model="nLabel" class="iin" placeholder="Label *" />
-                  <div style="display:flex;gap:6px">
-                    <input v-model="nLang" class="iin" style="width:64px" placeholder="EN" />
-                    <input v-model="nGroup" class="iin" style="flex:1;min-width:0" placeholder="group" />
-                  </div>
-                  <button class="btn accent small" :disabled="!nLabel.trim()" @click="createEntryFromSelection">Create + move {{ selPages.length }}</button>
-                </div>
-              </div>
-            </span>
-            <button v-if="selPages.length" class="btn dangerbtn small" @click="deleteSelectedPages">
-              <Icon name="x" :size="12" :sw="2.2" />Delete {{ selPages.length }}
-            </button>
-            <input ref="addImgEl" type="file" accept="image/*" multiple style="display:none" @change="onAddImages" />
-            <input ref="addDirEl" type="file" webkitdirectory style="display:none" @change="onAddImages" />
-          </template>
-          <!-- page thumbnails have a size; an episode's surface is the pane -->
-          <div v-if="openChapter?.kind !== 'video'" class="seg zseg">
-            <button v-for="k in (['s', 'm', 'l'] as const)" :key="k" :class="{ on: thumbKey === k }"
-                    :title="`Thumbnail size: ${k.toUpperCase()}`" @click="thumbKey = k">{{ k.toUpperCase() }}</button>
-          </div>
-        </div>
-        <VideoSurface v-if="openChapter?.kind === 'video' && openChapter.dl && t"
-                      :title="t" :chapter="openChapter" class="panevideo" />
-        <div v-else-if="pagesError" class="pgerror">Could not read the archive's pages: {{ pagesError }}</div>
-        <div v-else-if="openChapter && openChapter.kind !== 'video' && !pageCount" class="pgerror">
-          {{ openChapter.dl ? "No readable pages in this archive." : "No pages yet — use “Add images” to start this entry." }}
-        </div>
-        <div v-else-if="openChapter" class="pgrid scroll">
-          <div v-for="(srcIdx, pos) in pageMap" :key="`${openChapter.id}-${srcIdx}`" class="ptile"
-               :class="{ sel: selPages.includes(srcIdx), selectable: editMode, pdragging: dragPage === pos, pdrop: pageDrop === pos && dragPage !== null }"
-               :style="{ width: thumb.grid + 'px' }"
-               :title="editMode ? 'Click to select · Shift+click selects a range · drag to rearrange' : `Read from page ${pos + 1}`"
-               :draggable="editMode"
-               @dragstart="dragPage = pos" @dragend="dragPage = null; pageDrop = null"
-               @dragover.prevent="pageDrop = pos" @drop.prevent="onPageDrop(pos)"
-               @click="onTileClick(pos, srcIdx, $event)">
-            <img :src="pageSrc(openChapter.id, srcIdx, openChapter.v)" loading="lazy" alt="" />
-            <span class="pnum mono">{{ pos + 1 }}</span>
-            <span v-if="editMode" class="pcheck" :class="{ on: selPages.includes(srcIdx) }">
-              <Icon v-if="selPages.includes(srcIdx)" name="check" :size="10" :sw="3" />
-            </span>
-          </div>
-          <div v-if="dragPage !== null" class="pgend" :class="{ hot: pageDrop === -1 }"
-               @dragover.prevent="pageDrop = -1" @drop.prevent="onPageDrop(-1)">move to the end</div>
-        </div>
-      </div>
     </div>
     </div>
   </div>
@@ -1423,6 +1553,52 @@ async function removeRow(c: Chapter) {
    entry list is generous beside a wide pane and absurd beside a narrow one —
    and the clamp keeps it readable at the bottom and sane at the top. */
 .chapters { flex: 0 1 clamp(300px, 32%, 560px); min-width: 0; align-self: stretch; display: flex; flex-direction: column; min-height: 0; }
+.chapters.wide { flex: 1 1 auto; }
+.vseg .opt { width: 30px; padding: 0; }
+/* cards: the entries as pictures — a column of them beside the pane, or a wall */
+/* Rows are as tall as their cards: a card clips its picture, so its smallest
+   size is nothing, and auto rows in a column of fixed height shrank to fit every
+   card into it — forty-seven of them became five-pixel slivers. */
+.cards { margin-top: 14px; flex: 1 1 auto; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr)); grid-auto-rows: max-content; gap: 10px; align-content: start; padding: 2px; }
+.cards.wall { gap: 16px 14px; }
+.cards .chsec { grid-column: 1 / -1; padding: 6px 0 0; }
+.pagewall .chsec { padding: 8px 0 0; }
+/* a language heads its block of cards or pages: louder than the sections inside it */
+.cards .langsec, .pagewall .langsec { font-size: 12px; color: var(--accent); padding-top: 18px; }
+.cards .langsec:first-child, .pagewall .langsec:first-child { padding-top: 2px; }
+.langsec .n { color: var(--tx3); font-weight: 500; letter-spacing: .04em; }
+/* pages: every page of every entry, under the entry it belongs to */
+.pagewall { margin-top: 14px; flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 2px; }
+/* an entry is drawn only near the view: a title can hold thousands of pages */
+.pwentry { content-visibility: auto; contain-intrinsic-size: auto 420px; display: flex; flex-direction: column; gap: 8px; padding-bottom: 10px; }
+.pwhead { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 2px 0; }
+.pwhead .chtitle { flex: 0 1 auto; }
+.pwhead .pgcol { width: auto; }
+.pwgrid { display: grid; grid-template-columns: repeat(var(--cols, 8), minmax(0, 1fr)); gap: 8px; }
+.pwtile { position: relative; aspect-ratio: 2 / 3; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); background: var(--panel2); cursor: pointer; }
+.pwtile:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pwtile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.pwtile .n { position: absolute; left: 4px; bottom: 4px; font-size: 9px; font-weight: 600; color: #f2ede6; background: rgba(9, 10, 13, .7); padding: 2px 4px; border-radius: 3px; }
+.pwep { grid-column: span 2; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; cursor: pointer; }
+.pwep:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pwnone { border: 1px dashed var(--line); border-radius: 6px; padding: 12px; font-size: 11px; color: var(--tx3); }
+.colseg { align-items: center; }
+.colseg .k { font-size: 9px; letter-spacing: .08em; color: var(--tx3); padding: 0 6px 0 7px; }
+.colseg .opt { min-width: 24px; padding: 0 7px; }
+/* the entries are a column of their own beside what is open */
+.pagespane + .chapters { border-left: 1px solid var(--line); padding-left: 20px; }
+.card { min-width: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); overflow: hidden; cursor: pointer; }
+.card:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }
+.card.open { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.card.off { cursor: default; }
+.card.off:hover { border-color: var(--line); }
+.cmeta { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.ct1 { display: flex; align-items: baseline; min-width: 0; font: 500 13px/1.3 system-ui; color: var(--tx); white-space: nowrap; }
+.ct1 .chnum { flex: none; margin-right: .5em; }
+.ctt { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ct2 { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.ct2 .chdot { cursor: pointer; }
+.ct2 .pgcol { margin-left: auto; }
 .chhead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .chhead h2 { margin: 0; font: 600 16px/1 system-ui; color: var(--tx); }
 .chlist { margin-top: 14px; display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; min-height: 0; overflow-y: auto; }

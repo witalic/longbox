@@ -31,6 +31,10 @@ const P: Record<string, string> = {
   grid: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
   rows: 'M4 6h16M4 10h16M4 14h16M4 18h16',
   detail: 'M4 5h16v6H4zM4 13h16v6H4z',
+  // the open entry large, the entries down a column beside it
+  tiles: 'M3 4h10v16H3zM16 4h5v4h-5zM16 10h5v4h-5zM16 16h5v4h-5z',
+  // a wall of pages, each taller than wide
+  pages: 'M3 3h3.6v8H3zM8 3h3.6v8H8zM13 3h3.6v8H13zM18 3h3.6v8H18zM3 13h3.6v8H3zM8 13h3.6v8H8zM13 13h3.6v8H13z',
   // crosshair target — "pick this element on the page" (NOT a star; stars mean favorites)
   pick: 'M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10M12 2v4M12 18v4M2 12h4M18 12h4',
   moon: 'M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z',

@@ -352,7 +352,8 @@ frontend/src/
               PassButton + ProgressBar (run/progress/stop, one grammar everywhere) ·
               Settings* (one component per settings section) ·
               VideoSurface (preview + player, one per app) · ActivityPanel · PickInspector ·
-              CoverArt (covers, rotating on hover) · EntryFields · FilterBlock · FieldVisibility ·
+              CoverArt (covers, rotating on hover) · EntryPreview (an entry card's 16:9 picture:
+              poster, a wide first page, or three seeded pages) · EntryFields · FilterBlock · FieldVisibility ·
               MenuButton · RailSection · SearchBox · Pager · Combo · ConfirmModal · Dropdown ·
               Stars · Icon · VaultLost (the cover while the vault does not answer)
   launcher/   LauncherApp (the launch window: a second page of the build, loaded from disk)

@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Contents views — mockup</title>
+<style>
+/* ---- the app's own tokens (frontend/src/styles.css), verbatim ---- */
+:root {
+  --bg: #0a0b0d; --bg2: #0f1115; --panel: #15171b; --panel2: #1b1e24;
+  --line: #262a31; --hover: #2a2e36;
+  --tx: #e8eaef; --tx2: #9aa1ad; --tx3: #697080;
+  --accent: #7089e6; --accent-ink: #0d0e11; --accentSoft: rgba(112, 137, 230, .14);
+  --fav: #e0687a; --good: #5fb88a; --warn: #d6a44f; --adult: #e0687a; color-scheme: dark;
+}
+html[data-theme="light"] {
+  --bg: #f0eeea; --bg2: #e6e3dd; --panel: #faf9f6; --panel2: #edeae4;
+  --line: #d2cdc2; --hover: #e2ded6;
+  --tx: #2a2c31; --tx2: #575d67; --tx3: #8d95a1;
+  --accent: #5f77d4; --accent-ink: #ffffff; --accentSoft: rgba(95, 119, 212, .15);
+  --fav: #d6516a; --good: #3f9e6f; --warn: #b07d2a; --adult: #d6516a; color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--tx); font: 400 13px/1.45 system-ui; -webkit-font-smoothing: antialiased; }
+.mono { font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; }
+.page { max-width: 1240px; margin: 0 auto; padding: 26px 24px 60px; }
+.page > h1 { font: 700 22px/1.1 system-ui; margin: 0 0 4px; letter-spacing: -.3px; }
+.lede { color: var(--tx2); max-width: 100ch; margin: 0 0 18px; }
+.lede b { color: var(--tx); font-weight: 600; }
+.ic { width: 15px; height: 15px; flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.bar .k { font: 600 11px/1 system-ui; color: var(--tx3); }
+.mseg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.mseg button { height: 28px; border: none; background: transparent; color: var(--tx2); padding: 0 12px; font: 600 12px/1 system-ui; cursor: pointer; }
+.mseg button + button { border-left: 1px solid var(--line); }
+.mseg button.on { background: var(--accentSoft); color: var(--accent); }
+
+/* ---- the title page's lower area ---- */
+.win { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--bg); }
+.titlestub { height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 26px; border-bottom: 1px solid var(--line); color: var(--tx3); font: 500 12px/1 system-ui; }
+.titlestub b { color: var(--tx); font: 600 15px/1 system-ui; }
+.lower { padding: 22px 26px 24px; display: flex; gap: 20px; align-items: flex-start; height: 640px; overflow: hidden; }
+.chapters { flex: 0 1 clamp(300px, 32%, 560px); min-width: 0; align-self: stretch; display: flex; flex-direction: column; min-height: 0; }
+.lower.wall .chapters, .lower.pages .chapters { flex: 1 1 auto; }
+.chhead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-height: 30px; }
+.chhead h2 { margin: 0; font: 600 15px/1 system-ui; color: var(--tx); }
+.cnt { color: var(--tx3); font-size: 12px; }
+.pill { display: inline-flex; align-items: center; gap: 7px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; height: 30px; padding: 0 11px; font: 500 12px/1 system-ui; color: var(--tx2); }
+.pill .k { font: 500 9px/1 ui-monospace, monospace; letter-spacing: .08em; color: var(--tx3); }
+.sp { flex: 1; }
+/* the view switch: three ways to see the same entries */
+.vseg { display: flex; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 2px; height: 30px; }
+.vseg button { width: 30px; display: inline-flex; align-items: center; justify-content: center; border: none; border-radius: 4px; background: transparent; color: var(--tx3); cursor: pointer; }
+.vseg button:hover { color: var(--tx); }
+.vseg button.on { background: var(--accentSoft); color: var(--accent); }
+.iconbtn { width: 30px; height: 30px; flex: none; border: 1px solid var(--line); background: var(--panel); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--tx2); }
+
+/* list — as it is today */
+.chlist { margin-top: 14px; display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.chrow { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; border: 1px solid transparent; cursor: pointer; }
+.chrow:hover { background: var(--panel2); }
+.chrow.open { background: var(--accentSoft); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+.chrow.off { cursor: default; }
+.chrow.off:hover { background: transparent; }
+.chslot { flex: none; width: 14px; display: inline-flex; align-items: center; justify-content: center; }
+.chdot { flex: none; width: 10px; height: 10px; border-radius: 50%; }
+.chtitle { flex: 1; min-width: 0; font: 500 13px/1.3 system-ui; color: var(--tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chnum { font: 600 13px/1 ui-monospace, monospace; color: var(--tx); margin-right: .5em; }
+.chright { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; flex: none; }
+.trbadge { display: inline-flex; align-items: center; gap: 5px; font: 500 11px/1 system-ui; color: var(--tx2); background: var(--panel2); border: 1px solid var(--line); padding: 3px 7px; border-radius: 5px; flex: none; }
+.trbadge .l { color: var(--accent); font: 600 9px/1 ui-monospace, monospace; }
+.pgcol { flex: none; min-width: 44px; text-align: right; font: 500 11px/1 ui-monospace, monospace; color: var(--good); }
+.pgcol.none { color: var(--tx3); }
+.ccmark { flex: none; font: 700 9px/1 ui-monospace, monospace; letter-spacing: .04em; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); border-radius: 4px; padding: 3px 5px; }
+.chsec { display: flex; align-items: center; gap: 10px; padding: 12px 12px 4px; font: 700 11px/1 system-ui; letter-spacing: .12em; color: var(--tx3); text-transform: uppercase; }
+.chsec::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+
+/* cards — the same entries, each wearing its picture */
+.cards { margin-top: 14px; flex: 1 1 auto; min-height: 0; overflow-y: auto; display: grid; gap: 14px 12px; align-content: start; padding: 2px 4px 2px 2px; }
+/* tiles: the list's own column, one card under another across all of it */
+.lower.tiles .cards { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.lower.wall .cards { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.cards .chsec { grid-column: 1 / -1; padding: 6px 0 0; }
+.card { min-width: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); overflow: hidden; cursor: pointer; display: flex; flex-direction: column; }
+.card:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }
+.card.open { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.card.off { cursor: default; }
+.card.off:hover { border-color: var(--line); }
+.pv { position: relative; aspect-ratio: 16 / 9; background: var(--panel2); display: flex; gap: 2px; overflow: hidden; }
+.pv img { display: block; height: 100%; min-width: 0; object-fit: cover; flex: 1 1 0; }
+.pv .prog { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--warn); }
+.pv .play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity .12s; background: rgba(9, 10, 13, .28); }
+.pv .play span { width: 38px; height: 38px; border-radius: 999px; background: rgba(9, 10, 13, .7); display: flex; align-items: center; justify-content: center; color: #f2ede6; }
+.card:not(.off):hover .pv .play { opacity: 1; }
+.pv.empty { align-items: center; justify-content: center; border-bottom: 1px dashed var(--line); background: transparent; }
+.pv.empty span { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); }
+.cmeta { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.cmeta .t1 { display: flex; align-items: baseline; min-width: 0; font: 500 13px/1.3 system-ui; color: var(--tx); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cmeta .t1 .chnum { flex: none; }
+.cmeta .t1 .tt { overflow: hidden; text-overflow: ellipsis; }
+.cmeta .t2 { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.cmeta .t2 .chdot { width: 8px; height: 8px; }
+.cmeta .t2 .pgcol { margin-left: auto; }
+
+/* the pane — the open entry's pages or its player, as today */
+.pagespane { flex: 1 1 0; min-width: 0; align-self: stretch; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); overflow: hidden; display: flex; flex-direction: column; }
+.lower.wall .pagespane, .lower.pages .pagespane { display: none; }
+.lower:not(.wall):not(.pages) .chapters { border-left: 1px solid var(--line); padding-left: 20px; }
+/* the columns a card view shows, chosen beside the view switch */
+.colseg { display: flex; align-items: center; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 2px; height: 30px; }
+.colseg .k { font: 500 9px/1 ui-monospace, monospace; letter-spacing: .08em; color: var(--tx3); padding: 0 6px 0 7px; }
+.colseg button { min-width: 24px; height: 100%; border: none; border-radius: 4px; background: transparent; color: var(--tx2); font: 500 12px/1 system-ui; cursor: pointer; padding: 0 6px; }
+.colseg button.on { background: var(--accentSoft); color: var(--accent); }
+/* pages: every page of every entry, a wall of them under their entry's heading */
+.pagewall { margin-top: 14px; flex: 1 1 auto; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); grid-auto-rows: max-content; gap: 8px; align-content: start; padding: 2px; }
+.pagewall .chsec { grid-column: 1 / -1; padding: 8px 0 0; }
+.langsec { font-size: 12px !important; color: var(--accent) !important; padding-top: 18px !important; }
+.langsec:first-child { padding-top: 2px !important; }
+.langsec .n { color: var(--tx3); font-weight: 500; letter-spacing: .04em; }
+.pwhead { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; padding: 10px 2px 2px; min-width: 0; }
+.pwhead .chdot { width: 8px; height: 8px; }
+.pwhead .chtitle { flex: 0 1 auto; }
+.pwhead .pgcol { margin-left: 4px; }
+.pwtile { position: relative; aspect-ratio: 2 / 3; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); background: var(--panel2); cursor: pointer; }
+.pwtile:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pwtile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.pwtile .n { position: absolute; left: 4px; bottom: 4px; font: 600 9px/1 ui-monospace, monospace; color: #f2ede6; background: rgba(9,10,13,.7); padding: 2px 4px; border-radius: 3px; }
+.pwnone { grid-column: 1 / -1; border: 1px dashed var(--line); border-radius: 6px; padding: 12px; font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); }
+.pghead { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--line); min-height: 44px; }
+.pglabel { font: 400 11px/1 ui-monospace, monospace; color: var(--tx2); }
+.zseg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.zseg button { border: none; background: transparent; color: var(--tx3); font: 700 9.5px/1 ui-monospace, monospace; padding: 5px 8px; }
+.zseg button + button { border-left: 1px solid var(--line); }
+.zseg button.on { background: var(--accentSoft); color: var(--accent); }
+.pgrid { padding: 12px; display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start; overflow-y: auto; min-height: 0; }
+.ptile { position: relative; width: 92px; aspect-ratio: 2/3; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); background: var(--panel2); }
+.ptile.wide { width: 184px; aspect-ratio: 16/10; }
+.ptile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.ptile .n { position: absolute; left: 4px; bottom: 4px; font: 600 9px/1 ui-monospace, monospace; color: #f2ede6; background: rgba(9,10,13,.7); padding: 2px 4px; border-radius: 3px; }
+.video { flex: 1; display: flex; align-items: center; justify-content: center; background: #050506; position: relative; }
+.video img { max-width: 100%; max-height: 100%; }
+.video .play { position: absolute; width: 54px; height: 54px; border-radius: 999px; background: rgba(9, 10, 13, .7); display: flex; align-items: center; justify-content: center; color: #f2ede6; }
+
+.toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; font: 500 12px/1.3 system-ui; color: var(--tx); box-shadow: 0 14px 34px rgba(0,0,0,.45); opacity: 0; transition: opacity .15s; pointer-events: none; }
+.toast.on { opacity: 1; }
+
+.notes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 18px; }
+.note { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 14px 16px; }
+.note h3 { margin: 0 0 8px; font: 600 13px/1.2 system-ui; }
+.note p, .note li { margin: 0 0 6px; color: var(--tx2); font-size: 12px; line-height: 1.5; }
+.note ul { margin: 0; padding-left: 16px; }
+.note b { color: var(--tx); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Contents views</h1>
+  <p class="lede">The entries of a title, seen four ways — chosen in the Contents head and <b>remembered per type</b> (the title's shelf).
+    The column moves to the <b>right</b>, where the reader and the player keep their list: what is open is the big
+    surface on the left, what comes next runs down beside it. <b>List</b> is today's rows. <b>Tiles</b> keeps the
+    column as wide as it is and stacks a card per entry down it. <b>Wall</b> gives the cards the whole width; a card
+    opens the reader or the player directly. Each card is a 16:9 preview with the row's facts under it. <b>Pages</b>
+    is for image sets: every page of every entry as one wall, under the entry it belongs to — and the entries under
+    their section and language.</p>
+  <div class="bar">
+    <span class="k">Title</span>
+    <span class="mseg" id="samples"><button data-s="video" class="on">Video collection</button><button data-s="manga">Manga · translations, spreads</button><button data-s="sets">Image sets</button></span>
+    <span style="flex:1"></span>
+    <span class="k">Theme</span>
+    <span class="mseg" id="themes"><button data-t="dark" class="on">Dark</button><button data-t="light">Light</button></span>
+  </div>
+
+  <div class="win">
+    <div class="titlestub">Library › <b id="tname"></b></div>
+    <div class="lower" id="lower">
+      <div class="pagespane" id="pane"></div>
+      <div class="chapters">
+        <div class="chhead">
+          <h2>Contents</h2><span class="cnt mono" id="count"></span>
+          <span class="pill" id="langpill"><span class="k">LANG</span>All ▾</span>
+          <span class="sp"></span>
+          <div class="colseg" id="cols"></div>
+          <div class="vseg" id="views">
+            <button data-v="list" title="List"><svg class="ic" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg></button>
+            <button data-v="tiles" title="Tiles — beside the pane"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="10" height="16" rx="1.5"/><rect x="15.5" y="4" width="5.5" height="4" rx="1"/><rect x="15.5" y="10" width="5.5" height="4" rx="1"/><rect x="15.5" y="16" width="5.5" height="4" rx="1"/></svg></button>
+            <button data-v="wall" title="Wall — the whole width"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="4" rx="1"/><rect x="9.5" y="4" width="5" height="4" rx="1"/><rect x="16" y="4" width="5" height="4" rx="1"/><rect x="3" y="11" width="5" height="4" rx="1"/><rect x="9.5" y="11" width="5" height="4" rx="1"/><rect x="16" y="11" width="5" height="4" rx="1"/></svg></button>
+            <button data-v="pages" title="Pages — every page of every entry"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="3.6" height="8" rx=".8"/><rect x="8" y="3" width="3.6" height="8" rx=".8"/><rect x="13" y="3" width="3.6" height="8" rx=".8"/><rect x="18" y="3" width="3.6" height="8" rx=".8"/><rect x="3" y="13" width="3.6" height="8" rx=".8"/><rect x="8" y="13" width="3.6" height="8" rx=".8"/><rect x="13" y="13" width="3.6" height="8" rx=".8"/></svg></button>
+          </div>
+          <span class="iconbtn" title="Edit contents"><svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></span>
+        </div>
+        <div id="entries"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note">
+      <h3>The card</h3>
+      <ul>
+        <li><b>An episode</b> wears its poster — the frame the vault already cuts for it.</li>
+        <li><b>A page entry</b> whose first page is wider than tall (a spread, an artbook) wears that page whole, like a poster.</li>
+        <li><b>Otherwise</b> three of its pages side by side — picked at random, but <b>the same three every time</b>: the pick is seeded by the entry and its version, so it only changes when its pages do.</li>
+        <li>Under it, the row's facts: number and label; read mark, language · group, CC, and pages or duration.</li>
+      </ul>
+    </div>
+    <div class="note">
+      <h3>What it does</h3>
+      <ul>
+        <li><b>Tiles</b>: a click opens the entry in the pane, exactly as a row does now.</li>
+        <li><b>Wall</b>: no pane — a click opens the reader at the entry, or plays the episode in the player.</li>
+        <li>A card per entry: each translation is its own card; LANG and GROUP narrow them as they narrow the rows.</li>
+        <li>Sections head their cards across the whole row. An entry with no file is a dashed card that opens nothing.</li>
+        <li>A title in more than one language shows each as a block of its own, its sections inside — on Tiles, the Wall and Pages alike.</li>
+      </ul>
+    </div>
+    <div class="note">
+      <h3>Pages</h3>
+      <ul>
+        <li>Every page of every entry, a wall of thumbnails; a page opens the reader right there.</li>
+        <li>Each entry heads its own pages — number, label, read mark, language · group, page count — so where one set ends and the next begins is never a guess.</li>
+        <li>Entries sit under their section, and on a title in more than one language each language is a block of its own, as on the Wall.</li>
+        <li>Offered where there are pages to show: a title of episodes only does not list it. An entry with no file is a dashed line under its heading.</li>
+        <li>Columns 4–12, as Tiles 1–2 and Wall 3–8. Thumbnails load as they scroll into view.</li>
+      </ul>
+    </div>
+    <div class="note">
+      <h3>Remembered</h3>
+      <ul>
+        <li>The view and the columns (Tiles 1–2, Wall 3–8) belong to the <b>type</b> — every manga alike, every collection alike — kept with the window's settings in the vault, so they travel with the library.</li>
+        <li>A type never chosen for: a title of episodes opens on the <b>Wall</b>, one of page entries on the <b>List</b>.</li>
+        <li>Editing contents (✎) shows the list — dragging and the row actions live there — and <b>Done</b> returns to the view chosen.</li>
+        <li>A title with nothing to open yet (no entry has a file) has no pane: its list starts at the left, as it does today.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ---- placeholder pictures: drawn here, so the mockup stands alone ----
+function rng(seed) {
+  let h = 2166136261
+  for (const ch of String(seed)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619)
+  return () => { h = Math.imul(h ^ (h >>> 15), 2246822507); h = Math.imul(h ^ (h >>> 13), 3266489909); return ((h ^= h >>> 16) >>> 0) / 4294967296 }
+}
+const svg = (w, h, body) => 'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}">${body}</svg>`)
+function poster(seed) {
+  const r = rng(seed), a = Math.floor(r() * 360), b = (a + 40 + r() * 80) % 360
+  let shapes = ''
+  for (let i = 0; i < 5; i++) shapes += `<circle cx="${r() * 320}" cy="${r() * 180}" r="${20 + r() * 70}" fill="hsla(${(a + i * 37) % 360},70%,${55 + r() * 20}%,.35)"/>`
+  return svg(320, 180, `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${a},45%,22%)"/><stop offset="1" stop-color="hsl(${b},55%,40%)"/></linearGradient></defs><rect width="320" height="180" fill="url(#g)"/>${shapes}<rect x="0" y="130" width="320" height="50" fill="hsla(${a},30%,8%,.35)"/>`)
+}
+function mangaPage(seed, wide = false) {
+  const r = rng(seed), W = wide ? 320 : 200, H = wide ? 200 : 300
+  let body = `<rect width="${W}" height="${H}" fill="#f4f1ea"/>`
+  const rows = 2 + Math.floor(r() * 3)
+  let y = 10
+  for (let i = 0; i < rows; i++) {
+    const h = (H - 20 - (rows - 1) * 8) / rows
+    const split = r() > .45
+    const xs = split ? [[10, (W - 28) * (0.35 + r() * 0.3)]] : [[10, W - 20]]
+    if (split) xs.push([10 + xs[0][1] + 8, W - 28 - xs[0][1]])
+    for (const [x, w] of xs) {
+      const tone = 150 + Math.floor(r() * 80)
+      body += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="rgb(${tone},${tone},${tone - 6})" stroke="#1a1a1a" stroke-width="2"/>`
+      body += `<circle cx="${x + w * (0.3 + r() * 0.4)}" cy="${y + h * (0.4 + r() * 0.3)}" r="${Math.min(w, h) * (0.15 + r() * 0.15)}" fill="#2a2a2a" opacity=".55"/>`
+    }
+    y += h + 8
+  }
+  return svg(W, H, body)
+}
+
+// ---- the two sample titles ----
+const SAMPLES = {
+  video: {
+    name: '[moneko] - 254 - Gimme x Gimme',
+    entries: [
+      { id: 'v1', num: '1', title: 'Gimme x Gimme (B) 4K', kind: 'video', len: '3:40', read: 'read' },
+      { id: 'v2', num: '2', title: 'Gimme x Gimme (P) 4K', kind: 'video', len: '3:40', read: 'reading', prog: .42 },
+      { id: 'v3', num: '3', title: 'Gimme x Gimme (S) 4K', kind: 'video', len: '3:39', read: 'unread', cc: 'EN' },
+      { id: 'v4', num: '4', title: 'Gimme x Gimme (Y) 4K', kind: 'video', len: '3:41', read: 'unread' },
+      { id: 'v5', num: '5', title: 'Behind the scenes', kind: 'video', len: '', read: 'unread', missing: true },
+    ],
+  },
+  manga: {
+    name: 'Lantern Witch',
+    entries: [
+      { id: 'm1', num: '1', title: 'The Lamp-Keeper', kind: 'pages', pages: 34, read: 'read', lang: 'EN', group: 'dex', section: 'Volume 1' },
+      { id: 'm1u', num: '1', title: 'The Lamp-Keeper', kind: 'pages', pages: 34, read: 'unread', lang: 'UA', group: 'ukr', section: 'Volume 1' },
+      { id: 'm2', num: '2', title: 'Wicks', kind: 'pages', pages: 29, read: 'reading', lang: 'EN', group: 'dex', section: 'Volume 1' },
+      { id: 'm3', num: '3', title: 'Smoke Letters', kind: 'pages', pages: 31, read: 'unread', lang: 'EN', group: 'dex', section: 'Volume 1' },
+      { id: 'mx', num: 'Extra', title: 'Colour spreads', kind: 'pages', pages: 8, wide: true, read: 'unread', lang: 'EN', group: 'dex', section: 'Volume 1' },
+      { id: 'm4', num: '4', title: 'Night Market', kind: 'pages', pages: 33, read: 'unread', lang: 'EN', group: 'dex', section: 'Volume 2' },
+      { id: 'm5', num: '5', title: 'Glass Moths', kind: 'pages', pages: 0, read: 'unread', lang: 'EN', group: 'dex', section: 'Volume 2', missing: true },
+    ],
+  },
+  sets: {
+    name: 'Studio Hanami — sets',
+    entries: [
+      { id: 's1', num: '1', title: 'Spring garden', kind: 'pages', pages: 14, read: 'read', section: '2024' },
+      { id: 's2', num: '2', title: 'Rainy station', kind: 'pages', pages: 9, read: 'reading', section: '2024' },
+      { id: 's3', num: '3', title: 'Summer festival', kind: 'pages', pages: 17, read: 'unread', section: '2025' },
+      { id: 's4', num: '4', title: 'Bonus sketches', kind: 'pages', pages: 0, read: 'unread', section: '2025', missing: true },
+    ],
+  },
+}
+const COLS = { tiles: [1, 2], wall: [3, 4, 5, 6, 7, 8], pages: [4, 5, 6, 7, 8, 9, 10, 11, 12] }
+const READ = { read: 'var(--good)', reading: 'var(--warn)', unread: 'var(--tx3)' }
+const state = { sample: 'video', view: { video: 'wall', manga: 'list', sets: 'pages' }, open: { video: 'v2', manga: 'm2', sets: 's1' },
+  cols: { tiles: 1, wall: 3, pages: 8 } }
+
+// the three pages a card shows: random, but seeded by the entry — the same every time
+function pickPages(e) {
+  const r = rng(e.id + ':' + e.pages), out = new Set()
+  while (out.size < Math.min(3, e.pages)) out.add(Math.floor(r() * e.pages))
+  return [...out].sort((a, b) => a - b)
+}
+function preview(e) {
+  if (e.missing) return `<div class="pv empty"><span>not downloaded</span></div>`
+  const play = '<div class="play"><span><svg class="ic" viewBox="0 0 24 24" style="width:16px;height:16px;fill:currentColor;stroke:none"><path d="M8 5v14l11-7z"/></svg></span></div>'
+  let imgs
+  if (e.kind === 'video') imgs = `<img src="${poster(e.id)}" alt="">`
+  else if (e.wide) imgs = `<img src="${mangaPage(e.id + ':0', true)}" alt="">`
+  else imgs = pickPages(e).map((i) => `<img src="${mangaPage(e.id + ':' + i)}" alt="">`).join('')
+  return `<div class="pv">${imgs}${e.prog ? `<span class="prog" style="width:${e.prog * 100}%"></span>` : ''}${play}</div>`
+}
+function facts(e) {
+  const badge = e.lang || e.group ? `<span class="trbadge"><span class="l">${e.lang || '?'}</span>${e.group || ''}</span>` : ''
+  const cc = e.cc ? `<span class="ccmark">CC ${e.cc}</span>` : ''
+  const len = e.missing ? '<span class="pgcol none">—</span>' : `<span class="pgcol">${e.kind === 'video' ? e.len : e.pages + ' pg'}</span>`
+  return { badge, cc, len }
+}
+
+function render() {
+  const s = SAMPLES[state.sample], view = state.view[state.sample], open = state.open[state.sample]
+  document.getElementById('tname').textContent = s.name
+  document.getElementById('count').textContent = s.entries.length
+  document.getElementById('langpill').style.display = s.entries.some((e) => e.lang) ? '' : 'none'
+  document.getElementById('lower').className = 'lower ' + view
+  const pagesOffered = s.entries.some((e) => e.kind === 'pages')
+  for (const b of document.querySelectorAll('#views button')) {
+    b.classList.toggle('on', b.dataset.v === view)
+    b.style.display = b.dataset.v === 'pages' && !pagesOffered ? 'none' : ''
+  }
+  const colsEl = document.getElementById('cols')
+  colsEl.style.display = view === 'list' ? 'none' : ''
+  if (view !== 'list') colsEl.innerHTML = '<span class="k">COLS</span>' + COLS[view].map((n) =>
+    `<button data-n="${n}" class="${state.cols[view] === n ? 'on' : ''}">${n}</button>`).join('')
+  let html = '', sec = null
+  if (view === 'pages') {
+    const langs = [...new Set(s.entries.map((e) => e.lang || ''))]
+    html = `<div class="pagewall" style="--cols:${state.cols.pages}">`
+    for (const lang of langs) {
+      const mine = s.entries.filter((e) => (e.lang || '') === lang)
+      if (langs.length > 1) html += `<div class="chsec langsec">${lang || 'No language'}<span class="n">${mine.length}</span></div>`
+      sec = null
+      for (const e of mine) {
+        if (e.section && e.section !== sec) { sec = e.section; html += `<div class="chsec">${sec}</div>` }
+        const f = facts(e)
+        html += `<div class="pwhead"><span class="chdot" style="background:${READ[e.read]}"></span>
+          <span class="chtitle"><b class="chnum">${e.num}</b>${e.title}</span>${f.badge}${f.cc}${f.len}</div>`
+        if (e.missing) { html += '<div class="pwnone">not downloaded</div>'; continue }
+        for (let i = 0; i < e.pages; i++) {
+          html += `<div class="pwtile" data-page="${e.id}:${i}"><img src="${mangaPage(e.id + ':' + i, e.wide)}" alt=""><span class="n">${i + 1}</span></div>`
+        }
+      }
+    }
+    html += '</div>'
+  } else if (view === 'list') {
+    html = '<div class="chlist">'
+    for (const e of s.entries) {
+      if (e.section && e.section !== sec) { sec = e.section; html += `<div class="chsec">${sec}</div>` }
+      const f = facts(e)
+      html += `<div class="chrow ${e.id === open && view !== 'wall' ? 'open' : ''} ${e.missing ? 'off' : ''}" data-id="${e.id}">
+        <span class="chslot"><span class="chdot" style="background:${READ[e.read]}"></span></span>
+        <span class="chtitle"><b class="chnum">${e.num}</b>${e.title}</span>
+        <span class="chright">${f.badge}${f.cc}${f.len}</span></div>`
+    }
+    html += '</div>'
+  } else {
+    html = `<div class="cards" style="grid-template-columns:repeat(${state.cols[view]}, minmax(0, 1fr))">`
+    for (const e of s.entries) {
+      if (e.section && e.section !== sec) { sec = e.section; html += `<div class="chsec">${sec}</div>` }
+      const f = facts(e)
+      html += `<div class="card ${e.id === open && view === 'tiles' ? 'open' : ''} ${e.missing ? 'off' : ''}" data-id="${e.id}">
+        ${preview(e)}
+        <div class="cmeta">
+          <div class="t1"><b class="chnum">${e.num}</b><span class="tt">${e.title}</span></div>
+          <div class="t2"><span class="chdot" style="background:${READ[e.read]}"></span>${f.badge}${f.cc}${f.len}</div>
+        </div></div>`
+    }
+    html += '</div>'
+  }
+  document.getElementById('entries').innerHTML = html
+  renderPane()
+}
+function renderPane() {
+  const s = SAMPLES[state.sample], e = s.entries.find((x) => x.id === state.open[state.sample])
+  const pane = document.getElementById('pane')
+  if (!e) { pane.innerHTML = ''; return }
+  if (e.kind === 'video') {
+    pane.innerHTML = `<div class="pghead"><span class="pglabel">${e.num} — ${e.len}</span><span style="flex:1"></span><span class="pill" style="height:26px;font-size:11px">Open player</span></div>
+      <div class="video"><img src="${poster(e.id)}" alt=""><div class="play"><svg class="ic" viewBox="0 0 24 24" style="width:22px;height:22px;fill:currentColor;stroke:none"><path d="M8 5v14l11-7z"/></svg></div></div>`
+  } else {
+    let tiles = ''
+    for (let i = 0; i < e.pages; i++) tiles += `<div class="ptile ${e.wide ? 'wide' : ''}"><img src="${mangaPage(e.id + ':' + i, e.wide)}" alt=""><span class="n">${i + 1}</span></div>`
+    pane.innerHTML = `<div class="pghead"><span class="pglabel">${e.num}${e.lang ? ' · ' + e.lang : ''} — ${e.pages} pages</span><span style="flex:1"></span><div class="zseg"><button>S</button><button class="on">M</button><button>L</button></div></div>
+      <div class="pgrid">${tiles}</div>`
+  }
+}
+let toastTimer
+function toast(text) {
+  const t = document.getElementById('toast')
+  t.textContent = text; t.classList.add('on')
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), 1800)
+}
+document.getElementById('entries').addEventListener('click', (ev) => {
+  const tile = ev.target.closest('[data-page]')
+  if (tile) {
+    const [id, i] = tile.dataset.page.split(':')
+    const e = SAMPLES[state.sample].entries.find((x) => x.id === id)
+    toast(`Opens the reader at ${e.num}${e.lang ? ' · ' + e.lang : ''}, page ${Number(i) + 1}`)
+    return
+  }
+  const el = ev.target.closest('[data-id]')
+  if (!el || el.classList.contains('off')) return
+  const e = SAMPLES[state.sample].entries.find((x) => x.id === el.dataset.id)
+  if (state.view[state.sample] === 'wall') {
+    toast(e.kind === 'video' ? `Plays ${e.num} in the player` : `Opens the reader at ${e.num}${e.lang ? ' · ' + e.lang : ''}, page 1`)
+    return
+  }
+  state.open[state.sample] = e.id
+  render()
+})
+document.getElementById('cols').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return
+  state.cols[state.view[state.sample]] = Number(b.dataset.n); render()
+})
+document.getElementById('views').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return
+  state.view[state.sample] = b.dataset.v; render()
+})
+document.getElementById('samples').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return
+  state.sample = b.dataset.s
+  for (const x of document.querySelectorAll('#samples button')) x.classList.toggle('on', x === b)
+  render()
+})
+document.getElementById('themes').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b) return
+  document.documentElement.dataset.theme = b.dataset.t
+  for (const x of document.querySelectorAll('#themes button')) x.classList.toggle('on', x === b)
+})
+render()
+</script>
+</body>
+</html>

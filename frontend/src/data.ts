@@ -197,6 +197,11 @@ export interface UserPatch {
   reader?: ReaderPrefs
 }
 
+// How the title page lays out a title's entries (design/contents-views-mockup.html):
+// rows, a column of cards beside the pane, cards across the whole width, or
+// every page of every entry as one wall.
+export type ContentsView = 'list' | 'tiles' | 'wall' | 'pages'
+
 export interface AuthorWork { id: string; title: string; cover: string }
 
 // ---- value pages (design/value-pages.md) ----
