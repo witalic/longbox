@@ -5,7 +5,7 @@ const props = withDefaults(defineProps<{
   modelValue?: string
   suggestions: string[]
   placeholder?: string
-  addMode?: boolean // true: emit 'add' on pick/Enter then clear; false: two-way bind the value
+  addMode?: boolean // true: emit 'add' on pick/Enter/blur then clear; false: two-way bind the value
   // Everything else that may be picked. The near list is what this SOURCE (or
   // this title) already uses; the rest joins in the moment you start typing,
   // because then you are looking for something, not being offered something.
@@ -54,11 +54,21 @@ function commit(v: string) {
   typed.value = false
   open.value = false
 }
-// Leaving the field closes its list. A PICK fired its mousedown first and has
-// already committed, so this only ever ends an abandoned edit — but tabbing away
-// used to leave the menu hanging over the next field.
+// Leaving the field commits what was typed into it — a value typed and never
+// confirmed is still a value the owner meant, and the click on Save is what
+// takes the focus away. A PICK fired its mousedown first and has already
+// committed. Another window taking the focus commits nothing: the field gets it
+// back, text and all, when this one is in front again.
 function onBlur() {
-  if (props.lazy && draft.value !== null) commit(text.value)
+  if (document.hasFocus() && ((props.lazy && draft.value !== null) || (props.addMode && local.value.trim()))) {
+    commit(text.value)
+  }
+  open.value = false
+}
+// Escape drops what was typed, so leaving the field afterwards commits nothing.
+function cancel() {
+  draft.value = null
+  if (props.addMode) local.value = ''
   open.value = false
 }
 function onDocDown(e: MouseEvent) { if (root.value && !root.value.contains(e.target as Node)) open.value = false }
@@ -71,7 +81,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown))
     <input :value="text" class="comboin" :class="{ wide }" :placeholder="placeholder"
            @input="text = ($event.target as HTMLInputElement).value"
            @focus="typed = false; open = true" @keydown.enter.prevent="commit(text)"
-           @keydown.esc="draft = null; open = false"
+           @keydown.esc="cancel"
            @blur="onBlur" />
     <div v-if="open && matches.length" class="menu combomenu scroll">
       <div v-for="s in matches" :key="s" class="item" @mousedown.prevent="commit(s)">{{ s }}</div>

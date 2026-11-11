@@ -66,6 +66,19 @@ export function isDirty(): boolean {
   return !!d && baseline(d) !== savedBaseline
 }
 
+// Values on their way into the draft: committed by leaving their field, then
+// put through the rules (a request). A save or a discard waits for them — the
+// click on Save is itself what commits the value typed last.
+const arriving = new Set<Promise<unknown>>()
+export function arrive(work: Promise<unknown>): void {
+  arriving.add(work)
+  const done = () => { arriving.delete(work) }
+  work.then(done, done)
+}
+async function arrived(): Promise<void> {
+  while (arriving.size) await Promise.allSettled([...arriving])
+}
+
 function setDraft(d: Draft) {
   draftState.cur = d
   savedBaseline = baseline(d)
@@ -121,6 +134,7 @@ export function draftFromTitle(t: Title) {
 
 // Ask before discarding a dirty draft; returns true when it is safe to proceed.
 export async function confirmDiscard(): Promise<boolean> {
+  await arrived()
   if (!draftState.cur || !isDirty()) return true
   return askConfirm({
     title: 'Discard draft?', danger: true, okLabel: 'Discard',
@@ -419,6 +433,7 @@ export async function mergeSnapshotRuled(snap: Snapshot): Promise<string[]> {
 // the panel announces the save in place and the draft re-binds to the saved
 // record, so the browser flow is never yanked away mid-capture.
 export async function commitDraft(asNew = false): Promise<string | null> {
+  await arrived()
   const d = draftState.cur
   if (!d || !d.meta.title.trim()) return null
   d.saving = true

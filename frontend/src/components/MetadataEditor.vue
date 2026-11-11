@@ -10,7 +10,7 @@
 // draws itself without a line of code in this file.
 import { computed, reactive, watch } from 'vue'
 import { DEFAULT_STATUSES, FLAG_DEFS, fieldBlocks, type FieldDef, type FlagKey } from '../data'
-import { addFlags, clearField, draftState, ruleTarget, setCoverUrl, setManual, throughRules, unlinkSource } from '../draft'
+import { addFlags, arrive, clearField, draftState, ruleTarget, setCoverUrl, setManual, throughRules, unlinkSource } from '../draft'
 import { store, visibleFields } from '../store'
 import Combo from './Combo.vue'
 import Icon from './Icon.vue'
@@ -242,11 +242,11 @@ function coverBg(preview: string) {
              type="date" @input="setText(f, ($event.target as HTMLInputElement).value)" />
 
       <Combo v-else-if="f.control === 'vocab'" :model-value="text(f)" :suggestions="suggestions(f)"
-             wide lazy :placeholder="f.placeholder" @update:model-value="setVocab(f, $event)" />
+             wide lazy :placeholder="f.placeholder" @update:model-value="arrive(setVocab(f, $event))" />
 
       <div v-else-if="f.control === 'chips'" class="chips">
         <span v-for="(v, i) in list(f)" :key="v" class="chip" :class="{ ruled: notes[f.id]?.added.includes(v) }">{{ v }}<span v-if="notes[f.id]?.added.includes(v)" class="rmark">RULE</span><span class="rm" @click="removeChip(f, i)">×</span></span>
-        <Combo :suggestions="suggestions(f)" add-mode :placeholder="f.placeholder" @add="addChip(f, $event)" />
+        <Combo :suggestions="suggestions(f)" add-mode :placeholder="f.placeholder" @add="arrive(addChip(f, $event))" />
       </div>
 
       <div v-else-if="f.control === 'flags'" class="flagrow">
