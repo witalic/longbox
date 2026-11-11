@@ -196,6 +196,14 @@ export function noteCaptureSource(domain: string, url: string) {
   if (d && !d.meta.source.url) d.meta.source = { domain, url }
 }
 
+// Unlinking the source is an edit like any other: saved with the draft, undone
+// by Cancel. The title and its entries stay; what follows the link goes —
+// Capture from web no longer opens it, Sources no longer counts the title there.
+export function unlinkSource() {
+  const d = draftState.cur
+  if (d) d.meta.source = { domain: '', url: '' }
+}
+
 // ---- the library's rules (design/metadata-management.md §4) ----
 //
 // Every value on its way INTO the draft — captured or typed — passes the

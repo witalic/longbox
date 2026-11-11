@@ -1245,18 +1245,6 @@ function commitBodyFrom(t: Title) {
   }
 }
 
-// Explicitly remove a title's source link (the meta layer only).
-export async function clearTitleSource(t: Title): Promise<void> {
-  try {
-    const body = commitBodyFrom(t)
-    body.meta.source = { domain: '', url: '' }
-    cache([await api.commitTitle(t.id, body)])
-    await refreshLibrary()
-  } catch (e) {
-    store.error = e instanceof Error ? e.message : String(e)
-  }
-}
-
 // Persist a chapter order: 'manual' = exactly as arranged by the user,
 // 'auto' = back to smart number ordering (new chapters insert by number).
 export async function commitChapterOrder(t: Title, orderedIds: string[], mode: 'manual' | 'auto'): Promise<void> {

@@ -35,7 +35,7 @@ import {
 // domains whose favicon failed to load → fall back to the initial letters
 const noIcon = reactive<Record<string, boolean>>({})
 import {
-  addChapterRow, askConfirm, cache, clearTitleSource, commitChapterOrder, deleteTitle,
+  addChapterRow, askConfirm, cache, commitChapterOrder, deleteTitle,
   editChapterRow, goLibrary, groupRings, hiddenOf, langRings, mediaJobs, openReader, openTitle,
   openValuePage, queueMedia, setFavorite, setFieldHidden, setRating, setRead, showInLibrary, store,
   titleById, visibleFields, type MediaEntry,
@@ -161,14 +161,6 @@ async function removeTitle() {
 }
 function cycleRead(c: Chapter) {
   if (t.value) void setRead(t.value, c.id, NEXT_READ[c.read])
-}
-async function removeSourceLink() {
-  if (!t.value) return
-  const ok = await askConfirm({
-    title: 'Remove source link', danger: true, okLabel: 'Remove',
-    message: `Unlink ${t.value.source.domain} from “${t.value.title}”? The title and its data stay; only the link to the source page is removed.`,
-  })
-  if (ok) await clearTitleSource(t.value)
 }
 // The source the title is bound to, then every other site an entry was
 // downloaded from — a title captured on one site is often fetched from another.
@@ -880,18 +872,9 @@ async function removeRow(c: Chapter) {
                 @click="openFolder">
           <Icon name="folder" :size="14" :sw="1.9" />Show in folder
         </button>
-        <MenuButton v-if="t" v-slot="{ close }">
-          <button :disabled="!t.source.url" @click="close(); openInBrowser(t.id, t.source.url)">
-            <Icon name="forward" :size="14" :sw="2" />Open source page
-          </button>
-          <button :disabled="!t.source.url" @click="close(); removeSourceLink()">
-            <Icon name="x" :size="14" :sw="2" />Unlink the source
-          </button>
-          <hr />
-          <button class="danger" @click="close(); removeTitle()">
-            <Icon name="x" :size="14" :sw="2" />Delete this title
-          </button>
-        </MenuButton>
+        <button v-if="t" class="btn danger" title="Delete the title and its files on disk" @click="removeTitle">
+          <Icon name="x" :size="14" :sw="2" />Delete title
+        </button>
       </template>
       <template v-else>
         <span class="editing"><Icon name="edit" :size="14" :sw="1.9" />{{ creating ? 'New title' : 'Editing metadata' }}</span>
@@ -1013,9 +996,6 @@ async function removeRow(c: Chapter) {
                 <span v-if="s.count" class="srcn mono">{{ s.count }}</span>
                 <Icon name="forward" :size="11" :sw="2" style="color:var(--tx3)" />
               </span>
-              <button v-if="s.bound" class="srcx" title="Remove the source link (the title stays)" @click="removeSourceLink">
-                <Icon name="x" :size="11" :sw="2.4" />
-              </button>
             </template>
           </div>
         </div>
@@ -1428,8 +1408,6 @@ async function removeRow(c: Chapter) {
 .srcn { font-size: 11px; color: var(--tx3); }
 .srcinit { width: 20px; height: 20px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; font: 600 9px/1 system-ui; color: #fff; background: var(--panel); border: 1px solid var(--line); overflow: hidden; }
 .favimg { width: 14px; height: 14px; object-fit: contain; }
-.srcx { width: 22px; height: 22px; border: none; border-radius: 5px; background: transparent; color: var(--tx3); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
-.srcx:hover { background: var(--hover); color: var(--adult); }
 
 .lower { border-top: 1px solid var(--line); padding: 22px 26px 24px; display: flex; gap: 20px; align-items: flex-start; flex: 1 1 0; min-height: 240px; overflow: hidden; }
 /* The split is a PROPORTION of the window, never the content: a basis of `auto`

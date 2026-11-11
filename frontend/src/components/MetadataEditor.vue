@@ -10,7 +10,7 @@
 // draws itself without a line of code in this file.
 import { computed, reactive, watch } from 'vue'
 import { DEFAULT_STATUSES, FLAG_DEFS, fieldBlocks, type FieldDef, type FlagKey } from '../data'
-import { addFlags, clearField, draftState, ruleTarget, setCoverUrl, setManual, throughRules } from '../draft'
+import { addFlags, clearField, draftState, ruleTarget, setCoverUrl, setManual, throughRules, unlinkSource } from '../draft'
 import { store, visibleFields } from '../store'
 import Combo from './Combo.vue'
 import Icon from './Icon.vue'
@@ -277,6 +277,23 @@ function coverBg(preview: string) {
         <button class="keep" @click="keepTyped(f)">Keep as typed</button>
       </div>
     </div>
+    <!-- the page the title is captured from: not a field (library/fields.py),
+         but where a title page unlinks it -->
+    <div v-if="b.key === 'identity' && props.surface === 'title'" class="fieldrow">
+      <div class="lblrow">
+        <span class="lbl">SOURCE</span>
+        <span class="acts">
+          <button class="fact" :disabled="!d.meta.source.url"
+                  title="Unlink — the title and its entries stay; Capture from web no longer opens this page"
+                  @click="unlinkSource"><Icon name="x" :size="10" :sw="2.4" /></button>
+        </span>
+      </div>
+      <div v-if="d.meta.source.url" class="srcline" :title="d.meta.source.url">
+        <span class="srcdom">{{ d.meta.source.domain || d.meta.source.url }}</span>
+        <span class="srcurl">{{ d.meta.source.url }}</span>
+      </div>
+      <div v-else class="coverhint">Not linked — capturing from a page links it.</div>
+    </div>
     </div>
     </template>
   </div>
@@ -331,6 +348,9 @@ function coverBg(preview: string) {
 .coverrow { display: flex; gap: 12px; align-items: flex-start; }
 .coverthumb { width: 76px; height: 110px; flex: none; border-radius: 6px; border: 1px solid var(--line); background: var(--panel2); display: flex; align-items: center; justify-content: center; overflow: hidden; }
 .coverhint { font: 400 11px/1.5 system-ui; color: var(--tx3); padding-top: 4px; min-width: 0; }
+.srcline { display: flex; align-items: baseline; gap: 8px; min-width: 0; font: 500 12.5px/1.3 system-ui; color: var(--tx); padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); }
+.srcdom { flex: none; }
+.srcurl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--tx3); }
 
 
 .flagrow { display: flex; gap: 7px; flex-wrap: wrap; }
