@@ -4,8 +4,8 @@
 
 ![The library](docs/img/01-library.png)
 
-What you collect — pages, image sets, video — lives in a plain folder you own, on any disk you
-like: organized, searchable and readable offline. Browse the sites you already use in the
+What you collect — manga, manhwa and comics, image sets, video — lives in a plain folder you own,
+on any disk you like: organized, searchable and readable offline. Browse the sites you already use in the
 built-in browser, and longbox files what you bring home. No account, no cloud, no server to run.
 
 **[Download](https://github.com/witalic/longbox/releases/latest)** ·
