@@ -580,12 +580,14 @@ async function main(root, legacy) {
   adblock.wire(sess, win.webContents, path.join(root, vaults.APP_DIR, 'adblock'))
   presentAsChrome(sess, win.webContents)
 
-  // DevTools, on the app window only. The one class of problem that cannot be
+  // DevTools, on the app window only: in a development run, or a released build
+  // started with LONGBOX_DEVTOOLS=1. The one class of problem that cannot be
   // diagnosed from outside — playback stalls, a decode fallback, request timing
-  // — is visible nowhere else, and this build only ever runs on the owner's
-  // machine.
+  // — is visible nowhere else; but a released build that opens them on a key is
+  // one "press F12 and paste this" away from handing a stranger the vault's API.
+  const devtools = !app.isPackaged || process.env.LONGBOX_DEVTOOLS === '1'
   win.webContents.on('before-input-event', (_e, input) => {
-    if (input.type !== 'keyDown') return
+    if (!devtools || input.type !== 'keyDown') return
     if (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')) {
       win.webContents.toggleDevTools()
     }

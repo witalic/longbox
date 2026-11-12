@@ -36,6 +36,9 @@ by git for exactly this: when the first launch asks where to make a vault, make 
 `.dev/vault`); the sidecar-only mode opens it with `LONGBOX_LIBRARY_PATH=.dev/vault`. longbox never
 creates a vault by opening a path.
 
+F12 (or Ctrl+Shift+I) opens DevTools on the app's window in a development run; a released build
+does that only when started with `LONGBOX_DEVTOOLS=1` in its environment.
+
 ## Checks
 
 Every change passes these before it lands:
