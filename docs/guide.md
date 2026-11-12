@@ -1,8 +1,11 @@
 # longbox user guide
 
-Everything longbox does, screen by screen. For installing it, see the
-[README](https://github.com/witalic/longbox#install); for what changed in each release, the
-[changelog](https://github.com/witalic/longbox/blob/main/CHANGELOG.md).
+Everything longbox does, screen by screen. For installing it, see
+[Get started](https://witalic.github.io/longbox/#start) on the project page; for what changed in
+each release, the [changelog](https://github.com/witalic/longbox/blob/main/CHANGELOG.md).
+
+longbox keeps what you collect — books of pages, image sets, video — in a vault: a folder you own,
+which it organizes, searches, reads and plays, with a browser built in for bringing things home.
 
 - [The vault](#the-vault)
 - [Library](#library)

@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>longbox — a local-first media vault with a capture browser</title>
-<meta name="description" content="A desktop vault for manga, manhwa, comics and image sets. Your files stay yours; metadata is captured visually from the sites you already read." />
+<meta name="description" content="A local-first desktop media vault with a browser built in. Your files stay in a folder you own; what you bring home from the sites you use is filed, searchable and offline." />
 <style>
 /* the app's own tokens, so the page and the product look like one thing */
 :root {
@@ -127,6 +127,7 @@ footer a { color: var(--tx2); }
       <a href="#start">Get started</a>
       <a href="#storage">Storage</a>
       <a href="#integrity">Integrity</a>
+      <a href="https://github.com/witalic/longbox/blob/main/docs/guide.md">Guide</a>
       <a href="https://github.com/witalic/longbox">GitHub</a>
     </nav>
   </div>
@@ -136,9 +137,10 @@ footer a { color: var(--tx2); }
   <div class="wrap">
     <h1>Your library. Your files. On your machine.</h1>
     <p class="lead">
-      longbox is a desktop vault for manga, manhwa, manhua, comics, image sets and episodes —
-      with a real browser built in. You read the sites you already read; longbox learns what a
-      title's page looks like once, and files everything into folders you can open with anything.
+      longbox is a desktop media vault with a real browser built in. What you collect — pages,
+      image sets, video — lives in folders you can open with anything; you browse the sites you
+      already use, longbox learns once what a page on each looks like, and files what you bring
+      home.
     </p>
     <div class="dl">
       <a class="btn primary" href="https://github.com/witalic/longbox/releases/latest">Download for Windows</a>
@@ -440,12 +442,17 @@ footer a { color: var(--tx2); }
     <h3 style="margin-top:44px;font-size:18px">Sources are the sites you actually use</h3>
     <p class="sub">
       A site becomes a source the moment you bookmark a page on it, and waits under
-      <b>NO RECIPE</b> until you teach it one. Each source keeps its recipe, its bookmarks and the
-      metadata fields it offers; sources sit in groups you name, which fold away in the browser,
-      and groups and bookmarks keep the order you drag them into. A site you are done with can be
-      <strong>frozen</strong>: it keeps its recipe and its links and stays in Sources, but stops
-      being offered in the browser — until you thaw it.
+      <b>NO RECIPE</b> until you teach it one. The <b>Sources</b> page arranges them the way the
+      browser's rail shows them: in groups you name and the order you drag them into, several at a
+      time if you like. Each site has a panel with its homepage, whether the browser offers it, and
+      its saved links — each dated when it was saved — and can count and clear its own cookies,
+      storage and cached pages without touching any other site. Every link of every site also
+      reads as one table, for weeding out duplicates. A site you are done with can be hidden from
+      the browser: it keeps its recipe and its links.
     </p>
+    <figure class="shot">
+      <img src="img/11-sources.png" alt="The Sources page: sites in groups, in the owner's order" />
+    </figure>
   </div>
 </section>
 
@@ -459,9 +466,10 @@ footer a { color: var(--tx2); }
     </p>
 
     <ol class="steps">
-      <li><b>Point it at a folder</b>
-        <p>Settings → Storage. Any folder works; longbox indexes whatever is already there and
-          never moves files you did not ask it to.</p></li>
+      <li><b>Make a vault</b>
+        <p>The first launch asks where: a folder on this disk, another one, or a network drive.
+          Files you already have come in through <em>Import</em>, filed the way you sorted them;
+          nothing is moved that you did not ask to move.</p></li>
       <li><b>Add a title</b>
         <p>Web → open the title's page on the site → <em>New title</em> in the capture dock →
           <em>Auto-fill</em>, or pick fields one by one. Save.</p></li>
@@ -472,10 +480,33 @@ footer a { color: var(--tx2); }
         <p>Everything after this point is offline. The reader only ever opens your own files.</p></li>
     </ol>
 
+    <div class="note" id="files">
+      <b>Which file.</b> From the <a href="https://github.com/witalic/longbox/releases/latest">latest
+      release</a>: on <b>Windows</b> the <code>…-windows-x64.exe</code> installer or the portable
+      <code>…-windows-x64.zip</code>; on <b>macOS</b> the <code>…-macos-arm64.dmg</code> for Apple
+      silicon or <code>…-macos-x64.dmg</code> for Intel; on <b>Linux</b> the
+      <code>…-linux-x86_64.AppImage</code> or the <code>…-linux-amd64.deb</code>. Nothing else is
+      needed; <code>rar</code> archives also want <code>unrar</code> or <code>bsdtar</code> on the
+      machine.
+    </div>
+
     <div class="note warn" id="macos">
-      <b>macOS:</b> the builds are signed ad-hoc, not with a paid Apple certificate, so the first
-      launch shows “longbox cannot be opened because the developer cannot be verified”. Right-click
-      the app → <b>Open</b> → <b>Open</b>. Once only.
+      <b>The first launch warns once.</b> The builds are not yet signed with a paid certificate.
+      <b>Windows:</b> SmartScreen says “Windows protected your PC” — choose <b>More info</b> →
+      <b>Run anyway</b>. <b>macOS</b> (signed ad-hoc, not notarized): on macOS 15 and later, open
+      the app once and dismiss the warning, then choose <b>Open Anyway</b> in
+      <b>System Settings → Privacy &amp; Security</b>; on earlier versions, right-click the app →
+      <b>Open</b>. If macOS calls it damaged, run
+      <code>xattr -dr com.apple.quarantine /Applications/longbox.app</code>. <b>Linux:</b> make
+      the AppImage executable (<code>chmod +x</code>), or install the .deb.
+    </div>
+
+    <div class="note" id="privacy">
+      <b>What it sends.</b> No account, no telemetry, no update check. The only requests longbox
+      makes without being asked are the ad blocker's filter lists (EasyList, EasyPrivacy, uBlock
+      Origin's filters, Peter Lowe's list, Fanboy's cookie list — every four days, and only while
+      the ad blocker is on) and your sources' site icons, from Google's favicon service, which is
+      told each site's domain. Every page, download and image besides is one you opened.
     </div>
   </div>
 </section>
@@ -486,7 +517,7 @@ footer a { color: var(--tx2); }
     <h2>Nothing you can't open without longbox</h2>
     <p class="sub">
       The folder on disk is the truth; the search index is a cache that can be deleted and rebuilt
-      at any time. Every chapter of pages is a plain zip — CBZ is the same container — so any comic
+      at any time. Every chapter of pages is a plain zip — CBZ is the same container — so any CBZ
       reader opens them; archives that arrive as rar or 7z are converted on the way in, and an
       episode is kept as the video file it arrived as.
     </p>
@@ -567,7 +598,7 @@ footer a { color: var(--tx2); }
       what is running.
     </p>
     <figure class="shot">
-      <img src="img/08-settings.png" alt="The settings screen" />
+      <img src="img/08-settings.png" alt="Settings: the fields registry" />
     </figure>
     <figure class="shot">
       <img src="img/09-library-light.png" alt="The library in the light theme" />
@@ -578,8 +609,13 @@ footer a { color: var(--tx2); }
 
 <footer>
   <div class="wrap">
-    longbox is free software for personal use. It ships no content and unlocks nothing —
-    it organises what you already have access to.
+    longbox is free software under the
+    <a href="https://github.com/witalic/longbox/blob/main/LICENSE">GPL-3.0-or-later</a>. It ships
+    no content and no code for any particular site, and unlocks nothing — it organises what you
+    already have access to; what you keep in it is yours to answer for.
+    <br />
+    Made by one person and written largely with Claude Code, Anthropic's AI coding assistant —
+    <a href="https://github.com/witalic/longbox#how-it-is-built">how it is built</a>.
     <br />
     <a href="https://github.com/witalic/longbox">Source on GitHub</a>
     · screenshots taken against a generated demo library, not a real one: the titles, people and

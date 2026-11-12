@@ -7,7 +7,8 @@
 // reported as "damaged", which reads as a broken app rather than an unknown
 // developer. An ad-hoc signature (`codesign --sign -`) makes the app runnable
 // and turns that into the honest Gatekeeper warning: an unidentified developer,
-// which the user can accept via right-click → Open.
+// which the user accepts once — on macOS 15 and later through System Settings →
+// Privacy & Security → Open Anyway (right-click → Open no longer offers it).
 //
 // The frozen sidecar and its shared libraries are signed FIRST: a bundle is
 // only as valid as the nested code it carries.
