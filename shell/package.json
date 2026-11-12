@@ -3,6 +3,7 @@
   "private": true,
   "version": "3.3.0",
   "description": "longbox media vault",
+  "license": "GPL-3.0-or-later",
   "main": "main.js",
   "homepage": "https://witalic.github.io/longbox/",
   "repository": { "type": "git", "url": "https://github.com/witalic/longbox.git" },
@@ -33,7 +34,8 @@
       { "from": "../dist-sidecar/longbox-sidecar", "to": "sidecar" },
       { "from": "../app-meta.json", "to": "app-meta.json" },
       { "from": "../frontend/dist", "to": "ui" },
-      { "from": "../packaging/licenses", "to": "licenses" }
+      { "from": "../packaging/licenses", "to": "licenses" },
+      { "from": "../LICENSE", "to": "licenses/GPL-3.0.txt" }
     ],
     "afterPack": "./adhoc-sign.js",
     "publish": [{

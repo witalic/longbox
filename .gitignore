@@ -43,6 +43,10 @@ packaging/win-version.txt
 # --- Design working files (mockup PNGs stay untracked; the HTML is tracked) ---
 design/*.png
 
+# --- The owner's research notes and reports (kept on their disk, not published) ---
+/reports/
+/research_notes/
+
 # --- OS / editor cruft ---
 .DS_Store
 Thumbs.db

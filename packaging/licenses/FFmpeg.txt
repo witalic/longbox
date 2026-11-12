@@ -10,7 +10,8 @@ It is a separate program the app runs; nothing of it is linked into longbox.
 
 That executable is FFmpeg (https://ffmpeg.org), built with GPL components (libx264 and others),
 and it is distributed under the GNU General Public License, version 3 — the full text is
-GPL-3.0.txt beside this file. FFmpeg is copyright the FFmpeg developers.
+GPL-3.0.txt beside this file (the repository's LICENSE: longbox itself is GPL-3.0-or-later).
+FFmpeg is copyright the FFmpeg developers.
 
 It is the build the imageio-ffmpeg 0.6.0 package carries for each platform
 (https://github.com/imageio/imageio-ffmpeg, binaries from
