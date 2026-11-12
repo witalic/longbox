@@ -33,6 +33,9 @@ packaging/win-version.txt
 # backend/app/library/ — the vault + index source module.
 /vault/
 /library/
+# the development test vault and its sidecar config — every local run and smoke
+# test works here; real vaults are never touched
+/.dev/
 *.db
 *.db-wal
 *.db-shm
