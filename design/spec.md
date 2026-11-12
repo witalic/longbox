@@ -1,5 +1,9 @@
 # longbox — functional & architectural specification
 
+Status: **the original specification** (July 2026), kept as written. longbox has since grown into
+a media vault for pages, image sets and video; what it does now is in `docs/guide.md`, how it is
+built in `ARCHITECTURE.md` and `design/state-model.md`.
+
 What the product does, what each capability is for, the data it manages, and how it is built.
 **This document deliberately contains no UI, layout, or visual-design decisions** — navigation,
 screens, and controls are for the designer to determine from the functionality below.

@@ -260,7 +260,7 @@ Endpoints run sync on FastAPI's threadpool, so races are real and handled struct
 ## Media & downloads
 
 - Covers, chapter pages and episode stills are served with LANCZOS downscales (`?w=`), cached in
-  the app's cache directory under the version from `library/versions.py` (a chapter's
+  the vault (`.longbox/cache/thumbs/`) under the version from `library/versions.py` (a chapter's
   `rev.size.pages`, a cover's `mtime.size.ext`, an episode's `stills.digest`) — never by page
   count or a bare mtime, so an edit misses the cache by construction. Tall webtoon pages crop in previews only, never in the reader.
 - Downloads come in two lanes, chosen in the capture dock's Downloads tab:
