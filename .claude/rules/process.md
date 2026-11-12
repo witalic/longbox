@@ -2,8 +2,10 @@
 
 Loaded every session (global rule — no `paths`).
 
-- **The owner does all live testing** in the running app. Never spend time launching the shell to
-  poke the UI; verify with the offline test suite, the type-check and the build, then hand over.
+- **The owner does all live testing** in the running app. Never take over the screen to poke the
+  UI; verify with the offline test suite, the type-check and the build — and for UI changes a
+  smoke load of the built UI over the test vault (`.dev/vault`) or an off-screen Electron harness
+  — then hand over.
 - Verification pipeline after any change:
   - backend: `cd backend && ../.venv/Scripts/python.exe -m pytest`
   - frontend: `cd frontend && npx vue-tsc --noEmit && npm run build`
