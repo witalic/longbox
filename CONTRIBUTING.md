@@ -3,7 +3,8 @@
 Thanks for looking. longbox is a one-person project, so the most useful things are clear bug
 reports (what you did, what you expected, what happened, your OS and the app's version from
 Settings → About) and ideas that fit what the app is for. Before a larger change, open an issue to
-talk it through.
+talk it through. A security problem goes privately, as [SECURITY.md](SECURITY.md) describes;
+everyone keeps to the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## Scope
 
@@ -113,7 +114,7 @@ shell/      Electron: sidecar spawn and auth, the embedded browser, download int
 design/     design docs (state-model.md is the canonical architecture) and UI mockups
 docs/       the project page (witalic.github.io/longbox) and the user guide
 packaging/  the frozen-sidecar spec and the bundled ffmpeg's license notice
-.github/    the build workflow (a version tag builds the release) and the issue forms
+.github/    the checks (every push), the build (a version tag), the issue and pull request forms
 tools/      version.py (the one version, everywhere) · release_notes.py (a release's notes, from
             the changelog) · screenshots.py (the project page's images) · bench_metadata.py (what a
             bulk metadata change costs)
