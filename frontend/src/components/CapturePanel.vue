@@ -13,6 +13,7 @@ import {
 } from '../store'
 import { browser, newTab } from '../browser'
 import { api, type DownloadItem } from '../api'
+import { readLocalOne, writeLocalOne } from '../local'
 import {
   chaptersInScope, compareChapterNums, coverAt, faviconFor, groupByNum, hostOf, labelChoices,
   nextLabel, nextLabels, PAGE_FILTER_DEFAULTS, recordLine, sameChapter,
@@ -77,6 +78,15 @@ const dLabel = ref('') // the entry's single free-text label
 // label the human typed is never overwritten; creating an entry ends that claim
 // and the count carries on from what was just filed.
 const labelTouched = ref(false)
+// An entry named after the file its download arrives as — with the number
+// beside it, or the name alone. Kept with the window's settings: a site that
+// names its files well is captured that way every time.
+const fromFile = ref(readLocalOne('lb.dlFromFile', ['0', '1'] as const, '0') === '1')
+const numbered = ref(readLocalOne('lb.dlNumbered', ['0', '1'] as const, '1') === '1')
+watch(fromFile, (v) => writeLocalOne('lb.dlFromFile', v ? '1' : '0'))
+watch(numbered, (v) => writeLocalOne('lb.dlNumbered', v ? '1' : '0'))
+// nothing to type: the file brings the whole name
+const nameOnly = computed(() => fromFile.value && !numbered.value)
 const dLang = ref('')
 const dGroup = ref('')
 // SOURCE LINK pre-fills from the active page but never clobbers a hand edit
@@ -130,7 +140,20 @@ async function removeEntry(r: PanelRow) {
 // (an already-existing entry just arms — re-downloading a chapter is normal).
 async function addEntry(arm: boolean) {
   const cur = draftState.cur
-  if (!cur?.targetId || !dLabel.value.trim()) return
+  if (!cur?.targetId || (!nameOnly.value && !dLabel.value.trim())) return
+  if (fromFile.value) {
+    // the entry is made as the download starts, under the file's name
+    if (!arm) return
+    try {
+      Object.assign(downloads, await api.armDownload({
+        titleId: cur.targetId, num: nameOnly.value ? '' : dLabel.value.trim(),
+        lang: dLang.value.trim(), group: dGroup.value.trim(), fileName: true,
+      }))
+    } catch (e) {
+      store.error = String(e)
+    }
+    return
+  }
   const t = titleById(cur.targetId)
   if (!t) return
   const ch = { num: dLabel.value.trim(), lang: dLang.value.trim(), group: dGroup.value.trim(), url: dUrl.value.trim() }
@@ -519,17 +542,31 @@ async function save(asNew: boolean) {
 
         <div v-else-if="armed" class="armedbox">
           <div class="armtitle"><Icon name="download" :size="14" />Next download is armed</div>
-          <div class="armmeta mono">{{ armed.num }}<template v-if="armed.lang"> · {{ armed.lang }}</template><template v-if="armed.group"> · {{ armed.group }}</template></div>
+          <div class="armmeta mono">{{ armed.num }}<template v-if="armed.fileName">{{ armed.num ? ' · ' : '' }}<span class="armfile">named after the file</span></template><template v-if="armed.lang"> · {{ armed.lang }}</template><template v-if="armed.group"> · {{ armed.group }}</template></div>
           <div class="armnote">Now click the SITE'S own download button in this browser — the file lands in this entry, with its download source recorded. One arm = one download. A subtitle file for a downloaded episode becomes its subtitles; the video stays.</div>
           <button class="btn ghost" style="align-self:flex-start" @click="disarm">Cancel</button>
         </div>
         <div v-else-if="!pageMode" class="dlform">
           <div class="dllbl">ADD ENTRY</div>
-          <div class="dlrow">
-            <label class="dllbl">LABEL *</label>
+          <div v-if="!nameOnly" class="dlrow">
+            <label class="dllbl">{{ fromFile ? 'NUMBER *' : 'LABEL *' }}</label>
             <Combo :model-value="dLabel" :suggestions="labelSuggest" wide
-                   placeholder="5 / 2024 Artworks / Extra"
+                   :placeholder="fromFile ? '5' : '5 / 2024 Artworks / Extra'"
                    @update:model-value="dLabel = $event; labelTouched = true" />
+          </div>
+          <div class="dlchecks">
+            <button class="dlcheck" role="checkbox" :aria-checked="fromFile"
+                    title="The entry takes the name the downloaded file arrives with"
+                    @click="fromFile = !fromFile">
+              <span class="fbox" :class="{ on: fromFile }"><Icon v-if="fromFile" name="check" :size="9" :sw="3.2" /></span>
+              Name after the downloaded file
+            </button>
+            <button v-if="fromFile" class="dlcheck" role="checkbox" :aria-checked="numbered"
+                    title="Number the entry too: the number above, the file's name beside it"
+                    @click="numbered = !numbered">
+              <span class="fbox" :class="{ on: numbered }"><Icon v-if="numbered" name="check" :size="9" :sw="3.2" /></span>
+              With a number
+            </button>
           </div>
           <div class="dlrow2">
             <div class="dlrow" style="flex:1;min-width:0">
@@ -548,8 +585,10 @@ async function save(asNew: boolean) {
             <input v-model="dUrl" class="dlin mono" style="font-size:11px" placeholder="https://…" @input="onUrlInput" />
           </div>
           <div class="dlrow2" style="justify-content:flex-end">
-            <button class="btn ghost" :disabled="!dLabel.trim() || props.busy" title="Create the entry row without arming a download" @click="addEntry(false)">Add row only</button>
-            <button class="btn accent" :disabled="!dLabel.trim() || props.busy" title="Create the entry AND arm the next browser download into it" @click="addEntry(true)">
+            <button class="btn ghost" :disabled="fromFile || !dLabel.trim() || props.busy"
+                    :title="fromFile ? 'A row named after a file comes with its download' : 'Create the entry row without arming a download'"
+                    @click="addEntry(false)">Add row only</button>
+            <button class="btn accent" :disabled="(!nameOnly && !dLabel.trim()) || props.busy" title="Create the entry AND arm the next browser download into it" @click="addEntry(true)">
               <Icon name="download" :size="13" :sw="2" />Add + arm download
             </button>
           </div>
@@ -741,6 +780,10 @@ async function save(asNew: boolean) {
 .pcfnote { font: 400 10.5px/1.45 system-ui; color: var(--tx3); }
 .dlrow { display: flex; flex-direction: column; gap: 5px; }
 .dlrow2 { display: flex; gap: 8px; }
+.dlchecks { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.dlcheck { display: inline-flex; align-items: center; gap: 7px; height: 22px; padding: 0; border: 0; background: none; color: var(--tx2); font: 500 12px/1 system-ui; cursor: pointer; }
+.dlcheck:hover { color: var(--tx); }
+.armfile { color: var(--tx2); }
 .ghead { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px; color: var(--tx3); }
 .vers { margin-left: 15px; padding-left: 7px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 1px; }
 .erow { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 6px 0 8px; border-radius: 6px; color: var(--tx2); }

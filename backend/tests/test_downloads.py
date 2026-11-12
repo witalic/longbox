@@ -458,3 +458,42 @@ def test_reorder_pages(client, tmp_path):
     assert client.post("/api/titles/berserk/chapters/b-5-en/pages/reorder", json={"order": [0, 1]}).status_code == 422
     assert client.post("/api/titles/berserk/chapters/b-5-en/pages/reorder", json={"order": [0, 1, 9]}).status_code == 422
     assert client.post("/api/titles/berserk/chapters/nope/pages/reorder", json={"order": [0]}).status_code == 404
+
+
+# ---- an entry named after the downloaded file ----
+
+def _named_download(c, tmp_path, *, num, filename):
+    src = make_zip(tmp_path, "dl.zip")
+    assert c.post("/api/downloads/arm", json={"titleId": "berserk", "num": num, "lang": "EN",
+                                              "group": "dex", "fileName": True}).status_code == 200
+    started = c.post("/api/downloads/start", json={"filename": filename, "fileUrl": "https://cdn.site/f.zip"})
+    assert started.status_code == 200
+    item = started.json()
+    # made as the download starts: the list shows it by its name while it arrives
+    listed = c.get("/api/titles/berserk").json()["chapters"]
+    r = c.post(f"/api/downloads/{item['id']}/complete", json={"path": str(src)})
+    assert r.status_code == 200
+    return item, listed, r.json()
+
+
+def test_a_download_can_name_its_entry_after_the_file(client, tmp_path):
+    item, listed, title = _named_download(client, tmp_path, num="", filename="The Golden Age.cbz")
+    assert item["num"] == "The Golden Age"
+    assert any(ch["num"] == "The Golden Age" and ch["title"] == "" for ch in listed)
+    got = next(ch for ch in title["chapters"] if ch["num"] == "The Golden Age")
+    assert (got["dl"], got["pages"], got["lang"], got["group"]) == (True, 3, "EN", "dex")
+
+
+def test_a_numbered_entry_wears_the_file_name_as_its_title(client, tmp_path):
+    item, listed, title = _named_download(client, tmp_path, num="6", filename="Eclipse.zip")
+    assert item["num"] == "6"
+    assert any(ch["num"] == "6" and ch["title"] == "Eclipse" for ch in listed)
+    got = next(ch for ch in title["chapters"] if ch["num"] == "6")
+    assert (got["title"], got["dl"], got["pages"]) == ("Eclipse", True, 3)
+    assert [ch["num"] for ch in title["chapters"]] == ["5", "6"]  # still in number order
+
+
+def test_only_a_download_named_after_its_file_may_come_without_a_number(client):
+    assert client.post("/api/downloads/arm", json={"titleId": "berserk", "num": ""}).status_code == 422
+    assert client.post("/api/downloads/arm", json={"titleId": "berserk", "num": "",
+                                                   "fileName": True}).status_code == 200

@@ -1653,6 +1653,31 @@ class Library:
             doc.chapters.insert(idx, row)
         return row, True
 
+    def _ruled_row_for(self, doc: TitleDoc, *, num: str, lang: str, group: str,
+                       url: str = "") -> tuple[ChapterRow, bool]:
+        """`_row_for`, with a NEW row's language and group named by the rules."""
+        n = self._norm
+        if not any(n(c.num) == n(num) and n(c.lang) == n(lang) and n(c.group) == n(group)
+                   for c in doc.chapters):
+            fired: list[str] = []
+            lang, group = self.ruled_identity(self.incoming_rules(), lang, group,
+                                              url or doc.meta.source.url, fired)
+            self._count_fired(fired)
+        return self._row_for(doc, num=num, lang=lang, group=group, url=url)
+
+    def name_entry(self, title_id: str, *, num: str, lang: str, group: str, title: str) -> bool:
+        """The entry a download named after its file goes into — made as the
+        download starts, when the file's name is known, so the list shows it by
+        that name while it arrives (and the ingest finds it as any other).
+        `title` sits beside a typed number; without one the name IS the label."""
+        def change(doc: TitleDoc) -> bool:
+            row, created = self._ruled_row_for(doc, num=num, lang=lang, group=group)
+            if title and row.title != title:
+                row.title = title
+                return True
+            return created
+        return self.amend(title_id, change) is not None
+
     def attach_chapter_media(
         self, title_id: str, *, num: str, lang: str, group: str,
         src: Path, sidecar: dict, url: str = "", chapter_id: str = "", section: str = "",
@@ -1686,14 +1711,7 @@ class Library:
                     num = said.get("num") or num
                     lang = lang or said.get("lang", "")
                     group = group or said.get("group", "")
-                n = self._norm
-                if not any(n(c.num) == n(num) and n(c.lang) == n(lang) and n(c.group) == n(group)
-                           for c in doc.chapters):  # a new row is named by the rules
-                    fired: list[str] = []
-                    lang, group = self.ruled_identity(self.incoming_rules(), lang, group,
-                                              url or doc.meta.source.url, fired)
-                    self._count_fired(fired)
-                row, _ = self._row_for(doc, num=num, lang=lang, group=group, url=url)
+                row, _ = self._ruled_row_for(doc, num=num, lang=lang, group=group, url=url)
             if section and not row.section:
                 # a part named with the file fills an entry that has none
                 fired = []

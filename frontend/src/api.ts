@@ -426,6 +426,9 @@ export interface ArmInfo {
   num: string
   lang: string
   group: string
+  // the entry is named after the file the download arrives as: beside `num`
+  // (its title) when one is given, as the label itself when not
+  fileName?: boolean
 }
 
 export interface DownloadItem {

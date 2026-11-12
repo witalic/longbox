@@ -16,6 +16,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import unquote
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
@@ -42,6 +43,9 @@ class ArmIn(BaseModel):
     num: str
     lang: str = ""
     group: str = ""
+    # The entry is named after the file the download arrives as: beside `num`
+    # when one is given (its title), as the label itself when not.
+    fileName: bool = False
 
 
 class Resume(BaseModel):
@@ -166,7 +170,7 @@ def _armed(request: Request) -> ArmIn | None:
 def arm(request: Request, body: ArmIn) -> DownloadsOut:
     if _lib(request).get(body.titleId) is None:
         raise HTTPException(status_code=404, detail="title not found")
-    if not body.num.strip():
+    if not body.num.strip() and not body.fileName:
         raise HTTPException(status_code=422, detail="a chapter number is required")
     with _DL_LOCK:
         request.app.state.armed_download = {"arm": body, "at": time.monotonic()}
@@ -260,6 +264,12 @@ def forget(request: Request, download_id: str) -> Response:
     return Response(status_code=204)
 
 
+def _entry_name(filename: str, file_url: str) -> str:
+    """What a file arrived as, as an entry's name: its name without the type."""
+    name = filename or unquote(Path(file_url.split("?")[0]).name)
+    return Path(name).stem.strip() or "Untitled"
+
+
 class StartIn(BaseModel):
     filename: str = ""
     fileUrl: str = ""
@@ -278,8 +288,16 @@ def start(request: Request, body: StartIn) -> DownloadItem:
         if fresh:
             request.app.state.armed_download = None
     if armed is not None:
+        num = armed.num.strip()
+        if armed.fileName:
+            # the name is known now, not when the file lands: the entry is
+            # made under it, so the list shows it while it arrives
+            name = _entry_name(body.filename, body.fileUrl)
+            _lib(request).name_entry(armed.titleId, num=num or name, lang=armed.lang,
+                                     group=armed.group, title=name if num else "")
+            num = num or name
         item = DownloadItem(
-            id=uuid.uuid4().hex[:12], titleId=armed.titleId, num=armed.num,
+            id=uuid.uuid4().hex[:12], titleId=armed.titleId, num=num,
             lang=armed.lang, group=armed.group,
             filename=body.filename, fileUrl=body.fileUrl, pageUrl=body.pageUrl,
         )
