@@ -224,7 +224,7 @@ function wire(sess, appContents, dir) {
   // The preload runs in every page of the session (only the browser's pages use
   // it: the app's window has an in-memory session of its own); the
   // handlers answer only a guest page that is being blocked for.
-  sess.setPreloads([...sess.getPreloads(), PRELOAD])
+  sess.registerPreloadScript({ type: 'frame', filePath: PRELOAD })
   // The engine puts its styles and scriptlets in through `event.sender`. Handed the
   // real one, every scriptlet run while the page loads waits for it to stop
   // (webContents.executeJavaScript does — a listener each, and the scriptlet comes

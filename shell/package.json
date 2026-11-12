@@ -16,8 +16,8 @@
     "@ghostery/adblocker-electron": "^2.20.3"
   },
   "devDependencies": {
-    "electron": "^33.2.0",
-    "electron-builder": "^25.1.8"
+    "electron": "^45.3.1",
+    "electron-builder": "^26.18.0"
   },
   "build": {
     "appId": "dev.witalic.longbox",
@@ -35,7 +35,7 @@
       { "from": "../frontend/dist", "to": "ui" },
       { "from": "../packaging/licenses", "to": "licenses" }
     ],
-    "afterPack": "../packaging/adhoc-sign.js",
+    "afterPack": "./adhoc-sign.js",
     "publish": [{
       "provider": "github",
       "owner": "witalic",

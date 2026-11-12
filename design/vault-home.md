@@ -89,7 +89,7 @@ sidecar's port no longer has to be stable and `shell.json` goes; and a vault ope
 computer brings its theme, keys and reader settings along.
 
 **Chromium is kept out of the app's folder.** The browser profile is a session at a path
-(`session.fromPath(<vault>/.longbox/browser)`, tested on Electron 33: a `<webview>` takes it).
+(`session.fromPath(<vault>/.longbox/browser)`, tested on Electron 33 and 45: a `<webview>` takes it).
 Only the embedded browser's pages use it; the app window runs on an in-memory session, since
 nothing of its own is kept in the browser any more. Chromium's own default profile, which nothing
 uses, is pointed at a temporary folder before the app starts, and so are crash dumps — so the

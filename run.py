@@ -46,15 +46,26 @@ def _electron_cache_zip(version: str) -> Path | None:
     return zip_path if zip_path.is_file() else None
 
 
+def _version_in(manifest: Path) -> str:
+    try:
+        return json.loads(manifest.read_text(encoding="utf-8"))["version"]
+    except (OSError, ValueError, KeyError):
+        return ""
+
+
 def ensure_electron(shell: Path) -> None:
-    """Make sure the Electron binary is present, self-healing common failures."""
+    """Make sure the Electron the lockfile names is installed with its binary,
+    self-healing common failures."""
     pkg = shell / "node_modules" / "electron"
     binary = pkg / "dist" / ("electron.exe" if IS_WIN else "electron")
-    if not (shell / "node_modules").is_dir():
-        run(["npm", "install"], shell, shell=IS_WIN)
+    lock = json.loads((shell / "package-lock.json").read_text(encoding="utf-8"))
+    # an upgrade in the lockfile leaves the old version installed, and it would run
+    if _version_in(pkg / "package.json") != lock["packages"]["node_modules/electron"]["version"]:
+        run(["npm", "ci"], shell, shell=IS_WIN)
     if binary.exists():
         return
-    # Trigger the package's own download+extract (bypassing npm's script gate).
+    # The package fetches its binary on first use, not at install (Electron 42+):
+    # run its installer now, so a failure is caught and healed here.
     print("Electron binary missing — running its installer…")
     try:
         run(["node", str(Path("node_modules") / "electron" / "install.js")], shell, shell=IS_WIN)
@@ -63,8 +74,7 @@ def ensure_electron(shell: Path) -> None:
     if binary.exists():
         return
     # electron's extract-zip can flake on the large binary; extract the cached zip ourselves.
-    version = json.loads((pkg / "package.json").read_text())["version"]
-    cached = _electron_cache_zip(version)
+    cached = _electron_cache_zip(_version_in(pkg / "package.json"))
     if cached:
         print(f"Extracting Electron from cache: {cached}")
         with zipfile.ZipFile(cached) as zf:

@@ -136,8 +136,9 @@ _MKV_CODECS = {"V_MPEG4/ISO/AVC": "h264", "V_MPEGH/ISO/HEVC": "hevc",
 # What the window decodes out of an mkv. HEVC is out: Chromium takes it only
 # where the platform decodes it. Audio decides as much as video does — a track
 # the engine cannot decode is dropped without an error, and the episode would
-# play in silence. Little-endian integer PCM was played in Electron 33 (an
-# MMD render's usual sound); big-endian and float PCM were not tried.
+# play in silence. Little-endian integer PCM, an MMD render's usual sound, plays
+# in Electron 33 and 45; big-endian and float PCM play in both too (generated
+# tracks), but no real file with them has been seen, so they are not let in.
 _WEB_VIDEO_CODECS = frozenset({"h264", "vp8", "vp9", "av1"})
 _WEB_AUDIO_CODECS = frozenset({"aac", "opus", "vorbis", "mp3", "flac", "pcm"})
 

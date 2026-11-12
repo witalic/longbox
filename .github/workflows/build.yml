@@ -3,7 +3,7 @@ name: build
 # Desktop builds for Windows, macOS and Linux. Run it by hand to get artifacts,
 # or push a v* tag to publish a GitHub release.
 #
-# macOS builds are AD-HOC signed (packaging/adhoc-sign.js): there is no Apple
+# macOS builds are AD-HOC signed (shell/adhoc-sign.js): there is no Apple
 # certificate, so the app is reported as coming from an unidentified developer —
 # not as damaged, which is what an unsigned bundle looks like.
 on:
