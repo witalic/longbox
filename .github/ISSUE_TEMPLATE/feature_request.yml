@@ -1,0 +1,26 @@
+name: Feature request
+description: Something longbox could do for the vault you keep.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        longbox ships no content and no code for any particular website — no scrapers, no source
+        catalogs, no online metadata services, no tracker sync. Requests for those are closed;
+        what the app offers instead is the recipe you teach it for each site you use.
+  - type: textarea
+    id: need
+    attributes:
+      label: What you are trying to do
+      description: The task, in your own words — not yet the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: now
+    attributes:
+      label: How you do it now
+      description: The workaround, if there is one, and what makes it painful.
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you would like longbox to do

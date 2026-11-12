@@ -1,0 +1,60 @@
+name: Bug report
+description: Something in longbox does not work the way the guide says it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Please leave out anything you would not want public: the
+        names of the sites you use, titles in your vault, your user name in file paths.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Settings → About shows it.
+      placeholder: "3.3.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: System
+      options:
+        - Windows
+        - macOS (Apple silicon)
+        - macOS (Intel)
+        - Linux (AppImage)
+        - Linux (.deb)
+    validations:
+      required: true
+  - type: dropdown
+    id: vault
+    attributes:
+      label: Where the vault is
+      options:
+        - A local disk
+        - A removable disk
+        - A network share (SMB, NFS…)
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead. A screenshot helps.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen again
+      placeholder: |
+        1. Open …
+        2. Click …
+        3. See …
+  - type: textarea
+    id: said
+    attributes:
+      label: What the app said
+      description: Any message or error the window showed, word for word.
+      render: text

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: User guide
+    url: https://github.com/witalic/longbox/blob/main/docs/guide.md
+    about: How each part of longbox works, feature by feature.
+  - name: Installing and the first launch
+    url: https://witalic.github.io/longbox/#start
+    about: Which file to download, and getting past the unsigned-build warning on Windows and macOS.

@@ -97,7 +97,7 @@ cd shell && npm run pack                                       # installers into
 
 A packaged app carries the sidecar as a frozen binary (with the built UI inside it), so it needs
 neither Python nor a checkout. The ffmpeg that makes playable copies rides inside the sidecar, from
-the pinned `imageio-ffmpeg` wheel; its licence and where its source is ship in the app's
+the pinned `imageio-ffmpeg` wheel; its license and where its source is ship in the app's
 `resources/licenses/` ([packaging/licenses/FFmpeg.txt](packaging/licenses/FFmpeg.txt)).
 
 ## Repository layout
@@ -108,7 +108,8 @@ frontend/   Vue 3 + Vite + TypeScript UI: library, title page, reader, capture b
 shell/      Electron: sidecar spawn and auth, the embedded browser, download interception, preloads
 design/     design docs (state-model.md is the canonical architecture) and UI mockups
 docs/       the project page (witalic.github.io/longbox) and the user guide
-packaging/  the frozen-sidecar spec and the bundled ffmpeg's licence notice
+packaging/  the frozen-sidecar spec and the bundled ffmpeg's license notice
+.github/    the build workflow (a version tag builds the release) and the issue forms
 tools/      version.py (the one version, everywhere) · screenshots.py (the project page's images) ·
             bench_metadata.py (what a bulk metadata change costs)
 ```
