@@ -39,6 +39,10 @@ declare global {
       // a folder in the system's file manager; false when it is not one
       openFolder: (dir: string) => Promise<boolean>
       clearBrowsing: (what: 'cookies' | 'cache') => Promise<boolean>
+      // one site's share of the embedded browser: its cookie count, and clearing
+      // them — or its storage and cached pages too; null/false when refused
+      siteData: (domain: string) => Promise<{ cookies: number } | null>
+      clearSiteData: (domain: string, what: { cookies?: boolean; storage?: boolean; cache?: boolean }) => Promise<boolean>
       setTitleBar: (opts: { color: string; symbolColor: string }) => void
       // stop a download in flight; false when the shell no longer holds it
       cancelDownload: (id: string) => Promise<boolean>

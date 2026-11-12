@@ -24,6 +24,12 @@ contextBridge.exposeInMainWorld('longbox', {
   // global embedded-browser hygiene: 'cookies' (site cookies; the app's own
   // auth cookie survives) or 'cache' (HTTP cache)
   clearBrowsing: (what) => ipcRenderer.invoke('lb-clear-browsing', String(what || '')),
+  // one site's share of the embedded browser (Sources): how many cookies it
+  // holds ({ cookies }), and clearing them — or its storage and cached pages too
+  siteData: (domain) => ipcRenderer.invoke('lb-site-data', String(domain || '')),
+  clearSiteData: (domain, what) => ipcRenderer.invoke('lb-site-data-clear', {
+    domain: String(domain || ''), cookies: !!what?.cookies, storage: !!what?.storage, cache: !!what?.cache,
+  }),
   // recolor the native window-controls overlay when the theme flips
   setTitleBar: (opts) => ipcRenderer.send('lb-titlebar', {
     color: String(opts?.color || ''), symbolColor: String(opts?.symbolColor || ''),

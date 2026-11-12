@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Sources — mockup</title>
+<style>
+/* ---- the app's own tokens (frontend/src/styles.css), verbatim ---- */
+:root {
+  --bg: #0a0b0d; --bg2: #0f1115; --panel: #15171b; --panel2: #1b1e24;
+  --line: #262a31; --hover: #2a2e36;
+  --tx: #e8eaef; --tx2: #9aa1ad; --tx3: #697080;
+  --accent: #7089e6; --accent-ink: #0d0e11; --accentSoft: rgba(112, 137, 230, .14);
+  --fav: #e0687a; --good: #5fb88a; --warn: #d6a44f; --adult: #e0687a; color-scheme: dark;
+}
+html[data-theme="light"] {
+  --bg: #f0eeea; --bg2: #e6e3dd; --panel: #faf9f6; --panel2: #edeae4;
+  --line: #d2cdc2; --hover: #e2ded6;
+  --tx: #2a2c31; --tx2: #575d67; --tx3: #8d95a1;
+  --accent: #5f77d4; --accent-ink: #ffffff; --accentSoft: rgba(95, 119, 212, .15);
+  --fav: #d6516a; --good: #3f9e6f; --warn: #b07d2a; --adult: #d6516a; color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--tx); font: 400 13px/1.45 system-ui; -webkit-font-smoothing: antialiased; }
+.mono { font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; }
+.page { max-width: 1320px; margin: 0 auto; padding: 26px 24px 60px; }
+.page > h1 { font: 700 22px/1.1 system-ui; margin: 0 0 4px; letter-spacing: -.3px; }
+.lede { color: var(--tx2); max-width: 110ch; margin: 0 0 14px; }
+.lede b { color: var(--tx); font-weight: 600; }
+.ic { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.bar .k { font: 600 11px/1 system-ui; color: var(--tx3); }
+.mseg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.mseg button { height: 28px; border: none; background: transparent; color: var(--tx2); padding: 0 12px; font: 600 12px/1 system-ui; cursor: pointer; }
+.mseg button + button { border-left: 1px solid var(--line); }
+.mseg button.on { background: var(--accentSoft); color: var(--accent); }
+.notes { color: var(--tx2); max-width: 110ch; padding-left: 18px; margin: 14px 0 0; }
+.notes li { margin: 4px 0; }
+.notes b { color: var(--tx); font-weight: 600; }
+
+/* ---- app primitives ---- */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--tx); border-radius: 6px; height: 30px; padding: 0 13px; cursor: pointer; font: 600 12px/1 system-ui; white-space: nowrap; }
+.btn:hover { border-color: var(--accent); }
+.btn.accent { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.ghost { background: transparent; color: var(--tx2); }
+.btn.small { height: 26px; padding: 0 10px; font-size: 11px; }
+.btn.danger { color: var(--adult); border-color: color-mix(in srgb, var(--adult) 40%, var(--line)); }
+.seg { display: inline-flex; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 2px; height: 30px; }
+.seg .opt { display: inline-flex; align-items: center; gap: 6px; padding: 0 11px; border-radius: 4px; border: none; background: transparent; font: 500 12px/1 system-ui; color: var(--tx2); cursor: pointer; }
+.seg .opt.on { background: var(--accentSoft); color: var(--accent); }
+.seg.text { height: 26px; }
+.seg.text .opt { padding: 0 8px; font-size: 11px; }
+.seg .n { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); }
+.sbox { flex: 0 1 280px; min-width: 120px; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 11px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; color: var(--tx3); }
+.sbox input { flex: 1; min-width: 0; border: none; background: transparent; outline: none; color: var(--tx); font: 400 12px/1 system-ui; }
+.in { font: 500 12px/1.3 system-ui; color: var(--tx); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; outline: none; width: 100%; height: 30px; }
+.in.mono { font: 400 11px/1 ui-monospace, monospace; }
+.dd { display: flex; align-items: center; height: 30px; padding: 0 11px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; font: 500 12px/1 system-ui; color: var(--tx2); gap: 6px; }
+.dd .cur { flex: 1; color: var(--tx); }
+.chk { width: 15px; height: 15px; flex: none; border-radius: 4px; border: 1.5px solid var(--tx3); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.chk.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.chk .ic { width: 10px; height: 10px; stroke-width: 3.2; }
+.toggle { width: 26px; height: 15px; border-radius: 999px; background: var(--line); position: relative; flex: none; cursor: pointer; }
+.toggle::after { content: ''; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 999px; background: var(--tx3); transition: left .12s; }
+.toggle.on { background: var(--accent); }
+.toggle.on::after { left: 13px; background: var(--accent-ink); }
+
+/* ---- the app window ---- */
+.win { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--bg); display: flex; height: 760px; }
+.rail { width: 200px; flex: none; background: var(--bg2); border-right: 1px solid var(--line); padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; }
+.rnav { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px; border-radius: 6px; color: var(--tx2); font: 500 12.5px/1 system-ui; }
+.rnav.on { background: var(--accentSoft); color: var(--accent); }
+.rlbl { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); padding: 14px 10px 6px; }
+.rrow { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px; border-radius: 6px; color: var(--tx2); font: 500 12px/1 system-ui; cursor: pointer; }
+.rrow:hover { background: var(--hover); }
+.rrow.on { background: var(--panel); color: var(--tx); }
+.rrow .n { margin-left: auto; font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.head { height: 44px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 16px 0 24px; border-bottom: 1px solid var(--line); }
+.head .h1 { font: 600 22px/1 system-ui; letter-spacing: -.4px; }
+.count { font: 500 12px/1 ui-monospace, monospace; color: var(--tx3); white-space: nowrap; }
+.tool { height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px 0 24px; border-bottom: 1px solid var(--line); }
+.bulk { background: var(--accentSoft); }
+.bulk .sel { font: 600 12px/1 system-ui; color: var(--accent); margin-right: 6px; }
+.work { flex: 1; min-height: 0; display: flex; }
+.list { flex: 1; min-width: 0; overflow: auto; padding: 6px 0 20px; }
+
+/* tree */
+.ghead { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 16px 0 18px; margin-top: 6px; color: var(--tx3); cursor: grab; }
+.ghead:hover { color: var(--tx2); }
+.ghead .grip, .srow .grip, .lrow .grip { font: 700 11px/1 system-ui; letter-spacing: -2px; color: var(--tx3); opacity: 0; width: 10px; flex: none; }
+.ghead:hover .grip, .srow:hover .grip, .lrow:hover .grip { opacity: 1; }
+.glbl { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; }
+.grule { flex: 1; height: 1px; background: var(--line); }
+.gact { opacity: 0; font: 600 11px/1 system-ui; color: var(--tx3); padding: 4px 6px; border-radius: 5px; }
+.ghead:hover .gact { opacity: 1; }
+.gact:hover { background: var(--hover); color: var(--tx); }
+.ghead.auto { cursor: default; }
+.srow { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 16px 0 18px; cursor: pointer; color: var(--tx2); border-left: 2px solid transparent; }
+.srow:hover { background: var(--hover); }
+.srow.on { background: var(--panel); border-left-color: var(--accent); }
+.srow.selected { background: var(--accentSoft); }
+.srow.cold .sname, .srow.cold .favi { opacity: .5; }
+.srow .chk { opacity: 0; }
+.srow:hover .chk, .srow.selected .chk, .list.selecting .srow .chk { opacity: 1; }
+.favi { width: 22px; height: 22px; flex: none; border-radius: 6px; display: flex; align-items: center; justify-content: center; font: 700 9px/1 system-ui; color: #fff; }
+.sname { font: 600 13px/1 system-ui; color: var(--tx); flex: none; }
+.rmark { font: 600 10px/1 ui-monospace, monospace; color: var(--good); border: 1px solid color-mix(in srgb, var(--good) 40%, var(--line)); padding: 3px 6px; border-radius: 4px; }
+.rmark.none { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+.hidden { font: 600 10px/1 ui-monospace, monospace; color: var(--tx3); border: 1px solid var(--line); padding: 3px 6px; border-radius: 4px; display: inline-flex; gap: 4px; align-items: center; }
+.snum { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); width: 64px; text-align: right; }
+.slinks { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); width: 46px; display: inline-flex; gap: 5px; align-items: center; justify-content: flex-end; }
+.slinks.has { color: var(--tx2); }
+.slinks .ic { width: 11px; height: 11px; }
+.caret { width: 22px; height: 22px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; color: var(--tx3); }
+.caret:hover { background: var(--hover); color: var(--tx); }
+.lrow { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 16px 0 70px; color: var(--tx2); }
+.lrow:hover { background: var(--hover); }
+.lrow .star { color: var(--fav); }
+.lname { font: 500 12px/1 system-ui; color: var(--tx); flex: none; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lurl { flex: 1; min-width: 0; font: 400 11px/1 ui-monospace, monospace; color: var(--tx3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ldup { font: 700 8.5px/1 ui-monospace, monospace; letter-spacing: .08em; color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line)); padding: 3px 5px; border-radius: 4px; flex: none; }
+.lact { width: 24px; height: 24px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: var(--tx3); opacity: 0; }
+.lrow:hover .lact { opacity: 1; }
+.lact:hover { background: var(--panel2); color: var(--tx); }
+.dropline { height: 2px; background: var(--accent); margin: 0 16px 0 18px; border-radius: 2px; }
+
+/* the site panel */
+.pane { width: 500px; flex: none; border-left: 1px solid var(--line); background: var(--bg2); display: flex; flex-direction: column; min-height: 0; }
+.phead { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 14px 0 16px; border-bottom: 1px solid var(--line); flex: none; }
+.phead .pname { font: 600 15px/1 system-ui; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pbody { flex: 1; min-height: 0; overflow: auto; padding: 4px 16px 16px; }
+.psec { padding: 14px 0 4px; }
+.psec + .psec { border-top: 1px solid var(--line); }
+.plbl { display: flex; align-items: center; gap: 8px; font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); margin-bottom: 10px; }
+.plbl .n { font-weight: 500; letter-spacing: .04em; }
+.plbl .soon { margin-left: auto; font: 600 9px/1 ui-monospace, monospace; color: var(--accent); border: 1px dashed color-mix(in srgb, var(--accent) 50%, var(--line)); padding: 3px 6px; border-radius: 4px; letter-spacing: .06em; }
+.form { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 9px; align-items: center; }
+.form .k { font: 600 11px/1 system-ui; color: var(--tx2); }
+.hint { font: 400 11px/1.5 system-ui; color: var(--tx3); }
+.prow { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 6px; border-radius: 6px; }
+.prow:hover { background: var(--hover); }
+.prow .lname { max-width: 120px; }
+.prow .lact { opacity: 0; }
+.prow:hover .lact { opacity: 1; }
+.pedit { display: flex; flex-direction: column; gap: 6px; padding: 8px; margin: 2px 0; border: 1px solid var(--accent); border-radius: 6px; background: var(--panel); }
+.padd { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 6px; color: var(--tx3); font: 500 12px/1 system-ui; border-radius: 6px; cursor: pointer; }
+.padd:hover { background: var(--hover); color: var(--accent); }
+.fields { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+.field { font: 500 11px/1 system-ui; color: var(--tx2); background: var(--panel2); border: 1px solid var(--line); padding: 5px 8px; border-radius: 6px; }
+.dataline { display: flex; gap: 14px; margin-bottom: 10px; }
+.datum { display: flex; flex-direction: column; gap: 4px; }
+.datum b { font: 600 15px/1 system-ui; color: var(--tx); }
+.datum span { font: 500 11px/1 system-ui; color: var(--tx3); }
+.acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.login { display: flex; align-items: center; gap: 9px; height: 34px; padding: 0 8px; border: 1px dashed var(--line); border-radius: 6px; color: var(--tx3); font: 500 12px/1 system-ui; opacity: .75; }
+.login + .login { margin-top: 5px; }
+.login .who { color: var(--tx2); }
+.login .dots { margin-left: auto; letter-spacing: 2px; }
+.pfoot { height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-top: 1px solid var(--line); }
+/* the panel's tabs: what the site IS, and what is saved under it */
+.ptabs { display: flex; flex: none; border-bottom: 1px solid var(--line); padding: 0 8px; }
+.ptabs button { height: 40px; border: none; background: transparent; color: var(--tx3); font: 600 12px/1 system-ui; padding: 0 12px; border-bottom: 2px solid transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.ptabs button.on { color: var(--accent); border-bottom-color: var(--accent); }
+.ptabs button .n { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); }
+.ptabs button.soon { opacity: .6; }
+.ptool { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.ptool .row { display: flex; align-items: center; gap: 8px; }
+.ptool .sbox { flex: 1 1 auto; }
+.plist { flex: 1; min-height: 0; overflow: auto; padding: 4px 6px 8px; }
+.plist .prow { padding: 0 8px; }
+.plist .prow .chk { opacity: 0; }
+.plist .prow:hover .chk, .plist .prow.selected .chk, .plist.selecting .prow .chk { opacity: 1; }
+.plist .prow.selected { background: var(--accentSoft); }
+.plist .prow .grip { font: 700 11px/1 system-ui; letter-spacing: -2px; color: var(--tx3); opacity: 0; width: 10px; flex: none; }
+.plist .prow:hover .grip { opacity: 1; }
+.plist .prow .lname { max-width: 150px; }
+.pbulk { flex: none; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; background: var(--accentSoft); border-bottom: 1px solid var(--line); }
+.pbulk .sel { font: 600 12px/1 system-ui; color: var(--accent); }
+
+/* links mode */
+.thead, .trow { display: grid; grid-template-columns: 26px 18px minmax(160px, 1.1fr) minmax(200px, 1.6fr) minmax(150px, 1fr) 110px 60px; align-items: center; gap: 10px; padding: 0 16px 0 24px; }
+.thead { height: 32px; font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); }
+.thead .sorted { color: var(--accent); }
+.trow { height: 36px; color: var(--tx2); border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+.trow:hover { background: var(--hover); }
+.trow.selected { background: var(--accentSoft); }
+.trow.dup { box-shadow: inset 2px 0 0 var(--warn); }
+.tsite { display: flex; align-items: center; gap: 8px; min-width: 0; font: 500 12px/1 system-ui; color: var(--tx2); }
+.tsite .favi { width: 18px; height: 18px; font-size: 8px; border-radius: 5px; }
+.tgroup { font: 500 11px/1 system-ui; color: var(--tx3); }
+.tacts { display: flex; gap: 2px; justify-content: flex-end; }
+.trow .lact { opacity: 0; }
+.trow:hover .lact { opacity: 1; }
+.cell-edit { height: 26px; font-size: 12px; padding: 0 8px; border-color: var(--accent); }
+
+/* dialog */
+.scrim { position: absolute; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; }
+.dialog { width: 420px; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 24px 60px rgba(0,0,0,.6); padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+.dialog .t { font: 600 15px/1.2 system-ui; }
+.opt3 { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.opt3 .lb { font: 600 12px/1 system-ui; }
+.opt3 .d { font: 400 11px/1.3 system-ui; color: var(--tx3); margin-top: 3px; }
+.opt3 .amt { margin-left: auto; font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); }
+.warnline { font: 400 12px/1.45 system-ui; color: var(--warn); }
+.dacts { display: flex; justify-content: flex-end; gap: 8px; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-search" viewBox="0 0 24 24"><path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14M20 20l-3.5-3.5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 2l2.9 6.3 6.9.7-5.1 4.6 1.4 6.8L12 17.8 5.9 20.4l1.4-6.8L2.2 9l6.9-.7z"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></symbol>
+  <symbol id="i-browser" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></symbol>
+  <symbol id="i-eyeoff" viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 6.3A9.6 9.6 0 0 1 12 6.2c5 0 8.5 5.8 8.5 5.8a17 17 0 0 1-2.9 3.6M6.4 8.2A17 17 0 0 0 3.5 12s3.5 5.8 8.5 5.8c1 0 2-.2 2.8-.5"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><path d="M6 10V8a6 6 0 0 1 12 0v2M5 10h14v10H5z"/></symbol>
+  <symbol id="i-sources" viewBox="0 0 24 24"><path d="M10.5 13.5a4 4 0 0 0 5.7 0l2.8-2.8a4 4 0 0 0-5.7-5.7l-1.6 1.6M13.5 10.5a4 4 0 0 0-5.7 0l-2.8 2.8a4 4 0 0 0 5.7 5.7l1.6-1.6"/></symbol>
+  <symbol id="i-library" viewBox="0 0 24 24"><path d="M4 5h11v14H4zM17 7h3v12h-3"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01"/></symbol>
+</svg>
+
+<div class="page">
+  <h1>Sources</h1>
+  <p class="lede">
+    The page that <b>manages the browser's tree</b> — the groups, sites and links its side rail shows, in
+    the order it shows them — and everything kept about a site: its homepage, its recipe, the
+    <b>browser data</b> it left behind (cookies, storage, cache), and later its saved logins.
+    Opening links stays where it is, in the browser's rail. Two ways to look at it: the
+    <b>Tree</b> (organize) and <b>Links</b> (clean up). Click around: switch modes, pick a site,
+    tick several, open the clear-data dialog.
+  </p>
+  <div class="bar">
+    <span class="k">Mode</span>
+    <div class="mseg" id="modeSw"><button data-m="tree" class="on">Tree</button><button data-m="links">Links</button></div>
+    <span class="k" style="margin-left:12px">State</span>
+    <div class="mseg" id="stateSw"><button data-s="site" class="on">A site — Settings</button><button data-s="links">A site — Links</button><button data-s="lsel">Links ticked</button><button data-s="bulk">Several sites ticked</button><button data-s="clear">Clear site data…</button></div>
+    <span class="k" style="margin-left:12px">Theme</span>
+    <div class="mseg" id="theme"><button class="on" data-t="dark">Dark</button><button data-t="light">Light</button></div>
+  </div>
+
+  <div class="win" style="position:relative">
+    <div class="rail">
+      <div class="rnav"><svg class="ic"><use href="#i-library"/></svg>Library</div>
+      <div class="rnav"><svg class="ic"><use href="#i-browser"/></svg>Web</div>
+      <div class="rnav on"><svg class="ic"><use href="#i-sources"/></svg>Sources</div>
+      <div class="rlbl">SHOW</div>
+      <div id="railFilters"></div>
+      <div class="rlbl">GROUPS</div>
+      <div id="railGroups"></div>
+    </div>
+    <div class="main">
+      <div class="head">
+        <span class="h1">Sources</span>
+        <span class="count" id="count"></span>
+        <div style="flex:1"></div>
+        <div class="seg" id="modeSeg"><button class="opt on" data-m="tree">Tree</button><button class="opt" data-m="links">Links</button></div>
+        <div class="sbox"><svg class="ic"><use href="#i-search"/></svg><input placeholder="Find a site or a link…"></div>
+        <button class="btn"><svg class="ic"><use href="#i-plus"/></svg>Group</button>
+      </div>
+      <div class="tool" id="tool"></div>
+      <div class="work">
+        <div class="list" id="list"></div>
+        <div class="pane" id="pane"></div>
+      </div>
+    </div>
+    <div id="dialog"></div>
+  </div>
+
+  <ul class="notes">
+    <li><b>Tree = the browser's rail, as a list.</b> Groups and the sites in them, in the order you drag them
+      into — the rail shows exactly that order (today it sorts sites by title count). A site goes to another group
+      by dragging it there; "No group" behaves as it does in the rail. A row never unfolds: a site with a hundred
+      links would bury the list. Clicking a site opens its panel.</li>
+    <li><b>Several at once.</b> A tick appears on hover; Ctrl/Shift-click extends the selection. The band above the
+      list becomes the bulk bar: move to a group, hide from / show in the browser, clear their browser data, remove.</li>
+    <li><b>The site panel</b> has tabs. <b>Settings</b>: an editable homepage (the rail opens it), the group,
+      "Show in the browser" (today's freeze, said plainly), the recipe, and the site's browser data. <b>Links</b>:
+      built for a hundred and more — a search over this site's links, sorted by the rail's order (drag to
+      reorder), by name or by when saved, a Duplicates filter, names and addresses edited in place, several ticked
+      and deleted at once. <b>Logins</b> comes with the password manager.</li>
+    <li><b>Browser data, per site.</b> Cookies are counted and can be cleared alone (signs you out); "Clear site
+      data…" also takes site storage (local storage, IndexedDB, service workers) and the cached pages and images
+      of that site only (Electron's per-origin clearData). Storage and cache are cleared per site but not
+      measured per site — Chromium gives no per-site size, so none is shown. Removing a source offers to clear its data too — what
+      today stays in the browser's profile after a site is removed.</li>
+    <li><b>Links mode</b> is the clean-up table: every link of every site, sortable by name, site or when it was
+      added; duplicates (the same address saved twice, anywhere) are marked and can be shown alone; names and
+      addresses edit in place; several delete at once.</li>
+    <li>New on disk: a homepage per site, the order of sites inside a group, and when each link was saved (links
+      saved before this read as "earlier"). All in <span class="mono">sources.json</span>, which takes a schema bump.</li>
+  </ul>
+</div>
+
+<script>
+const PAL = { 'mangadex.org': '#f26a2e', 'webtoons.com': '#00d564', 'comixology.com': '#2b5797', 'tapas.io': '#ffdf3f',
+  'pixiv.net': '#0096fa', 'fanbox.cc': '#2f5ea8', 'patreon.com': '#e85b46', 'x.com': '#111', 'booth.pm': '#fc4d50',
+  'mangaplus.shueisha.co.jp': '#d02b2b', 'kemono.su': '#6b4fa1', 'nhentai.net': '#ec2854', 'deviantart.com': '#05cc47', 'archive.org': '#666' }
+const GROUPS = [
+  { name: 'Manga', sites: [
+    { d: 'mangadex.org', ver: 4, titles: 412, links: [['Follows', '/titles/follows'], ['Latest updates', '/titles/latest'], ['Seasonal', '/list/seasonal'], ['Follows', '/titles/follows']] },
+    { d: 'mangaplus.shueisha.co.jp', ver: 2, titles: 58, links: [['Updates', '/updates']] },
+    { d: 'comixology.com', ver: 1, titles: 23, links: [] },
+  ]},
+  { name: 'Webtoons', sites: [
+    { d: 'webtoons.com', ver: 3, titles: 187, links: [['Originals — Mon', '/en/originals/monday'], ['Canvas', '/en/canvas']] },
+    { d: 'tapas.io', ver: 1, titles: 31, links: [['Library', '/library']] },
+  ]},
+  { name: 'Artists', sites: [
+    { d: 'pixiv.net', ver: 2, titles: 96, links: [['Bookmarks', '/users/1/bookmarks/artworks'], ['Following', '/bookmark_new_illust.php']] },
+    { d: 'fanbox.cc', ver: 1, titles: 40, links: [['Supporting', '/supporting'], ['Feed', '/home']] },
+    { d: 'patreon.com', ver: 1, titles: 22, links: [['Feed', '/home'], ['Feed', '/home']] },
+    { d: 'x.com', ver: 0, titles: 0, links: [['Lists', '/i/lists']], frozen: true },
+  ]},
+  { name: '', label: 'NO GROUP', sites: [
+    { d: 'kemono.su', ver: 1, titles: 15, links: [] },
+    { d: 'deviantart.com', ver: 0, titles: 0, links: [['Watch', '/notifications/watch']] },
+    { d: 'archive.org', ver: 0, titles: 0, links: [['Saved searches', '/search?query=manga'], ['Old scans', '/details/oldscans']] },
+  ]},
+]
+// a site with a hundred-odd links: the panel's Links tab is built for this
+{
+  const md = GROUPS[0].sites[0]
+  const words = ['isekai', 'romance', 'horror', 'slice of life', 'webtoon', 'yuri', 'action', 'mystery', 'sports', 'cooking',
+    'fantasy', 'school', 'drama', 'comedy', 'historical', 'sci-fi', 'psychological', 'shoujo', 'seinen', 'josei']
+  for (let i = 0; md.links.length < 112; i++) {
+    const w = words[i % words.length]
+    md.links.push(i % 3 === 0 ? [`List: ${w} ${Math.floor(i / 3) + 1}`, `/list/${w.replace(/ /g, '-')}-${i}`]
+      : i % 3 === 1 ? [`Search: ${w}`, `/search?q=${encodeURIComponent(w)}&p=${i}`]
+      : [`Author ${i}`, `/author/${1000 + i}`])
+  }
+  md.links.push(['Search: isekai', '/search?q=isekai&p=1'])
+}
+const S = { mode: 'tree', state: 'site', ptab: 'settings', open: 'mangadex.org', selected: new Set(), linkSel: new Set() }
+const ic = (n, s = 14) => `<svg class="ic" style="width:${s}px;height:${s}px"><use href="#i-${n}"/></svg>`
+const fav = (d) => `<span class="favi" style="background:${PAL[d] || '#5b5f69'}">${d.slice(0, 2).toUpperCase()}</span>`
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+const allSites = () => GROUPS.flatMap((g) => g.sites.map((s) => ({ ...s, group: g.name })))
+const allLinks = () => allSites().flatMap((s) => s.links.map(([n, p], i) => ({ name: n, url: `https://${s.d}${p}`, site: s.d, group: s.group, i, ago: ['2 d', '3 w', 'earlier', '5 mo', '1 y'][(i + s.d.length) % 5] })))
+function dupCount(url) { return allLinks().filter((l) => l.url === url).length }
+
+function renderRail() {
+  const sites = allSites()
+  const f = [['All sites', sites.length, true], ['With recipe', sites.filter((s) => s.ver).length], ['No recipe', sites.filter((s) => !s.ver).length],
+    ['Hidden from browser', sites.filter((s) => s.frozen).length], ['Duplicate links', allLinks().filter((l) => dupCount(l.url) > 1).length / 2]]
+  document.getElementById('railFilters').innerHTML = f.map(([l, n, on]) => `<div class="rrow ${on ? 'on' : ''}">${l}<span class="n">${n}</span></div>`).join('')
+  document.getElementById('railGroups').innerHTML = GROUPS.map((g) => `<div class="rrow">${g.name || 'No group'}<span class="n">${g.sites.length}</span></div>`).join('')
+    + `<div class="rrow" style="color:var(--tx3)">${ic('plus', 12)}New group</div>`
+  document.getElementById('count').textContent = `${sites.length} sites · ${allLinks().length} links`
+}
+
+function renderTool() {
+  const t = document.getElementById('tool')
+  const bulk = S.state === 'bulk'
+  t.className = 'tool' + (bulk ? ' bulk' : '')
+  if (bulk) {
+    const n = S.mode === 'tree' ? S.selected.size : 3
+    t.innerHTML = `<span class="sel">${n} ${S.mode === 'tree' ? 'sites' : 'links'} selected</span>`
+      + (S.mode === 'tree'
+        ? `<div class="dd" style="width:170px"><span class="cur">Move to group…</span>${ic('chev', 11)}</div>
+           <button class="btn small">${ic('eyeoff', 12)}Hide from browser</button>
+           <button class="btn small" data-act="clear">Clear browser data…</button>
+           <button class="btn small danger">${ic('trash', 12)}Remove…</button>`
+        : `<button class="btn small danger">${ic('trash', 12)}Delete links</button>`)
+      + `<div style="flex:1"></div><button class="btn ghost small" data-act="unsel">${ic('x', 12)}Clear selection</button>`
+    return
+  }
+  t.innerHTML = S.mode === 'tree'
+    ? `<div class="seg text"><button class="opt on">All <span class="n">${allSites().length}</span></button><button class="opt">With recipe</button><button class="opt">No recipe</button><button class="opt">Hidden</button></div>
+       <div style="flex:1"></div><span class="hint">Drag to reorder — the browser's rail follows · click a site for its settings and links</span>`
+    : `<div class="seg text"><button class="opt on">All <span class="n">${allLinks().length}</span></button><button class="opt">Duplicates <span class="n">${allLinks().filter((l) => dupCount(l.url) > 1).length}</span></button></div>
+       <div class="seg text"><button class="opt">Name</button><button class="opt on">Site</button><button class="opt">Saved</button></div>
+       <div style="flex:1"></div><span class="hint">Double-click a name or address to edit it</span>`
+}
+
+function renderTree() {
+  const out = []
+  GROUPS.forEach((g, gi) => {
+    out.push(`<div class="ghead ${g.name ? '' : 'auto'}"><span class="grip">${g.name ? '⋮⋮' : ''}</span>${ic('chev', 10)}<span class="glbl">${(g.name || g.label).toUpperCase()} · ${g.sites.length}</span><span class="grule"></span>${g.name ? '<span class="gact">Rename</span><span class="gact">Delete group</span>' : ''}</div>`)
+    g.sites.forEach((s, si) => {
+      const sel = S.selected.has(s.d)
+      if (gi === 1 && si === 1 && S.state === 'site') out.push('<div class="dropline"></div>')
+      out.push(`<div class="srow ${S.open === s.d && S.state !== 'bulk' ? 'on' : ''} ${sel ? 'selected' : ''} ${s.frozen ? 'cold' : ''}" data-site="${s.d}">
+        <span class="chk ${sel ? 'on' : ''}" data-tick="${s.d}">${sel ? ic('check') : ''}</span>
+        <span class="grip">⋮⋮</span>${fav(s.d)}<span class="sname">${s.d}</span>
+        <span class="rmark ${s.ver ? '' : 'none'}">${s.ver ? 'v' + s.ver : 'no recipe'}</span>
+        ${s.frozen ? `<span class="hidden">${ic('eyeoff', 10)}hidden</span>` : ''}
+        <span style="flex:1"></span>
+        <span class="snum">${s.titles ? s.titles + ' titles' : '—'}</span>
+        <span class="slinks ${s.links.length ? 'has' : ''}" style="width:56px">${ic('star', 11)}${s.links.length}</span>
+      </div>`)
+    })
+  })
+  return `<div class="${S.state === 'bulk' ? 'selecting' : ''}">${out.join('')}</div>`
+}
+
+function renderLinks() {
+  const rows = allLinks().sort((a, b) => a.site.localeCompare(b.site) || a.i - b.i)
+  const head = `<div class="thead"><span></span><span></span><span>NAME</span><span>ADDRESS</span><span class="sorted">SITE ▾</span><span>GROUP</span><span>SAVED</span></div>`
+  return head + rows.map((l, k) => {
+    const dup = dupCount(l.url) > 1
+    const sel = S.state === 'bulk' && k < 3
+    const editing = S.state === 'site' && k === 5
+    return `<div class="trow ${dup ? 'dup' : ''} ${sel ? 'selected' : ''}">
+      <span class="chk ${sel ? 'on' : ''}">${sel ? ic('check') : ''}</span><span style="color:var(--fav)">${ic('star', 11)}</span>
+      ${editing ? `<input class="in cell-edit" value="${esc(l.name)}">` : `<span class="lname" style="max-width:none">${esc(l.name)} ${dup ? '<span class="ldup" style="margin-left:6px">DUPLICATE</span>' : ''}</span>`}
+      <span class="lurl">${esc(l.url)}</span>
+      <span class="tsite">${fav(l.site)}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${l.site}</span></span>
+      <span class="tgroup">${l.group || 'No group'}</span>
+      <span class="tgroup mono">${l.ago}</span></div>`
+  }).join('')
+}
+
+function renderPane() {
+  const p = document.getElementById('pane')
+  if (S.mode !== 'tree' || S.state === 'bulk') { p.style.display = 'none'; return }
+  p.style.display = ''
+  const s = allSites().find((x) => x.d === S.open)
+  const tab = (id, label, n, soon) => `<button class="${S.ptab === id ? 'on' : ''} ${soon ? 'soon' : ''}" data-ptab="${id}">${label}${n !== undefined ? ` <span class="n">${n}</span>` : ''}</button>`
+  const head = `<div class="phead">${fav(s.d)}<span class="pname">${s.d}</span>
+      <button class="btn small">${ic('browser', 12)}Open homepage</button></div>
+    <div class="ptabs">${tab('settings', 'Settings')}${tab('links', 'Links', s.links.length)}${tab('logins', 'Logins', 2, true)}</div>`
+  if (S.ptab === 'links') {
+    const sel = S.linkSel
+    const shown = s.links.slice(0, 40)
+    p.innerHTML = head
+      + (sel.size
+        ? `<div class="pbulk"><span class="sel">${sel.size} selected</span><div style="flex:1"></div>
+             <button class="btn small danger">${ic('trash', 12)}Delete</button><button class="btn ghost small" data-act="lunsel">${ic('x', 12)}</button></div>`
+        : '')
+      + `<div class="ptool">
+          <div class="row"><div class="sbox"><svg class="ic"><use href="#i-search"/></svg><input placeholder="Find among ${s.links.length} links…"></div>
+            <button class="btn small accent">${ic('plus', 12)}Add</button></div>
+          <div class="row"><div class="seg text"><button class="opt on">Order</button><button class="opt">Name</button><button class="opt">Saved</button></div>
+            <div class="seg text"><button class="opt on">All</button><button class="opt">Duplicates <span class="n">${s.links.filter(([, pth]) => dupCount(`https://${s.d}${pth}`) > 1).length}</span></button></div></div>
+        </div>
+        <div class="plist ${sel.size ? 'selecting' : ''}">
+        ${shown.map(([n, pth], i) => {
+          const on = sel.has(i)
+          if (i === 2 && !sel.size) {
+            return `<div class="pedit"><input class="in" value="${esc(n)}"><input class="in mono" value="https://${s.d}${pth}"><div style="display:flex;gap:6px;justify-content:flex-end"><button class="btn ghost small">Cancel</button><button class="btn accent small">Save</button></div></div>`
+          }
+          return `<div class="prow ${on ? 'selected' : ''}"><span class="chk ${on ? 'on' : ''}" data-ltick="${i}">${on ? ic('check') : ''}</span><span class="grip">⋮⋮</span>
+            <span class="lname">${esc(n)}</span><span class="lurl">${esc(pth)}</span>${dupCount(`https://${s.d}${pth}`) > 1 ? '<span class="ldup">DUP</span>' : ''}
+            <span class="lact">${ic('edit', 12)}</span><span class="lact">${ic('trash', 12)}</span></div>`
+        }).join('')}
+        <div class="hint" style="padding:8px 8px 0">… ${s.links.length - shown.length} more — the list scrolls; drag works in Order only</div>
+        </div>`
+    return
+  }
+  if (S.ptab === 'logins') {
+    p.innerHTML = head + `<div class="pbody"><div class="psec">
+        <div class="plbl">${ic('lock', 11)} SAVED LOGINS <span class="soon">WITH THE PASSWORD MANAGER</span></div>
+        <div class="login">${ic('lock', 12)}<span class="who">reader@example.com</span><span class="dots">••••••</span></div>
+        <div class="login">${ic('lock', 12)}<span class="who">second-account</span><span class="dots">••••••</span></div>
+        <div class="hint" style="margin-top:10px">Designed with the password manager (task 2): logins saved for this site, filled on click in the browser.</div>
+      </div></div>`
+    return
+  }
+  p.innerHTML = head + `
+    <div class="pbody">
+      <div class="psec">
+        <div class="plbl">SITE</div>
+        <div class="form">
+          <span class="k">Homepage</span><input class="in mono" value="https://${s.d}/titles/follows">
+          <span class="k">Group</span><div class="dd"><span class="cur">${s.group || 'No group'}</span>${ic('chev', 11)}</div>
+          <span class="k">In browser</span><div style="display:flex;align-items:center;gap:8px"><span class="toggle ${s.frozen ? '' : 'on'}"></span><span class="hint">${s.frozen ? 'hidden from the rail — kept here' : 'shown in the rail'}</span></div>
+        </div>
+      </div>
+      <div class="psec">
+        <div class="plbl">RECIPE</div>
+        ${s.ver ? `<div class="fields"><span class="rmark">v${s.ver}</span><span class="field">title</span><span class="field">alt</span><span class="field">authors</span><span class="field">cover</span><span class="field">tags</span><span class="field">chapters</span></div>
+        <div class="acts"><button class="btn small ghost">Forget recipe</button></div>` : '<div class="hint">Not learned yet — capture a title from this site.</div>'}
+      </div>
+      <div class="psec">
+        <div class="plbl">BROWSER DATA</div>
+        <div class="dataline"><div class="datum"><b>23</b><span>cookies</span></div><div class="datum" style="justify-content:flex-end"><span>+ site storage and cached pages, not measured per site</span></div></div>
+        <div class="acts"><button class="btn small">Clear cookies</button><button class="btn small" data-act="clear">Clear site data…</button></div>
+        <div class="hint" style="margin-top:8px">Clearing cookies signs you out of ${s.d}.</div>
+      </div>
+    </div>
+    <div class="pfoot"><button class="btn ghost small danger">${ic('trash', 12)}Remove source…</button><div style="flex:1"></div><span class="hint">${s.titles} titles keep their links</span></div>`
+}
+
+function renderDialog() {
+  const d = document.getElementById('dialog')
+  if (S.state !== 'clear') { d.innerHTML = ''; return }
+  d.innerHTML = `<div class="scrim"><div class="dialog">
+    <div class="t">Clear browser data for mangadex.org</div>
+    <div class="opt3"><span class="chk on">${ic('check')}</span><div><div class="lb">Cookies</div><div class="d">Sign-ins and site preferences</div></div><span class="amt">23</span></div>
+    <div class="opt3"><span class="chk on">${ic('check')}</span><div><div class="lb">Site storage</div><div class="d">Local storage, IndexedDB, service workers</div></div></div>
+    <div class="opt3"><span class="chk on">${ic('check')}</span><div><div class="lb">Cached pages and images</div><div class="d">Only this site's — nothing else is touched</div></div></div>
+    <div class="warnline">You will be signed out of mangadex.org. Titles, links and the recipe stay.</div>
+    <div class="dacts"><button class="btn ghost" data-act="close">Cancel</button><button class="btn danger">Clear</button></div>
+  </div></div>`
+}
+
+function render() {
+  renderRail()
+  renderTool()
+  document.getElementById('list').innerHTML = S.mode === 'tree' ? renderTree() : renderLinks()
+  renderPane()
+  renderDialog()
+  document.querySelectorAll('#modeSw button, #modeSeg .opt').forEach((b) => b.classList.toggle('on', b.dataset.m === S.mode))
+  document.querySelectorAll('#stateSw button').forEach((b) => b.classList.toggle('on', b.dataset.s === (S.stateBtn || 'site')))
+}
+function setState(s) {
+  S.mode = s === 'site' || s === 'links' || s === 'lsel' || s === 'clear' || s === 'bulk' ? 'tree' : S.mode
+  S.ptab = s === 'links' || s === 'lsel' ? 'links' : 'settings'
+  S.linkSel = s === 'lsel' ? new Set([4, 5, 7]) : new Set()
+  S.state = s === 'links' || s === 'lsel' ? 'site' : s
+  S.selected = s === 'bulk' ? new Set(['pixiv.net', 'fanbox.cc', 'patreon.com']) : new Set()
+  S.stateBtn = s
+  render()
+}
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('[data-m],[data-s],[data-t],[data-ptab],[data-ltick],[data-tick],[data-site],[data-act]')
+  if (!t) return
+  const d = t.dataset
+  if (d.m) { S.mode = d.m; render() }
+  else if (d.s) setState(d.s)
+  else if (d.t) { document.documentElement.dataset.theme = d.t; document.querySelectorAll('#theme button').forEach((b) => b.classList.toggle('on', b === t)) }
+  else if (d.ptab) { S.ptab = d.ptab; S.linkSel.clear(); render() }
+  else if (d.ltick) { const i = Number(d.ltick); S.linkSel.has(i) ? S.linkSel.delete(i) : S.linkSel.add(i); render() }
+  else if (d.act === 'lunsel') { S.linkSel.clear(); render() }
+  else if (d.tick) { e.stopPropagation(); S.selected.has(d.tick) ? S.selected.delete(d.tick) : S.selected.add(d.tick); S.state = S.selected.size ? 'bulk' : 'site'; render() }
+  else if (d.site) { S.open = d.site; if (S.state === 'bulk') { S.state = 'site'; S.selected.clear() } render() }
+  else if (d.act === 'clear') setState('clear')
+  else if (d.act === 'close') setState('site')
+  else if (d.act === 'unsel') setState('site')
+})
+render()
+</script>
+</body>
+</html>

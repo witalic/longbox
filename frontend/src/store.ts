@@ -359,17 +359,22 @@ function liveAxes(): FieldDef[] {
 export function shownAxes(): FieldDef[] { return visibleFields(axisSurface(), liveAxes()) }
 export function hiddenAxes(): FieldDef[] { return hiddenOf(axisSurface(), liveAxes()) }
 
-// Sources and the vocab are derived from the titles — refetch after any commit
-// or delete, or the source list and the suggestions go stale. Browse groups are
-// NOT here: that view loads the axis it is actually showing.
-export async function refreshDerived() {
+// The sites and their groups — all a view of sites needs; the vocabulary is
+// another, heavier question (refreshDerived).
+export async function refreshSources() {
   try {
     const [sources, groups] = await Promise.all([api.sources(), api.sourceGroups()])
     store.sources = sources
     store.sourceGroups = groups
     store.sourcesRead = true
   } catch { /* leave the previous values in place */ }
-  await Promise.all([refreshVocab(), refreshShelfFacets()])
+}
+
+// Sources and the vocab are derived from the titles — refetch after any commit
+// or delete, or the source list and the suggestions go stale. Browse groups are
+// NOT here: that view loads the axis it is actually showing.
+export async function refreshDerived() {
+  await Promise.all([refreshSources(), refreshVocab(), refreshShelfFacets()])
 }
 
 // A write that sends a WHOLE list — a site's bookmarks, the group order —
@@ -590,7 +595,7 @@ export function showApp() {
 }
 export function showSources() {
   store.view = 'sources'
-  void refreshDerived()
+  void refreshSources()
 }
 
 // An unsaved NEW title has no id to be a tab of: it is drawn on its own, and
@@ -1485,6 +1490,17 @@ export async function refreshLoose() {
   try { store.loose = (await api.looseFiles()).length } catch { /* keep the previous count */ }
 }
 
+// The source groups as they are drawn: the stored list in its order, then any
+// name a site still carries that the list lost — or that site would vanish from
+// the Sources page and the browser's rail alike.
+export function sourceGroupNames(): string[] {
+  const listed = [...store.sourceGroups]
+  for (const s of store.sources) {
+    if (s.group && !listed.includes(s.group)) listed.push(s.group)
+  }
+  return listed
+}
+
 export async function refreshTotal() {
   try { store.total = (await api.libraryCount()).total } catch { /* keep the previous total */ }
 }
@@ -1533,7 +1549,12 @@ export async function switchVault(path: string): Promise<boolean> {
 export const vaultName = (path: string): string => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path
 
 // ---- styled confirm dialog (replaces native window.confirm) ----
-export interface ConfirmReq { title?: string; message: string; okLabel?: string; danger?: boolean }
+// `choices`: switches the dialog shows under its message; the caller reads
+// their `on` once it resolves true ("also clear its browser data")
+export interface ConfirmChoice { label: string; hint?: string; on: boolean }
+export interface ConfirmReq {
+  title?: string; message: string; okLabel?: string; danger?: boolean; choices?: ConfirmChoice[]
+}
 export const confirmState = reactive<{ open: boolean; req: ConfirmReq; resolve: ((v: boolean) => void) | null }>({
   open: false, req: { message: '' }, resolve: null,
 })

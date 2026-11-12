@@ -60,8 +60,8 @@ library/
   fields.json                the library's own metadata fields (registry additions)
   authors.json               author favorites (user layer, vault-level)
   recipes.json               per-site recipes (versioned per domain) + the page-capture filter
-  sources.json               the owner's layer over the sites: group order, per-site group,
-                             bookmarks, frozen; sites removed from Sources
+  sources.json               the owner's layer over the sites: group order, site order, per-site
+                             group, homepage, bookmarks (with when saved), frozen; sites removed
   rules.json                 what a value becomes on its way into a title (ordered)
   import-profiles.json       how folders already on disk are read into works (no paths)
   .pages/                    what the owner wrote about values (design/value-pages.md): one
@@ -338,11 +338,13 @@ frontend/src/
   data.ts (domain helpers)
   sessions.ts (tab-session restore) · keys.ts (physical-key bindings) · normalize.ts
   pagecapture.ts (the page-capture activity) · frames.ts (episode stills, cut in the window) ·
-  moment.ts (a state that lapses: "Saved" on the button that saved)
+  moment.ts (a state that lapses: "Saved" on the button that saved) ·
+  focus.ts (v-focus: a field that appears on a click gets the focus)
   tabstrip.ts (Chrome's tab strip, for both strips: where a new tab opens, which tab comes to
   the front when one closes, how wide tabs are — design/tab-strip-mockup.html)
   views/      LibraryView · AuthorsView (browse by any axis) · TitleView · ReaderView ·
-              BrowserView · SourcesView · MetadataView (values, rules, history) ·
+              BrowserView · SourcesView (the browser's tree: groups, sites, links; a site's
+              panel with its links and its browser data) · MetadataView (values, rules, history) ·
               ImportView (a folder on disk: structure, metadata, preview, run) · SettingsView
   components/ MetadataEditor (the one editor) · ImportMeta (its fields over an import's values) ·
               BulkEdit (the library's editor for many picked titles) ·

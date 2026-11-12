@@ -290,7 +290,8 @@ export function linkLabel(url: string): string {
   }
   return s.name
 }
-export interface Bookmark { name: string; url: string }
+// `added`: when it was saved (ISO) — stamped by the sidecar, '' for a link from before that was kept
+export interface Bookmark { name: string; url: string; added?: string }
 
 // ---- metadata management (design/metadata-management.md) ----
 

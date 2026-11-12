@@ -888,6 +888,72 @@ def delete_source(request: Request, domain: str) -> dict:
     return {"hidden": True, "recipeDeleted": recipe_deleted}
 
 
+class SourcesBulkIn(BaseModel):
+    """One change to several sites: a group, shown in the browser or not, or
+    removed (as `DELETE /sources/{domain}` removes one)."""
+    domains: list[str] = Field(min_length=1)
+    group: str | None = None
+    frozen: bool | None = None
+    remove: bool = False
+
+
+@router.post("/sources/bulk", response_model=list[Source])
+def bulk_sources(body: SourcesBulkIn, request: Request) -> list[Source]:
+    lib = _lib(request)
+    domains = [d for d in (x.strip() for x in body.domains) if d]
+    if not domains:
+        raise HTTPException(422, "no site named")
+    if body.remove:
+        for domain in domains:
+            lib.recipes.delete(domain)
+        lib.source_prefs.set_removed_many(domains, True)
+    elif body.group is not None or body.frozen is not None:
+        lib.source_prefs.put_many(domains, group=body.group, frozen=body.frozen)
+    return list_sources(request)
+
+
+class SourceOrderIn(BaseModel):
+    """Every site in the order the client now shows them; `moved` changes to
+    `group` in the same write (a site dragged into another group)."""
+    domains: list[str]
+    moved: str = ""
+    group: str | None = None
+
+
+@router.put("/source-order", response_model=list[Source])
+def put_source_order(body: SourceOrderIn, request: Request) -> list[Source]:
+    _lib(request).source_prefs.set_order(body.domains, moved=body.moved.strip(), group=body.group)
+    return list_sources(request)
+
+
+class GroupRenameIn(BaseModel):
+    name: str = Field(min_length=1)  # in the body: a group's name is free text, "/" included
+    to: str = Field(min_length=1)
+
+
+@router.post("/source-groups/rename", response_model=list[Source])
+def rename_source_group(body: GroupRenameIn, request: Request) -> list[Source]:
+    """A group renamed with every site in it, in one write."""
+    if not body.to.strip():
+        raise HTTPException(422, "a group needs a name")
+    try:
+        _lib(request).source_prefs.rename_group(body.name, body.to)
+    except ValueError as e:
+        raise HTTPException(409, str(e)) from e
+    return list_sources(request)
+
+
+class GroupNameIn(BaseModel):
+    name: str = Field(min_length=1)
+
+
+@router.post("/source-groups/delete", response_model=list[Source])
+def delete_source_group(body: GroupNameIn, request: Request) -> list[Source]:
+    """A group gone; its sites are left with no group — in one write."""
+    _lib(request).source_prefs.delete_group(body.name)
+    return list_sources(request)
+
+
 @router.get("/browse/{field_id}", response_model=list[BrowseGroup])
 def browse_by(
     field_id: str,
@@ -934,8 +1000,13 @@ def list_sources(request: Request) -> list[Source]:
         mine = layer.prefs.get(domain_key(s.domain)) or {}
         s.group = str(mine.get("group") or "")
         s.frozen = bool(mine.get("frozen"))
+        s.homepage = str(mine.get("homepage") or "") or s.homepage
         s.bookmarks = [Bookmark.model_validate(b) for b in (mine.get("bookmarks") or [])
                        if isinstance(b, dict) and b.get("url")]
+    # In the owner's order — the list IS the order everything draws them in; a
+    # site never placed comes after, the ones with the most titles first.
+    at = {d: i for i, d in enumerate(layer.order)}
+    sources.sort(key=lambda s: (at.get(domain_key(s.domain), len(at)), -s.titles, s.domain))
     return sources
 
 
@@ -945,14 +1016,18 @@ class SourcePrefsIn(BaseModel):
     group: str | None = None
     bookmarks: list[Bookmark] | None = None
     frozen: bool | None = None
+    homepage: str | None = None  # "" = the site's root again
 
 
 @router.put("/sources/{domain}", response_model=list[Source])
 def put_source_prefs(domain: str, body: SourcePrefsIn, request: Request) -> list[Source]:
     bookmarks = (None if body.bookmarks is None
                  else [b.model_dump() for b in body.bookmarks if b.url.strip()])
+    homepage = body.homepage.strip() if body.homepage is not None else None
+    if homepage and (urlsplit(homepage).scheme not in ("http", "https") or not urlsplit(homepage).netloc):
+        raise HTTPException(422, "a homepage is an http(s) address")
     _lib(request).source_prefs.put(domain, group=body.group, bookmarks=bookmarks,
-                                   frozen=body.frozen)
+                                   frozen=body.frozen, homepage=homepage)
     return list_sources(request)
 
 

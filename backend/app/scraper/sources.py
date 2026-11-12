@@ -4,14 +4,17 @@ Not recipe material: a recipe is what longbox LEARNED about a site, while a
 group, a bookmark or a freeze is how the owner relates to it. Both describe the
 library's sites, so both travel with the vault.
 
-    {"schema": 1,
+    {"schema": 3,
      "groups":  ["Manga", "Art"],          the owner's order of group names
-     "sources": {"<domain>": {"group": "…", "bookmarks": [{"name", "url"}], "frozen": true}},
+     "order":   ["<domain>", …],           the owner's order of sites (inside each group)
+     "sources": {"<domain>": {"group": "…", "homepage": "https://…", "frozen": true,
+                              "bookmarks": [{"name", "url", "added"}]}},
      "removed": ["<domain>"]}              taken out of the Sources list
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from ..library.vault import UnreadableDocument, Vault
 from .models import domain_key
@@ -20,7 +23,8 @@ DOC = "sources.json"
 # the shape this build writes; ANY change to it bumps this (Vault.doc_transaction).
 # 2 is the shape 1 had — development builds stamped every document with one
 # shared number, and the libraries they wrote are read as they are.
-SCHEMA = 2
+# 3: the order of sites, a homepage per site, and when each link was saved.
+SCHEMA = 3
 
 
 def _section(doc: dict, key: str, kind: type) -> dict | list:
@@ -34,11 +38,27 @@ def _strings(value: object) -> list[str]:
     return [x for x in value if isinstance(x, str) and x.strip()] if isinstance(value, list) else []
 
 
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _stamped(bookmarks: list[dict], before: list) -> list[dict]:
+    """A list as sent, each link carrying when it was saved: kept from the link
+    already stored at that address — "" for one saved before that was kept,
+    which stays "" rather than reading as new — and stamped now for one that
+    is new. A client never has to know: the star in the browser sends a name
+    and an address."""
+    had = {b["url"]: b.get("added") or "" for b in before if isinstance(b, dict) and b.get("url")}
+    return [{**b, "added": b.get("added") or (had[b["url"]] if b["url"] in had else _now())}
+            for b in bookmarks]
+
+
 @dataclass(frozen=True)
 class Snapshot:
-    prefs: dict[str, dict]   # per domain: group, bookmarks, frozen — only what was ever said
+    prefs: dict[str, dict]   # per domain: group, homepage, bookmarks, frozen — only what was ever said
     groups: list[str]
     removed: set[str]
+    order: list[str]         # sites in the owner's order; one never placed sorts after
 
 
 class SourcePrefs:
@@ -52,28 +72,83 @@ class SourcePrefs:
         prefs = ({domain_key(d): p for d, p in raw.items() if isinstance(p, dict)}
                  if isinstance(raw, dict) else {})
         return Snapshot(prefs, _strings(doc.get("groups")),
-                        {domain_key(d) for d in _strings(doc.get("removed"))})
+                        {domain_key(d) for d in _strings(doc.get("removed"))},
+                        [domain_key(d) for d in _strings(doc.get("order"))])
 
-    def put(self, domain: str, *, group: str | None = None,
-            bookmarks: list[dict] | None = None, frozen: bool | None = None) -> None:
+    def put(self, domain: str, *, group: str | None = None, bookmarks: list[dict] | None = None,
+            frozen: bool | None = None, homepage: str | None = None) -> None:
         """Partial: only what is supplied changes."""
-        key = domain_key(domain)
         with self.vault.doc_transaction(DOC, schema=SCHEMA) as doc:
+            self._put(doc, domain, group=group, bookmarks=bookmarks, frozen=frozen, homepage=homepage)
+
+    def put_many(self, domains: list[str], *, group: str | None = None, frozen: bool | None = None) -> None:
+        """The same change to several sites, as one write."""
+        with self.vault.doc_transaction(DOC, schema=SCHEMA) as doc:
+            for domain in domains:
+                self._put(doc, domain, group=group, frozen=frozen)
+
+    @staticmethod
+    def _put(doc: dict, domain: str, *, group: str | None = None, bookmarks: list[dict] | None = None,
+             frozen: bool | None = None, homepage: str | None = None) -> None:
+        key = domain_key(domain)
+        if not key:
+            return  # no site: nothing to say about it
+        prefs = _section(doc, "sources", dict)
+        mine = dict(prefs.get(key) or {})
+        if group is not None:
+            mine["group"] = group.strip()
+        if bookmarks is not None:
+            mine["bookmarks"] = _stamped(bookmarks, mine.get("bookmarks") or [])
+        if frozen is not None:
+            mine["frozen"] = frozen
+        if homepage is not None:
+            mine["homepage"] = homepage.strip()
+        for default in ("frozen", "homepage", "group"):
+            if not mine.get(default):
+                mine.pop(default, None)  # the default is not worth storing
+        # an entry that says nothing is not worth keeping
+        if mine.get("group") or mine.get("bookmarks") or mine.get("frozen") or mine.get("homepage"):
+            prefs[key] = mine
+        else:
+            prefs.pop(key, None)
+
+    def set_order(self, domains: list[str], *, moved: str = "", group: str | None = None) -> None:
+        """The sites in the owner's order — the browser's rail shows them so.
+        A site dragged into another group changes group in the same write: as
+        two, a failure between them left it in one place on disk and another
+        on screen."""
+        seen: list[str] = []
+        for d in domains:
+            key = domain_key(d)
+            if key and key not in seen:
+                seen.append(key)
+        with self.vault.doc_transaction(DOC, schema=SCHEMA) as doc:
+            doc["order"] = seen
+            if moved and group is not None:
+                self._put(doc, moved, group=group)
+
+    def rename_group(self, old: str, new: str) -> None:
+        """A group renamed, and every site in it — the removed ones too, which
+        would otherwise bring the old name back when restored — in one write."""
+        old, new = old.strip(), new.strip()
+        with self.vault.doc_transaction(DOC, schema=SCHEMA) as doc:
+            groups = _strings(_section(doc, "groups", list))
+            if new in groups and new != old:
+                raise ValueError(f'a group called "{new}" already exists')
+            doc["groups"] = [new if g == old else g for g in groups]
+            for mine in _section(doc, "sources", dict).values():
+                if isinstance(mine, dict) and mine.get("group") == old:
+                    mine["group"] = new
+
+    def delete_group(self, name: str) -> None:
+        """A group gone, its sites with no group — in one write."""
+        name = name.strip()
+        with self.vault.doc_transaction(DOC, schema=SCHEMA) as doc:
+            doc["groups"] = [g for g in _strings(_section(doc, "groups", list)) if g != name]
             prefs = _section(doc, "sources", dict)
-            mine = dict(prefs.get(key) or {})
-            if group is not None:
-                mine["group"] = group.strip()
-            if bookmarks is not None:
-                mine["bookmarks"] = bookmarks
-            if frozen is not None:
-                mine["frozen"] = frozen
-            if not mine.get("frozen"):
-                mine.pop("frozen", None)  # False is the default; storing it says nothing
-            # an entry that says nothing is not worth keeping
-            if mine.get("group") or mine.get("bookmarks") or mine.get("frozen"):
-                prefs[key] = mine
-            else:
-                prefs.pop(key, None)
+            for key in list(prefs):
+                if isinstance(prefs[key], dict) and prefs[key].get("group") == name:
+                    self._put(doc, key, group="")
 
     def set_groups(self, groups: list[str]) -> list[str]:
         seen: list[str] = []
@@ -86,15 +161,16 @@ class SourcePrefs:
         return seen
 
     def set_removed(self, domain: str, removed: bool) -> None:
-        key = domain_key(domain)
-        if (key in self.snapshot().removed) == removed:
+        self.set_removed_many([domain], removed)
+
+    def set_removed_many(self, domains: list[str], removed: bool) -> None:
+        keys = {domain_key(d) for d in domains}
+        known = self.snapshot().removed
+        if (keys <= known) if removed else not (keys & known):
             return  # nothing to say — and nothing to write
         with self.vault.doc_transaction(DOC, schema=SCHEMA) as doc:
             have = {domain_key(d) for d in _strings(_section(doc, "removed", list))}
-            if removed:
-                have.add(key)
-            else:
-                have.discard(key)
+            have = have | keys if removed else have - keys
             doc["removed"] = sorted(have)
 
     def adopt(self, prefs: dict[str, dict], groups: list[str], removed: list[str]) -> None:

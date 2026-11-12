@@ -338,6 +338,7 @@ class Bookmark(BaseModel):
     they like to start on that site."""
     name: str
     url: str
+    added: str = ""  # when it was saved (ISO); "" for a link saved before that was kept
 
 
 class Source(BaseModel):

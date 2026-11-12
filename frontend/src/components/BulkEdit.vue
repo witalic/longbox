@@ -11,6 +11,7 @@ import {
   FLAG_DEFS, FLAG_LABEL, fieldBlocks, type FieldDef, type FlagKey, type MetaAction, type MetaHeld, type MetaPreview,
 } from '../data'
 import { askConfirm, editInMetadata, refreshLibrary, runVaultPass, store, useShown, visibleFields } from '../store'
+import { vFocus } from '../focus'
 import Combo from './Combo.vue'
 import Icon from './Icon.vue'
 
@@ -130,7 +131,6 @@ function setValue(f: FieldDef, raw: string) {
 }
 const singlePending = (f: FieldDef): Pending | undefined => onField(f.id)[0]
 // the box Set… opens takes the keyboard at once
-const vFocusIn = { mounted: (el: HTMLElement) => el.querySelector('input')?.focus() }
 function emptyCount(f: FieldDef): number { return total.value - heldIn(f.id).titles }
 
 // flags: on for all, then off for all, then as they were
@@ -321,7 +321,7 @@ async function toMetadata() {
                 <button v-if="heldIn(f.id).titles" class="lnk" :title="`Empty ${f.label.toLowerCase()} on every selected title`"
                         @click="clearField(f)">Clear</button>
               </template>
-              <div v-if="setting === f.id" v-focus-in class="setin">
+              <div v-if="setting === f.id" v-focus class="setin">
                 <input v-if="f.control === 'date' || f.control === 'number'" class="in" :type="f.control"
                        @change="setValue(f, ($event.target as HTMLInputElement).value)" @keydown.esc="setting = ''" />
                 <Combo v-else wide lazy :suggestions="store.vocab[f.id] ?? []" :placeholder="f.placeholder"

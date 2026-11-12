@@ -23,7 +23,7 @@ import { isBoolMap, readLocal, writeLocal } from '../local'
 import { pageCapture, pageKeyFor, stopCaptureFor, type PickField } from '../pagecapture'
 import { hostOf, matchTitles, type Candidate, type FieldRule, type Recipe } from '../data'
 import type { CleanFlags } from '../normalize'
-import { cache, pageFilter, refreshDerived, sourcesKnown, store, vault } from '../store'
+import { cache, pageFilter, refreshSources, sourceGroupNames, sourcesKnown, store, vault } from '../store'
 
 const isElectron = !!window.longbox
 
@@ -317,7 +317,7 @@ watch(domain, async (h) => {
   if (!h) return
   // the star reads this domain's saved links, and the browser can be the first
   // screen a session ever opens
-  if (!store.sources.length) void refreshDerived()
+  if (!store.sources.length) void refreshSources()
   const r = await recipeToApply(h)
   // page capture is taught PER DOMAIN — a site that already knows its reader
   // arms with the right selector immediately. An ACTIVE capture keeps its own:
@@ -373,10 +373,10 @@ const railSections = computed(() => {
   // A FROZEN source is still a source — it keeps its recipe, its links and its
   // titles — it has just been finished with, so this is the one place it stops
   // appearing. Sources is where it is thawed again.
+  // in the owner's order (Sources): the list arrives sorted so
   const by = (name: string) => store.sources
     .filter((x) => !x.frozen && (x.group || '') === name)
-    .sort((a, b) => b.titles - a.titles)
-  const named = store.sourceGroups.map((g) => ({ label: g.toUpperCase(), rows: by(g) }))
+  const named = sourceGroupNames().map((g) => ({ label: g.toUpperCase(), rows: by(g) }))
     .filter((sec) => sec.rows.length)
   // A site you only bookmarked is a source with nothing taught about it yet.
   // It belongs in the rail — that is where its links are — but not mixed in
@@ -384,7 +384,7 @@ const railSections = computed(() => {
   const rest = by('')
   const taught = rest.filter((x) => x.hasRecipe)
   const untaught = rest.filter((x) => !x.hasRecipe)
-  const restLabel = named.length ? 'UNGROUPED' : 'SOURCES'
+  const restLabel = named.length ? 'NO GROUP' : 'SOURCES'
   return [
     ...named,
     ...(taught.length ? [{ label: restLabel, rows: taught }] : []),

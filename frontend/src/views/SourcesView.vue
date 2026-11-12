@@ -1,441 +1,936 @@
 <script setup lang="ts">
-// Sources: one row per site, grouped the way the user grouped them. The weight
-// (recipe, actions, saved links) belongs to the row you OPEN — a wall of cards
-// where two of the three buttons are destructive is not a list you can scan.
-import { computed, reactive, ref } from 'vue'
+// Sources (design/sources-mockup.html): the page that manages the browser's
+// tree — the groups, the sites in them and each site's links, in the order the
+// browser's rail draws them — and everything kept about a site: its homepage,
+// its recipe and what it left in the browser (cookies, storage, cache).
+// Opening a link is the rail's job; this page arranges and cleans.
+//
+// A site row never unfolds: a site with a hundred links would bury the list.
+// Its links live in the site's panel, which is built for a hundred.
+import { computed, reactive, ref, watch } from 'vue'
 import Combo from '../components/Combo.vue'
+import Dropdown from '../components/Dropdown.vue'
 import Icon from '../components/Icon.vue'
-import SearchBox from '../components/SearchBox.vue'
-import MenuButton from '../components/MenuButton.vue'
 import RailSection from '../components/RailSection.vue'
-import { askConfirm, refreshDerived, refreshLibrary, sourcesKnown, store } from '../store'
+import SearchBox from '../components/SearchBox.vue'
+import { askConfirm, sourceGroupNames, sourcesKnown, store } from '../store'
 import { newTab } from '../browser'
 import { api } from '../api'
 import { faviconFor, movedBefore, type Bookmark, type Source } from '../data'
+import { vFocus } from '../focus'
+import { readLocalOne, writeLocalOne } from '../local'
 
-const UNGROUPED = '—'
-
-// domains whose favicon failed to load → fall back to the initial letters
-const noIcon = reactive<Record<string, boolean>>({})
-const busy = ref<string | null>(null)
-const open = ref<string | null>(null)
+const mode = ref(readLocalOne('lb.sourcesMode', ['tree', 'links'] as const, 'tree'))
+watch(mode, (m) => writeLocalOne('lb.sourcesMode', m))
 const q = ref('')
-const SORTS = ['Titles', 'Name'] as const
-const sort = ref<(typeof SORTS)[number]>('Titles')
+const needle = computed(() => q.value.trim().toLowerCase())
+const noIcon = reactive<Record<string, boolean>>({})
+const busy = ref(false)
 
-// A search here means "find the site" — including by a link saved under it.
-const matches = computed(() => {
-  const needle = q.value.trim().toLowerCase()
-  const hit = (s: Source) => !needle || s.domain.toLowerCase().includes(needle)
-    || s.bookmarks.some((b) => `${b.name} ${b.url}`.toLowerCase().includes(needle))
-  return [...store.sources].filter(hit).sort((a, b) => (
-    sort.value === 'Name' ? a.domain.localeCompare(b.domain) : b.titles - a.titles
-  ))
-})
-// Named groups keep the user's order; whatever is left lands in one bucket.
-const sections = computed(() => {
-  const names = picked.value ? [picked.value] : [...store.sourceGroups, UNGROUPED]
-  return names
-    .map((name) => ({
-      name,
-      rows: matches.value.filter((s) => (s.group || UNGROUPED) === name),
-    }))
-    .filter((sec) => sec.rows.length)
-})
-// The rail picks a group; the list shows that one, or every section at once.
-const picked = ref('')
-const railGroups = computed(() => [...store.sourceGroups, UNGROUPED].map((name) => ({
-  name,
-  label: name === UNGROUPED ? 'Ungrouped' : name,
-  n: store.sources.filter((s) => (s.group || UNGROUPED) === name).length,
-})).filter((g) => g.n))
-
-const bookmarkCount = computed(() => store.sources.reduce((n, s) => n + s.bookmarks.length, 0))
-const closed = reactive<Record<string, boolean>>({})
-
-// Typing a name that does not exist yet CREATES the group: being able to file a
-// source only into groups you made somewhere else is not filing, it is paperwork.
-async function setGroup(s: Source, name: string) {
+async function run(work: () => Promise<Source[] | void>) {
   if (!sourcesKnown()) return
-  const g = name.trim()
-  if (g && !store.sourceGroups.includes(g)) {
-    try {
-      store.sourceGroups = await api.putSourceGroups([...store.sourceGroups, g])
-    } catch (e) {
-      store.error = String(e)
-      return
-    }
-  }
-  await savePrefs(s, { group: g })
-}
-
-async function savePrefs(s: Source,
-                         body: { group?: string; bookmarks?: Bookmark[]; frozen?: boolean }) {
-  if (!sourcesKnown()) return
-  busy.value = s.domain
+  busy.value = true
   try {
-    store.sources = await api.putSourcePrefs(s.domain, body)
+    const got = await work()
+    if (got) store.sources = got
   } catch (e) {
-    store.error = String(e)
+    store.error = e instanceof Error ? e.message : String(e)
   } finally {
-    busy.value = null
+    busy.value = false
   }
 }
+const linkCount = computed(() => store.sources.reduce((n, s) => n + s.bookmarks.length, 0))
 
-async function newGroup() {
-  if (!sourcesKnown()) return
-  const name = window.prompt('Name the group:', '')?.trim()
-  if (!name) return
-  try {
-    store.sourceGroups = await api.putSourceGroups([...store.sourceGroups, name])
-  } catch (e) { store.error = String(e) }
-}
+// ---- groups ----
+const groupNames = computed(() => sourceGroupNames())
+const picked = ref<string | null>(null) // the rail narrows to one group; '' = no group
+const groupCount = (name: string) => store.sources.filter((s) => (s.group || '') === name).length
 
-// ---- the group order ----
-//
-// It is already a stored LIST — it just had no way to be changed. Dragging a
-// header writes the whole list, and everything else that draws groups (the rail
-// here, the browser's source tree) reads that same list, so neither needs a
-// drag of its own. UNGROUPED is not in it: it is where "no group" lands, and it
-// stays last by construction.
-const dragGroup = ref<string | null>(null)
-const groupDrop = ref<string | null>(null)
-function clearGroupDrag() {
-  dragGroup.value = null
-  groupDrop.value = null
-}
-// UNGROUPED is not a group — it is the absence of one — so it never lights up
-// as somewhere to drop, and dropping there does nothing.
-function onGroupOver(name: string) {
-  groupDrop.value = dragGroup.value && name !== UNGROUPED ? name : null
-}
-async function onGroupDrop(target: string) {
-  const from = dragGroup.value
-  clearGroupDrag()
-  if (from === null || from === target || target === UNGROUPED || from === UNGROUPED) return
-  if (!sourcesKnown()) return
-  const names = [...store.sourceGroups]
-  const at = names.indexOf(from)
-  const onto = names.indexOf(target)
-  // The header you drop on lights up whole, so the drop means "it takes this
-  // group's place"; `movedBefore` inserts BEFORE its target, which going down
-  // the list is one short — dropping on the next group would do nothing at all.
-  const next = movedBefore(names, at, onto > at ? onto + 1 : onto)
-  store.sourceGroups = next   // the move shows now; the server is told after
+// The group list is written whole, so only on top of a list that was read.
+async function saveGroups(next: string[]): Promise<boolean> {
+  if (!sourcesKnown()) return false
+  const was = store.sourceGroups
+  store.sourceGroups = next // the change shows now; the server is told after
   try {
     store.sourceGroups = await api.putSourceGroups(next)
+    return true
   } catch (e) {
     store.error = String(e)
-    store.sourceGroups = names
+    store.sourceGroups = was
+    return false
+  }
+}
+// A name typed that does not exist yet CREATES the group: filing a site only
+// into groups made somewhere else is not filing, it is paperwork.
+async function ensureGroup(name: string): Promise<boolean> {
+  return !name || store.sourceGroups.includes(name) || saveGroups([...store.sourceGroups, name])
+}
+
+const addingGroup = ref(false)
+const newGroup = ref('')
+async function commitNewGroup() {
+  const name = newGroup.value.trim()
+  addingGroup.value = false
+  newGroup.value = ''
+  if (name) await ensureGroup(name)
+}
+function cancelNewGroup() {
+  newGroup.value = '' // the blur that follows then has nothing to create
+  addingGroup.value = false
+}
+
+const renaming = ref<string | null>(null)
+const renameTo = ref('')
+function startRename(name: string) {
+  renaming.value = name
+  renameTo.value = name
+}
+async function commitRename() {
+  const from = renaming.value
+  const to = renameTo.value.trim()
+  renaming.value = null
+  if (!from || !to || to === from || !sourcesKnown()) return
+  if (groupNames.value.includes(to)) {
+    store.error = `A group called "${to}" already exists.`
+    return
+  }
+  // the group and every site in it, in one write
+  await run(async () => {
+    const got = await api.renameSourceGroup(from, to)
+    store.sourceGroups = await api.sourceGroups()
+    return got
+  })
+  if (picked.value === from) picked.value = to
+}
+async function deleteGroup(name: string) {
+  const members = store.sources.filter((s) => s.group === name).map((s) => s.domain)
+  const ok = await askConfirm({
+    title: 'Delete group', okLabel: 'Delete',
+    message: members.length
+      ? `Delete "${name}"? Its ${members.length} site${members.length === 1 ? '' : 's'} move to No group.`
+      : `Delete "${name}"?`,
+  })
+  if (!ok) return
+  await run(async () => {
+    const got = await api.deleteSourceGroup(name)
+    store.sourceGroups = await api.sourceGroups()
+    return got
+  })
+  if (picked.value === name) picked.value = null
+}
+
+// the group order: dragging a header writes the whole list; "No group" is the
+// absence of one and stays last by construction
+const dragGroup = ref<string | null>(null)
+const groupDrop = ref<string | null>(null)
+async function onGroupDrop(target: string) {
+  const from = dragGroup.value
+  dragGroup.value = groupDrop.value = null
+  if (from === null || from === target || !target) return
+  const names = [...groupNames.value]
+  const at = names.indexOf(from)
+  const onto = names.indexOf(target)
+  // the header dropped on lights up whole: the moved group takes ITS place
+  await saveGroups(movedBefore(names, at, onto > at ? onto + 1 : onto))
+}
+
+// ---- the list of sites ----
+const FILTERS = [
+  { v: 'all', l: 'All' }, { v: 'recipe', l: 'With recipe' }, { v: 'norecipe', l: 'No recipe' },
+  { v: 'hidden', l: 'Hidden' },
+] as const
+const filter = ref<(typeof FILTERS)[number]['v']>('all')
+function passes(s: Source): boolean {
+  if (filter.value === 'recipe' && !s.hasRecipe) return false
+  if (filter.value === 'norecipe' && s.hasRecipe) return false
+  if (filter.value === 'hidden' && !s.frozen) return false
+  if (picked.value !== null && (s.group || '') !== picked.value) return false
+  return !needle.value || s.domain.toLowerCase().includes(needle.value)
+    || s.bookmarks.some((b) => `${b.name} ${b.url}`.toLowerCase().includes(needle.value))
+}
+const filtering = computed(() => !!needle.value || filter.value !== 'all' || picked.value !== null)
+const dragSite = ref<string | null>(null)
+// Sections in the owner's order. An empty group still shows while nothing
+// narrows the list — it is where a site is dragged into — and so does an
+// empty "No group" while a site is being dragged.
+const sections = computed(() => [...groupNames.value, ''].map((name) => ({
+  name,
+  rows: store.sources.filter((s) => (s.group || '') === name && passes(s)),
+})).filter((sec) => sec.rows.length || (sec.name ? !filtering.value : !!dragSite.value)))
+const shownSites = computed(() => sections.value.flatMap((sec) => sec.rows))
+
+// ---- picking several ----
+const selected = reactive(new Set<string>())
+let anchor: string | null = null
+function tick(domain: string) {
+  if (selected.has(domain)) selected.delete(domain)
+  else selected.add(domain)
+  anchor = domain
+}
+function clickSite(s: Source, e: MouseEvent) {
+  if (e.ctrlKey || e.metaKey) {
+    tick(s.domain)
+    return
+  }
+  if (e.shiftKey && anchor) {
+    const order = shownSites.value.map((x) => x.domain)
+    const [a, b] = [order.indexOf(anchor), order.indexOf(s.domain)].sort((x, y) => x - y)
+    if (a >= 0) for (const d of order.slice(a, b + 1)) selected.add(d)
+    return
+  }
+  selected.clear()
+  openSite(s.domain)
+}
+const selectedSites = computed(() => store.sources.filter((s) => selected.has(s.domain)))
+const allHidden = computed(() => selectedSites.value.length > 0 && selectedSites.value.every((s) => s.frozen))
+// the dropdown's resting row: a value no group name can be
+const MOVE = '\u0000'
+const moveOptions = computed(() => [
+  { v: MOVE, l: 'Move to group…' },
+  ...groupNames.value.map((g) => ({ v: g, l: g })),
+  { v: '', l: 'No group' },
+])
+async function moveSelected(group: string) {
+  if (group === MOVE) return
+  await run(() => api.bulkSources({ domains: [...selected], group }))
+}
+async function hideSelected() {
+  await run(() => api.bulkSources({ domains: [...selected], frozen: !allHidden.value }))
+}
+
+// ---- dragging sites: inside a group, or into another ----
+// where it lands: before this site, or at the end of the group
+const siteDrop = ref<{ before: string | null; group: string } | null>(null)
+function overSite(s: Source, rows: Source[], e: DragEvent) {
+  if (!dragSite.value) return
+  const box = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  const lower = e.clientY > box.top + box.height / 2
+  const next = rows[rows.indexOf(s) + 1]
+  siteDrop.value = { before: lower ? (next?.domain ?? null) : s.domain, group: s.group || '' }
+}
+function overGroupEnd(name: string) {
+  if (dragSite.value) siteDrop.value = { before: null, group: name }
+}
+const dropsBefore = (domain: string) => !!siteDrop.value && siteDrop.value.before === domain
+const dropsAtEnd = (name: string) => !!siteDrop.value && siteDrop.value.before === null && siteDrop.value.group === name
+async function dropSite() {
+  const from = dragSite.value
+  const at = siteDrop.value
+  dragSite.value = siteDrop.value = null
+  if (!from || !at || at.before === from) return
+  const moving = store.sources.find((s) => s.domain === from)
+  if (!moving) return
+  const order = store.sources.map((s) => s.domain).filter((d) => d !== from)
+  let i = at.before ? order.indexOf(at.before) : -1
+  if (i < 0) {
+    const last = [...store.sources].reverse().find((s) => s.domain !== from && (s.group || '') === at.group)
+    i = last ? order.indexOf(last.domain) + 1 : order.length
+  }
+  order.splice(i, 0, from)
+  // the order and a change of group are one write
+  const regroup = (moving.group || '') !== at.group
+  await run(() => api.putSourceOrder(order, regroup ? from : '', regroup ? at.group : undefined))
+}
+
+// ---- one site: the panel ----
+const open = ref<string | null>(null)
+const site = computed(() => store.sources.find((s) => s.domain === open.value) ?? null)
+const ptab = ref<'settings' | 'links'>('settings')
+function openSite(domain: string) {
+  if (open.value !== domain) {
+    open.value = domain
+    resetLinks()
   }
 }
 
-// ---- bookmarks ----
-const adding = ref<string | null>(null)
-const bName = ref('')
-const bUrl = ref('')
-function startAdd(s: Source) {
-  adding.value = s.domain
-  bName.value = ''
-  bUrl.value = s.homepage
+const home = ref('')
+watch(() => site.value?.homepage, (h) => { home.value = h ?? '' }, { immediate: true })
+async function commitHome() {
+  const s = site.value
+  const value = home.value.trim()
+  if (!s || value === s.homepage) return
+  if (value && !/^https?:\/\//i.test(value)) {
+    store.error = 'A homepage is an http(s) address.'
+    home.value = s.homepage
+    return
+  }
+  await run(() => api.putSourcePrefs(s.domain, { homepage: value }))
 }
-async function addBookmark(s: Source) {
-  const url = bUrl.value.trim()
-  if (!url) return
-  await savePrefs(s, { bookmarks: [...s.bookmarks, { name: bName.value.trim() || url, url }] })
-  adding.value = null
-}
-async function removeBookmark(s: Source, i: number) {
-  await savePrefs(s, { bookmarks: s.bookmarks.filter((_, x) => x !== i) })
-}
-
-// The list is sent whole on every write anyway (an index into a list somebody
-// may have reordered is not an address), so a reorder is just another write.
-const dragBm = ref<number | null>(null)
-const bmDrop = ref<string | null>(null)   // "<domain>#<index>" — one source at a time
-function clearBmDrag() {
-  dragBm.value = null
-  bmDrop.value = null
-}
-function onBookmarkOver(s: Source, i: number) {
-  bmDrop.value = dragBm.value === null ? null : `${s.domain}#${i}`
-}
-async function onBookmarkDrop(s: Source, to: number) {
-  const from = dragBm.value
-  clearBmDrag()
-  if (from === null || from === to) return
-  await savePrefs(s, { bookmarks: movedBefore(s.bookmarks, from, to) })
+async function setGroup(s: Source, name: string) {
+  const g = name.trim()
+  if (await ensureGroup(g)) await run(() => api.putSourcePrefs(s.domain, { group: g }))
 }
 
-// ---- the site itself ----
-//
-// Freeze is the other half of Remove. Remove hides the source and forgets what
-// longbox learned about it; freeze keeps all of it and only stops the browser's
-// rail from offering the site — the row stays here, dimmed.
-async function setFrozen(s: Source, frozen: boolean) {
-  await savePrefs(s, { frozen })
-}
-
-async function forgetRecipe(domain: string) {
+async function forgetRecipe(s: Source) {
   const ok = await askConfirm({
     title: 'Forget recipe', danger: true, okLabel: 'Forget',
-    message: `Forget everything learned about ${domain}? Its titles are untouched; you'll teach the fields again on the next capture.`,
+    message: `Forget everything learned about ${s.domain}? Its titles are untouched; you'll teach the fields again on the next capture.`,
   })
   if (!ok) return
-  busy.value = domain
-  try {
-    await api.removeRecipe(domain)
-    await refreshLibrary()
-  } catch (e) { store.error = String(e) } finally { busy.value = null }
+  // titles do not change with it: only the sites' list does
+  await run(async () => {
+    await api.removeRecipe(s.domain)
+    return api.sources()
+  })
 }
 
-async function removeSource(domain: string) {
+// What a site left in the browser. Counted by the shell; a window with no
+// shell has no browser to count.
+const hasShell = !!window.longbox
+const cookies = ref<number | null>(null)
+async function countCookies() {
+  const d = open.value
+  cookies.value = null
+  if (!d || !window.longbox) return
+  try {
+    const got = await window.longbox.siteData(d)
+    if (open.value === d) cookies.value = got?.cookies ?? null
+  } catch { /* nothing counted: the panel says so */ }
+}
+watch(open, () => void countCookies())
+
+const SITE_DATA = () => [
+  { key: 'cookies', label: 'Cookies', hint: 'Sign-ins and site preferences — you will be signed out', on: true },
+  { key: 'storage', label: 'Site storage', hint: 'Local storage, IndexedDB, service workers', on: true },
+  { key: 'cache', label: 'Cached pages and images', hint: "Only the site's own — nothing else is touched", on: true },
+]
+async function clearData(domains: string[]) {
+  if (!window.longbox || !domains.length) return
+  const choices = SITE_DATA()
   const ok = await askConfirm({
-    title: 'Remove source', danger: true, okLabel: 'Remove',
-    message: `Remove ${domain} from this list and forget what longbox learned about it? Your titles keep their source links — clear those per title, on the title itself.`,
+    title: domains.length === 1 ? `Clear browser data for ${domains[0]}` : `Clear browser data for ${domains.length} sites`,
+    message: 'Titles, links and recipes stay.', okLabel: 'Clear', danger: true, choices,
+  })
+  if (!ok || !choices.some((c) => c.on)) return
+  const what = Object.fromEntries(choices.map((c) => [c.key, c.on]))
+  await clearEach(domains, what)
+  void countCookies()
+}
+// one site refusing does not stop the others; the refusals are said once
+async function clearEach(domains: string[], what: { cookies?: boolean; storage?: boolean; cache?: boolean }) {
+  if (!window.longbox) return
+  const failed: string[] = []
+  for (const d of domains) {
+    try {
+      if (!(await window.longbox.clearSiteData(d, what))) failed.push(d)
+    } catch {
+      failed.push(d)
+    }
+  }
+  if (failed.length) store.error = `Browser data could not be cleared for ${failed.join(', ')}.`
+}
+async function clearCookies(s: Source) {
+  const ok = await askConfirm({
+    title: 'Clear cookies', danger: true, okLabel: 'Clear',
+    message: `Clear the cookies of ${s.domain}? You will be signed out of it.`,
   })
   if (!ok) return
-  busy.value = domain
-  try {
-    await api.removeSource(domain)
-    await refreshLibrary()
-  } catch (e) { store.error = String(e) } finally { busy.value = null }
+  await clearEach([s.domain], { cookies: true })
+  void countCookies()
 }
 
-void refreshDerived()
+// Removing takes a site off this list and forgets its recipe — and, unless the
+// owner unticks it, clears what the site left in the browser, which is what
+// used to stay behind after a source was gone.
+async function removeSites(domains: string[]) {
+  const choices = hasShell
+    ? [{ label: 'Also clear their browser data', hint: 'Cookies, site storage and cached pages — signs you out', on: true }]
+    : []
+  const named = domains.length <= 6 ? domains.join(', ')
+    : `${domains.slice(0, 5).join(', ')} and ${domains.length - 5} more`
+  const ok = await askConfirm({
+    title: domains.length === 1 ? 'Remove source' : `Remove ${domains.length} sources`, danger: true, okLabel: 'Remove',
+    message: `Remove ${named} from this list and forget what longbox learned? Titles keep their source links — clear those per title, on the title itself.`,
+    choices,
+  })
+  if (!ok || !sourcesKnown()) return
+  // gone from the list at once — the answer can take a while on a busy disk,
+  // and a row that just sits there reads as a click that did nothing
+  const before = store.sources
+  store.sources = before.filter((s) => !domains.includes(s.domain))
+  for (const d of domains) selected.delete(d)
+  if (open.value && domains.includes(open.value)) open.value = null
+  try {
+    if (choices[0]?.on) await clearEach(domains, { cookies: true, storage: true, cache: true })
+    store.sources = await api.bulkSources({ domains, remove: true })
+  } catch (e) {
+    store.sources = before // back, with the reason
+    store.error = e instanceof Error ? e.message : String(e)
+  }
+}
+
+// ---- links ----
+//
+// One address saved twice is the same link, whatever the slash or the anchor.
+function linkKey(url: string): string {
+  try {
+    const u = new URL(url)
+    return `${u.protocol}//${u.host.toLowerCase()}${u.pathname.replace(/\/+$/, '')}${u.search}`
+  } catch { return url.trim() }
+}
+const linkCounts = computed(() => {
+  const n = new Map<string, number>()
+  for (const s of store.sources) for (const b of s.bookmarks) n.set(linkKey(b.url), (n.get(linkKey(b.url)) ?? 0) + 1)
+  return n
+})
+const isDup = (b: Bookmark) => (linkCounts.value.get(linkKey(b.url)) ?? 0) > 1
+// how long ago a link was saved, in the coarse units a list is scanned in
+function ago(iso?: string): string {
+  if (!iso) return 'earlier'
+  const days = (Date.now() - Date.parse(iso)) / 86_400_000
+  if (Number.isNaN(days)) return 'earlier'
+  if (days < 1) return 'today'
+  if (days < 14) return `${Math.floor(days)} d`
+  if (days < 60) return `${Math.floor(days / 7)} w`
+  if (days < 365) return `${Math.floor(days / 30)} mo`
+  return `${Math.floor(days / 365)} y`
+}
+// an address on the site itself reads as its path; anywhere else, whole
+function shortUrl(s: Source, url: string): string {
+  try {
+    const u = new URL(url)
+    const host = u.hostname.replace(/^www\./, '')
+    return host === s.domain.replace(/^www\./, '') ? `${u.pathname}${u.search}` || '/' : url
+  } catch { return url }
+}
+// A link is addressed by its place in the list it was read from — so every
+// link action waits for the write before it (`busy`), and a change to a list
+// drops the edits and the ticks that pointed into the old one.
+async function saveLinks(s: Source, list: Bookmark[]) {
+  await run(() => api.putSourcePrefs(s.domain, { bookmarks: list }))
+}
+watch(() => JSON.stringify(site.value?.bookmarks ?? null), () => {
+  editing.value = null
+  lsel.clear()
+})
+watch(() => JSON.stringify(store.sources.map((x) => x.bookmarks)), () => {
+  tEditing.value = null
+  tsel.clear()
+})
+
+// the panel's Links tab — one site's, built for a hundred
+const lq = ref('')
+const lsort = ref<'order' | 'name' | 'saved'>('order')
+const ldups = ref(false)
+const lsel = reactive(new Set<number>()) // indexes into the site's list
+const editing = ref<number | 'new' | null>(null)
+const eName = ref('')
+const eUrl = ref('')
+function resetLinks() {
+  lq.value = ''
+  ldups.value = false
+  lsel.clear()
+  editing.value = null
+}
+const panelLinks = computed(() => {
+  const s = site.value
+  if (!s) return []
+  const words = lq.value.trim().toLowerCase()
+  const rows = s.bookmarks.map((b, i) => ({ b, i }))
+    .filter(({ b }) => (!words || `${b.name} ${b.url}`.toLowerCase().includes(words)) && (!ldups.value || isDup(b)))
+  if (lsort.value === 'name') rows.sort((a, b) => a.b.name.localeCompare(b.b.name))
+  if (lsort.value === 'saved') rows.sort((a, b) => (b.b.added ?? '').localeCompare(a.b.added ?? ''))
+  return rows
+})
+const panelDups = computed(() => site.value?.bookmarks.filter(isDup).length ?? 0)
+function startEdit(i: number | 'new') {
+  const s = site.value
+  if (!s || busy.value) return
+  editing.value = i
+  const b = i === 'new' ? null : s.bookmarks[i]
+  eName.value = b?.name ?? ''
+  eUrl.value = b?.url ?? s.homepage
+}
+async function commitEdit() {
+  const s = site.value
+  const at = editing.value
+  const url = eUrl.value.trim()
+  if (!s || at === null || !url) return
+  const link = { name: eName.value.trim() || url, url }
+  const list = at === 'new' ? [...s.bookmarks, link]
+    : s.bookmarks.map((b, i) => (i === at ? { ...b, ...link } : b))
+  editing.value = null
+  await saveLinks(s, list)
+}
+async function dropLinks(indexes: number[]) {
+  const s = site.value
+  if (!s || !indexes.length) return
+  const gone = new Set(indexes)
+  lsel.clear()
+  await saveLinks(s, s.bookmarks.filter((_, i) => !gone.has(i)))
+}
+const dragLink = ref<number | null>(null)
+const linkDrop = ref<number | null>(null)
+async function onLinkDrop(to: number) {
+  const s = site.value
+  const from = dragLink.value
+  dragLink.value = linkDrop.value = null
+  if (!s || from === null || from === to) return
+  await saveLinks(s, movedBefore(s.bookmarks, from, to))
+}
+
+// ---- Links: every link of every site, to clean up ----
+const tsort = ref<'name' | 'site' | 'saved'>('site')
+const tdups = ref(false)
+const tsel = reactive(new Set<string>()) // "<domain>#<index>"
+const allLinks = computed(() => {
+  const rows = store.sources.flatMap((s) => s.bookmarks.map((b, i) => ({ s, b, i, key: `${s.domain}#${i}` })))
+    .filter(({ s, b }) => (!needle.value || `${b.name} ${b.url} ${s.domain}`.toLowerCase().includes(needle.value))
+      && (!tdups.value || isDup(b)))
+  if (tsort.value === 'name') rows.sort((a, b) => a.b.name.localeCompare(b.b.name))
+  if (tsort.value === 'saved') rows.sort((a, b) => (b.b.added ?? '').localeCompare(a.b.added ?? ''))
+  if (tsort.value === 'site') rows.sort((a, b) => a.s.domain.localeCompare(b.s.domain) || a.i - b.i)
+  return rows
+})
+const allDups = computed(() => store.sources.reduce((n, s) => n + s.bookmarks.filter(isDup).length, 0))
+const tEditing = ref<string | null>(null)
+const tName = ref('') // the table's own: the panel may have an edit open too
+const tUrl = ref('')
+function startTableEdit(row: { s: Source; b: Bookmark; key: string }) {
+  if (busy.value) return
+  tEditing.value = row.key
+  tName.value = row.b.name
+  tUrl.value = row.b.url
+}
+async function commitTableEdit(row: { s: Source; i: number }) {
+  const url = tUrl.value.trim()
+  tEditing.value = null
+  if (!url) return
+  await saveLinks(row.s, row.s.bookmarks.map((b, i) => (i === row.i ? { ...b, name: tName.value.trim() || url, url } : b)))
+}
+function openFromTable(domain: string) {
+  selected.clear() // the panel shows only with nothing picked
+  mode.value = 'tree'
+  openSite(domain)
+  ptab.value = 'links'
+}
+async function deleteTicked() {
+  const by = new Map<string, Set<number>>()
+  for (const key of tsel) {
+    const cut = key.lastIndexOf('#')
+    const d = key.slice(0, cut)
+    by.set(d, (by.get(d) ?? new Set()).add(Number(key.slice(cut + 1))))
+  }
+  tsel.clear()
+  for (const [d, gone] of by) {
+    const s = store.sources.find((x) => x.domain === d)
+    if (s) await saveLinks(s, s.bookmarks.filter((_, i) => !gone.has(i)))
+  }
+}
 </script>
 
 <template>
   <div class="viewcol">
     <div class="head">
       <h1 class="h1">Sources</h1>
-      <span class="count mono">{{ store.sources.length }} domain{{ store.sources.length === 1 ? '' : 's' }} · {{ bookmarkCount }} bookmark{{ bookmarkCount === 1 ? '' : 's' }}</span>
+      <span class="count mono">{{ store.sources.length }} site{{ store.sources.length === 1 ? '' : 's' }} · {{ linkCount }} link{{ linkCount === 1 ? '' : 's' }}</span>
       <div style="flex:1"></div>
-      <SearchBox v-model="q" placeholder="Search a domain or a bookmark…" />
-      <button class="btn ghost" title="Sort the list" @click="sort = sort === 'Titles' ? 'Name' : 'Titles'">
-        <Icon name="rows" :size="13" :sw="1.9" />{{ sort }}
-      </button>
-      <MenuButton v-slot="{ close }">
-        <button @click="close(); newTab()"><Icon name="browser" :size="14" :sw="1.9" />Open browser</button>
-        <button @click="close(); newGroup()"><Icon name="plus" :size="14" :sw="2.2" />New group</button>
-      </MenuButton>
+      <div class="seg">
+        <button class="opt" :class="{ on: mode === 'tree' }" @click="mode = 'tree'">Tree</button>
+        <button class="opt" :class="{ on: mode === 'links' }" @click="mode = 'links'">Links</button>
+      </div>
+      <SearchBox v-model="q" :width="280" placeholder="Find a site or a link…" />
+      <button class="btn" @click="addingGroup = true"><Icon name="plus" :size="13" :sw="2.2" />Group</button>
     </div>
 
     <Teleport to="#siderail">
       <RailSection label="GROUPS" hint="click to narrow">
-        <button :class="{ on: !picked }" @click="picked = ''">
-          <span class="slbl">All sources</span><span class="n mono">{{ store.sources.length }}</span>
+        <button :class="{ on: picked === null }" @click="picked = null">
+          <span class="slbl">All sites</span><span class="n mono">{{ store.sources.length }}</span>
         </button>
-        <button v-for="g in railGroups" :key="g.name" :class="{ on: picked === g.name }"
-                @click="picked = picked === g.name ? '' : g.name">
-          <span class="slbl">{{ g.label }}</span><span class="n mono">{{ g.n }}</span>
+        <button v-for="g in groupNames" :key="g" :class="{ on: picked === g }" @click="picked = picked === g ? null : g">
+          <span class="slbl">{{ g }}</span><span class="n mono">{{ groupCount(g) }}</span>
         </button>
-        <button class="add" @click="newGroup">
+        <button v-if="groupCount('')" :class="{ on: picked === '' }" @click="picked = picked === '' ? null : ''">
+          <span class="slbl">No group</span><span class="n mono">{{ groupCount('') }}</span>
+        </button>
+        <div v-if="addingGroup" class="railin">
+          <input v-model="newGroup" v-focus class="in" placeholder="Name the group, then Enter"
+                 @keydown.enter="commitNewGroup" @keydown.esc="cancelNewGroup" @blur="commitNewGroup" />
+        </div>
+        <button v-else class="add" @click="addingGroup = true">
           <Icon name="plus" :size="13" :sw="2.2" /><span class="slbl">New group</span>
         </button>
       </RailSection>
     </Teleport>
 
-    <div class="viewscroll scroll">
-      <div v-if="!store.sources.length" class="emptyv">
-        <div class="et">No sources yet</div>
-        <div class="es">Sources appear here once your titles reference them. Open the browser, capture a title, and its
-          domain shows up with the recipe it learned.</div>
-        <button class="btn accent" @click="newTab()"><Icon name="plus" :size="14" :sw="2.2" />Open browser</button>
+    <!-- the band above the list: what narrows it, or what to do with the picked -->
+    <div v-if="mode === 'tree' && selected.size" class="tool bulk">
+      <span class="sel">{{ selected.size }} site{{ selected.size === 1 ? '' : 's' }} selected</span>
+      <Dropdown :model-value="MOVE" :options="moveOptions" @update:model-value="moveSelected(String($event))" />
+      <button class="btn small" :disabled="busy" @click="hideSelected">
+        <Icon name="eyeoff" :size="12" :sw="1.9" />{{ allHidden ? 'Show in browser' : 'Hide from browser' }}</button>
+      <button v-if="hasShell" class="btn small" :disabled="busy" @click="clearData([...selected])">Clear browser data…</button>
+      <button class="btn small danger" :disabled="busy" @click="removeSites([...selected])">Remove…</button>
+      <div style="flex:1"></div>
+      <button class="btn ghost small" @click="selected.clear()"><Icon name="x" :size="12" :sw="2.2" />Clear selection</button>
+    </div>
+    <div v-else-if="mode === 'tree'" class="tool">
+      <div class="seg text">
+        <button v-for="f in FILTERS" :key="f.v" class="opt" :class="{ on: filter === f.v }" @click="filter = f.v">{{ f.l }}</button>
       </div>
-
-      <div v-else class="list">
-        <template v-for="sec in sections" :key="sec.name">
-          <div class="ghead" :class="{ drop: groupDrop === sec.name, named: sec.name !== UNGROUPED }"
-               :draggable="sec.name !== UNGROUPED && !picked"
-               :title="sec.name === UNGROUPED ? '' : 'Drag onto another group to reorder'"
-               @click="closed[sec.name] = !closed[sec.name]"
-               @dragstart="dragGroup = sec.name" @dragend="clearGroupDrag"
-               @dragover.prevent="onGroupOver(sec.name)" @drop.prevent="onGroupDrop(sec.name)">
-            <span v-if="sec.name !== UNGROUPED && !picked" class="ggrip mono">&#8942;&#8942;</span>
-            <Icon name="chevron" :size="10" :sw="2.4" :style="{ transform: closed[sec.name] ? 'rotate(-90deg)' : '' }" />
-            <span class="glbl">{{ sec.name === UNGROUPED ? 'UNGROUPED' : sec.name.toUpperCase() }} · {{ sec.rows.length }}</span>
-            <span class="grule"></span>
-          </div>
-
-          <template v-if="!closed[sec.name]">
-            <template v-for="s in sec.rows" :key="s.id">
-              <div class="srow" :class="{ on: open === s.domain, busy: busy === s.domain, cold: s.frozen }"
-                   @click="open = open === s.domain ? null : s.domain">
-                <span class="init">
-                  <img v-if="!noIcon[s.domain]" class="favimg" :src="faviconFor(s.domain)" alt=""
-                       @error="noIcon[s.domain] = true" />
-                  <template v-else>{{ (s.domain.slice(0, 2) || '?').toUpperCase() }}</template>
-                </span>
-                <span class="sname">{{ s.domain }}</span>
-                <span class="rmark" :class="{ none: !s.hasRecipe }">
-                  <Icon v-if="s.hasRecipe" name="check" :size="11" :sw="2.6" />
-                  {{ s.hasRecipe ? `v${s.recipeVer}` : 'no recipe' }}
-                </span>
-                <span v-if="s.frozen" class="coldmark mono" title="Kept here, not offered in the browser">frozen</span>
-                <span style="flex:1"></span>
-                <span class="snum mono">{{ s.titles }} title{{ s.titles === 1 ? '' : 's' }}</span>
-                <span class="sbm mono" :class="{ has: s.bookmarks.length }">
-                  <Icon name="star" :size="11" :sw="1.8" :fill="s.bookmarks.length ? 'currentColor' : 'none'" />
-                  {{ s.bookmarks.length }}
-                </span>
-                <Icon name="chevron" :size="12" :sw="2.2" class="chev"
-                      :style="{ transform: open === s.domain ? '' : 'rotate(-90deg)' }" />
-              </div>
-
-              <div v-if="open === s.domain" class="sopen" @click.stop>
-                <div class="bmcol">
-                  <div class="collbl">BOOKMARKS</div>
-                  <div v-for="(b, i) in s.bookmarks" :key="b.url + i" class="bmrow"
-                       :class="{ drop: bmDrop === `${s.domain}#${i}` }" draggable="true"
-                       @click="newTab(b.url)"
-                       @dragstart="dragBm = i" @dragend="clearBmDrag"
-                       @dragover.prevent="onBookmarkOver(s, i)" @drop.prevent="onBookmarkDrop(s, i)">
-                    <span class="bgrip mono" title="Drag to reorder">&#8942;&#8942;</span>
-                    <Icon name="star" :size="12" :sw="1.8" fill="currentColor" class="star" />
-                    <span class="bmname">{{ b.name }}</span>
-                    <span class="bmurl mono">{{ b.url }}</span>
-                    <button class="bmact" title="Open in a new tab" @click.stop="newTab(b.url)">
-                      <Icon name="forward" :size="12" :sw="2" />
-                    </button>
-                    <button class="bmact" title="Remove this bookmark" @click.stop="removeBookmark(s, i)">
-                      <Icon name="x" :size="12" :sw="2.4" />
-                    </button>
-                  </div>
-                  <div v-if="!s.bookmarks.length && adding !== s.domain" class="bmnone">
-                    Nothing saved yet. In the browser, the star in the address bar files the open page here.
-                  </div>
-
-                  <div v-if="adding === s.domain" class="bmform" @click.stop>
-                    <input v-model="bName" class="in" placeholder="Name it — Follows, Latest, a saved search…" />
-                    <input v-model="bUrl" class="in mono" placeholder="https://…" />
-                    <div class="bmformrow">
-                      <button class="btn ghost sm" @click="adding = null">Cancel</button>
-                      <button class="btn accent sm" :disabled="!bUrl.trim()" @click="addBookmark(s)">Save link</button>
-                    </div>
-                  </div>
-                  <div v-else class="bmadd" @click.stop="startAdd(s)">
-                    <Icon name="plus" :size="13" :sw="2.2" />Add a link
-                  </div>
-                </div>
-
-                <div class="metacol">
-                  <div class="collbl">RECIPE</div>
-                  <div class="mline">
-                    <template v-if="s.hasRecipe">
-                      <span class="ver mono">v{{ s.recipeVer }}</span>
-                      <span class="rhint">learned from captures · updates as you edit</span>
-                    </template>
-                    <span v-else class="rhint none">not learned yet — capture a title from this site</span>
-                  </div>
-                  <div v-if="s.hasRecipe && s.fields.length" class="fields">
-                    <span v-for="f in s.fields" :key="f" class="field">{{ f }}</span>
-                  </div>
-
-                  <div class="collbl" style="margin-top:4px">GROUP</div>
-                  <Combo :model-value="s.group" :suggestions="store.sourceGroups" wide lazy
-                         placeholder="Ungrouped — type a name to create one"
-                         @update:model-value="setGroup(s, $event)" />
-
-                  <div class="acts">
-                    <button class="btn sm" :disabled="!s.homepage" @click="newTab(s.homepage)">
-                      <Icon name="browser" :size="12" :sw="1.9" />Open homepage
-                    </button>
-                    <button class="btn ghost sm" :disabled="busy === s.domain"
-                            :title="s.frozen
-                              ? 'Offer this site in the browser again'
-                              : 'Keep everything, but stop offering this site in the browser'"
-                            @click="setFrozen(s, !s.frozen)">{{ s.frozen ? 'Thaw' : 'Freeze' }}</button>
-                    <button v-if="s.hasRecipe" class="btn ghost sm" :disabled="busy === s.domain"
-                            title="Forget the learned selectors; titles are untouched"
-                            @click="forgetRecipe(s.domain)">Forget recipe</button>
-                    <button class="btn ghost sm danger" :disabled="busy === s.domain"
-                            title="Hide from this list and forget the recipe; titles keep their links"
-                            @click="removeSource(s.domain)">Remove</button>
-                  </div>
-                </div>
-              </div>
-            </template>
-          </template>
-        </template>
+      <div style="flex:1"></div>
+      <span class="hint">Drag to reorder — the browser's rail follows · Ctrl/Shift-click picks several</span>
+    </div>
+    <div v-else-if="tsel.size" class="tool bulk">
+      <span class="sel">{{ tsel.size }} link{{ tsel.size === 1 ? '' : 's' }} selected</span>
+      <button class="btn small danger" :disabled="busy" @click="deleteTicked"><Icon name="x" :size="12" :sw="2.2" />Delete</button>
+      <div style="flex:1"></div>
+      <button class="btn ghost small" @click="tsel.clear()">Clear selection</button>
+    </div>
+    <div v-else class="tool">
+      <div class="seg text">
+        <button class="opt" :class="{ on: !tdups }" @click="tdups = false">All</button>
+        <button class="opt" :class="{ on: tdups }" @click="tdups = true">Duplicates <span class="mono dim">{{ allDups }}</span></button>
       </div>
+      <div class="seg text">
+        <button class="opt" :class="{ on: tsort === 'name' }" @click="tsort = 'name'">Name</button>
+        <button class="opt" :class="{ on: tsort === 'site' }" @click="tsort = 'site'">Site</button>
+        <button class="opt" :class="{ on: tsort === 'saved' }" @click="tsort = 'saved'">Saved</button>
+      </div>
+      <div style="flex:1"></div>
+      <span class="hint">Double-click a name or an address to edit it</span>
     </div>
 
-    <div class="lfoot">
-      <span class="mono lfinfo">{{ matches.length }} of {{ store.sources.length }} shown</span>
+    <div v-if="!store.sources.length" class="emptyv">
+      <div class="et">No sources yet</div>
+      <div class="es">Sources appear here once your titles reference them, or once you save a link in the browser.</div>
+      <button class="btn accent" @click="newTab()"><Icon name="plus" :size="14" :sw="2.2" />Open browser</button>
+    </div>
+
+    <!-- ================= TREE ================= -->
+    <div v-else-if="mode === 'tree'" class="work">
+      <div class="list scroll" :class="{ selecting: selected.size }"
+           @dragover.prevent @drop.prevent="dragSite && dropSite()">
+        <template v-for="sec in sections" :key="sec.name || '\u0000'">
+          <div class="ghead" :class="{ drop: groupDrop === sec.name && !!sec.name, named: !!sec.name }"
+               :draggable="!!sec.name && renaming !== sec.name"
+               @dragstart="dragGroup = sec.name || null" @dragend="dragGroup = groupDrop = null"
+               @dragover.prevent.stop="dragSite ? overGroupEnd(sec.name) : (groupDrop = dragGroup && sec.name ? sec.name : null)"
+               @drop.prevent.stop="dragSite ? dropSite() : onGroupDrop(sec.name)">
+            <span class="grip">{{ sec.name ? '⋮⋮' : '' }}</span>
+            <input v-if="renaming === sec.name" v-model="renameTo" v-focus class="in rename"
+                   @keydown.enter="commitRename" @keydown.esc="renaming = null" @blur="commitRename" />
+            <span v-else class="glbl">{{ (sec.name || 'No group').toUpperCase() }} · {{ sec.rows.length }}</span>
+            <span class="grule"></span>
+            <template v-if="sec.name && renaming !== sec.name">
+              <button class="gact" @click="startRename(sec.name)">Rename</button>
+              <button class="gact" @click="deleteGroup(sec.name)">Delete group</button>
+            </template>
+          </div>
+          <template v-for="s in sec.rows" :key="s.id">
+            <div v-if="dropsBefore(s.domain)" class="dropline"></div>
+            <div class="srow" :draggable="!busy"
+                 :class="{ on: open === s.domain && !selected.size, selected: selected.has(s.domain), cold: s.frozen }"
+                 @click="clickSite(s, $event)"
+                 @dragstart="dragSite = s.domain" @dragend="dragSite = siteDrop = null"
+                 @dragover.prevent.stop="overSite(s, sec.rows, $event)" @drop.prevent.stop="dropSite">
+              <span class="fbox tick" :class="{ on: selected.has(s.domain) }" @click.stop="tick(s.domain)">
+                <Icon v-if="selected.has(s.domain)" name="check" :size="9" :sw="3.2" />
+              </span>
+              <span class="grip">⋮⋮</span>
+              <span class="init">
+                <img v-if="!noIcon[s.domain]" class="favimg" :src="faviconFor(s.domain)" alt="" @error="noIcon[s.domain] = true" />
+                <template v-else>{{ (s.domain.slice(0, 2) || '?').toUpperCase() }}</template>
+              </span>
+              <span class="sname">{{ s.domain }}</span>
+              <span class="rmark" :class="{ none: !s.hasRecipe }">{{ s.hasRecipe ? `v${s.recipeVer}` : 'no recipe' }}</span>
+              <span v-if="s.frozen" class="hidden mono" title="Kept here, not offered in the browser">
+                <Icon name="eyeoff" :size="10" :sw="2" />hidden</span>
+              <span style="flex:1"></span>
+              <span class="snum mono">{{ s.titles ? `${s.titles} title${s.titles === 1 ? '' : 's'}` : '—' }}</span>
+              <span class="slinks mono" :class="{ has: s.bookmarks.length }">
+                <Icon name="star" :size="11" :sw="1.8" />{{ s.bookmarks.length }}</span>
+            </div>
+          </template>
+          <div v-if="dropsAtEnd(sec.name)" class="dropline"></div>
+        </template>
+        <div v-if="!sections.length" class="none">Nothing matches.</div>
+      </div>
+
+      <!-- the site's panel: what it IS, and what is saved under it -->
+      <aside v-if="site && !selected.size" class="pane">
+        <div class="phead">
+          <span class="init">
+            <img v-if="!noIcon[site.domain]" class="favimg" :src="faviconFor(site.domain)" alt="" @error="noIcon[site.domain] = true" />
+            <template v-else>{{ (site.domain.slice(0, 2) || '?').toUpperCase() }}</template>
+          </span>
+          <span class="pname">{{ site.domain }}</span>
+          <button class="btn small" @click="newTab(site.homepage)"><Icon name="browser" :size="12" :sw="1.9" />Open homepage</button>
+          <button class="iconbtn plain" title="Close" @click="open = null"><Icon name="x" :size="13" :sw="2.2" /></button>
+        </div>
+        <div class="ptabs">
+          <button :class="{ on: ptab === 'settings' }" @click="ptab = 'settings'">Settings</button>
+          <button :class="{ on: ptab === 'links' }" @click="ptab = 'links'">Links <span class="n mono">{{ site.bookmarks.length }}</span></button>
+        </div>
+
+        <template v-if="ptab === 'settings'">
+          <div class="pbody scroll">
+            <div class="psec">
+              <div class="plbl">SITE</div>
+              <div class="form">
+                <span class="k">Homepage</span>
+                <input v-model="home" class="in mono" :placeholder="`https://${site.domain}/`"
+                       @keydown.enter="($event.target as HTMLInputElement).blur()" @blur="commitHome" />
+                <span class="k">Group</span>
+                <Combo :model-value="site.group" :suggestions="groupNames" wide lazy
+                       placeholder="No group — type a name to create one"
+                       @update:model-value="setGroup(site, $event)" />
+                <span class="k">In browser</span>
+                <button class="tg" :disabled="busy" @click="run(() => api.putSourcePrefs(site!.domain, { frozen: !site!.frozen }))">
+                  <span class="toggle" :class="{ on: !site.frozen }"></span>
+                  <span class="hint">{{ site.frozen ? 'hidden from the rail — kept here' : 'shown in the rail' }}</span>
+                </button>
+              </div>
+            </div>
+            <div class="psec">
+              <div class="plbl">RECIPE</div>
+              <template v-if="site.hasRecipe">
+                <div class="fields">
+                  <span class="ver mono">v{{ site.recipeVer }}</span>
+                  <span v-for="f in site.fields" :key="f" class="field">{{ f }}</span>
+                </div>
+                <button class="btn small ghost" :disabled="busy" @click="forgetRecipe(site)">Forget recipe</button>
+              </template>
+              <div v-else class="hint">Not learned yet — capture a title from this site.</div>
+            </div>
+            <div class="psec">
+              <div class="plbl">BROWSER DATA</div>
+              <template v-if="hasShell">
+                <div class="dataline">
+                  <span class="big">{{ cookies ?? '…' }}</span><span class="hint">cookie{{ cookies === 1 ? '' : 's' }} · plus site storage and cached pages, which Chromium does not measure per site</span>
+                </div>
+                <div class="acts">
+                  <button class="btn small" :disabled="!cookies" @click="clearCookies(site)">Clear cookies</button>
+                  <button class="btn small" @click="clearData([site.domain])">Clear site data…</button>
+                </div>
+              </template>
+              <div v-else class="hint">The browser runs in the desktop app.</div>
+            </div>
+          </div>
+          <div class="pfoot">
+            <button class="btn ghost small danger" :disabled="busy" @click="removeSites([site.domain])">Remove source…</button>
+            <div style="flex:1"></div>
+            <span class="hint">{{ site.titles }} title{{ site.titles === 1 ? '' : 's' }} keep their links</span>
+          </div>
+        </template>
+
+        <template v-else>
+          <div v-if="lsel.size" class="pbulk">
+            <span class="sel">{{ lsel.size }} selected</span>
+            <div style="flex:1"></div>
+            <button class="btn small danger" :disabled="busy" @click="dropLinks([...lsel])">Delete</button>
+            <button class="iconbtn plain" title="Clear selection" @click="lsel.clear()"><Icon name="x" :size="12" :sw="2.2" /></button>
+          </div>
+          <div class="ptool">
+            <div class="row">
+              <SearchBox v-model="lq" :placeholder="`Find among ${site.bookmarks.length} links…`" />
+              <button class="btn small accent" :disabled="busy" @click="startEdit('new')"><Icon name="plus" :size="12" :sw="2.2" />Add</button>
+            </div>
+            <div class="row">
+              <div class="seg text">
+                <button class="opt" :class="{ on: lsort === 'order' }" title="The rail's order — drag to change it" @click="lsort = 'order'">Order</button>
+                <button class="opt" :class="{ on: lsort === 'name' }" @click="lsort = 'name'">Name</button>
+                <button class="opt" :class="{ on: lsort === 'saved' }" @click="lsort = 'saved'">Saved</button>
+              </div>
+              <div class="seg text">
+                <button class="opt" :class="{ on: !ldups }" @click="ldups = false">All</button>
+                <button class="opt" :class="{ on: ldups }" @click="ldups = true">Duplicates <span class="mono dim">{{ panelDups }}</span></button>
+              </div>
+            </div>
+          </div>
+          <div class="plist scroll" :class="{ selecting: lsel.size }">
+            <div v-if="editing === 'new'" class="pedit">
+              <input v-model="eName" v-focus class="in" placeholder="Name it — Follows, Latest, a saved search…" />
+              <input v-model="eUrl" class="in mono" placeholder="https://…" @keydown.enter="commitEdit" />
+              <div class="erow"><button class="btn ghost small" @click="editing = null">Cancel</button>
+                <button class="btn accent small" :disabled="busy || !eUrl.trim()" @click="commitEdit">Save</button></div>
+            </div>
+            <template v-for="r in panelLinks" :key="r.b.url + r.i">
+              <div v-if="editing === r.i" class="pedit">
+                <input v-model="eName" v-focus class="in" />
+                <input v-model="eUrl" class="in mono" @keydown.enter="commitEdit" />
+                <div class="erow"><button class="btn ghost small" @click="editing = null">Cancel</button>
+                  <button class="btn accent small" :disabled="busy || !eUrl.trim()" @click="commitEdit">Save</button></div>
+              </div>
+              <div v-else class="prow" :class="{ selected: lsel.has(r.i), drop: linkDrop === r.i }"
+                   :draggable="lsort === 'order' && !lq && !ldups && !busy"
+                   :title="r.b.url"
+                   @dragstart="dragLink = r.i" @dragend="dragLink = linkDrop = null"
+                   @dragover.prevent="linkDrop = dragLink === null ? null : r.i" @drop.prevent="onLinkDrop(r.i)"
+                   @dblclick="startEdit(r.i)">
+                <span class="fbox tick" :class="{ on: lsel.has(r.i) }" @click="lsel.has(r.i) ? lsel.delete(r.i) : lsel.add(r.i)">
+                  <Icon v-if="lsel.has(r.i)" name="check" :size="9" :sw="3.2" />
+                </span>
+                <span class="grip">{{ lsort === 'order' && !lq && !ldups ? '⋮⋮' : '' }}</span>
+                <span class="lname">{{ r.b.name }}</span>
+                <span class="lurl mono">{{ shortUrl(site, r.b.url) }}</span>
+                <span v-if="isDup(r.b)" class="ldup mono" title="The same address is saved more than once">DUP</span>
+                <button class="lact" title="Edit" :disabled="busy" @click.stop="startEdit(r.i)"><Icon name="edit" :size="12" :sw="1.9" /></button>
+                <button class="lact" title="Delete this link" :disabled="busy" @click.stop="dropLinks([r.i])"><Icon name="x" :size="12" :sw="2.2" /></button>
+              </div>
+            </template>
+            <!-- below the last link: where a link dragged to the end lands -->
+            <div v-if="lsort === 'order' && !lq && !ldups && site.bookmarks.length" class="pend"
+                 :class="{ drop: linkDrop === site.bookmarks.length }"
+                 @dragover.prevent="linkDrop = dragLink === null ? null : site.bookmarks.length"
+                 @drop.prevent="onLinkDrop(site.bookmarks.length)"></div>
+            <div v-if="!site.bookmarks.length && editing !== 'new'" class="none">
+              Nothing saved yet. In the browser, the star in the address bar files the open page here.
+            </div>
+            <div v-else-if="!panelLinks.length && editing !== 'new'" class="none">No link matches.</div>
+          </div>
+        </template>
+      </aside>
+    </div>
+
+    <!-- ================= LINKS ================= -->
+    <div v-else class="work">
+      <div class="list table scroll">
+        <div class="thead mono">
+          <span></span><span>NAME</span><span>ADDRESS</span><span>SITE</span><span>GROUP</span><span>SAVED</span><span></span>
+        </div>
+        <div v-for="row in allLinks" :key="row.key" class="trow" :class="{ selected: tsel.has(row.key), dup: isDup(row.b) }">
+          <span class="fbox tick" :class="{ on: tsel.has(row.key) }" @click="tsel.has(row.key) ? tsel.delete(row.key) : tsel.add(row.key)">
+            <Icon v-if="tsel.has(row.key)" name="check" :size="9" :sw="3.2" />
+          </span>
+          <template v-if="tEditing === row.key">
+            <input v-model="tName" v-focus class="in cell" @keydown.enter="commitTableEdit(row)" @keydown.esc="tEditing = null" />
+            <input v-model="tUrl" class="in cell mono" @keydown.enter="commitTableEdit(row)" @keydown.esc="tEditing = null" />
+          </template>
+          <template v-else>
+            <span class="lname" @dblclick="startTableEdit(row)">{{ row.b.name }}
+              <span v-if="isDup(row.b)" class="ldup mono">DUPLICATE</span></span>
+            <span class="lurl mono" :title="row.b.url" @dblclick="startTableEdit(row)">{{ row.b.url }}</span>
+          </template>
+          <span class="tsite" @click="openFromTable(row.s.domain)">{{ row.s.domain }}</span>
+          <span class="tdim">{{ row.s.group || 'No group' }}</span>
+          <span class="tdim mono">{{ ago(row.b.added) }}</span>
+          <span class="tacts">
+            <template v-if="tEditing === row.key">
+              <button class="btn accent small" :disabled="busy" @click="commitTableEdit(row)">Save</button>
+            </template>
+            <button v-else class="lact" title="Delete this link" :disabled="busy"
+                    @click="saveLinks(row.s, row.s.bookmarks.filter((_, i) => i !== row.i))">
+              <Icon name="x" :size="12" :sw="2.2" /></button>
+          </span>
+        </div>
+        <div v-if="!allLinks.length" class="none">{{ linkCount ? 'No link matches.' : 'No links saved yet.' }}</div>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.head { height: 44px; flex: none; border-bottom: 1px solid var(--line); display: flex; flex-wrap: nowrap; min-width: 0; align-items: center; gap: 10px; padding: 0 16px 0 24px; }
-.count { font: 500 11.5px/1 ui-monospace, monospace; color: var(--tx3); white-space: nowrap; flex: none; }
-
+.head { height: 44px; flex: none; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; padding: 0 16px 0 24px; min-width: 0; }
+.count { font: 500 12px/1 ui-monospace, monospace; color: var(--tx3); white-space: nowrap; flex: none; }
+.tool { height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px 0 24px; border-bottom: 1px solid var(--line); min-width: 0; }
+.tool.bulk { background: var(--accentSoft); }
+.sel { font: 600 12px/1 system-ui; color: var(--accent); margin-right: 4px; white-space: nowrap; }
+.hint { font: 400 11px/1.4 system-ui; color: var(--tx3); }
+.dim { color: var(--tx3); }
 .emptyv { padding: 66px 30px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
-.et { font: 600 16px/1 system-ui; color: var(--tx); }
+.et { font: 600 15px/1 system-ui; color: var(--tx); }
 .es { font: 400 13px/1.5 system-ui; color: var(--tx3); max-width: 48ch; text-align: center; margin-bottom: 4px; }
+.none { padding: 14px 24px; font: 400 12px/1.5 system-ui; color: var(--tx3); }
 
 .slbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.n { font: 500 10.5px/1 ui-monospace, monospace; color: var(--tx3); flex: none; }
-.list { padding: 10px 24px 20px; }
-.ghead { display: flex; align-items: center; gap: 9px; height: 34px; padding: 0 8px; margin-top: 6px; cursor: pointer; color: var(--tx3); }
-.ghead:hover { color: var(--tx2); }
-.ghead.named[draggable="true"] { cursor: grab; }
-.ghead .ggrip { font-size: 11px; letter-spacing: -2px; opacity: 0; }
-.ghead:hover .ggrip { opacity: 1; }
+.n { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); flex: none; }
+.railin { padding: 2px 8px; }
+
+.work { flex: 1; min-height: 0; display: flex; }
+.list { flex: 1; min-width: 0; padding: 6px 0 20px; }
+.tick { cursor: pointer; }
+.grip { width: 10px; flex: none; font: 700 11px/1 system-ui; letter-spacing: -2px; color: var(--tx3); opacity: 0; cursor: grab; }
+
+.ghead { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 16px 0 18px; margin-top: 6px; color: var(--tx3); }
+.ghead.named { cursor: grab; }
+.ghead:hover .grip { opacity: 1; }
 .ghead.drop { color: var(--accent); }
 .ghead.drop .grule { background: var(--accent); }
-.glbl { font: 700 9.5px/1 ui-monospace, monospace; letter-spacing: .12em; }
+.glbl { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; white-space: nowrap; }
 .grule { flex: 1; height: 1px; background: var(--line); }
+.gact { opacity: 0; border: none; background: transparent; font: 600 11px/1 system-ui; color: var(--tx3); padding: 5px 7px; border-radius: 6px; cursor: pointer; }
+.ghead:hover .gact { opacity: 1; }
+.gact:hover { background: var(--hover); color: var(--tx); }
+.in.rename { width: 220px; height: 26px; }
+.dropline { height: 2px; background: var(--accent); margin: 0 16px 0 18px; border-radius: 2px; }
 
-.srow { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 8px; border-radius: 8px; cursor: pointer; color: var(--tx2); }
+.srow { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 16px 0 16px; cursor: pointer; color: var(--tx2); border-left: 2px solid transparent; }
 .srow:hover { background: var(--hover); }
-.srow.on { background: var(--panel); }
-.srow.busy { opacity: .6; pointer-events: none; }
-.srow.cold { opacity: .55; }
-.srow.cold:hover { opacity: .85; }
-.coldmark { flex: none; font-size: 10px; color: var(--tx3); border: 1px solid var(--line); border-radius: 6px; padding: 4px 7px; }
-.init { width: 24px; height: 24px; flex: none; border-radius: 6px; display: flex; align-items: center; justify-content: center; font: 700 9px/1 system-ui; color: var(--tx2); background: var(--panel2); border: 1px solid var(--line); overflow: hidden; }
+.srow:hover .grip { opacity: 1; }
+.srow.on { background: var(--panel); border-left-color: var(--accent); }
+.srow.selected { background: var(--accentSoft); }
+.srow.cold .sname, .srow.cold .init { opacity: .5; }
+.srow .tick { opacity: 0; }
+.srow:hover .tick, .srow.selected .tick, .list.selecting .srow .tick { opacity: 1; }
+.init { width: 22px; height: 22px; flex: none; border-radius: 6px; display: flex; align-items: center; justify-content: center; font: 700 9px/1 system-ui; color: var(--tx2); background: var(--panel2); border: 1px solid var(--line); overflow: hidden; }
 .favimg { width: 15px; height: 15px; object-fit: contain; }
 .sname { flex: none; font: 600 13px/1 system-ui; color: var(--tx); }
-.rmark { display: inline-flex; align-items: center; gap: 6px; flex: none; font: 500 10px/1 ui-monospace, monospace; color: var(--good); }
-.rmark.none { color: var(--warn); }
-.snum { flex: none; font-size: 10.5px; color: var(--tx3); }
-.sbm { display: inline-flex; align-items: center; gap: 6px; flex: none; width: 52px; justify-content: flex-end; font-size: 10.5px; color: var(--tx3); }
-.sbm.has { color: var(--tx2); }
-.chev { flex: none; color: var(--tx3); }
+.rmark { flex: none; font: 600 10px/1 ui-monospace, monospace; color: var(--good); border: 1px solid color-mix(in srgb, var(--good) 40%, var(--line)); padding: 3px 6px; border-radius: 4px; }
+.rmark.none { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+.hidden { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: 10px; color: var(--tx3); border: 1px solid var(--line); padding: 3px 6px; border-radius: 4px; }
+.snum { flex: none; width: 76px; text-align: right; font-size: 11px; color: var(--tx3); }
+.slinks { flex: none; width: 52px; display: inline-flex; align-items: center; justify-content: flex-end; gap: 5px; font-size: 11px; color: var(--tx3); }
+.slinks.has { color: var(--tx2); }
 
-.sopen { display: flex; gap: 24px; padding: 6px 8px 16px 44px; }
-.bmcol { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.collbl { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); padding: 6px 6px 7px; }
-.bmrow { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 6px; border-radius: 6px; color: var(--tx2); cursor: pointer; }
-.bmrow:hover { background: var(--hover); }
-.bmrow.drop { box-shadow: inset 0 2px 0 var(--accent); }
-.bgrip { width: 10px; flex: none; font-size: 11px; letter-spacing: -2px; color: var(--tx3); opacity: 0; cursor: grab; }
-.bmrow:hover .bgrip { opacity: 1; }
-.star { flex: none; color: var(--fav); }
-.bmname { flex: none; font: 500 12px/1 system-ui; color: var(--tx); }
-.bmurl { flex: 1; min-width: 0; font-size: 10.5px; color: var(--tx3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bmact { width: 24px; height: 24px; flex: none; border: 1px solid transparent; background: transparent; border-radius: 6px; color: var(--tx3); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
-.bmrow:hover .bmact { border-color: var(--line); }
-.bmact:hover { border-color: var(--accent); color: var(--accent); }
-.bmnone { padding: 8px 6px 4px; font: 400 11px/1.5 system-ui; color: var(--tx3); }
-.bmadd { display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 6px; border-radius: 6px; color: var(--tx3); font: 500 11.5px/1 system-ui; cursor: pointer; }
-.bmadd:hover { background: var(--hover); color: var(--accent); }
-.bmform { display: flex; flex-direction: column; gap: 7px; padding: 10px; margin: 2px 0; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); }
-.bmformrow { display: flex; justify-content: flex-end; gap: 7px; }
-.in.mono { font: 400 11px/1 ui-monospace, monospace; }
+.pane { width: 500px; flex: none; border-left: 1px solid var(--line); background: var(--bg2); display: flex; flex-direction: column; min-height: 0; }
+.phead { height: 44px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 10px 0 16px; border-bottom: 1px solid var(--line); }
+.pname { flex: 1; min-width: 0; font: 600 15px/1 system-ui; color: var(--tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ptabs { flex: none; display: flex; padding: 0 8px; border-bottom: 1px solid var(--line); }
+.ptabs button { height: 40px; border: none; background: transparent; color: var(--tx3); font: 600 12px/1 system-ui; padding: 0 12px; border-bottom: 2px solid transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.ptabs button:hover { color: var(--tx); }
+.ptabs button.on { color: var(--accent); border-bottom-color: var(--accent); }
+.pbody { flex: 1; min-height: 0; padding: 4px 16px 16px; }
+.psec { padding: 14px 0 6px; }
+.psec + .psec { border-top: 1px solid var(--line); }
+.plbl { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); margin-bottom: 10px; }
+.form { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 9px; align-items: center; }
+.form .k { font: 600 11px/1 system-ui; color: var(--tx2); }
+.in.mono { font-family: ui-monospace, monospace; font-size: 11px; }
+.tg { display: inline-flex; align-items: center; gap: 8px; border: none; background: transparent; padding: 0; cursor: pointer; }
+.fields { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+.ver { font: 600 10px/1 ui-monospace, monospace; color: var(--good); border: 1px solid color-mix(in srgb, var(--good) 40%, var(--line)); padding: 5px 7px; border-radius: 6px; }
+.field { font: 500 11px/1 system-ui; color: var(--tx2); background: var(--panel2); border: 1px solid var(--line); padding: 5px 8px; border-radius: 6px; }
+.dataline { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+.big { font: 600 15px/1 system-ui; color: var(--tx); }
+.acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.pfoot { height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-top: 1px solid var(--line); }
 
-.metacol { flex: none; width: 320px; display: flex; flex-direction: column; gap: 9px; }
-.mline { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
-.ver { font: 700 10px/1 ui-monospace, monospace; color: var(--good); border: 1px solid color-mix(in srgb, var(--good) 40%, var(--line)); padding: 4px 7px; border-radius: 5px; flex: none; }
-.rhint { font: 400 11px/1.4 system-ui; color: var(--tx3); }
-.rhint.none { color: var(--warn); }
-.fields { display: flex; flex-wrap: wrap; gap: 5px; }
-.field { font: 500 10.5px/1 system-ui; color: var(--tx2); background: var(--panel2); border: 1px solid var(--line); padding: 5px 8px; border-radius: 5px; }
-.acts { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 4px; }
-.btn.sm { height: 26px; padding: 0 10px; font-size: 11.5px; }
-.btn.danger { color: var(--adult); border-color: color-mix(in srgb, var(--adult) 40%, var(--line)); }
-.btn.danger:hover { background: color-mix(in srgb, var(--adult) 12%, transparent); }
-.lfinfo { font-size: 11px; color: var(--tx3); }
+.pbulk { flex: none; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; background: var(--accentSoft); border-bottom: 1px solid var(--line); }
+.ptool { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.ptool .row { display: flex; align-items: center; gap: 8px; }
+.plist { flex: 1; min-height: 0; padding: 4px 6px 8px; }
+.prow { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 6px; color: var(--tx2); }
+.prow:hover { background: var(--hover); }
+.prow:hover .grip { opacity: 1; }
+.prow.selected { background: var(--accentSoft); }
+.prow.drop { box-shadow: inset 0 2px 0 var(--accent); }
+.prow .tick { opacity: 0; }
+.prow:hover .tick, .prow.selected .tick, .plist.selecting .prow .tick { opacity: 1; }
+.pend { height: 14px; border-radius: 6px; }
+.pend.drop { box-shadow: inset 0 2px 0 var(--accent); }
+.lname { flex: none; max-width: 190px; font: 500 12px/1.2 system-ui; color: var(--tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lurl { flex: 1; min-width: 0; font-size: 11px; color: var(--tx3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ldup { flex: none; font-size: 9px; font-weight: 700; letter-spacing: .08em; color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line)); padding: 2px 5px; border-radius: 4px; }
+.lact { width: 24px; height: 24px; flex: none; border: none; background: transparent; border-radius: 6px; color: var(--tx3); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; opacity: 0; }
+.prow:hover .lact, .trow:hover .lact { opacity: 1; }
+.lact:hover { background: var(--panel2); color: var(--tx); }
+.pedit { display: flex; flex-direction: column; gap: 6px; padding: 8px; margin: 4px 2px; border: 1px solid var(--accent); border-radius: 6px; background: var(--panel); }
+.erow { display: flex; gap: 6px; justify-content: flex-end; }
+
+.thead, .trow { display: grid; grid-template-columns: 22px minmax(150px, 1.1fr) minmax(200px, 1.6fr) minmax(130px, 1fr) 110px 64px 70px; align-items: center; gap: 10px; padding: 0 16px 0 24px; }
+.list.table { padding-top: 0; }
+.thead { height: 32px; font-size: 9px; font-weight: 700; letter-spacing: .12em; color: var(--tx3); border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 1; }
+.trow { height: 36px; color: var(--tx2); border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+.trow:hover { background: var(--hover); }
+.trow.selected { background: var(--accentSoft); }
+.trow.dup { box-shadow: inset 2px 0 0 var(--warn); }
+.trow .lname { max-width: none; display: flex; align-items: center; gap: 6px; cursor: text; }
+.trow .lurl { cursor: text; }
+.tsite { font: 500 12px/1 system-ui; color: var(--tx2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.tsite:hover { color: var(--accent); }
+.tdim { font: 500 11px/1 system-ui; color: var(--tx3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tacts { display: flex; justify-content: flex-end; }
+.in.cell { height: 26px; font-size: 12px; padding: 0 8px; border-color: var(--accent); }
 </style>

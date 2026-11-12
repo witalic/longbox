@@ -952,10 +952,6 @@ async function applyRule() {
 .grip.held { opacity: .35; cursor: default; }
 /* the number the editor's notes name a rule by */
 .rnum { font-size: 11px; color: var(--tx3); text-align: right; }
-.toggle { width: 26px; height: 15px; border-radius: 999px; background: var(--line); position: relative; flex: none; cursor: pointer; }
-.toggle::after { content: ''; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 999px; background: var(--tx3); transition: left .12s ease; }
-.toggle.on { background: var(--accent); }
-.toggle.on::after { left: 13px; background: var(--accent-ink); }
 .fld { font-size: 11px; color: var(--tx2); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; height: 22px; display: inline-flex; align-items: center; padding: 0 7px; width: fit-content; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rdesc { font: 500 12.5px/1.45 system-ui; min-width: 0; overflow-wrap: anywhere; }
 .rdesc .arrow { color: var(--tx3); margin: 0 5px; }

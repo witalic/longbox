@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { confirmState, resolveConfirm } from '../store'
+import Icon from './Icon.vue'
 </script>
 
 <template>
@@ -8,6 +9,13 @@ import { confirmState, resolveConfirm } from '../store'
       <div class="card" role="dialog" aria-modal="true">
         <div class="title">{{ confirmState.req.title || 'Please confirm' }}</div>
         <div class="msg">{{ confirmState.req.message }}</div>
+        <div v-if="confirmState.req.choices?.length" class="choices">
+          <button v-for="(c, i) in confirmState.req.choices" :key="i" class="choice" :class="{ on: c.on }"
+                  role="checkbox" :aria-checked="c.on" @click="c.on = !c.on">
+            <span class="fbox" :class="{ on: c.on }"><Icon v-if="c.on" name="check" :size="9" :sw="3.2" /></span>
+            <span class="ctext"><span class="clbl">{{ c.label }}</span><span v-if="c.hint" class="chint">{{ c.hint }}</span></span>
+          </button>
+        </div>
         <div class="actions">
           <button class="btn ghost" @click="resolveConfirm(false)">Cancel</button>
           <button class="btn" :class="confirmState.req.danger ? 'danger' : 'accent'" autofocus @click="resolveConfirm(true)">
@@ -31,6 +39,12 @@ import { confirmState, resolveConfirm } from '../store'
 .title { font: 700 15px/1.2 system-ui; color: var(--tx); }
 .msg { margin-top: 10px; font: 400 13px/1.55 system-ui; color: var(--tx2); }
 .actions { margin-top: 20px; display: flex; justify-content: flex-end; gap: 9px; }
+.choices { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
+.choice { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg2); color: var(--tx); cursor: pointer; text-align: left; }
+.choice:hover { border-color: var(--tx3); }
+.ctext { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.clbl { font: 600 12px/1.2 system-ui; }
+.chint { font: 400 11px/1.3 system-ui; color: var(--tx3); }
 .btn.danger { background: var(--fav); border-color: var(--fav); color: #fff; }
 .btn.danger:hover { filter: brightness(1.06); border-color: var(--fav); }
 

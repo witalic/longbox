@@ -435,7 +435,9 @@ def test_a_source_carries_its_group_and_saved_links(own_client):
     }).json()
     mine = next(s for s in after if s["domain"] == "mangadex.org")
     assert mine["group"] == "Manga"
-    assert mine["bookmarks"] == [{"name": "Follows", "url": "https://mangadex.org/titles/feed"}]
+    [link] = mine["bookmarks"]
+    assert (link["name"], link["url"]) == ("Follows", "https://mangadex.org/titles/feed")
+    assert link["added"]  # stamped by the sidecar: the star sends a name and an address
 
     # partial: sending only the group leaves the links alone
     own_client.put("/api/sources/mangadex.org", json={"group": "Comics"})
@@ -445,6 +447,106 @@ def test_a_source_carries_its_group_and_saved_links(own_client):
     # and a source nobody touched says so plainly
     assert again["toonily.example"]["group"] == ""
     assert again["toonily.example"]["bookmarks"] == []
+
+
+def test_a_link_keeps_when_it_was_saved(own_client):
+    """The list is sent whole on every change, by clients that may not carry
+    the date: a link already stored keeps its own, a new one is stamped."""
+    first = own_client.put("/api/sources/mangadex.org", json={
+        "bookmarks": [{"name": "Follows", "url": "https://mangadex.org/follows"}]}).json()
+    stamped = next(s for s in first if s["domain"] == "mangadex.org")["bookmarks"][0]["added"]
+    after = own_client.put("/api/sources/mangadex.org", json={"bookmarks": [
+        {"name": "Renamed", "url": "https://mangadex.org/follows"},
+        {"name": "Latest", "url": "https://mangadex.org/latest"},
+    ]}).json()
+    links = {b["url"]: b for b in next(s for s in after if s["domain"] == "mangadex.org")["bookmarks"]}
+    assert links["https://mangadex.org/follows"]["added"] == stamped
+    assert links["https://mangadex.org/follows"]["name"] == "Renamed"
+    assert links["https://mangadex.org/latest"]["added"]
+
+
+def test_a_link_from_before_dates_stays_undated(own_client, tmp_path):
+    """A link stored before links were dated reads as "earlier" — changing
+    another link of its site must not make it look saved today."""
+    import json as _json
+    path = tmp_path / "lib" / "sources.json"
+    doc = _json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"schema": 3}
+    doc.setdefault("sources", {})["mangadex.org"] = {"bookmarks": [
+        {"name": "Old", "url": "https://mangadex.org/old"}, {"name": "Gone", "url": "https://mangadex.org/gone"}]}
+    path.write_text(_json.dumps(doc), encoding="utf-8")
+    listed = next(s for s in own_client.get("/api/sources").json() if s["domain"] == "mangadex.org")
+    kept = [b for b in listed["bookmarks"] if b["name"] == "Old"]  # as the client sends it back: added ""
+    after = own_client.put("/api/sources/mangadex.org", json={"bookmarks": kept}).json()
+    [old] = next(s for s in after if s["domain"] == "mangadex.org")["bookmarks"]
+    assert old["added"] == ""
+
+
+def test_a_group_renamed_or_deleted_takes_its_sites_along_in_one_write(own_client, tmp_path):
+    own_client.put("/api/source-groups", json={"groups": ["Manga", "Art"]})
+    own_client.put("/api/sources/mangadex.org", json={"group": "Manga"})
+    own_client.put("/api/sources/toonily.example", json={"group": "Manga"})
+    own_client.delete("/api/sources/toonily.example")  # removed: its group must follow all the same
+    renamed = {s["domain"]: s for s in own_client.post(
+        "/api/source-groups/rename", json={"name": "Manga", "to": "Comics"}).json()}
+    assert renamed["mangadex.org"]["group"] == "Comics"
+    doc = _sources_doc(tmp_path)
+    assert doc["groups"] == ["Comics", "Art"]
+    assert doc["sources"]["toonily.example"]["group"] == "Comics"
+    assert own_client.post("/api/source-groups/rename", json={"name": "Comics", "to": "Art"}).status_code == 409
+
+    left = {s["domain"]: s for s in own_client.post("/api/source-groups/delete", json={"name": "Comics"}).json()}
+    assert left["mangadex.org"]["group"] == ""
+    assert _sources_doc(tmp_path)["groups"] == ["Art"]
+
+
+def test_a_site_dragged_into_another_group_moves_in_one_write(own_client):
+    domains = [s["domain"] for s in own_client.get("/api/sources").json()]
+    moved = domains[-1]
+    listed = own_client.put("/api/source-order", json={
+        "domains": [moved, *domains[:-1]], "moved": moved, "group": "Manga"}).json()
+    assert listed[0]["domain"] == moved and listed[0]["group"] == "Manga"
+
+
+def test_a_bulk_change_names_its_sites(own_client):
+    assert own_client.post("/api/sources/bulk", json={"domains": [], "group": "X"}).status_code == 422
+    assert own_client.post("/api/sources/bulk", json={"domains": [" "], "group": "X"}).status_code == 422
+    assert own_client.put("/api/sources/mangadex.org", json={"homepage": "https:foo"}).status_code == 422
+
+
+def test_sites_are_listed_in_the_owners_order(own_client):
+    """The list is the order the Sources page and the browser's rail draw
+    sites in; a site never placed comes after the placed ones."""
+    domains = [s["domain"] for s in own_client.get("/api/sources").json()]
+    assert len(domains) >= 2
+    wanted = list(reversed(domains))
+    listed = [s["domain"] for s in own_client.put("/api/source-order", json={"domains": wanted}).json()]
+    assert listed == wanted
+    # placing only the last one moves it to the front; the rest keep coming after
+    listed = [s["domain"] for s in own_client.put("/api/source-order", json={"domains": [domains[-1]]}).json()]
+    assert listed[0] == domains[-1]
+
+
+def test_a_site_has_a_homepage_of_its_own(own_client):
+    got = own_client.put("/api/sources/mangadex.org", json={"homepage": "https://mangadex.org/titles/follows"})
+    assert next(s for s in got.json() if s["domain"] == "mangadex.org")["homepage"] == \
+        "https://mangadex.org/titles/follows"
+    back = own_client.put("/api/sources/mangadex.org", json={"homepage": ""}).json()
+    assert next(s for s in back if s["domain"] == "mangadex.org")["homepage"] == "https://mangadex.org/"
+    assert own_client.put("/api/sources/mangadex.org", json={"homepage": "javascript:alert(1)"}).status_code == 422
+
+
+def test_several_sites_change_in_one_write(own_client, tmp_path):
+    domains = [s["domain"] for s in own_client.get("/api/sources").json()][:2]
+    grouped = {s["domain"]: s for s in own_client.post(
+        "/api/sources/bulk", json={"domains": domains, "group": "Manga"}).json()}
+    assert all(grouped[d]["group"] == "Manga" for d in domains)
+    hidden = {s["domain"]: s for s in own_client.post(
+        "/api/sources/bulk", json={"domains": domains, "frozen": True}).json()}
+    assert all(hidden[d]["frozen"] and hidden[d]["group"] == "Manga" for d in domains)
+    left = {s["domain"] for s in own_client.post(
+        "/api/sources/bulk", json={"domains": domains, "remove": True}).json()}
+    assert not (left & set(domains))
+    assert _sources_doc(tmp_path)["schema"] == 3
 
 
 def test_freezing_a_source_keeps_it_listed(own_client):

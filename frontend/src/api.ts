@@ -113,8 +113,19 @@ export const api = {
     req<ValuePage>(`/pages/${field}/image?value=${encodeURIComponent(value)}`, { method: 'DELETE' }),
   sources: () => req<Source[]>('/sources'),
   putSourcePrefs: (domain: string,
-                   body: { group?: string; bookmarks?: Bookmark[]; frozen?: boolean }) =>
+                   body: { group?: string; bookmarks?: Bookmark[]; frozen?: boolean; homepage?: string }) =>
     req<Source[]>(`/sources/${domain}`, jsonBody('PUT', body)),
+  // one change to several sites; `remove` takes them out as removeSource does
+  bulkSources: (body: { domains: string[]; group?: string; frozen?: boolean; remove?: boolean }) =>
+    req<Source[]>('/sources/bulk', jsonBody('POST', body)),
+  // every site, in the order the Sources page and the browser's rail draw them;
+  // `moved` changes to `group` in the same write (a site dragged into another group)
+  putSourceOrder: (domains: string[], moved = '', group?: string) =>
+    req<Source[]>('/source-order', jsonBody('PUT', { domains, moved, group })),
+  // a group renamed or deleted with every site in it, in one write
+  renameSourceGroup: (name: string, to: string) =>
+    req<Source[]>('/source-groups/rename', jsonBody('POST', { name, to })),
+  deleteSourceGroup: (name: string) => req<Source[]>('/source-groups/delete', jsonBody('POST', { name })),
   sourceGroups: () => req<string[]>('/source-groups'),
   putSourceGroups: (groups: string[]) =>
     req<string[]>('/source-groups', jsonBody('PUT', { groups })),
@@ -174,8 +185,6 @@ export const api = {
     req<MetaPreview>(`/metadata/rules/${id}/preview`, jsonBody('POST', { scope })),
   ruleRun: (id: string, scope: MetaScope) =>
     req<{ run: number; changed: number }>(`/metadata/rules/${id}/run`, jsonBody('POST', { scope })),
-  removeSource: (domain: string) =>
-    req<{ hidden: boolean; recipeDeleted: boolean }>(`/sources/${domain}`, { method: 'DELETE' }),
   // armed downloads: the arm is consumed when a download STARTS (its chapter
   // binding is claimed immediately), so downloads run in parallel
   armDownload: (body: ArmInfo) => req<DownloadsState>('/downloads/arm', jsonBody('POST', body)),

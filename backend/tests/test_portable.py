@@ -66,7 +66,8 @@ def test_site_knowledge_is_written_into_the_vault_not_the_app_config(client, tmp
     assert recipes["pageFilter"] == {"minPx": 320, "widthRatio": 0.4}
     sources = _doc(tmp_path / "lib" / "sources.json")
     assert sources["groups"] == ["Manga", "Art"]
-    assert sources["sources"]["example.org"]["bookmarks"] == [{"name": "Feed", "url": "https://example.org/feed"}]
+    [link] = sources["sources"]["example.org"]["bookmarks"]
+    assert (link["name"], link["url"]) == ("Feed", "https://example.org/feed")
 
     assert not (cfg / "recipes").exists()
     assert not config_path().exists() or not {"sources", "source_groups"} & set(_doc(config_path()))

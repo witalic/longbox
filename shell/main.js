@@ -860,6 +860,38 @@ async function main(root, legacy) {
     return false
   })
 
+  // One site's share of the vault's browser (Sources → a site → Browser data):
+  // its cookies counted, and cleared alone or with the site's storage and its
+  // cached pages. A site is its domain and every subdomain: the cookies say
+  // which hosts it has used, and storage and cache are cleared for each of them.
+  const siteHost = (d) => String(d || '').trim().toLowerCase().replace(/^\.+/, '')
+  ipcMain.handle('lb-site-data', async (e, domain) => {
+    if (e.sender !== win.webContents) return null
+    const host = siteHost(domain)
+    if (!host) return null
+    return { cookies: (await sess.cookies.get({ domain: host })).length }
+  })
+  ipcMain.handle('lb-site-data-clear', async (e, req) => {
+    if (e.sender !== win.webContents) return false
+    const host = siteHost(req?.domain)
+    if (!host) return false
+    const cookies = await sess.cookies.get({ domain: host })
+    if (req.cookies) {
+      await Promise.all(cookies.map((c) => sess.cookies
+        .remove(`${c.secure ? 'https' : 'http'}://${siteHost(c.domain)}${c.path || '/'}`, c.name)
+        .catch(() => { /* already gone */ })))
+    }
+    const dataTypes = [
+      ...(req.storage ? ['localStorage', 'indexedDB', 'serviceWorkers', 'fileSystems', 'webSQL'] : []),
+      ...(req.cache ? ['cache'] : []),
+    ]
+    if (dataTypes.length) {
+      const hosts = new Set([host, `www.${host}`, ...cookies.map((c) => siteHost(c.domain))])
+      await sess.clearData({ dataTypes, origins: [...hosts].flatMap((h) => [`https://${h}`, `http://${h}`]) })
+    }
+    return true
+  })
+
   // Navigation lockdown: keep the window on the app origin; open nothing externally.
   win.webContents.on('will-navigate', (e, url) => {
     if (!url.startsWith(origin)) e.preventDefault()

@@ -166,7 +166,7 @@ library/
   fields.json               # this library's own metadata fields (registry additions)
   authors.json              # author favorites (user layer, vault-level)
   recipes.json              # what longbox learned per site (§6) + the page-capture filter
-  sources.json              # the owner's layer over the sites: groups, bookmarks, frozen, removed
+  sources.json              # the owner's layer over the sites: groups, site order, homepage, bookmarks, frozen, removed
   rules.json                # what a value becomes on its way in (design/metadata-management.md)
   .pages/<vocabulary>.json  # what the owner wrote about values, + images/ (design/value-pages.md)
   downloads/               # what the browser downloaded with nothing armed (design/subtitles.md)
@@ -408,7 +408,9 @@ GET/PUT {cid}/frames/{kind}       an episode's poster / sheet, cut by the window
 DELETE {cid}/media · {cid}        the media only · the entry with its media
 
 GET/PUT/DELETE /api/fields…       the per-library registry (custom fields, usage, retype)
-GET    /api/sources · PUT/DELETE /api/sources/{domain}   sources + their prefs (group, bookmarks, frozen)
+GET    /api/sources · PUT/DELETE /api/sources/{domain}   sources, in the owner's order, + their prefs
+                                                       (group, homepage, bookmarks, frozen)
+POST   /api/sources/bulk · PUT /api/source-order          several sites at once · the order of sites
 GET/PUT /api/source-groups        group names, in the user's order
 GET    /api/recipes · GET/PUT/DELETE /api/recipes/{domain}   versioned candidate-based recipes
 GET/PUT /api/page-filter          what page capture accepts as a page
