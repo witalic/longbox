@@ -66,8 +66,9 @@ declare global {
       // a guest page asks for fullscreen; it is granted once `fn` has made room
       // for the <webview> (by the guest's webContents id); returns an unsubscribe
       onPageFullscreen: (fn: (guestId: number) => Promise<void>) => () => void
-      // page capture: the main process fetches with session cookies + referer,
-      // free of the site's CORS (which blocks an in-page fetch of its own CDN)
+      // a page image or a cover found by URL: the main process fetches it as the
+      // page's own <img> would (session cookies, the page's Referer), free of the
+      // site's CORS (which blocks an in-page fetch of its own CDN)
       fetchImage: (url: string, referer?: string)
         => Promise<{ data?: string; contentType?: string; error?: string } | null>
     }

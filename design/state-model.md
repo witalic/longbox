@@ -390,7 +390,8 @@ PUT    /api/titles/{id}           commit a draft into an existing title (meta la
 DELETE /api/titles/{id}
 PATCH  /api/titles/{id}/user      write-through user layer {fav?, rating?, read?, position?, reader?}
 POST   /api/titles/{id}/cover     cover bytes captured in page context (base64 + source URL);
-                                  or {url, referer} → server-side fetch as a fallback.
+                                  or {url, referer} → server-side fetch, only for a window
+                                  with no shell (in the app the shell fetches it and sends bytes).
                                   {append:true} stores one MORE instead of replacing the first
 DELETE /api/titles/{id}/cover?i=  one cover by position; without `i`, every one of them
 GET    /api/titles/{id}/cover?i=&w=  the stored bytes (`i` defaults to the first; `w` downscales)

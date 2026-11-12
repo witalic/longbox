@@ -46,9 +46,23 @@ Toolbar, left→right:
 - **Downloads** → a shelf when active + a small manager (list, open, show-in-folder).
 - **Capture panel toggle** (show/hide the right panel so you can browse full-width).
 
-Tabs: new (`+`) / close / activate; middle-click & `target=_blank` open a new **in-app** tab (never
-an OS window). A page opens one only off a fresh user gesture, one tab per gesture — Electron has
-no popup blocker, so the guest preload is one. Each tab keeps its own page, history and zoom.
+Tabs: new (`+`) / close / activate; middle-click & `target=_blank` open a new **in-app** tab. A
+popup (`window.open` with a size — a sign-in through Google, Apple, Facebook) is the one OS window
+a page gets, over the app: it answers the page through `window.opener`, which a tab would not have.
+A page opens a tab or a popup only off a fresh user gesture, one per gesture — Electron has no
+popup blocker, so the shell is one; the guest preload runs in every frame and reports the gestures,
+since a sign-in button is often a frame of the provider's own. Each tab keeps its own page,
+history and zoom.
+
+**One identity.** The browser presents itself as the Chrome it is, the same in what a page reads
+and in what its requests say: the user agent drops the `Electron` and app tokens (sign-in pages
+refuse an embedded app); `Accept-Language` is the list a page reads in `navigator.languages`; and
+the low-entropy Client Hints a page reads in `navigator.userAgentData` ride every https request —
+Chromium adds them to a page's subresources, but Electron sends none with a navigation or a request
+of the main process. Whatever the shell fetches for the app (a page image, a cover found by URL)
+asks as the page's own `<img>` would: from the page's origin, with the Referer Chrome's default
+policy sends, and once more without one when that is refused. The sidecar never fetches a site
+while the shell is there to.
 
 **Fullscreen.** A site's player takes the whole screen, and Escape always ends it. Electron lifts a
 page over the app only when the page's own document asks; a player embedded in a frame (most video

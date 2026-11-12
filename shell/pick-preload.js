@@ -10,6 +10,11 @@
 //     through the page's own context (cookies + referer) so what is captured is
 //     exactly what the user sees. The host builds the draft from this snapshot,
 //     never from the page.
+//
+// It runs in every frame of the page (main.js). The host talks to the top one
+// only, so in the others the jobs above never start; what every frame does on
+// its own is the File System Access guard, reporting gestures, and the link
+// and mouse-button shortcuts at the bottom.
 
 const { ipcRenderer, webFrame } = require('electron')
 
@@ -617,23 +622,13 @@ ipcRenderer.on('fetch-pages', async (_e, req) => {
   if (mine === fetchGen) ipcRenderer.sendToHost('pages-fetched', {})
 })
 
-// The page's own new-tab request (target=_blank, window.open), denied natively and
-// routed here. Electron has no popup blocker, so this is one, as Chromium's is: a
-// page opens a tab only off a fresh gesture of the user's, and one tab per gesture —
-// the ad script that opens windows on load, or five per click, gets none / one.
-// Only this frame's gestures are seen, so a click inside an embedded frame from
-// another site (an ad, mostly) opens nothing; its context menu still can.
-const GESTURE_MS = 5000 // Chromium's transient-activation lifespan
-let gestureAt = 0
-function onGesture(e) { if (e.isTrusted) gestureAt = Date.now() }
+// The shell's popup blocker lets a page open a tab or a window only off a fresh
+// gesture of the user's: every trusted one, in whichever frame, is reported.
+function onGesture(e) { if (e.isTrusted) ipcRenderer.send('lb-gesture') }
 window.addEventListener('pointerdown', onGesture, true)
 window.addEventListener('keydown', onGesture, true)
-ipcRenderer.on('popup', (_e, req) => {
-  if (Date.now() - gestureAt > GESTURE_MS) return
-  gestureAt = 0
-  ipcRenderer.sendToHost('open-tab', req)
-})
-// "Open link in new tab" from the context menu — the user's own request
+// a new tab: "Open link in new tab" from the context menu, or the page's own
+// (target=_blank, window.open) the popup blocker let through
 ipcRenderer.on('open-url-as-tab', (_e, req) => ipcRenderer.sendToHost('open-tab', req))
 
 // Ctrl+click and middle-click on a link open a BACKGROUND tab. The native path

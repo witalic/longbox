@@ -27,7 +27,7 @@ export interface DraftCover {
   data?: string          // base64 (captured)
   contentType?: string   // (captured)
   sourceUrl?: string     // where the bytes/URL came from
-  referer?: string       // page origin for the fallback fetch
+  referer?: string       // the page it was found on: the fetch asks as that page
 }
 
 export interface Draft {
@@ -450,7 +450,18 @@ export async function commitDraft(asNew = false): Promise<string | null> {
       })
     } else if (d.cover.kind === 'url' && d.cover.sourceUrl) {
       try {
-        saved = await api.setCover(saved.id, { url: d.cover.sourceUrl, referer: d.cover.referer })
+        // In the app the browser fetches it, as the page's own image, with the
+        // page's cookies; the sidecar's own fetch is for a window with no
+        // browser behind it — a client of its own, asking from the same address.
+        if (window.longbox) {
+          const got = await window.longbox.fetchImage(d.cover.sourceUrl, d.cover.referer)
+          if (!got?.data) throw new Error(got?.error || 'no cover')
+          saved = await api.setCover(saved.id, {
+            data: got.data, contentType: got.contentType || '', sourceUrl: d.cover.sourceUrl,
+          })
+        } else {
+          saved = await api.setCover(saved.id, { url: d.cover.sourceUrl, referer: d.cover.referer })
+        }
       } catch { /* the document is saved; a failed cover fetch is not fatal */ }
     } else if (d.cover.kind === 'none' && target && store.byId[target]?.ownCovers.length) {
       // The draft models ONE cover — the first. Clearing that field means "drop

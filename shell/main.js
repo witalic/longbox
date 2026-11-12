@@ -35,6 +35,11 @@ try { APP_META = { ...APP_META, ...JSON.parse(fs.readFileSync(path.join(ASSETS, 
 // computer holds config.json and nothing else.
 app.setPath('sessionData', path.join(app.getPath('temp'), `${app.getName()}-chromium`))
 app.setPath('crashDumps', path.join(app.getPath('temp'), `${app.getName()}-crashes`))
+// The browser says it is the Chrome it is — its pages and every window they open.
+// The tokens that give the app away are what a sign-in page (Google's first)
+// refuses as an embedded app, and what a CDN sniffing for "Electron" refuses an
+// image to.
+app.userAgentFallback = app.userAgentFallback.replace(/\s*(Electron|longbox[\w-]*)\/[\d.]+/gi, '')
 // The built UI on disk: the launch window is drawn from it before any sidecar
 // exists to serve it.
 const UI_DIR = app.isPackaged ? path.join(process.resourcesPath, 'ui') : path.join(ROOT, 'frontend', 'dist')
@@ -164,6 +169,34 @@ function makeRoomForFullscreen(guest) {
     // a host that never answers must not leave the page's request hanging
     setTimeout(done, 1000)
     host.send('lb-page-fullscreen', { guestId: guest.id, token })
+  })
+}
+
+// The browser's pages and the requests they make tell the same story, as
+// Chrome's do: the languages a page reads in navigator.languages are the ones its
+// requests ask for, and the Client Hints it reads in navigator.userAgentData ride
+// every https request — Electron sends none, and a Chrome that says nothing of
+// itself there is what a bot check looks for. The hints are read off the app's
+// own window, which has the same ones, before any page opens.
+function presentAsChrome(sess, appContents) {
+  sess.setUserAgent(app.userAgentFallback, app.getPreferredSystemLanguages().join(','))
+  let hints = null
+  appContents.once('did-finish-load', () => {
+    appContents.executeJavaScript('(({ brands, mobile, platform }) => ({ brands, mobile, platform }))(navigator.userAgentData)')
+      .then(({ brands, mobile, platform }) => {
+        hints = {
+          'sec-ch-ua': brands.map((b) => `"${b.brand}";v="${b.version}"`).join(', '),
+          'sec-ch-ua-mobile': mobile ? '?1' : '?0',
+          'sec-ch-ua-platform': `"${platform}"`,
+        }
+      })
+      .catch((err) => console.error('reading the Client Hints failed:', err))
+  })
+  sess.webRequest.onBeforeSendHeaders({ urls: ['https://*/*'] }, (details, cb) => {
+    if (!hints) return cb({})
+    const sent = new Set(Object.keys(details.requestHeaders).map((k) => k.toLowerCase()))
+    const add = Object.fromEntries(Object.entries(hints).filter(([k]) => !sent.has(k)))
+    cb({ requestHeaders: { ...details.requestHeaders, ...add } })
   })
 }
 
@@ -525,6 +558,7 @@ async function main(root, legacy) {
 
   appWindow = win // guest-page handlers pop their menus over this one
   adblock.wire(sess, win.webContents, path.join(root, vaults.APP_DIR, 'adblock'))
+  presentAsChrome(sess, win.webContents)
 
   // DevTools, on the app window only. The one class of problem that cannot be
   // diagnosed from outside — playback stalls, a decode fallback, request timing
@@ -707,11 +741,6 @@ async function main(root, legacy) {
   // blocks reading a CDN image the page itself displays fine. Hotlink checks
   // pass because the request carries the same cookies and referer as the page.
   const MAX_IMAGE = 24 * 1024 * 1024
-  // The UA the embedded browser itself sends, minus the tokens that give the
-  // app away — a CDN that sniffs for "Electron" would refuse the request the
-  // page next to it is allowed to make.
-  const browserUA = () =>
-    win.webContents.getUserAgent().replace(/\s*(Electron|longbox[\w-]*)\/[\d.]+/gi, '').replace(/\s{2,}/g, ' ')
   // Content type is not trustworthy (CDNs love application/octet-stream), so
   // the bytes decide: JPEG / PNG / GIF / WEBP / BMP / AVIF magic.
   function sniffImage(buf) {
@@ -724,15 +753,30 @@ async function main(root, legacy) {
     if (buf.slice(4, 8).toString('latin1') === 'ftyp' && /avif|heic/i.test(buf.slice(8, 12).toString('latin1'))) return 'image/avif'
     return ''
   }
-  // ONE attempt with a given header set. Sec-Fetch-* are deliberately absent:
-  // Chromium owns those, and a request that arrives with them pre-set from the
-  // main process is refused outright (ERR_BLOCKED_BY_CLIENT).
+  // The request the page's own <img> makes: from the page's origin (so it is as
+  // cross-site as the page's), asking for what Chrome asks for an image, with the
+  // Referer Chrome's default policy sends — the whole address to the page's own
+  // origin, the origin alone elsewhere, nothing from https down to http. Chromium
+  // refuses (ERR_BLOCKED_BY_CLIENT) a Referer the main process sets any other
+  // way, as it does pre-set Sec-Fetch-* — those it fills in itself.
+  const IMAGE_ACCEPT = 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+  function asThePageAsks(url, page) {
+    let from, to
+    try { from = new URL(page); to = new URL(url) } catch { return { options: {}, referer: '' } }
+    if (!/^https?:$/.test(from.protocol)) return { options: {}, referer: '' }
+    const referer = from.protocol === 'https:' && to.protocol === 'http:' ? ''
+      : from.origin === to.origin ? from.href.split('#')[0] : `${from.origin}/`
+    return { options: { origin: from.origin, referrerPolicy: 'unsafe-url' }, referer }
+  }
+  // ONE attempt. Every one carries the session's own user agent, languages and
+  // Client Hints — the browser's, never a set of its own.
   const IMAGE_TIMEOUT = 30000
-  function fetchImageOnce(url, headers) {
+  function fetchImageOnce(url, page, withReferer) {
     return new Promise((resolve) => {
+      const { options, referer } = asThePageAsks(url, page)
       let request
       try {
-        request = electronNet.request({ url, session: sess, useSessionCookies: true })
+        request = electronNet.request({ url, session: sess, useSessionCookies: true, ...options })
       } catch (err) {
         resolve({ error: `bad request: ${err.message}` })
         return
@@ -748,11 +792,8 @@ async function main(root, legacy) {
         resolve(result)
       }
       const timer = setTimeout(() => finish({ error: 'timed out' }), IMAGE_TIMEOUT)
-      for (const [k, v] of Object.entries(headers)) {
-        if (v) {
-          try { request.setHeader(k, v) } catch { /* a header Chromium reserves */ }
-        }
-      }
+      request.setHeader('Accept', IMAGE_ACCEPT)
+      if (withReferer && referer) request.setHeader('Referer', referer)
       request.on('response', (res) => {
         if (res.statusCode >= 400) {
           res.resume()
@@ -785,42 +826,14 @@ async function main(root, legacy) {
     if (e.sender !== win.webContents) return { error: 'denied' }
     const url = String(req?.url || '')
     if (!/^https?:\/\//i.test(url)) return { error: 'not an http url' }
-    const referer = req?.referer ? String(req.referer) : ''
-    // Escalating attempts: look like the page's own <img> first (referer + the
-    // browser's UA is what hotlink checks read), then plainer, then bare — one
-    // site's requirement is another's reason to refuse.
-    const attempts = [
-      { Referer: referer, 'User-Agent': browserUA(), Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8', 'Accept-Language': 'en-US,en;q=0.9' },
-      { Referer: referer },
-      {},
-    ]
-    let last = { error: 'no attempt ran' }
-    for (const headers of attempts) {
-      last = await fetchImageOnce(url, headers)
-      if (last?.data) return last
-      // a definite answer from the server is not worth repeating with other
-      // headers — only a refusal or a transport failure is
-      if (/^http (4|5)\d\d$/.test(last?.error || '') && !/^http 40[13]$/.test(last.error)) break
-    }
-    // Last resort: the session's own fetch — a different path through the
-    // network stack than net.request, which some blocks only apply to.
-    try {
-      const res = await sess.fetch(url, {
-        headers: referer ? { Referer: referer, 'User-Agent': browserUA() } : { 'User-Agent': browserUA() },
-      })
-      if (!res.ok) return { error: `${last.error} · session fetch http ${res.status}` }
-      const declared = Number(res.headers.get('content-length') || 0)
-      if (declared > MAX_IMAGE) return { error: `${last.error} · session fetch: image too large` }
-      const buf = Buffer.from(await res.arrayBuffer())
-      const ct = String(res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase()
-      const kind = sniffImage(buf) || (ct.startsWith('image/') ? ct : '')
-      if (buf.length && buf.length <= MAX_IMAGE && kind) {
-        return { data: buf.toString('base64'), contentType: kind }
-      }
-      return { error: `${last.error} · session fetch: not an image (${ct || 'no content-type'})` }
-    } catch (err) {
-      return { error: `${last.error} · session fetch: ${err.message}` }
-    }
+    const page = req?.referer ? String(req.referer) : ''
+    const first = await fetchImageOnce(url, page, true)
+    // A refusal is tried once more as a page whose policy sends no Referer would
+    // ask (one site's hotlink check is another's reason to refuse); a definite
+    // answer from the server is not worth repeating.
+    const refused = !/^http (4|5)\d\d$/.test(first.error || '') || /^http 40[13]$/.test(first.error)
+    if (first.data || !refused || !asThePageAsks(url, page).referer) return first
+    return fetchImageOnce(url, page, false)
   })
 
   // Native window-controls overlay recolor (theme switch)
@@ -921,21 +934,27 @@ const GUEST_KEYS = new Set([
 // Where Escape ends a guest's fullscreen: a world of its own, out of reach of
 // the page's scripts — a page that replaced exitFullscreen would keep the screen.
 const EXIT_FULLSCREEN_WORLD = 1001
+// How long a gesture lets a page open a tab or a window: Chromium's
+// transient-activation lifespan.
+const GESTURE_MS = 5000
 
 app.on('web-contents-created', (_e, contents) => {
   contents.on('will-attach-webview', (_evt, webPreferences) => {
     // the pages run in the vault's browser profile: its sign-ins, its cache
     webPreferences.session = vaultSession
     webPreferences.preload = path.join(__dirname, 'pick-preload.js')
+    // in every frame of the page: a gesture inside a frame (a sign-in button is
+    // often the provider's own) has to reach the popup blocker below
+    webPreferences.nodeIntegrationInSubFrames = true
     webPreferences.nodeIntegration = false
     webPreferences.contextIsolation = true
   })
   if (contents.getType() === 'webview') {
     // Every link this page opens as a tab goes through here, so a download the
     // new tab lands on straight away still knows the page it came from.
-    const openTab = (url, background, channel = 'open-url-as-tab') => {
+    const openTab = (url, background) => {
       noteOpener(url, contents.getURL())
-      contents.send(channel, { url, background })
+      contents.send('open-url-as-tab', { url, background })
     }
     // Ctrl+click / middle-click, taken by the preload before the page sees it
     contents.ipc.on('link-tab', (_e, url) => {
@@ -1026,14 +1045,30 @@ app.on('web-contents-created', (_e, contents) => {
       }
     })
 
+    // Electron has no popup blocker, so this is one, as Chromium's is: a page
+    // opens a tab or a window only off a fresh gesture of the user's, and one per
+    // gesture — the ad script that opens windows on load, or five per click, gets
+    // none / one. The preload reports the trusted gestures of every frame.
+    let gestureAt = 0
+    contents.ipc.on('lb-gesture', () => { gestureAt = Date.now() })
     // A page's target=_blank link or window.open (the <webview> carries
-    // `allowpopups`, or Chromium drops the request before it gets here) never
-    // makes an OS window: it is denied, and the URL goes back to the page's
-    // preload, which opens it as an in-app tab if the user asked for it. The
-    // disposition rides along — a 'background-tab' keeps the current page fronted.
+    // `allowpopups`, or Chromium drops the request before it gets here) opens as
+    // an in-app tab; the disposition rides along — a 'background-tab' keeps the
+    // current page fronted. A POPUP (window.open with a size: a sign-in through
+    // Google, Apple, Facebook) is the one OS window a page gets, over the app: it
+    // answers the page through window.opener, which a tab would not have.
     contents.setWindowOpenHandler(({ url, disposition }) => {
-      if (/^https?:\/\//.test(url)) openTab(url, disposition === 'background-tab', 'popup')
+      if (Date.now() - gestureAt > GESTURE_MS) return { action: 'deny' }
+      gestureAt = 0
+      if (disposition === 'new-window' && (/^https?:\/\//.test(url) || url === 'about:blank')) {
+        return { action: 'allow', overrideBrowserWindowOptions: { parent: appWindow, autoHideMenuBar: true } }
+      }
+      if (/^https?:\/\//.test(url)) openTab(url, disposition === 'background-tab')
       return { action: 'deny' }
+    })
+    // the popup itself opens nothing: a sign-in needs no third window
+    contents.on('did-create-window', (popup) => {
+      popup.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     })
   }
 })

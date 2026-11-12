@@ -25,7 +25,7 @@ import { hostOf, matchTitles, type Candidate, type FieldRule, type Recipe } from
 import type { CleanFlags } from '../normalize'
 import { cache, pageFilter, refreshDerived, sourcesKnown, store, vault } from '../store'
 
-const isElectron = typeof navigator !== 'undefined' && navigator.userAgent.includes('Electron')
+const isElectron = !!window.longbox
 
 // ---- one <webview> per tab (keeps each tab's page + history alive) ----
 const wvRefs = new Map<string, any>()
@@ -1134,7 +1134,8 @@ function onReady(tabId: string) {
 
     <div v-else class="split">
       <div class="pagearea">
-        <!-- allowpopups: a page's new-tab link reaches the shell, which makes it a tab.
+        <!-- allowpopups: a page's new-tab link reaches the shell, which makes it a tab
+             (or, for a sign-in popup, a window of its own).
              None while the vault is gone: a page writes into the vault's browser profile. -->
         <webview
           v-for="t in (vault.lost ? [] : browser.tabs)" :key="t.id" :ref="wvRef(t.id)" allowpopups
