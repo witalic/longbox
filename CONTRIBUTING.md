@@ -81,16 +81,17 @@ python tools/version.py 3.4.0         # set the version (and today's date) and w
 python tools/version.py               # check that nothing disagrees
 ```
 
-A release is that bump committed as `chore(release): 3.4.0`, with its section in
-[CHANGELOG.md](CHANGELOG.md), then `main` and the lightweight tag `v3.4.0` pushed: the tag starts
-the build.
+A release is that bump committed as `chore(release): 3.4.0`, with what was under `Unreleased` in
+[CHANGELOG.md](CHANGELOG.md) moved into a `## [3.4.0] — date` section, then `main` and the
+lightweight tag `v3.4.0` pushed: the tag starts the build. That section becomes the release's notes
+on GitHub (`python tools/release_notes.py 3.4.0` shows them).
 
 ## Packaging
 
 Builds run on GitHub Actions (`.github/workflows/build.yml`) for Windows, macOS (arm64 and x64) and
 Linux: a pushed `v*` tag naming the version in `app-meta.json` publishes a release, and the
 workflow can be run by hand for artifacts. CI refuses a tag — or any copy of the version — that
-disagrees. Locally:
+disagrees, and a tag the changelog has no section for. Locally:
 
 ```bash
 cd frontend && npm run build                                   # the UI the sidecar serves
@@ -113,6 +114,7 @@ design/     design docs (state-model.md is the canonical architecture) and UI mo
 docs/       the project page (witalic.github.io/longbox) and the user guide
 packaging/  the frozen-sidecar spec and the bundled ffmpeg's license notice
 .github/    the build workflow (a version tag builds the release) and the issue forms
-tools/      version.py (the one version, everywhere) · screenshots.py (the project page's images) ·
-            bench_metadata.py (what a bulk metadata change costs)
+tools/      version.py (the one version, everywhere) · release_notes.py (a release's notes, from
+            the changelog) · screenshots.py (the project page's images) · bench_metadata.py (what a
+            bulk metadata change costs)
 ```

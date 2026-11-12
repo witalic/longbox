@@ -1,7 +1,8 @@
 name: build
 
 # Desktop builds for Windows, macOS and Linux. Run it by hand to get artifacts,
-# or push a v* tag to publish a GitHub release.
+# or push a v* tag to publish a GitHub release, its notes taken from the
+# version's section of CHANGELOG.md.
 #
 # macOS builds are AD-HOC signed (shell/adhoc-sign.js): there is no Apple
 # certificate, so the app is reported as coming from an unidentified developer —
@@ -54,6 +55,10 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: python tools/version.py --tag "${{ github.ref_name }}"
 
+      - name: The changelog must describe it
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: python tools/release_notes.py "${{ github.ref_name }}"
+
       - name: Install the sidecar's dependencies
         run: |
           python -m pip install --upgrade pip
@@ -87,3 +92,18 @@ jobs:
             dist-app/*.AppImage
             dist-app/*.deb
           if-no-files-found: error
+
+  # electron-builder publishes the release from each platform's job; once all
+  # of them are up, the release says what changed
+  notes:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: The release's notes, from CHANGELOG.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 tools/release_notes.py "${{ github.ref_name }}" > notes.md
+          gh release edit "${{ github.ref_name }}" --notes-file notes.md
