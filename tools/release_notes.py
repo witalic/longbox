@@ -27,8 +27,23 @@ def section(version: str, changelog: str) -> str | None:
     return body or None
 
 
+def unwrapped(body: str) -> str:
+    """The changelog is wrapped at 100 columns; a release page shows every line
+    break it is given, so each item and paragraph goes back onto one line."""
+    out: list[str] = []
+    for line in body.splitlines():
+        text = line.strip()
+        starts = not text or text.startswith(("#", "- ", "* ", "|", "---"))
+        if not starts and out and out[-1].strip():
+            out[-1] += " " + text
+        else:
+            out.append(line.rstrip())
+    return "\n".join(out)
+
+
 def notes(version: str) -> str | None:
     body = section(version, (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"))
+    body = body and unwrapped(body)
     return f"{body}\n\n---\n\n{INSTALL}\n" if body else None
 
 
