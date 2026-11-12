@@ -2,11 +2,12 @@
 
 **A local-first media vault for your desktop, with a browser built in to bring things home.**
 
-![The library](docs/img/01-library.png)
+![The library: a series, a manga, a photo set, a film, a comic, a course and an artbook](docs/img/library.png)
 
-What you collect — manga, manhwa and comics, image sets, video — lives in a plain folder you own,
-on any disk you like: organized, searchable and readable offline. Browse the sites you already use in the
-built-in browser, and longbox files what you bring home. No account, no cloud, no server to run.
+Manga, manhwa and comics, series, films and courses, photo sets and artbooks live side by side in a
+plain folder you own, on any disk you like — under one set of fields, filters and pages, organized,
+searchable and offline. Browse the sites you already use in the built-in browser, and longbox files
+what you bring home. No account, no cloud, no server to run.
 
 **[Download](https://github.com/witalic/longbox/releases/latest)** ·
 [Install and get started](https://witalic.github.io/longbox/#start) ·
