@@ -12,6 +12,8 @@ itself: the sidecar serves the demo vault and Electron captures the real UI.
 """
 from __future__ import annotations
 
+import functools
+import http.server
 import io
 import json
 import os
@@ -22,6 +24,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.request
 import zipfile
@@ -171,6 +174,7 @@ def build_vault(root: Path, tmp: Path) -> None:
     from app.library.service import Library
 
     random.seed(7)
+    root.mkdir(parents=True, exist_ok=True)  # made as the launch window makes a vault: opening never does
     lib = Library(root)
     for i, spec in enumerate(TITLES):
         spec = dict(spec)
@@ -191,7 +195,26 @@ def build_vault(root: Path, tmp: Path) -> None:
     t = lib.get("paper-lanterns")
     lib.patch_user("paper-lanterns", UserPatch(
         read={t.chapters[0].id: "read", t.chapters[1].id: "reading"}))
+    # The Sources page: invented sites under the reserved .example domain, so no
+    # shot ever names a real one — each title came from one of them.
+    from app.library.models import SourceRef
+    for k, (tid, _doc) in enumerate(lib.index.docs(sort="title")):
+        domain = SITES[k % len(SITES)][0]
+        lib.amend(tid, lambda d, domain=domain: setattr(
+            d.meta, "source", SourceRef(domain=domain, url=f"https://{domain}/title/{tid}")) or True)
+    lib.source_prefs.set_groups(["Reading", "Archives"])
+    for domain, group, links in SITES:
+        lib.source_prefs.put(domain, group=group, bookmarks=[
+            {"name": name, "url": f"https://{domain}/{path}"} for name, path in links])
     lib.close()
+
+
+SITES = [
+    ("kestrel-reader.example", "Reading", [("Latest updates", "latest"), ("Following", "follows")]),
+    ("inkwell.example", "Reading", [("New this week", "new")]),
+    ("lantern-press.example", "Archives", [("Collections", "collections")]),
+    ("moonprint.example", "", []),
+]
 
 
 # A stand-in "source site" for the capture screenshot: entirely fictional, served
@@ -259,6 +282,9 @@ const ORIGIN = process.env.LB_SHOT_ORIGIN, OUT = process.env.LB_SHOT_OUT
 const LOG = process.env.LB_SHOT_LOG
 const logln = (s) => fs.appendFileSync(LOG, s + String.fromCharCode(10))
 const DEMO_PAGE = process.env.LB_SHOT_DEMO_URL || ''
+// the shell's app preload: without it the window is a plain web page, and the
+// browser view says it only runs in the desktop app
+const PRELOAD = process.env.LB_SHOT_PRELOAD
 const wait = (ms) => new Promise((r) => setTimeout(r, ms))
 // Nothing here may hang: a window Chromium decided not to paint makes
 // capturePage() wait forever, and a busy renderer does the same to
@@ -302,7 +328,7 @@ async function main() {
   fs.mkdirSync(OUT, { recursive: true })
   const win = new BrowserWindow({ width: 1280, height: 800, show: false, backgroundColor: '#0a0b0d',
     webPreferences: { offscreen: true, contextIsolation: true, nodeIntegration: false,
-                      sandbox: true, webviewTag: true } })
+                      sandbox: true, webviewTag: true, preload: PRELOAD } })
   win.webContents.setFrameRate(30)
   await withTimeout(win.loadURL(ORIGIN + '/app/'), 20000, 'loading the app')
   await shot(win, '01-library', `document.querySelector('.lib .grid')`)
@@ -329,22 +355,35 @@ async function main() {
 
   // the capture browser: a local demo page in the webview, a fresh draft in the dock
   if (DEMO_PAGE) {
-    await run(win, `[...document.querySelectorAll('.navitem')].find((x) => /Browse/.test(x.textContent))?.click()`)
-    await until(win, `document.querySelector('.bw webview')`, 'the browser view')
+    await run(win, `[...document.querySelectorAll('.navitem')].find((x) => /Web/.test(x.textContent))?.click()`)
+    await until(win, `document.querySelector('.bw webview, .bw .notice .btn')`, 'the browser view')
+    await run(win, `[...document.querySelectorAll('.bw .notice .btn')].find((b) => /New tab/.test(b.textContent))?.click()`)
+    await until(win, `document.querySelector('.bw webview')`, 'a browser tab')
     await run(win, `document.querySelector('.bw webview').src = ${JSON.stringify(DEMO_PAGE)}`)
     await wait(2500)
     await run(win, `[...document.querySelectorAll('.cp button, .cp .newrow, .cp .btn')].find((b) => /New (manga|title)/i.test(b.textContent))?.click()`)
     await shot(win, '10-capture', `document.querySelector('.cp .fieldrow, .cp .body')`)
   }
 
-  await run(win, `[...document.querySelectorAll('.navitem')].find((x) => /Authors/.test(x.textContent))?.click()`)
+  await run(win, `[...document.querySelectorAll('.navitem')].find((x) => /Sources/.test(x.textContent))?.click()`)
+  await shot(win, '11-sources', `document.querySelector('.srow')`)
+
+  // the library tab went on to the title opened from it: the shelf brings it back
+  await run(win, `[...document.querySelectorAll('.navitem')].find((x) => /Library/.test(x.textContent))?.click()`)
+  await run(win, `[...document.querySelectorAll('button')].find((b) => /^All types/i.test(b.textContent.trim()))?.click()`)
+  await until(win, `document.querySelector('.lib .grid')`, 'back to the library')
+  await run(win, `[...document.querySelectorAll('button')].find((b) => /^Browse by authors/.test(b.title || ''))?.click()`)
   await shot(win, '07-authors', `document.querySelector('.au .list')`)
 
   await run(win, `[...document.querySelectorAll('.navitem')].find((x) => /Settings/.test(x.textContent))?.click()`)
-  await shot(win, '08-settings', `[...document.querySelectorAll('h1')].some((h) => h.textContent.trim() === 'Settings')`)
+  // Fields, not Storage: Storage prints the demo vault's path, and with it this computer's user name
+  await until(win, `document.querySelector('.viewcol .head .h1')`, 'the settings')
+  await run(win, `[...document.querySelectorAll('#siderail button')].find((b) => /^Fields/.test(b.textContent.trim()))?.click()`)
+  await shot(win, '08-settings', `/Fields/.test(document.querySelector('.viewcol .head .h1')?.textContent || '')`)
 
-  await run(win, `document.querySelector('.themebtn')?.click()`)
+  await run(win, `document.querySelector('button[title="Toggle theme"]')?.click()`)
   await run(win, `[...document.querySelectorAll('.navitem')].find((x) => /Library/.test(x.textContent))?.click()`)
+  await run(win, `document.querySelector('button[title="Back to the library"]')?.click()`)
   // the readiness check reads the PAINTED colour, not the attribute driving it
   await shot(win, '09-library-light', `getComputedStyle(document.body).backgroundColor === 'rgb(240, 238, 234)' && document.querySelector('.lib .grid')`)
   app.quit()
@@ -359,6 +398,11 @@ def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+class _QuietFiles(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, *_args) -> None:
+        pass
 
 
 def main() -> int:
@@ -400,8 +444,15 @@ def main() -> int:
 
         shooter = work / "shoot.js"
         shooter.write_text(SHOOTER, encoding="utf-8")
-        demo_page = work / "demo-site.html"
-        demo_page.write_text(DEMO_SITE, encoding="utf-8")
+        site = work / "site"
+        (site / "title").mkdir(parents=True)
+        (site / "title" / "paper-lanterns.html").write_text(DEMO_SITE, encoding="utf-8")
+        # served over http, not opened as a file: the shot's address bar would
+        # otherwise print this computer's temp path — its user name included
+        server = http.server.ThreadingHTTPServer(
+            ("127.0.0.1", 0), functools.partial(_QuietFiles, directory=str(site)))
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        demo_url = f"http://127.0.0.1:{server.server_address[1]}/title/paper-lanterns.html"
         OUT.mkdir(parents=True, exist_ok=True)
         log = work / "shoot.log"
         log.write_text("", encoding="utf-8")
@@ -415,7 +466,8 @@ def main() -> int:
         print("capturing (offscreen - no window will appear):")
         subprocess.run([str(ELECTRON), str(shooter)], check=True,
                        env={**os.environ, "LB_SHOT_ORIGIN": origin, "LB_SHOT_OUT": str(OUT),
-                            "LB_SHOT_DEMO_URL": demo_page.as_uri(),
+                            "LB_SHOT_DEMO_URL": demo_url,
+                            "LB_SHOT_PRELOAD": str(ROOT / "shell" / "app-preload.js"),
                             "LB_SHOT_LOG": str(log)})
     finally:
         if log.exists():
