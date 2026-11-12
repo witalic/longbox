@@ -3,8 +3,9 @@
 Thanks for looking. longbox is a one-person project, so the most useful things are clear bug
 reports (what you did, what you expected, what happened, your OS and the app's version from
 Settings → About) and ideas that fit what the app is for. Before a larger change, open an issue to
-talk it through. A security problem goes privately, as [SECURITY.md](SECURITY.md) describes;
-everyone keeps to the [code of conduct](CODE_OF_CONDUCT.md).
+talk it through — [ROADMAP.md](ROADMAP.md) says what is already planned. A security problem goes
+privately, as [SECURITY.md](SECURITY.md) describes; everyone keeps to the
+[code of conduct](CODE_OF_CONDUCT.md).
 
 ## Scope
 

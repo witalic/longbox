@@ -12,7 +12,7 @@ what you bring home. No account, no cloud, no server to run.
 **[Download](https://github.com/witalic/longbox/releases/latest)** ·
 [Install and get started](https://witalic.github.io/longbox/#start) ·
 [Project page](https://witalic.github.io/longbox/) · [User guide](docs/guide.md) ·
-[Changelog](CHANGELOG.md)
+[Changelog](CHANGELOG.md) · [Roadmap](ROADMAP.md)
 
 longbox ships no content and no code for any particular website — no scrapers, no source
 catalogs, no online metadata services. What you keep in your vault is yours to answer for.

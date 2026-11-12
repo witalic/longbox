@@ -10,6 +10,7 @@ Detailed conventions live in `.claude/rules/` (loaded by scope). Canonical desig
 layout, module map). User-facing docs, kept true to the app: `README.md` (short — what it is, where
 to get it), `docs/index.html` (the project page: features, install, first-launch warnings),
 `docs/guide.md` (the user guide, feature by feature), `CHANGELOG.md` (a section per release),
+`ROADMAP.md` (what is next, in order; an item that ships leaves it for the changelog),
 `CONTRIBUTING.md` (setup, checks, conventions, releases).
 
 ## Commands
