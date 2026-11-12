@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "longbox-backend"
-version = "3.1.0"
+version = "3.2.0"
 description = "longbox FastAPI sidecar — the vault, its index and the API the app talks to"
 requires-python = ">=3.11"
 dependencies = [
