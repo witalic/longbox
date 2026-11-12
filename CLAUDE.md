@@ -48,4 +48,5 @@ The version has ONE source, `app-meta.json`; never hand-edit a version anywhere 
 - The owner does all live in-app testing; verify changes with the test suite, type-check and
   build only.
 - UI redesigns go mockup-first (`design/*.html`) and need approval before implementation.
-- Do not commit or push unless explicitly asked.
+- Commit each logical block as soon as it is done and verified (`.claude/rules/git.md`); push only
+  when the owner asks for a release.

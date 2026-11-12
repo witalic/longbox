@@ -2,8 +2,11 @@
 
 Loaded every session (global rule — no `paths`).
 
-- **Never commit or push unless the owner explicitly asks.** Work accumulates in the working tree;
-  the owner tests and decides when a block lands.
+- **Commit as the work goes, one logical block at a time.** When a block is done and verified (the
+  `/verify` pipeline; a reviewer's findings fixed), commit it right then — never let several
+  blocks pile up in the working tree to be split into history afterwards. A block that touches
+  files another block will touch next is still committed first. **Never push** unless the owner
+  asks — pushing is part of a release (below).
 - Conventional Commits (`feat:` / `fix:` / `refactor:` / `chore:` / `docs:` / `test:`), optional
   scope (`feat(scraper/backend): …`); one logical change per commit.
 - A commit must be a logically-complete, tested block — no dangling references to not-yet-built
