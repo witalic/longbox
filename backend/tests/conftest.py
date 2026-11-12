@@ -18,6 +18,9 @@ Those tests then wait for the thread themselves — `settled(lib)`.
 The playable-copy worker is the same kind of writer (library/copies.py): any
 episode a test stores that the window cannot play would start an ffmpeg behind
 it. It never starts here — a test about copies drives `CopyQueue.work` itself.
+So is the tile-preview worker (library/previews.py), which every write feeds,
+and the once-per-vault preview pass after a launch's verification: a test about
+them drives the queue itself and asks for the pass with `@pytest.mark.previews`.
 
 A vault is never made by opening it (design/vault-home.md): the launch window
 creates the folder first. A test's `Library(path)` opens a folder made the same
@@ -32,6 +35,7 @@ from pathlib import Path
 import pytest
 
 from app.library.copies import CopyQueue
+from app.library.previews import Previews
 from app.library.service import Library
 
 
@@ -39,12 +43,17 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "migrations: let the one-time vault migrations run for this test")
     config.addinivalue_line(
+        "markers", "previews: let the once-per-vault tile preview pass run for this test")
+    config.addinivalue_line(
         "markers", "bare_root: a Library opened on a path nobody created")
 
 
 @pytest.fixture(autouse=True)
 def _quiet_migrations(request, monkeypatch):
     monkeypatch.setattr(CopyQueue, "_start", lambda self: None)
+    monkeypatch.setattr(Previews, "_start", lambda self: None)
+    if "previews" not in request.keywords:
+        monkeypatch.setattr(Previews, "backfill", lambda self: None)
     if "migrations" in request.keywords:
         return
     monkeypatch.setattr(Library, "_migrations_bg", lambda self: None)

@@ -7,6 +7,7 @@ natural order; page edits rewrite the archive atomically.
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import time
 import re
@@ -752,6 +753,14 @@ def thumbnail(data: bytes, width: int, cap: float | None = None) -> bytes | None
         from PIL import Image
 
         with Image.open(BytesIO(data)) as img:
+            # A JPEG decodes straight at a half, quarter or eighth of its size
+            # when told the size it is for — never below it, so the LANCZOS pass
+            # still has the pixels. Asked for the preview's own proportions: a
+            # 4000px cover made into a 420px tile is otherwise decoded whole.
+            w0, h0 = img.size
+            kept = min(h0, w0 * cap) if cap else h0
+            scale = min(width / w0, width * (cap or 4) / kept, 1.0)
+            img.draft("RGB", (math.ceil(w0 * scale), math.ceil(h0 * scale)))
             img = img.convert("RGB")
             if cap and img.height > img.width * cap:
                 img = img.crop((0, 0, img.width, int(img.width * cap)))

@@ -15,14 +15,14 @@ import time
 import uuid
 import zipfile
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from ..scraper.recipes import RecipeStore
 from ..scraper.sources import SourcePrefs
-from . import comicinfo, copies, fields, media, subtitles
+from . import comicinfo, copies, fields, media, previews, subtitles
 from .app_docs import AppSettings, AppState
 from .loose import LooseStore
 from . import rules as rules_mod
@@ -312,6 +312,8 @@ class Library:
         # before anything indexes a title: every index write offers its episodes
         self.copies = copies.CopyQueue(self, self._closing)
         self.vault.let_go = self.copies.release
+        # …and its tile preview, made ahead of the grid that will ask for it
+        self.previews = previews.Previews(self, self._closing)
         # What the index already holds needs no disk at all, so the library is
         # SERVED FIRST and verified after: the scan below only answers "did
         # anything change on disk", and nothing has to wait for that answer.
@@ -845,6 +847,13 @@ class Library:
                 log.exception("background sync failed")
             finally:
                 self.sync_state["running"] = False
+            # the tile previews content stored before writes made them — once per
+            # vault, and only after the verification, never competing with it
+            if self.vault.needs_previews():
+                try:
+                    self.previews.backfill()
+                except Exception:  # noqa: BLE001 — a preview pass must not take the app down
+                    log.exception("making the tile previews failed")
 
         self._sync_thread = threading.Thread(target=run, name="lb-sync", daemon=True)
         self._sync_thread.start()
@@ -949,11 +958,13 @@ class Library:
         this process: the app restarts into the vault once it answers."""
         self._closing.set()
         self.copies.close()
+        self.previews.close()
 
     def close(self) -> None:
         # tell the sweep to stop, give it a moment, then close the index it uses
         self._closing.set()
         self.copies.close()
+        self.previews.close()
         for thread in (self._normalize_thread, self._sync_thread):
             if thread is not None and thread.is_alive():
                 thread.join(timeout=10)
@@ -1003,11 +1014,12 @@ class Library:
         # store fresh stamps over stale content and never notice
         stamp = self.vault.chapters_stamp(title_id)
         sides = self._sidecars(title_id)
-        self.index.upsert(title_id, doc, self.vault.touched_at(title_id),
-                          sides, stamp, self._covers_url(title_id))
+        covers = self._covers_url(title_id)
+        self.index.upsert(title_id, doc, self.vault.touched_at(title_id), sides, stamp, covers)
         # whatever just arrived or changed, an episode the window cannot show
         # goes to the playable-copy queue from here — the one place every write passes
         self.copies.offer(title_id, doc, sides)
+        self.previews.offer(title_id, self.tile_source(doc, sides, covers))
 
     def _sidecars(self, title_id: str) -> dict[str, dict]:
         """Chapter sidecars, cached per title against the chapters dir's mtime.
@@ -1044,25 +1056,86 @@ class Library:
         return covers.split() or self._stand_ins(title_id, doc, sidecars)
 
     @staticmethod
-    def _stand_ins(title_id: str, doc: TitleDoc, sidecars: dict[str, dict]) -> list[str]:
+    def _stand_in_sources(doc: TitleDoc, sidecars: dict[str, dict]) -> list[tuple[str, str, dict]]:
         """What a title with no cover of its own can show instead: the first page
         of each downloaded chapter, or the frame the window already cut for an
-        episode's tile. Composed from the sidecars the caller is already holding,
-        so a coverless title costs no disk at all."""
-        out: list[str] = []
+        episode's tile — (kind, chapter id, sidecar). Composed from the sidecars
+        the caller is already holding, so a coverless title costs no disk at all."""
+        out: list[tuple[str, str, dict]] = []
         for c in doc.chapters:
             if len(out) >= _DERIVED_COVERS:
                 break
             side = sidecars.get(safe_id(c.id))
             if not side:
                 continue
-            base = f"/api/titles/{title_id}/chapters/{c.id}"
             if side.get("kind") == "video":
                 if side.get("poster"):
-                    out.append(f"{base}/frames/poster?v={stills_version(side)}")
+                    out.append(("poster", c.id, side))
             elif side.get("pages"):
-                out.append(f"{base}/pages/0?v={chapter_version(side)}")
+                out.append(("page", c.id, side))
         return out
+
+    @classmethod
+    def _stand_ins(cls, title_id: str, doc: TitleDoc, sidecars: dict[str, dict]) -> list[str]:
+        out = []
+        for kind, chapter_id, side in cls._stand_in_sources(doc, sidecars):
+            base = f"/api/titles/{title_id}/chapters/{chapter_id}"
+            out.append(f"{base}/frames/poster?v={stills_version(side)}" if kind == "poster"
+                       else f"{base}/pages/0?v={chapter_version(side)}")
+        return out
+
+    # ---- tile previews, made ahead (library/previews.py) ----
+
+    @classmethod
+    def tile_source(cls, doc: TitleDoc, sidecars: dict[str, dict], covers: str) -> previews.Source | None:
+        """What a title's tile shows first, with the version it is cached under
+        — read off what the index holds, so its key needs no disk."""
+        own = covers.split()
+        if own:
+            return ("cover", "", parse_qs(urlsplit(own[0]).query).get("v", [""])[0])
+        stand_ins = cls._stand_in_sources(doc, sidecars)
+        if not stand_ins:
+            return None
+        kind, chapter_id, side = stand_ins[0]
+        if kind == "poster":
+            return ("poster", chapter_id, stills_version(side))
+        return ("page", chapter_id, chapter_version(side))
+
+    def tile_sources(self) -> Iterator[tuple[str, previews.Source]]:
+        """Every title's, from the index — no disk."""
+        for title_id, doc, sides, covers in self.index.query(sort="title"):
+            source = self.tile_source(doc, sides, covers)
+            if source is not None:
+                yield title_id, source
+
+    def thumb_names(self) -> set[str]:
+        """Every preview the cache holds — ONE listing, where a stat per title
+        would be thousands of round trips to a network vault."""
+        try:
+            with os.scandir(self._thumb_file("x").parent) as items:
+                return {e.name for e in items}
+        except OSError:
+            return set()
+
+    def tile_preview(self, title_id: str, source: previews.Source, made: set[str] | None = None) -> None:
+        """Make the preview a tile shows first, unless it is made: a lookup in
+        `made` (the cache listed once) or one stat — never the preview read back."""
+        kind, chapter_id, version = source
+        w = previews.TILE_W
+        if version:
+            # the first cover's file is `cover.<ext>` (vault._cover_name): its stem is in the key
+            key = (self._cover_key(title_id, version, "cover", w) if kind == "cover"
+                   else self._frames_key(kind, title_id, chapter_id, version, w) if kind == "poster"
+                   else self._page_key(title_id, chapter_id, version, w, None, 0))
+            name = f"{key}.jpg"
+            if (name in made) if made is not None else self._thumb_file(key).is_file():
+                return
+        if kind == "cover":
+            self.cover_thumb(title_id, w)
+        elif kind == "page":
+            self.chapter_page(title_id, chapter_id, 0, w)
+        else:
+            self.chapter_frames(title_id, chapter_id, "poster", w)
 
     # ---- reads (via the index) ----
 
@@ -1865,37 +1938,53 @@ class Library:
             self.vault.delete_chapter_media(title_id, chapter_id)
             return self._recommit(title_id, doc)
 
-    def _cached_thumb(self, key: str, source: Callable[[], tuple[bytes, str]], width: int,
-                      cap: float | None = None) -> tuple[bytes, str]:
-        """A downscaled JPEG cached on disk under `key` (which the caller stamps
-        with the chapter/cover version, so an edited file misses the cache by
-        construction). `source` is called only on a MISS — a cache hit must not
-        read the original, which on a network vault is the entire request cost.
-        Undecodable formats serve the original. The cache is the vault's own,
-        so a vault opened on another computer brings its previews along."""
-        cfile = self.vault.root / APP_DIR / "cache" / "thumbs" / f"{key}.jpg"
+    def _thumb_file(self, key: str) -> Path:
+        return self.vault.root / APP_DIR / "cache" / "thumbs" / f"{key}.jpg"
+
+    def _cached(self, key: str) -> tuple[bytes, str] | None:
+        cfile = self._thumb_file(key)
         if cfile.is_file():
             try:
                 return cfile.read_bytes(), "image/jpeg"
             except OSError:
                 pass  # a half-written or vanished cache entry: just re-make it
-        data, ct = source()
-        thumb = media.thumbnail(data, width, cap)
-        if thumb is None:
-            return data, ct
-        try:
-            self.vault.make_dir(cfile.parent)
-        except OSError:
-            return thumb, "image/jpeg"  # a cache that cannot be written is only a miss next time
-        # unique temp name: two requests for the same tile are normal, and a
-        # shared one would interleave into a corrupt cached JPEG
-        tmp = cfile.with_name(f"{cfile.name}.{uuid.uuid4().hex[:8]}.tmp")
-        try:
-            tmp.write_bytes(thumb)
-            os.replace(tmp, cfile)
-        except OSError:
-            tmp.unlink(missing_ok=True)
-        return thumb, "image/jpeg"
+        return None
+
+    def _cached_thumb(self, key: str, source: Callable[[], tuple[bytes, str]], width: int,
+                      cap: float | None = None) -> tuple[bytes, str]:
+        """A downscaled JPEG cached on disk under `key` (which the caller stamps
+        with the chapter/cover version, so an edited file misses the cache by
+        construction). `source` is called only on a MISS — a cache hit must not
+        read the original, which on a network vault is the entire request cost —
+        and misses are made one at a time (library/previews.py). Undecodable
+        formats serve the original. The cache is the vault's own, so a vault
+        opened on another computer brings its previews along."""
+        hit = self._cached(key)
+        if hit is not None:
+            return hit
+        with self.previews.making():
+            # made while this one waited its turn: a grid asks for a tile twice
+            hit = self._cached(key)
+            if hit is not None:
+                return hit
+            data, ct = source()
+            thumb = media.thumbnail(data, width, cap)
+            if thumb is None:
+                return data, ct
+            cfile = self._thumb_file(key)
+            try:
+                self.vault.make_dir(cfile.parent)
+            except OSError:
+                return thumb, "image/jpeg"  # a cache that cannot be written is only a miss next time
+            # unique temp name: a request the lock does not cover (another
+            # process on a shared vault) must not interleave into a corrupt JPEG
+            tmp = cfile.with_name(f"{cfile.name}.{uuid.uuid4().hex[:8]}.tmp")
+            try:
+                tmp.write_bytes(thumb)
+                os.replace(tmp, cfile)
+            except OSError:
+                tmp.unlink(missing_ok=True)
+            return thumb, "image/jpeg"
 
     def page_image(self, vocab: str, name: str, width: int) -> tuple[bytes, str] | None:
         """A value page's image — downscaled and cached when `width` is given."""
@@ -1919,9 +2008,23 @@ class Library:
         # mtime.size.ext, and two covers of one title routinely agree on all
         # three — written in the same breath, same format, same size — so
         # without the name the second one is served the first one's thumbnail.
-        key = cache_key("cover", cover_version(path.name, stat.st_mtime_ns, stat.st_size),
-                        safe_id(title_id), path.stem, width)
+        key = self._cover_key(title_id, cover_version(path.name, stat.st_mtime_ns, stat.st_size),
+                              path.stem, width)
         return self._cached_thumb(key, lambda: (path.read_bytes(), ct), width)
+
+    @staticmethod
+    def _cover_key(title_id: str, version: str, stem: str, width: int) -> str:
+        return cache_key("cover", version, safe_id(title_id), stem, width)
+
+    @staticmethod
+    def _frames_key(kind: str, title_id: str, chapter_id: str, version: str, width: int) -> str:
+        return cache_key(kind, version, safe_id(title_id), safe_id(chapter_id), width)
+
+    @staticmethod
+    def _page_key(title_id: str, chapter_id: str, version: str, width: int,
+                  cap: float | None, index: int) -> str:
+        return cache_key("page", version, safe_id(title_id), safe_id(chapter_id), width,
+                         f"c{cap:g}" if cap else "", index)
 
     # ---- an episode's subtitles (design/subtitles.md §3) ----------------------
 
@@ -2150,8 +2253,8 @@ class Library:
             if not width:
                 return path.read_bytes(), "image/jpeg"
             # the version the URL carries — a file's timestamp is not one
-            key = cache_key(kind, stills_version(self._sidecars(title_id).get(safe_id(chapter_id))),
-                            safe_id(title_id), safe_id(chapter_id), width)
+            key = self._frames_key(kind, title_id, chapter_id,
+                                   stills_version(self._sidecars(title_id).get(safe_id(chapter_id))), width)
             return self._cached_thumb(key, lambda: (path.read_bytes(), "image/jpeg"), width, None)
         except OSError as e:
             log.warning("%s %s/%s is unreadable: %s", kind, title_id, chapter_id, e)
@@ -2174,21 +2277,23 @@ class Library:
         path = self.vault.chapter_media_path(title_id, chapter_id)
         if path is None:
             return None
+        key = ""
+        if width:
+            # keyed by the chapter's own version — every page op bumps it, so an
+            # edited chapter misses this cache by construction. Looked up BEFORE
+            # the zip is opened: a cached preview must not cost its archive a read
+            key = self._page_key(title_id, chapter_id,
+                                 chapter_version(self._sidecars(title_id).get(safe_id(chapter_id))),
+                                 width, cap, index)
+            hit = self._cached(key)
+            if hit is not None:
+                return hit
         try:
             entries = media.image_entries(path)
             if not (0 <= index < len(entries)):
                 return None
             if not width:
                 return media.read_entry(path, entries[index])
-        except (zipfile.BadZipFile, OSError, KeyError) as e:
-            log.warning("page %s/%s#%s is unreadable: %s", title_id, chapter_id, index, e)
-            return None
-        # keyed by the chapter's own version — every page op bumps it, so an
-        # edited chapter misses this cache by construction
-        key = cache_key("page", chapter_version(self._sidecars(title_id).get(safe_id(chapter_id))),
-                        safe_id(title_id), safe_id(chapter_id), width,
-                        f"c{cap:g}" if cap else "", index)
-        try:
             return self._cached_thumb(key, lambda: media.read_entry(path, entries[index]), width, cap)
         except (zipfile.BadZipFile, OSError, KeyError) as e:
             log.warning("page %s/%s#%s is unreadable: %s", title_id, chapter_id, index, e)

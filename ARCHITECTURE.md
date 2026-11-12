@@ -80,7 +80,7 @@ library/
     state.json               interrupted transfers, paused imports, import reports
     partial-downloads/       transfers being written
     adblock/                 the ad blocker's switch, paused sites and compiled lists
-    cache/thumbs/            downscaled previews
+    cache/thumbs/            downscaled previews (a tile's made at every write — library/previews.py)
   <type-shelf>/              one directory per TYPE (manga/, image-set/, …; typeless → other/)
     <title-id>/
       title.json             schema-versioned, layered:
@@ -316,6 +316,7 @@ backend/app/
             alongside the library's own answer; follows a rename) ·
             subtitles.py (an episode's subtitles: SRT/VTT/ASS → WebVTT, a language off a name) ·
             copies.py (playable copies: what needs one, the background queue, landing it) ·
+            previews.py (tile previews: made one at a time, ahead of the grid, once per vault for older content) ·
             transcode.py (ffmpeg: finding it, reading streams, remux or H.264 encode) ·
             loose.py (the library's downloads folder: what came with nothing armed) ·
             app_docs.py (the app's own documents: settings.json, .longbox/state.json) ·

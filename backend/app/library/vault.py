@@ -184,6 +184,9 @@ NORMALIZE_VERSION = 1
 # one a browser does not decode — Range Extensions, High 10 — does not play.
 # 4: an mkv's PCM sound is told apart by kind, and the little-endian kind plays.
 FASTSTART_VERSION = 4
+# The same for the pass that makes every title's tile preview (library/previews.py)
+# — content stored before writes made them. Bump with the tile width.
+PREVIEWS_VERSION = 1
 
 
 def _episode_may_be_stale(side: dict) -> bool:
@@ -1129,6 +1132,12 @@ class Vault:
 
     def mark_faststart(self) -> None:
         self._update_vault_meta(videoFaststart=FASTSTART_VERSION)
+
+    def needs_previews(self) -> bool:
+        return int(self._vault_meta().get("tilePreviews", 0)) < PREVIEWS_VERSION
+
+    def mark_previews(self) -> None:
+        self._update_vault_meta(tilePreviews=PREVIEWS_VERSION)
 
     # ---- what has been done to this vault -----------------------------------
     #

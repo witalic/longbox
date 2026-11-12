@@ -15,7 +15,9 @@ const props = withDefaults(defineProps<{
   covers: string[]
   id: string          // the fallback colour is keyed by this, so it never moves
   title?: string
-  w?: number          // the downscale width to ask the endpoint for
+  // the downscale width to ask the endpoint for; the default is the one the
+  // sidecar makes ahead of the grid (library/previews.py TILE_W)
+  w?: number
 }>(), { title: '', w: 420 })
 
 // Long enough to look at, short enough that a hover shows more than two.
