@@ -689,6 +689,42 @@ app.whenReady().then(main).catch((e) => { logln('FAILED: ' + String((e && e.mess
 """
 
 
+def social_card() -> None:
+    """The picture a shared link shows (the page's og:image), and the repository's
+    social preview: 1280×640, composed from the library shot."""
+    from PIL import Image, ImageDraw
+    w, h = 1280, 640
+    tx, tx2, tx3 = (232, 234, 239), (154, 161, 173), (105, 112, 128)
+    card = Image.new("RGB", (w, h), (10, 11, 13))
+    # the library's grid, from its sidebar's edge, running off the right side
+    shot = Image.open(OUT / "library.png").convert("RGB").crop((220, 40, 1280, 800))
+    shot = shot.resize((int(shot.width * .78), int(shot.height * .78)))
+    frame = Image.new("RGB", (shot.width + 2, shot.height + 2), (38, 42, 49))
+    frame.paste(shot, (1, 1))
+    mask = Image.new("L", frame.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, frame.width - 1, frame.height - 1], radius=14, fill=255)
+    card.paste(frame, (560, 64), mask)
+    d = ImageDraw.Draw(card)
+    # the logo: the app's own mark, drawn at 72 px
+    logo = Image.new("RGB", (72, 72))
+    _vgradient(logo, (129, 148, 244), (62, 78, 178))
+    lmask = Image.new("L", (72, 72), 0)
+    ImageDraw.Draw(lmask).rounded_rectangle([0, 0, 71, 71], radius=17, fill=255)
+    ImageDraw.Draw(logo).polygon([(27, 19), (36, 19), (36, 44), (49, 44), (49, 53), (27, 53)],
+                                 fill=(255, 255, 255))
+    card.paste(logo, (64, 72), lmask)
+    d.text((156, 82), "longbox", font=_font(48, True), fill=tx)
+    y = 214
+    for line in ("Everything you collect.", "One vault.", "Your machine."):
+        d.text((64, y), line, font=_font(40, True), fill=tx)
+        y += 54
+    d.text((64, y + 22), "A local-first media vault with a", font=_font(22), fill=tx2)
+    d.text((64, y + 52), "browser built in. Free software.", font=_font(22), fill=tx2)
+    d.text((64, h - 92), "manga · comics · series · films", font=_font(19), fill=tx3)
+    d.text((64, h - 64), "courses · photo sets · artbooks", font=_font(19), fill=tx3)
+    card.save(OUT / "social.png", optimize=True)
+
+
 def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -769,6 +805,7 @@ def main() -> int:
             print(log.read_text(encoding="utf-8").rstrip())
         sidecar.terminate()
         shutil.rmtree(work, ignore_errors=True)
+    social_card()
     print(f"done: {OUT}")
     return 0
 
