@@ -49,6 +49,9 @@ python tools/version.py               # every copy of the version agrees with ap
 New backend behaviour comes with tests in `backend/tests/`; tests are offline (no network, no real
 sites) and build their vaults and archives in a temporary folder.
 
+The same checks run on GitHub for every push to `main` and every pull request, on Windows and Linux
+(`.github/workflows/checks.yml`).
+
 ## Conventions
 
 - **English** for code, comments, UI text and documentation.

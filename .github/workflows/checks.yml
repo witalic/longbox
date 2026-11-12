@@ -1,0 +1,57 @@
+name: checks
+
+# Every push to main and every pull request: the sidecar's offline tests, the
+# UI's type-check and build, the shell's scripts and the version copies — what
+# CONTRIBUTING.md asks of a change before it lands. Installers are build.yml's
+# job, and only for a tag.
+#
+# Windows is where longbox is developed; Linux is where a portability slip in
+# the vault code (paths, file locking, case) would show first.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Every copy of the version agrees with app-meta.json
+        run: python tools/version.py
+
+      - name: The sidecar's tests
+        run: |
+          python -m pip install -e "backend[dev]"
+          cd backend && python -m pytest -q
+
+      - name: The UI type-checks and builds
+        working-directory: frontend
+        run: npm ci && npm run build
+
+      - name: The shell's scripts parse
+        run: for f in shell/*.js; do node --check "$f"; done
