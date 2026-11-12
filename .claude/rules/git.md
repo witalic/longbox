@@ -9,5 +9,7 @@ Loaded every session (global rule — no `paths`).
 - A commit must be a logically-complete, tested block — no dangling references to not-yet-built
   pieces.
 - **Releases.** The version lives in `app-meta.json` only; `python tools/version.py X.Y.Z` sets it
-  (with today's date) and writes every copy a tool insists on. Commit as `chore(release): X.Y.Z`,
-  then the owner pushes the `vX.Y.Z` tag — CI refuses a tag or a copy that disagrees.
+  (with today's date) and writes every copy a tool insists on. Commit as `chore(release): X.Y.Z`.
+  When the owner asks for the build, push `main` and a lightweight `vX.Y.Z` tag (as earlier
+  releases), then watch the `build` run — the tag is what starts it, and CI refuses a tag or a
+  copy that disagrees.
