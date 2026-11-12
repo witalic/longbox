@@ -1,339 +1,104 @@
 # longbox
 
-A local-first desktop **media vault** for manga, manhwa, manhua, comics, image sets and **episodes**
-— with an **embedded capture browser**. Your library is plain files on disk; metadata is captured
-visually: open the source site inside the app, click the elements that hold the title, authors,
-tags or cover, and longbox learns a reusable per-site recipe.
+**A local-first desktop vault for manga, manhwa, comics, image sets and episodes — with a browser
+built in to bring them home.**
 
-## Features
+![The library](docs/img/01-library.png)
 
-- **Library** — cover grid, dense list and expanded views with linked faceted filters (type,
-  status, genres, tags, languages, flags, authors, characters, studio), full-text search
-  over titles and alternate names, favorites, ratings, reading progress, and footer pagination.
-  **Select titles** to delete them, or to **edit them at once**: a panel shows every value the
-  picked titles hold with how many hold it — add a tag to all, take a character from all, give a
-  value some have to the rest, set a status — and one Apply writes it, undoable. What you change
-  there becomes yours: capture will not overwrite it. Shelves narrow the library by type; **Browse by** groups it along any list
-  field, and each shelf keeps its own list of axes. A title may wear **several covers** — the
-  grid fades through them while you hover it — and one you never gave a cover shows what it
-  actually holds: the first page of each downloaded chapter, or an episode's own preview frame.
-- **Capture browser** — a real embedded browser: tabs (pinning, reordering, background tabs,
-  per-tab zoom and audio mute), a floating find bar, a page context menu (copy or save an image,
-  open a link in a background tab), and the shortcuts a browser is expected to have — `F5`,
-  `Ctrl+R` (`Shift` bypasses the cache), `Ctrl+F`, `Ctrl+L`, `Ctrl+T`/`W`/`Shift+T`, `Alt+←/→`,
-  `Ctrl+0/±`, `Ctrl+1…9` — working over the page itself, not only over the app's own chrome.
-  **Ad blocking** with Adblock Plus's lists (EasyList, EasyPrivacy) and uBlock Origin's filters,
-  fetched from where they are made and refreshed every four days: ads, trackers, badware and
-  miners are blocked and ad slots hidden. The toolbar's shield turns green with a count of what
-  it blocked on the page; the ⋯ menu switches it off everywhere, pauses it on one site
-  (subdomains included), hides cookie banners and pop-ups too if asked, and says how fresh
-  EasyList is.
-- **Visual capture** — pages are captured into an explicit **draft**: auto-fill from a learned
-  recipe, or pick any element and refine the selector in the inspector (scope, position, cleanup,
-  and the separator a list picked into a one-value field is joined with). Per-field provenance
-  guarantees an automatic capture never overwrites a manual edit; list fields can be **merged**
-  across pages for works whose tags are spread over several of them. Auto-filling a NEW draft over
-  a page the library may already hold asks first, showing what each candidate record *is*.
-- **Per-site recipes** — taught once per domain, stored versioned with ordered fallback candidates
-  (picked selector → structural fallback → page metadata), reused for every next title on that
-  site. Each source decides which metadata fields it offers, and keeps its own bookmarks. Groups
-  and bookmarks are ordered by dragging them; a site you are done with can be **frozen** — it
-  keeps its recipe and its links and stays in Sources, but stops being offered in the browser.
-- **Fields you define** — the metadata registry is per library: add your own fields (text,
-  description, number, list, date) and choose which appear on title pages, in the filters and in
-  the capture dock. A field's type is a promise about its data, so number and date can be left but
-  never entered, and a list only folds into text on a separator no value contains. Every filled
-  field draws itself on the title page by its type — nothing to wire up per screen.
-- **Metadata** — one view for the library's vocabulary: every field's values (chapters' language
-  and group included) with how many titles hold each, over the whole library, the library's
-  current filters, or the titles picked in its select mode. Rename, merge, remove or move values
-  to another field, set or clear a field, replace text, or rename a type — which renames its
-  shelf on disk. Every change is previewed before anything is written, costs only the titles
-  that actually change, keeps the library's "updated" order, and can be reverted from its
-  history. **Rules** do the same to values on their way in — from capture, from your own typing
-  (visibly, with "keep as typed"), from a new chapter's language, group and section — in the order you
-  give them, and any rule can be applied to the titles already stored.
-- **Value pages** — every person, studio, character, genre, tag and list value of your own has a
-  page: its works (all of them, a page at a time, searched, sorted and narrowed with the
-  library's own filter block), how many you have read and how you rated them, the sites it came
-  from, the values it travels with, and the rules about it — before you write a word. Add a description,
-  links (X, pixiv, Patreon, Wikipedia… open in the embedded browser) and an image; a person's
-  other names are kept as rules, so every spelling lands as one. Hovering a chip on a title
-  page shows its page in brief; a rename in Metadata takes the page along.
-- **Import** — bring in what is already on disk, sorted the way you sorted it. Say what each level
-  of a folder tree means — a collection, a creator, a work — and how names become titles, entries
-  and fields: a pattern reads `vidhub @kumo Kumo Works` as site, handle and creator, a template makes
-  `Kumo Works 2025.1` the work's title, entries are numbered in order, from their names, or not at
-  all (the file's name is the label), and folders below a work become the **sections** its entries
-  are grouped by. Videos become episodes, archives and folders of images become chapters, and the
-  metadata editor fills in every work at once (or one work on its own). The preview shows exactly
-  what will be created before anything is written; the run copies or moves, keeps what you typed
-  by hand, and skips what an earlier run already stored. Profiles keep the answer and travel with
-  the library.
-- **Downloads** — arm the next download for a specific chapter, then just download the file in the
-  embedded browser; longbox intercepts it and files it into the vault. Archives (zip/cbz/7z/rar)
-  are normalized to zip, single images accumulate into the chapter page by page, and a video is
-  stored as itself. The vault renames every stored file to the chapter's id, so the name it
-  arrived under is recorded with it and shown on the entry. A panel over the app shows every
-  transfer with its title, chapter and progress. Any one can be paused, and closing the window
-  with transfers running warns first: each keeps its place (partial file, byte offset, validators)
-  and is picked up later in its own row — after a restart too — or started over.
-- **Page capture** — for sources that never serve a file: teach which images on a reader page are
-  the pages (once per site), arm a chapter, and read. Every page you open is fetched with the
-  browser's own session and filed into that chapter; pages already stored are never fetched again,
-  so flipping back costs nothing.
-- **Episodes** — video is a kind of content, not an attachment: an episode is an entry like any
-  other, with its own language, group, source and reading state. See below for what it does.
-- **Contents editor** — entries with free-form labels, translation groups (language + group per
-  row), sections (a volume, a season, a year) the title page groups entries by, numbering that
-  follows the translation it belongs to, drag-to-reorder, attach/replace
-  archives, add loose images or whole folders, move pages between entries, manual page reordering.
-- **Reader** — page and strip modes, fit controls, a hideable rail of page thumbnails, label-wise
-  chapter navigation that keeps your current translation, per-title remembered settings, and
-  rebindable (layout-independent) hotkeys. Reading progress writes through instantly.
-- **People & sources** — the people who made the works (one Authors field, writers and artists
-  alike), aggregated from the library with their works and favorites; source sites grouped as you
-  like, each with its recipe status and saved links. A site becomes a source the moment you
-  bookmark a page on it, and sits under **no recipe** until you teach it one.
-- **Local-first storage** — one directory per title on a per-type shelf; a rebuildable SQLite index
-  (deleting it never loses content); atomic writes; several vaults, one open at a time.
-  Everything the app keeps lives in the vault — recipes, sources with their groups and bookmarks,
-  your fields, how the reader shows each title, the window's settings, the embedded browser's
-  sign-ins and cache, unfinished transfers, previews — so copying the folder to another machine
-  moves the whole library, and two vaults never share a thing. The app's own folder keeps only
-  where your vaults are.
-- **Integrity** — every stored file is checksummed as it lands, and a revision pass checks the vault
-  against its own records: damaged archives, files gone missing, records without media, leftovers
-  from an interrupted write. Content stored twice is found by what the pages *are*, not by the file
-  that holds them. Numbering gaps are reported only where entries provably form a run.
-- **Portable metadata** — each archive carries a `ComicInfo.xml` describing its work, so the library
-  reads correctly in Komga, Kavita and anything else that speaks the format, and outlives this app.
-  An archive that already describes itself names its own entry on the way in.
+Your library is a plain folder on a disk you choose: this one, another, or a network drive. Every
+chapter is an ordinary zip with a `ComicInfo.xml` inside, every episode is the video file it
+arrived as, and what longbox knows about a title is readable JSON beside it. A SQLite index keeps
+it fast and is rebuilt from the folder whenever it has to be. No account, no cloud, no server to
+run: install it, point it at a folder, read.
 
-## Episodes (video)
+[Download](https://github.com/witalic/longbox/releases/latest) ·
+[Project page](https://witalic.github.io/longbox/) · [User guide](docs/guide.md) ·
+[Changelog](CHANGELOG.md)
 
-An episode is a chapter whose media is a video file. Everything a chapter has — the free-form
-label, the language and group of a translation, its source link, read state — applies unchanged;
-what differs is how it is stored, previewed and played.
+## What it does
 
-**Getting one in.** All three lanes accept video:
+- **A library you can filter by anything** — a cover grid, a dense list or detailed rows; facets
+  for type, status, genres, tags, languages, authors, characters, studio and fields of your own,
+  each value included or excluded; a page for every author, studio, tag or character with their
+  works.
+- **A browser that captures** — open a title's page in the built-in browser, click the elements
+  that hold its title, authors, tags and cover, and longbox remembers how that site is laid out for
+  the next title. Arm a chapter and download its file, or capture its pages as you read them. Ad
+  blocking included; the **Sources** page keeps the sites you use in your own groups and order.
+- **Your folders, imported** — say what each level of a folder tree means and longbox files it,
+  showing exactly what it will create before anything is written.
+- **Metadata at scale** — rename, merge or move values across the whole library with a preview
+  and an undoable history; rules that tidy values on their way in.
+- **A reader and a player** — page and strip modes with per-title settings; episodes with
+  subtitles and resume points, and playable copies (made with the bundled ffmpeg) of files a
+  browser cannot play.
+- **A vault you can trust** — every stored file checksummed, a health check that says what is
+  broken, missing or stored twice, atomic writes, and several vaults, each complete in itself.
 
-- *Downloaded from a source* — arm the entry and download the file in the embedded browser, the
-  same armed flow archives use. A video is stored **as the file it arrived as** (an episode gains
-  nothing from a zip and would pay a full rewrite for every edit).
-- *Files you already have* — drop one on the entry form of the contents editor, or pick it with
-  *Choose files…*; whole folders work too. `mp4 · m4v · webm · mkv · mov · avi · ts` are
-  recognised. What you give an entry is queued and added in the background, one after another —
-  the form is free for the next entry, the next title, at once, and Activity lists what is still
-  on its way (a failed one waits there to be tried again).
-- *Replacing one* — attaching a new file to an entry replaces its media and carries the entry's
-  identity, so read state and translation rows survive.
+The [user guide](docs/guide.md) describes each in full.
 
-**Subtitles.** An episode keeps any number of subtitle tracks — one of them the default — and the
-player's own CC menu switches them. Add them in the contents' edit mode (the episode's **CC**
-button): drop or pick an `srt`, `vtt`, `ass` or `ssa` file, or take one the browser downloaded
-earlier; the language is read off the file's name. Or arm the episode in the capture dock and
-download its subtitles — they attach to it and the video stays. Everything is stored as WebVTT,
-the format the player shows (ASS styling is flattened); the original file is kept beside it.
+## What it is not
 
-**Downloads nobody armed.** A file the browser downloads with no entry armed is no longer thrown
-away: a subtitle, an archive, an image or a video lands in the library's own `downloads/`
-folder (anything else is refused, and the Activity panel says so). The activity corner counts
-what waits there; the panel lists it, with where it came from.
-
-**What is stored beside it.** At ingest longbox records the duration, container, codecs and
-whether the file's index sits before the media; for `mp4`/`m4v` it moves the index to the front
-when it does not (that is what makes playback start at once instead of fetching the tail first).
-A file is stored under the name of what its bytes hold: an mkv that arrived called `.mp4` is kept
-as `.mkv`, and one that is no video at all (an error page saved as `.mp4`) is refused.
-The **contact sheet** — nine frames laid out 3×3, plus the single frame a tile wears — is cut
-once, by the window that plays the file (the app ships no decoder), and kept in the vault beside
-the media. Nothing re-reads the video to draw a thumbnail again.
-
-**Watching.** The title page previews the episode as that sheet, with each tile a link to the
-second it came from, and plays it **in place** when asked — nothing is streamed before you press
-Play. Arrow keys scrub it, the player's own controls (including fullscreen) work, and the resume
-point survives leaving the page: reopening the title, or opening the episode in the full-window
-player, carries on where you stopped. Reaching the end clears the point, so the next play starts
-over.
-
-**Files a browser cannot open.** An `mkv` plays when what it holds does — H.264, VP9 or AV1
-video with AAC, Opus, Vorbis, MP3, FLAC or PCM sound, which ingest reads from its track list. Everything
-else the window cannot show — every `avi`, `mov` and `ts`, any other mkv, and HEVC beyond Main10
-(4:4:4, which most graphics will not decode in a browser and which would otherwise play its sound
-over a black screen) — gets a **playable copy**, made automatically in the background by the
-ffmpeg that ships with the app and kept in the vault beside the original, which is never touched.
-A picture the window already decodes is only re-containered (lossless, seconds); anything else is
-encoded to H.264 on the graphics card where it can be. Activity shows each copy as it is made; the
-player shows how far it got and plays the copy once it lands
-([design/playable-copies.md](design/playable-copies.md)).
-
-**Streaming, not copying.** An episode is served out of the vault with Range support and read in
-windows, so seeking does not drag the whole file across a network drive, and a file that is
-currently playing is never replaced or deleted under the player — the app says which entry to
-close first.
-
-## Settings
-
-One section at a time, chosen from the rail the rest of the app already uses, each carrying its
-own state so you can see what needs you without opening it: **Storage** (your vaults: opening
-another restarts the app into it; create one, add one, forget one),
-**Health** (below), **Maintenance** (rebuild the index, convert archives, write metadata into
-them), **Fields**, **Browser**, **Appearance**, **Keyboard**, **About**.
-
-Everything that walks the library — a check, a conversion, a sweep, a field retype — takes the
-same single slot, shows the same progress and can be stopped from where it was started. The
-sidecar names what is running, so leaving the page does not lose it.
-
-## Where the library lives
-
-The library is a folder — the **vault** — that you choose: on this disk, another one, or a network
-drive. Nothing is created unasked: the first launch asks where to make a vault or which one to
-open, and a folder that holds anything else is never taken for one. When the last vault answers at
-once the app opens straight into it; when it does not — a network drive still waking up, or gone —
-a small window says which and keeps trying, opening the vault the moment it answers, with the
-other vaults one click away. A vault open on another computer is reported rather than shared:
-two apps writing into one vault would damage its index and the browser data in it.
-
-If the vault drops while the app is open, the app stops using it: nothing is read from it and
-nothing is written anywhere until it is back, the browser's pages and running transfers are
-stopped, and the window says what stopped. When the vault answers again the app restarts into it
-and reopens your tabs ([design/vault-home.md](design/vault-home.md)).
-
-## Keeping the vault honest
-
-The vault is the source of truth, so the app can be asked to check it — nothing here runs by
-itself, and nothing changes your files.
-
-**Checksums.** Every chapter is hashed twice as it is stored: once over the whole file (what
-integrity means) and once over its ordered page images (what "the same chapter" means). The
-second survives a repack, a renumbering and the metadata mirror, which is why duplicate detection
-uses it and corruption detection does not.
-
-**One check, three answers** (Settings → Health): is anything broken, is anything wasting space,
-is anything missing. Duplicates and numbering gaps read the index, so they cost nothing on top of
-the walk and are never a separate thing to ask for. Answers are sentences about files — *the file
-is gone*, *the file changed since it was stored* — and each says what to do about it: a broken row
-opens its title, where the contents editor can replace or remove it. A quick check compares disk
-against the record; a full check re-reads every byte; either can be stopped, and a report cut
-short says so. Content stored before checksums existed can be baselined — reported as exactly
-that, because a checksum first taken today proves stability from today, not that the bytes are
-what arrived.
-
-**Leftovers** — files belonging to no entry at all, and the debris of interrupted writes — are the
-one thing only this screen can reach, so it is the one place they can be deleted, after listing
-every one with its size. Duplicate copies are never deleted for you: which one to keep is a
-judgement, so the report opens each instead.
-
-At scale the report stays a report: one row per *title and problem*, so forty broken chapters in
-one title read as one problem with that title, lists are capped with the totals stated in full,
-and a library that fails all at once is named as what it is — a folder that moved, not three
-thousand damaged files.
-
-**Numbering gaps** are deliberately quiet. A vault holds image sets, one-shots and hand-ordered
-contents, so a run is only claimed when the entries prove it: a translation of its own, at least
-five of them, almost all numbered, densely covering their span, and never a hand-made order.
-Fractions (`10.5`) are entries, not missing ones, and nothing is ever claimed beyond the highest
-number held.
-
-**What has been done** is recorded with the library: every operation over the vault leaves when
-it ran, how long it took and what came of it, and the last report is kept in full — so a check
-that took an hour is still there after a restart, and "has this library ever been checked" has an
-answer.
-
-**ComicInfo.xml** is a mirror, not a second source of truth. It is written where the archive is
-being rewritten anyway — at ingest and on every page edit — so a metadata edit never silently
-rewrites gigabytes; Settings brings the rest in line on demand, rewriting only what differs.
+longbox ships **no content and no code for any particular website**. There is no catalog of
+sources, no built-in scraper, no online metadata service and no tracker sync — by design. The
+recipes it captures with are the ones you make, for the sites you choose to visit. What you keep
+in your vault is your responsibility: respect each site's terms and the creators' rights.
 
 ## Install
 
-Download a build for your system from the [releases page](https://github.com/witalic/longbox/releases/latest),
-or read what it does first on the [project page](https://witalic.github.io/longbox/). Nothing else
-is needed — Python and Node are only required to work on the source.
+Builds for Windows, macOS (Apple silicon and Intel) and Linux are on the
+[releases page](https://github.com/witalic/longbox/releases/latest). Nothing else is needed —
+Python and Node are only for working on the source.
 
-macOS builds are **ad-hoc signed**, not notarized: the first launch needs
-right-click → *Open* to get past the unidentified-developer warning.
+The builds are **not yet signed with a paid certificate**, so the system warns once, on the first
+launch:
 
-## Running (development)
+- **Windows** — `longbox-X.Y.Z-windows-x64.exe` (installer) or `…-windows-x64.zip` (portable).
+  SmartScreen says *Windows protected your PC*: choose **More info → Run anyway**.
+- **macOS** — `longbox-X.Y.Z-macos-arm64.dmg` (Apple silicon) or `…-macos-x64.dmg` (Intel). The
+  app is ad-hoc signed but not notarized. On macOS 15 and later, open it once and dismiss the
+  warning, then choose **Open Anyway** in **System Settings → Privacy & Security**. On earlier
+  versions, right-click the app and choose **Open**. If macOS calls the app *damaged*, the
+  download is quarantined: run `xattr -dr com.apple.quarantine /Applications/longbox.app`.
+- **Linux** — `longbox-X.Y.Z-linux-x86_64.AppImage` (make it executable with `chmod +x`) or
+  `longbox-X.Y.Z-linux-amd64.deb`.
 
-Requires Python ≥ 3.11, Node.js and npm. One-time setup — `run.py` expects the `.venv` at the
-repo root:
+`rar` archives need `unrar` or `bsdtar` on the machine; every other format is handled inside the
+app. Signed builds are the first thing donations would pay for.
 
-```bash
-python -m venv .venv                  # then activate it (.venv\Scripts\activate on Windows)
-pip install -e "backend[dev]"         # the sidecar, its test tools and pyinstaller
-cd frontend && npm ci && cd ..
-cd shell && npm ci && cd ..           # fetches Electron itself
-```
+## Privacy
 
-```bash
-python run.py             # build the frontend, launch the Electron shell (spawns the sidecar)
-python run.py --no-build  # skip the frontend rebuild
-python run.py --backend   # only the FastAPI sidecar on 127.0.0.1:8787 (dev, no auth token)
-```
+There is no account and no telemetry, and the app checks for nothing by itself. The only requests
+it makes without you asking are:
 
-Tests and checks:
+- the ad blocker's filter lists — EasyList, EasyPrivacy, uBlock Origin's filters, Peter Lowe's
+  list and Fanboy's cookie list — fetched from where they are published, every four days (the ad
+  blocker can be switched off);
+- your sources' site icons, from Google's favicon service, which is told each site's domain.
 
-```bash
-cd backend && python -m pytest        # offline API + vault tests
-cd frontend && npx vue-tsc --noEmit   # type-check
-cd frontend && npm run build          # production build (served by the sidecar at /app/)
-node --check shell/main.js            # after touching shell scripts
-python tools/version.py               # every copy of the version agrees with app-meta.json
-```
+Everything else — every page, download and image — is something you opened in the built-in
+browser.
 
-## Versioning
+## How it is built
 
-The version has one source: `app-meta.json`, which the sidecar, the shell and the About page read
-directly. The few files that must carry a literal of their own — `shell/package.json` and its
-lockfile (electron-builder names the installers and the release after it), `backend/pyproject.toml`
-and the project page — are written by one command, never by hand:
+longbox is designed, directed and tested by one person, [witalic](https://github.com/witalic),
+and written largely with **Claude Code**, Anthropic's AI coding assistant. The owner decides what
+is built and how it should behave, tests every change in the running app and makes every release;
+the assistant writes most of the code, its tests and its documentation. Commits it co-wrote carry a
+`Co-Authored-By: Claude` trailer, and the conventions it works by are public: [CLAUDE.md](CLAUDE.md)
+and [.claude/rules/](.claude/rules/). Nothing lands without the offline test suite (600+ tests),
+the type-check and a build passing.
 
-```bash
-python tools/version.py 2.3.0         # set the version (and today's date) and write every copy
-python tools/version.py               # check that nothing disagrees
-```
+## Contributing
 
-A release is that bump committed as `chore(release): 2.3.0`, then the tag `v2.3.0` pushed.
+Bug reports and ideas are welcome in [issues](https://github.com/witalic/longbox/issues). To work
+on the source — setup, checks, conventions and how releases are made — see
+[CONTRIBUTING.md](CONTRIBUTING.md); for how the app is put together, [ARCHITECTURE.md](ARCHITECTURE.md)
+and [design/state-model.md](design/state-model.md).
 
-## Packaging
+## License
 
-Builds run on GitHub Actions (`.github/workflows/build.yml`) for Windows, macOS (arm64 and x64)
-and Linux: push a `v*` tag naming the version in `app-meta.json` to publish a release, or run the
-workflow by hand for artifacts. CI refuses a tag — or any copy of the version — that disagrees.
-Locally:
-
-```bash
-cd frontend && npm run build                                   # the UI the sidecar serves
-pyinstaller packaging/sidecar.spec --noconfirm --distpath dist-sidecar --workpath build-sidecar
-cd shell && npm run pack                                       # installers into dist-app/
-```
-
-A packaged app carries the sidecar as a frozen binary (with the built UI inside it) in the app's
-resources, so it needs neither Python nor a checkout. `rar` ingest still needs an `unrar`/`bsdtar`
-on the machine; every other archive format is handled in-process. The ffmpeg that makes playable
-copies rides inside the sidecar (from the pinned `imageio-ffmpeg` wheel); it is GPL v3, and its
-licence and where its source is ship in the app's `resources/licenses/`
-([packaging/licenses/FFmpeg.txt](packaging/licenses/FFmpeg.txt)).
-
-## Architecture
-
-Electron shell → spawns a **FastAPI** (Python) sidecar → owns the vault (per-title directories +
-SQLite index) and serves the built **Vue 3** UI at `/app/`. The embedded browser (`<webview>`)
-hosts source sites; its preload does pick mode, live selector previews, one-shot page snapshots
-and page-context cover fetches. See [ARCHITECTURE.md](ARCHITECTURE.md) for the process shape and
-module map, and [design/state-model.md](design/state-model.md) for the full capture / edit /
-storage model and its invariants.
-
-## Repository layout
-
-```
-backend/    FastAPI sidecar: vault (layered title.json), SQLite index, chapter media, recipes, API
-frontend/   Vue 3 + Vite + TS UI: library, title page, reader, capture browser, settings
-shell/      Electron: sidecar spawn + auth, embedded browser, download interception, preloads
-design/     design docs (state-model.md is the canonical architecture) + mockups and the GUI canvas
-docs/       the project page published at witalic.github.io/longbox
-packaging/  the frozen-sidecar spec, the macOS ad-hoc signing hook and the bundled ffmpeg's licence
-tools/      version.py (the one version, everywhere) · screenshots.py (the project page's images) ·
-            bench_metadata.py (what a bulk metadata change costs)
-```
+longbox is free software: you can redistribute it and/or modify it under the terms of the
+[GNU General Public License](LICENSE), version 3 or (at your option) any later version. The ffmpeg
+build bundled for playable copies is GPL v3 as well; its notice and where its source is are in
+[packaging/licenses/FFmpeg.txt](packaging/licenses/FFmpeg.txt).

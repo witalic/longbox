@@ -363,7 +363,7 @@ def free_port() -> int:
 
 def main() -> int:
     if not VENV_PY.exists():
-        print(f"no virtualenv at {VENV_PY} — see the README", file=sys.stderr)
+        print(f"no virtualenv at {VENV_PY} — see CONTRIBUTING.md", file=sys.stderr)
         return 1
     if not ELECTRON.exists():
         print("Electron is missing — run `npm install` in shell/", file=sys.stderr)
