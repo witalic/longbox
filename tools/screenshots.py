@@ -47,50 +47,54 @@ sys.path.insert(0, str(ROOT / "backend"))
 
 TITLES = [
     dict(title="Paper Lanterns", alt="紙提灯", type="manga", status="ongoing", year="2021",
-         authors=["Rin Aoyama"], artists=["Rin Aoyama"], characters=["Hana", "Toshi"],
+         authors=["Rin Aoyama"], characters=["Hana", "Toshi"],
          genres=["drama", "slice of life"], tags=["school", "friendship"], rating=5, fav=True,
          desc="A quiet coastal town, a paper lantern festival, and two friends who keep missing "
               "each other by a single street."),
     dict(title="Iron Meridian", type="manhwa", status="ongoing", year="2023",
-         authors=["Seo Ha-eun"], artists=["Studio Kestrel"], characters=["Captain Vale"],
+         authors=["Seo Ha-eun", "Studio Kestrel"], characters=["Captain Vale"],
          genres=["action", "sci-fi"], tags=["mecha", "war"], rating=4,
          desc="A cartographer is drafted to map the only corridor through a storm that eats machines."),
     dict(title="The Quiet Bakery", type="manga", status="completed", year="2019",
-         authors=["Mei Tanaka"], artists=["Mei Tanaka"], characters=["Oba-san", "Ken"],
+         authors=["Mei Tanaka"], characters=["Oba-san", "Ken"],
          genres=["slice of life", "comedy"], tags=["food", "family"], rating=5,
          desc="Nothing happens in this bakery, gloriously, for twelve volumes."),
     dict(title="Salt & Ember", type="comic", status="ongoing", year="2022",
-         authors=["A. Ferreira"], artists=["N. Okonkwo"], characters=["Wren"],
+         authors=["A. Ferreira", "N. Okonkwo"], characters=["Wren"],
          genres=["fantasy", "adventure"], tags=["magic", "travel"], rating=4, fav=True,
          desc="A salt trader walks a caravan road that only exists at dusk."),
     dict(title="Glass Orchard", type="manhua", status="paused", year="2020",
-         authors=["Lin Wei"], artists=["Lin Wei"], characters=["Xiao Yu"],
+         authors=["Lin Wei"], characters=["Xiao Yu"],
          genres=["mystery"], tags=["supernatural"], rating=3,
          desc="Every tree in the orchard remembers a different version of the same night."),
     dict(title="Northbound 404", type="comic", status="completed", year="2018",
-         authors=["J. Halvorsen"], artists=["J. Halvorsen"],
+         authors=["J. Halvorsen"],
          genres=["thriller"], tags=["road trip"], rating=4,
          desc="A courier, a highway that renumbers itself, and a package nobody ordered."),
     dict(title="Summer Static", type="manhwa", status="ongoing", year="2024",
-         authors=["Park Jiwon"], artists=["Park Jiwon"], characters=["Nari"],
+         authors=["Park Jiwon"], characters=["Nari"],
          genres=["romance", "drama"], tags=["music", "college"], rating=5, fav=True,
          desc="Two people who only talk during power cuts."),
     dict(title="Cartographer's Widow", type="manga", status="completed", year="2017",
-         authors=["Yuki Sasaki"], artists=["Ken Mori"],
+         authors=["Yuki Sasaki", "Ken Mori"],
          genres=["historical", "drama"], tags=["sea"], rating=4,
          desc="She finishes the maps he started, and finds the coastline has moved."),
     dict(title="Neon Fieldwork", type="image set", status="", year="2024",
          authors=["Studio Halcyon"], genres=["artbook"], tags=["colour study"],
          desc="A colour study set: eighty frames of the same street at different hours."),
+    dict(title="Harbour Lights", alt="港の灯り", type="series", status="completed", year="2024",
+         authors=["Rin Aoyama"], studio=["Studio Kestrel"], genres=["slice of life", "drama"],
+         tags=["seaside", "quiet"], rating=4,
+         desc="Six evenings on a harbour that is closing for the season."),
     dict(title="Tin Whistle Blues", type="manga", status="ongoing", year="2022",
-         authors=["Ayaka Nomura"], artists=["Ayaka Nomura"],
+         authors=["Ayaka Nomura"],
          genres=["music", "drama"], tags=["band"], rating=3,
          desc="A busker's notebook, one song per chapter."),
     dict(title="The Long Commute", type="comic", status="ongoing", year="2023",
          authors=["R. Villanueva"], genres=["comedy"], tags=["office"], rating=3,
          desc="Forty minutes each way, forever, and it is somehow a love story."),
     dict(title="Pale Harbour", type="manhwa", status="completed", year="2016",
-         authors=["Choi Minseo"], artists=["Choi Minseo"], characters=["Eun"],
+         authors=["Choi Minseo"], characters=["Eun"],
          genres=["horror", "mystery"], tags=["fog"], rating=4,
          desc="The lighthouse keeps its light on for something that is not a ship."),
 ]
@@ -102,6 +106,9 @@ CHAPTERS = {
     "summer-static": [("1", "EN", "Static Club", 10)],
     "neon-fieldwork": [("2024 Set A", "", "Halcyon", 14)],
 }
+
+# episodes: drawn here, encoded by the ffmpeg the app itself bundles
+EPISODES = {"harbour-lights": 4}
 
 PALETTES = [
     ((32, 48, 58), (43, 65, 80), (26, 39, 48)), ((58, 37, 48), (81, 43, 58), (51, 27, 36)),
@@ -169,6 +176,48 @@ def page_bytes(n: int, total: int, seed: int) -> bytes:
     return out.getvalue()
 
 
+def episode_file(n: int, out: Path, seconds: int = 48, fps: int = 8) -> None:
+    """A short abstract episode: a slow pan along a harbour at dusk, so the nine
+    frames its contact sheet is cut from all differ."""
+    from PIL import Image, ImageDraw, ImageFilter
+
+    from app.library.transcode import ffmpeg
+    rnd = random.Random(500 + n)
+    w, h = 640, 360
+    pano_w = w * 4
+    a, b, c = PALETTES[(n + 1) % len(PALETTES)]
+    pano = Image.new("RGB", (pano_w, h), a)
+    d = ImageDraw.Draw(pano)
+    for y in range(h):
+        t = y / h
+        d.line([(0, y), (pano_w, y)], fill=tuple(int(a[i] + (c[i] - a[i]) * t) for i in range(3)))
+    for _ in range(14):
+        x, y, r = rnd.randint(-80, pano_w), rnd.randint(-80, h // 2), rnd.randint(90, 220)
+        d.ellipse([x, y, x + r, y + r], fill=tuple(min(255, v + 40) for v in b))
+    pano = pano.filter(ImageFilter.GaussianBlur(30))
+    d = ImageDraw.Draw(pano)
+    horizon = int(h * 0.62)
+    for k in range(9):
+        y = horizon + 6 + k * 12
+        d.line([(0, y), (pano_w, y)], fill=tuple(min(255, v + 70 - k * 6) for v in b), width=1)
+    for _ in range(26):
+        x, r = rnd.randint(0, pano_w), rnd.randint(3, 7)
+        d.ellipse([x, horizon - r * 2, x + r * 2, horizon], fill=(250, 226, 170))
+    frames = seconds * fps
+    proc = subprocess.Popen(
+        [ffmpeg() or "ffmpeg", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
+         "-s", f"{w}x{h}", "-r", str(fps), "-i", "-", "-c:v", "libx264", "-preset", "veryfast",
+         "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(out)],
+        stdin=subprocess.PIPE)
+    assert proc.stdin is not None
+    for f in range(frames):
+        x = (pano_w - w) * f // (frames - 1)
+        proc.stdin.write(pano.crop((x, 0, x + w, h)).tobytes())
+    proc.stdin.close()
+    if proc.wait():
+        raise RuntimeError(f"ffmpeg could not encode episode {n}")
+
+
 def build_vault(root: Path, tmp: Path) -> None:
     from app.library.models import DraftIn, TitleMeta, UserPatch
     from app.library.service import Library
@@ -191,6 +240,12 @@ def build_vault(root: Path, tmp: Path) -> None:
                     zf.writestr(f"{k:03d}.jpg", page_bytes(k, pages, i + j))
             lib.attach_chapter_media(out.id, num=num, lang=lang, group=group, src=z,
                                      sidecar={"filename": z.name, "importedFrom": "local",
+                                              "downloadedAt": "2026-08-01T10:00:00+00:00"})
+        for n in range(1, EPISODES.get(out.id, 0) + 1):
+            v = tmp / f"{out.id}-{n:02d}.mp4"
+            episode_file(n, v)
+            lib.attach_chapter_media(out.id, num=str(n), lang="EN", group="", src=v,
+                                     sidecar={"filename": v.name, "importedFrom": "local",
                                               "downloadedAt": "2026-08-01T10:00:00+00:00"})
     t = lib.get("paper-lanterns")
     lib.patch_user("paper-lanterns", UserPatch(
@@ -299,8 +354,8 @@ const run = (win, js) =>
 // Wait until the UI is ACTUALLY in the state we are about to photograph — a
 // window that paints late would otherwise be caught mid-transition, or showing
 // whatever came next.
-async function until(win, js, what) {
-  for (let i = 0; i < 30; i++) {
+async function until(win, js, what, tries = 30) {
+  for (let i = 0; i < tries; i++) {
     if (await run(win, 'return !!(' + js + ')')) return
     await wait(300)
   }
@@ -341,9 +396,6 @@ async function main() {
   await run(win, `const c = [...document.querySelectorAll('*')].find((e) => e.className && String(e.className).includes('card') && /Paper Lanterns/.test(e.textContent)); (c || document.querySelector('.grid > *')).click()`)
   await shot(win, '03-title', `document.querySelector('.tv .ptile')`)
 
-  await run(win, `document.querySelector('.tv > .viewscroll')?.scrollBy({ top: 430 })`)
-  await shot(win, '04-contents', `document.querySelector('.tv .chrow')`)
-
   await run(win, `document.querySelector('.ptile')?.click()`)
   await shot(win, '05-reader', `document.querySelector('.reader .stage img')`)
 
@@ -352,6 +404,28 @@ async function main() {
 
   await run(win, `document.querySelector('.rback')?.click()`)
   await until(win, `document.querySelector('.tv')`, 'back on the title')
+
+  // the contents in edit mode: pages 2-4 picked, with a click and a Shift+click
+  await run(win, `document.querySelector('.tv .chedit')?.click()`)
+  await until(win, `document.querySelector('.tv .ptile.selectable')`, 'edit mode')
+  await run(win, `const ts = document.querySelectorAll('.tv .ptile'); ts[1].click(); ts[3].dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }))`)
+  await shot(win, '04-contents', `document.querySelectorAll('.tv .ptile.sel').length === 3`)
+  await run(win, `[...document.querySelectorAll('.tv .chhead button')].find((b) => b.textContent.trim() === 'Done')?.click()`)
+
+  // the library tab went on to the title opened from it: the shelf brings it back
+  const backToLibrary = async () => {
+    await run(win, `[...document.querySelectorAll('.navitem')].find((x) => /Library/.test(x.textContent))?.click()`)
+    await run(win, `[...document.querySelectorAll('button')].find((b) => /^All types/i.test(b.textContent.trim()))?.click()`)
+    await until(win, `document.querySelector('.lib .grid')`, 'back to the library')
+  }
+  await backToLibrary()
+
+  // an episode in the list view: its contact sheet is cut by the window on first sight
+  await run(win, `const c = [...document.querySelectorAll('*')].find((e) => e.className && String(e.className).includes('card') && /Harbour Lights/.test(e.textContent)); c?.click()`)
+  await until(win, `document.querySelector('.tv .vseg')`, 'the episode title')
+  await run(win, `document.querySelector('.tv .vseg .opt[title="List"]')?.click()`)
+  await until(win, `document.querySelector('.tv .vcells')`, 'the contact sheet', 100)
+  await shot(win, '10-episode')
 
   // the capture browser: a local demo page in the webview, a fresh draft in the dock
   if (DEMO_PAGE) {
@@ -368,10 +442,7 @@ async function main() {
   await run(win, `[...document.querySelectorAll('.navitem')].find((x) => /Sources/.test(x.textContent))?.click()`)
   await shot(win, '11-sources', `document.querySelector('.srow')`)
 
-  // the library tab went on to the title opened from it: the shelf brings it back
-  await run(win, `[...document.querySelectorAll('.navitem')].find((x) => /Library/.test(x.textContent))?.click()`)
-  await run(win, `[...document.querySelectorAll('button')].find((b) => /^All types/i.test(b.textContent.trim()))?.click()`)
-  await until(win, `document.querySelector('.lib .grid')`, 'back to the library')
+  await backToLibrary()
   await run(win, `[...document.querySelectorAll('button')].find((b) => /^Browse by authors/.test(b.title || ''))?.click()`)
   await shot(win, '07-authors', `document.querySelector('.au .list')`)
 
