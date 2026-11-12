@@ -64,7 +64,7 @@ export interface Subtitle {
 // A file in the library's downloads folder — what came with nothing armed.
 export interface LooseFile {
   name: string
-  kind: 'subtitle' | 'archive' | 'image' | 'video'
+  kind: 'subtitle' | 'archive' | 'image' | 'video' | 'file' // 'file': kept, but no entry takes it
   size: number
   at: string        // when it arrived (ISO)
   fileUrl: string

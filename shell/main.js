@@ -361,7 +361,7 @@ function wireDownloads(sess, origin, token) {
       : api('/start', { filename: item.getFilename() || '', fileUrl: item.getURL(), pageUrl })
     const claim = request.then(async (res) => {
       if (!res.ok) {
-        // 409 = nothing armed — this download was not asked for; drop it
+        // the sidecar did not take it: nowhere to put it, so drop it
         try { item.cancel() } catch { /* already done */ }
         return null
       }

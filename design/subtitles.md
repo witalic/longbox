@@ -15,9 +15,11 @@ and an episode has nowhere to keep subtitles: the player has none.
 - **Not armed** — no longer cancelled: it is saved into the library's own downloads folder,
   `<vault>/downloads/`. It moves with the library and is never read as a type shelf: it is one
   of the vault's own folders, and a type called *downloads* gets a shelf of its own (D1).
-- **What it takes** — what the library can use: subtitles (`srt vtt ass ssa`), archives (`zip cbz
-  rar cbr 7z cb7`), images and videos. Anything else (an installer, a script, a PDF) is still
-  refused, and the Activity panel says so (D2).
+- **What it takes** — any file (D2). Subtitles (`srt vtt ass ssa`), archives (`zip cbz rar cbr 7z
+  cb7`), images and videos can be filed into an entry; anything else (an installer, a PDF) is kept
+  as a plain *file* and just waits. The folder's own files — `index.json`, a write in flight, what
+  a file manager leaves (`Thumbs.db`, `desktop.ini`) — are never listed, and a download named like
+  one of them is numbered instead.
 - **What is kept** — the file under the name it came with (a clash becomes `name (2).ext`) and,
   in `downloads/index.json`, where it came from (page, file URL), its size and when. A file put
   there by hand shows too.
@@ -59,11 +61,10 @@ and an episode has nowhere to keep subtitles: the player has none.
 
 ## 5. How it is built
 
-- `library/loose.py` keeps the folder: `files()` (what is there that the library can use, with
-  where it came from), `take()` (a finished download moved in, a clashing name numbered),
-  `remove()`. `/api/downloads/start` with nothing armed opens a loose item — or records a refused
-  one and answers 409, which the shell takes as "drop it" as before; `/complete` moves a loose
-  item into the folder. A loose item resumed carries on in its own record: it lands there again.
+- `library/loose.py` keeps the folder: `files()` (every download there, with where it came
+  from), `take()` (a finished download moved in, a clashing name numbered), `remove()`.
+  `/api/downloads/start` with nothing armed opens a loose item; `/complete` moves it into the
+  folder. A loose item resumed carries on in its own record: it lands there again.
 - `library/subtitles.py` reads SRT, VTT and ASS/SSA (UTF-8, UTF-16 or a Windows Cyrillic code
   page) into WebVTT and a language off a name. `Library.add_subtitle` / `update_subtitle` /
   `remove_subtitle` work under the title lock; the tracks ride in the episode's sidecar and come
@@ -77,6 +78,7 @@ and an episode has nowhere to keep subtitles: the player has none.
 
 - **D1 — the folder.** `downloads`, a name a file manager shows (a share hides dot names); never
   a shelf, and a type called that gets `downloads-shelf`.
-- **D2 — what it takes.** Files the library can use; anything else is refused and said.
+- **D2 — what it takes.** Any file (owner, 2026-11-12 — it first took only the files the library
+  can use, and refused the rest).
 - **D3 — the original.** Kept beside the WebVTT.
 - **D4 — an armed episode.** Takes a subtitle file as its subtitles; the video stays.

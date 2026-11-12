@@ -1004,7 +1004,7 @@ export async function pollDownloads(force = false): Promise<void> {
         }
       } else if ((it.state === 'failed' || it.state === 'interrupted') && !seenDone.has(it.id)) {
         seenDone.add(it.id)
-        // a file nobody armed and the library would not keep: nothing else says so
+        // a file nobody armed that never arrived: no entry shows it, so this says so
         if (it.loose && it.state === 'failed') store.error = `${it.filename || 'A download'} was ${it.error}`
       }
     }

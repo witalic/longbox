@@ -1,10 +1,11 @@
 """The library's downloads folder (design/subtitles.md §2).
 
 What the browser downloads with no entry armed for it lands here, in
-`<vault>/downloads/`, until it is filed — beside the shelves and never read as
-one (vault.VAULT_FOLDERS). Only what the library can use is kept: subtitles,
-archives, images and videos. Where each file came from is kept in
-`downloads/index.json`; a file put in the folder by hand is listed too."""
+`<vault>/downloads/` — beside the shelves and never read as one
+(vault.VAULT_FOLDERS). Any file is kept: a subtitle, an archive, an image or a
+video waits to be filed into an entry, anything else just waits. Where each
+file came from is kept in `downloads/index.json`; a file put in the folder by
+hand is listed too."""
 from __future__ import annotations
 
 import re
@@ -26,9 +27,21 @@ KINDS = (("subtitle", subtitles.SUBTITLE_EXTS), ("archive", media.ARCHIVE_EXTS),
 
 
 def kind_of(name: str) -> str:
-    """What a file is to the library — '' for one it cannot use."""
+    """What a file is to the library — 'file' for one no entry takes."""
     ext = Path(name).suffix.lower()
-    return next((kind for kind, exts in KINDS if ext in exts), "")
+    return next((kind for kind, exts in KINDS if ext in exts), "file")
+
+
+# the folder's own files, never a download: its index, a write in flight
+# (media.tmp_path), and what a file manager leaves in a folder it has shown
+_INDEX = Path(DOC).name
+_IN_FLIGHT = re.compile(r"\.[0-9a-f]{8}\.tmp$")
+_OS_FILES = {"desktop.ini", "thumbs.db", ".ds_store"}
+
+
+def _is_download(name: str) -> bool:
+    low = name.lower()
+    return low != _INDEX and low not in _OS_FILES and not _IN_FLIGHT.search(low)
 
 
 class Arrival(BaseModel):
@@ -75,17 +88,15 @@ class LooseStore:
             return {}  # where they came from is a nicety; the files are what matter
 
     def files(self) -> list[LooseFile]:
-        """Everything the folder holds that the library can use, newest first."""
+        """Every download the folder holds, newest first."""
         try:
-            entries = [p for p in self.folder.iterdir() if p.is_file()]
+            entries = [p for p in self.folder.iterdir() if p.is_file() and _is_download(p.name)]
         except OSError:
             return []
         known = self._arrivals()
         out = []
         for p in entries:
             kind = kind_of(p.name)
-            if not kind or p.name.endswith(".tmp"):
-                continue
             st = p.stat()
             came = known.get(p.name)
             at = came.at if came and came.at else datetime.fromtimestamp(
@@ -101,19 +112,20 @@ class LooseStore:
         if clean_name(name) != name:
             return None
         p = self.folder / name
-        return p if p.is_file() and kind_of(name) else None
+        return p if p.is_file() and _is_download(name) else None
 
     def arrival(self, name: str) -> Arrival | None:
         return self._arrivals().get(name)
 
     def take(self, src: Path, filename: str, file_url: str = "", page_url: str = "") -> LooseFile:
         """Move a finished download in, under the name it came with — a name
-        already there gets ` (2)`, ` (3)`… rather than replacing it."""
+        already there — or one of the folder's own — gets ` (2)`, ` (3)`… rather
+        than replacing it."""
         name = clean_name(filename or src.name)
         self.vault.make_dir(self.folder)
         stem, ext = Path(name).stem, Path(name).suffix
         final, n = self.folder / name, 1
-        while final.exists():
+        while final.exists() or not _is_download(final.name):
             n += 1
             final = self.folder / f"{stem} ({n}){ext}"
         tmp = media.tmp_path(final)

@@ -4,9 +4,8 @@ The human arms ONE next download for a specific chapter; when the download
 STARTS in the embedded browser the arm is consumed and the chapter binding is
 claimed immediately — so the user can arm the next chapter and download in
 parallel. The shell reports progress while the file streams, then hands the
-finished temp file over for ingest. A download nobody armed lands in the
-library's downloads folder (library/loose.py) when it is a file the library can
-use — a subtitle, an archive, an image, a video — and is refused otherwise.
+finished temp file over for ingest. A download nobody armed, whatever the file,
+lands in the library's downloads folder (library/loose.py).
 """
 from __future__ import annotations
 
@@ -21,7 +20,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
-from ..library import loose, media
+from ..library import media
 from ..library.loose import LooseFile
 from ..library.models import TitleOut
 from ..library.service import Library
@@ -271,8 +270,7 @@ class StartIn(BaseModel):
 def start(request: Request, body: StartIn) -> DownloadItem:
     """A download began in the browser: consume the arm and CLAIM the chapter
     binding right now — the next chapter can be armed in parallel. With nothing
-    armed it goes to the library's downloads folder, or is refused (409) when
-    the library could not use it."""
+    armed it goes to the library's downloads folder."""
     with _DL_LOCK:  # observe + consume the arm as one step
         state = getattr(request.app.state, "armed_download", None)
         fresh = state is not None and time.monotonic() - state["at"] <= ARM_TTL_SECONDS
@@ -289,10 +287,6 @@ def start(request: Request, body: StartIn) -> DownloadItem:
         name = body.filename or Path(body.fileUrl.split("?")[0]).name
         item = DownloadItem(id=uuid.uuid4().hex[:12], titleId="", num="", loose=True,
                             filename=name, fileUrl=body.fileUrl, pageUrl=body.pageUrl)
-        if not loose.kind_of(name):
-            # said in the panel, so a refused download is not a silent one
-            item.state = "failed"
-            item.error = "not kept — the library keeps subtitles, archives, images and videos"
     items = _items(request)
     items[item.id] = item
     while len(items) > KEEP_ITEMS:  # prune the oldest finished entries
@@ -302,8 +296,6 @@ def start(request: Request, body: StartIn) -> DownloadItem:
                 break
         else:
             break
-    if item.state == "failed":
-        raise HTTPException(status_code=409, detail=item.error)
     return item
 
 

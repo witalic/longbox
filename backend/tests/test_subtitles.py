@@ -199,21 +199,36 @@ def test_a_download_nobody_armed_lands_in_the_library_downloads(episode, tmp_pat
     assert c.delete("/api/downloads/files", params={"name": "../title.json"}).status_code == 404
 
 
-def test_a_file_put_in_by_hand_is_listed(episode):
+def test_a_file_put_in_by_hand_is_listed_and_the_folders_own_are_not(episode):
     c, lib, tid, cid = episode
     folder = lib.vault.root / "downloads"
     folder.mkdir()
     (folder / "extras.cbz").write_bytes(b"PK")
-    (folder / "readme.txt").write_text("not for the library")
-    assert [(f["name"], f["kind"]) for f in c.get("/api/downloads/files").json()] == [("extras.cbz", "archive")]
+    (folder / "readme.txt").write_text("for the owner")
+    for own in ("index.json", "Thumbs.db", "desktop.ini", "extras.cbz.0123abcd.tmp"):
+        (folder / own).write_text("{}")
+    files = c.get("/api/downloads/files").json()
+    assert {(f["name"], f["kind"]) for f in files} == {("extras.cbz", "archive"), ("readme.txt", "file")}
+    assert c.delete("/api/downloads/files", params={"name": "index.json"}).status_code == 404
+    assert (folder / "index.json").is_file()
 
 
-def test_a_download_the_library_cannot_use_is_refused_and_said(episode):
-    c, *_ = episode
-    r = c.post("/api/downloads/start", json={"filename": "setup_player.exe"})
-    assert r.status_code == 409 and "not kept" in r.json()["detail"]
-    item = c.get("/api/downloads").json()["items"][0]
-    assert (item["filename"], item["state"], item["loose"]) == ("setup_player.exe", "failed", True)
+def test_a_download_of_any_kind_is_kept(episode, tmp_path):
+    c, lib, *_ = episode
+    for name in ("setup_player.exe", "index.json"):
+        src = tmp_path / name
+        src.write_bytes(b"MZ")
+        started = c.post("/api/downloads/start", json={"filename": name, "fileUrl": f"https://x.site/{name}"})
+        assert started.status_code == 200 and started.json()["loose"]
+        c.post(f"/api/downloads/{started.json()['id']}/complete", json={"path": str(src)})
+    # a download named like the folder's index never takes its place
+    files = c.get("/api/downloads/files").json()
+    assert {(f["name"], f["kind"], f["fileUrl"]) for f in files} == {
+        ("setup_player.exe", "file", "https://x.site/setup_player.exe"),
+        ("index (2).json", "file", "https://x.site/index.json")}
+    index = json.loads((lib.vault.root / "downloads" / "index.json").read_text(encoding="utf-8"))
+    assert [a["name"] for a in index["files"]] == ["setup_player.exe", "index (2).json"]
+    assert c.delete("/api/downloads/files", params={"name": "setup_player.exe"}).status_code == 204
 
 
 def test_the_downloads_folder_is_never_a_shelf_and_no_type_takes_its_name(episode, tmp_path):
