@@ -6,6 +6,7 @@
 // written, run as a vault pass, journaled; the rules that change what enters a
 // title from then on; and the history of every run, each one revertible.
 import { computed, onActivated, onDeactivated, reactive, ref, watch } from 'vue'
+import Dropdown from '../components/Dropdown.vue'
 import Icon from '../components/Icon.vue'
 import SearchBox from '../components/SearchBox.vue'
 import Pager from '../components/Pager.vue'
@@ -20,11 +21,12 @@ import {
 } from '../store'
 import { hasValuePage } from '../peek'
 import {
-  movedBefore,
+  FLAG_DEFS, movedBefore,
   type MetaAction, type MetaActionKind, type MetaField, type MetaPreview, type MetaRun,
-  type MetaShape, type MetaValue, type Rule, type RuleApply, type RuleStats, type StoredPage,
+  type MetaShape, type MetaValue, type Rule, type RuleAction, type RuleApply, type RuleStats, type StoredPage,
 } from '../data'
 import { readLocal, readLocalOne, writeLocal, writeLocalOne } from '../local'
+import { useMoment } from '../moment'
 
 const TABS = ['values', 'rules', 'history'] as const
 const tab = ref<(typeof TABS)[number]>(readLocalOne('lb.metaTab', TABS, 'values'))
@@ -389,7 +391,7 @@ async function saveList(list: Rule[]): Promise<boolean> {
   }
 }
 function ruleText(r: Rule): string {
-  if (r.action === 'rename') return `→ ${r.to}`
+  if (r.action === 'rename') return r.to
   if (r.action === 'remove') return 'remove'
   if (r.action === 'move') return `move to ${labelOf(r.toField).toLowerCase()}${r.to ? `: ${r.to}` : ''}`
   return `keep, and add ${labelOf(r.toField).toLowerCase()}: ${r.to}`
@@ -402,6 +404,24 @@ function ruleCond(r: Rule): string {
   if (!r.enabled) parts.push('disabled')
   return parts.join(' · ')
 }
+
+// Finding a rule: by what it reads or does, or by the number a note in the
+// editor names it by ("by rule 9"). Each row keeps its own number, so a
+// filtered list still says which rule is which.
+const ruleSearch = ref('')
+const ruleKind = ref<RuleAction | ''>('') // '' = whatever a rule does
+const RULE_KINDS: { v: RuleAction; l: string }[] = [
+  { v: 'rename', l: 'Rename' }, { v: 'remove', l: 'Remove' }, { v: 'move', l: 'Move' }, { v: 'add', l: 'Add' },
+]
+const kindCount = (k: RuleAction) => rules.value.filter((r) => r.action === k).length
+const filteringRules = computed(() => !!ruleSearch.value.trim() || !!ruleKind.value)
+const shownRules = computed(() => {
+  const q = ruleSearch.value.trim().toLowerCase()
+  const num = /^#?(\d+)$/.exec(q)
+  return rules.value.map((r, i) => ({ r, i })).filter(({ r, i }) => (!ruleKind.value || r.action === ruleKind.value)
+    && (!q || (num && Number(num[1]) === i + 1)
+      || [labelOf(r.field), ...r.match, ruleText(r), ruleCond(r)].join(' ').toLowerCase().includes(q)))
+})
 
 const editing = ref<Rule | null>(null)
 const editingAt = ref(-1) // -1: a new rule
@@ -430,6 +450,17 @@ const ruleTargets = computed(() => titleFields.value.filter((f) =>
 const ruleActions = computed(() => shapeOf(editing.value?.field ?? '') === 'chapter'
   || shapeOf(editing.value?.field ?? '') === 'flags'
   ? (['rename', 'remove'] as const) : (['rename', 'remove', 'move', 'add'] as const))
+const ACTION_LABEL: Record<RuleAction, string> = {
+  rename: 'Rename to', remove: 'Remove', move: 'Move to field', add: 'Keep, and add to',
+}
+const actionOpts = computed(() => ruleActions.value.map((a) => ({ v: a, l: ACTION_LABEL[a] })))
+const ruleFieldOpts = computed(() => [
+  ...titleFields.value.map((f) => ({ v: f.id, l: f.label, group: 'Title' })),
+  ...chapterFields.value.map((f) => ({ v: f.id, l: f.label, group: 'Chapters' })),
+])
+const fieldOpts = (list: MetaField[]) => list.map((f) => ({ v: f.id, l: f.label }))
+const FLAG_OPTS = FLAG_DEFS.map((f) => ({ v: f.key, l: f.label }))
+const { now: ruleSaved, show: showRuleSaved } = useMoment(false)
 async function saveRule() {
   const r = editing.value
   if (!r) return
@@ -439,6 +470,7 @@ async function saveRule() {
   if (await saveList(list)) {
     const at = editingAt.value >= 0 ? editingAt.value : rules.value.length - 1
     editRule(at)
+    showRuleSaved(true)
   }
 }
 async function toggleRule(i: number) {
@@ -662,18 +694,16 @@ async function applyRule() {
             <div v-if="mode === 'move'">
               <div class="lbl">INTO</div>
               <div class="two">
-                <select v-model="toField" class="in">
-                  <option v-for="f in moveTargets" :key="f.id" :value="f.id">{{ f.label }}</option>
-                </select>
+                <Dropdown block :model-value="toField" :options="fieldOpts(moveTargets)"
+                          @update:model-value="toField = String($event)" />
                 <input v-model="to" class="in" placeholder="as it is" />
               </div>
               <div class="hint">A single-value field is filled only where it is empty.</div>
             </div>
             <div v-if="mode === 'add' || mode === 'set'">
               <div class="lbl">{{ mode === 'add' ? 'ADD' : 'SET TO' }}</div>
-              <select v-if="shape === 'flags'" v-model="to" class="in">
-                <option value="adult">adult</option><option value="ai">ai</option><option value="censored">censored</option>
-              </select>
+              <Dropdown v-if="shape === 'flags'" block :model-value="to" :options="FLAG_OPTS"
+                        @update:model-value="to = String($event)" />
               <input v-else v-model="to" class="in" placeholder="the value" />
             </div>
             <div v-if="mode === 'replace'">
@@ -720,17 +750,34 @@ async function applyRule() {
 
       <!-- ================= RULES ================= -->
       <div v-else-if="tab === 'rules'" class="work">
+        <div class="vals">
+        <div v-if="rules.length" class="vtool">
+          <SearchBox v-model="ruleSearch" :width="240" placeholder="Filter rules — a value, a field, #9…" />
+          <div class="seg text">
+            <button class="opt" :class="{ on: !ruleKind }" @click="ruleKind = ''">All</button>
+            <button v-for="k in RULE_KINDS" :key="k.v" class="opt" :class="{ on: ruleKind === k.v }"
+                    :disabled="!kindCount(k.v)" @click="ruleKind = ruleKind === k.v ? '' : k.v">
+              {{ k.l }} <span class="mono dim">{{ kindCount(k.v) }}</span></button>
+          </div>
+          <span v-if="filteringRules" class="mono dim">{{ shownRules.length }} of {{ rules.length }}</span>
+        </div>
         <div class="rules scroll">
           <div v-if="rulesErr" class="err pad">{{ rulesErr }}</div>
           <div v-else-if="!rules.length" class="emptyv">
             <div class="et">No rules yet</div>
             <div class="es">A rule changes a value on its way into a title — from capture, from your typing, from a chapter list. Make one here, or tick "also make it a rule" on an operation.</div>
           </div>
-          <div v-for="(r, i) in rules" :key="r.id" class="rrow"
+          <div v-else-if="!shownRules.length" class="emptyv">
+            <div class="et">No rule matches the filter</div>
+          </div>
+          <!-- reordering a filtered list would move rules past ones out of sight -->
+          <div v-for="{ r, i } in shownRules" :key="r.id" class="rrow"
                :class="{ on: editing?.id === r.id && editingAt === i, off: !r.enabled, drop: dropRule === i }"
-               draggable="true" @dragstart="dragRule = i" @dragover.prevent="dropRule = i" @dragleave="dropRule = -1"
+               :draggable="!filteringRules" @dragstart="dragRule = i" @dragover.prevent="dropRule = i" @dragleave="dropRule = -1"
                @drop.prevent="onRuleDrop(i)" @dragend="dragRule = dropRule = -1" @click="editRule(i)">
-            <span class="grip" title="Drag to reorder">⋮⋮</span>
+            <span class="grip" :class="{ held: filteringRules }"
+                  :title="filteringRules ? 'Clear the filter to reorder' : 'Drag to reorder'">⋮⋮</span>
+            <span class="rnum mono">{{ i + 1 }}</span>
             <span class="toggle" :class="{ on: r.enabled }" :title="r.enabled ? 'Disable' : 'Enable'" @click.stop="toggleRule(i)"></span>
             <span class="fld mono">{{ labelOf(r.field).toLowerCase() }}</span>
             <span class="rdesc">{{ r.match.join(', ') || 'always' }}<span class="arrow">→</span><b>{{ ruleText(r) }}</b>
@@ -738,15 +785,14 @@ async function applyRule() {
             <span class="rhits mono">{{ stats[r.id] ? `fired ${stats[r.id].fired.toLocaleString()}×` : 'not fired yet' }}</span>
           </div>
         </div>
+        </div>
         <div v-if="editing" class="act">
           <div class="ahead">{{ editingAt >= 0 ? `Rule ${editingAt + 1}` : 'New rule' }}<button class="iconbtn plain" title="Close" @click="editing = null"><Icon name="x" :size="12" :sw="2.2" /></button></div>
           <div class="abody scroll">
             <div class="editor">
               <span class="k">Field</span>
-              <select v-model="editing.field" class="in">
-                <optgroup label="Title"><option v-for="f in titleFields" :key="f.id" :value="f.id">{{ f.label }}</option></optgroup>
-                <optgroup label="Chapters"><option v-for="f in chapterFields" :key="f.id" :value="f.id">{{ f.label }}</option></optgroup>
-              </select>
+              <Dropdown block :model-value="editing.field" :options="ruleFieldOpts"
+                        @update:model-value="editing.field = String($event)" />
               <span class="k">Is</span>
               <div class="chips">
                 <span v-for="(m, k) in editing.match" :key="m" class="chip">{{ m }}<button class="cx" @click="editing.match.splice(k, 1)">×</button></span>
@@ -754,15 +800,13 @@ async function applyRule() {
                        @keydown.enter.prevent="addMatch()" @blur="addMatch()" />
               </div>
               <span class="k">Then</span>
-              <select v-model="editing.action" class="in">
-                <option v-for="a in ruleActions" :key="a" :value="a">{{ { rename: 'Rename to', remove: 'Remove', move: 'Move to field', add: 'Keep, and add to' }[a] }}</option>
-              </select>
+              <Dropdown block :model-value="editing.action" :options="actionOpts"
+                        @update:model-value="editing.action = $event as RuleAction" />
               <template v-if="editing.action === 'move' || editing.action === 'add'">
                 <span class="k"></span>
                 <div class="two">
-                  <select v-model="editing.toField" class="in">
-                    <option v-for="f in ruleTargets" :key="f.id" :value="f.id">{{ f.label }}</option>
-                  </select>
+                  <Dropdown block :model-value="editing.toField" :options="fieldOpts(ruleTargets)"
+                            @update:model-value="editing.toField = String($event)" />
                   <input v-model="editing.to" class="in" :placeholder="editing.action === 'move' ? 'as it is' : 'the value'" />
                 </div>
               </template>
@@ -784,7 +828,8 @@ async function applyRule() {
             <div class="hint">Applies to capture, to what you type in the editor, and to new chapters' language, group and section. Saving it changes nothing already stored.</div>
           </div>
           <div class="afoot">
-            <button class="btn accent" :disabled="busy" @click="saveRule()">Save rule</button>
+            <button class="btn accent" :class="{ done: ruleSaved }" :disabled="busy" @click="saveRule()">
+              <Icon v-if="ruleSaved" name="check" :size="13" :sw="2.2" />{{ ruleSaved ? 'Saved' : 'Save rule' }}</button>
             <button v-if="editing.id" class="btn" :disabled="busy || !editingSaved"
                     :title="editingSaved ? 'Change what titles already hold, with a preview' : 'Save the rule first'"
                     @click="applyRule()">Apply to stored titles…</button>
@@ -897,13 +942,16 @@ async function applyRule() {
 .cost { margin-left: auto; font-size: 10.5px; color: var(--tx3); }
 
 /* ---- rules ---- */
-.rules { flex: 1; min-width: 0; overflow-y: auto; }
-.rrow { display: grid; grid-template-columns: 14px 26px 96px minmax(0, 1fr) 120px; align-items: center; gap: 12px; min-height: 44px; padding: 7px 16px 7px 24px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); cursor: pointer; }
+.rules { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; }
+.rrow { display: grid; grid-template-columns: 14px 22px 26px 96px minmax(0, 1fr) 120px; align-items: center; gap: 12px; min-height: 44px; padding: 7px 16px 7px 24px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); cursor: pointer; }
 .rrow:hover { background: var(--hover); }
 .rrow.on { background: var(--accentSoft); }
 .rrow.off { opacity: .5; }
 .rrow.drop { box-shadow: inset 0 2px 0 var(--accent); }
 .grip { color: var(--tx3); font: 700 11px/1 system-ui; letter-spacing: -2px; cursor: grab; }
+.grip.held { opacity: .35; cursor: default; }
+/* the number the editor's notes name a rule by */
+.rnum { font-size: 11px; color: var(--tx3); text-align: right; }
 .toggle { width: 26px; height: 15px; border-radius: 999px; background: var(--line); position: relative; flex: none; cursor: pointer; }
 .toggle::after { content: ''; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 999px; background: var(--tx3); transition: left .12s ease; }
 .toggle.on { background: var(--accent); }

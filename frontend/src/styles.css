@@ -80,6 +80,9 @@ video::-webkit-media-controls-fullscreen-button { outline: none; }
    that says what goes */
 .btn.danger { color: var(--adult); border-color: color-mix(in srgb, var(--adult) 40%, var(--line)); }
 .btn.danger:hover:not(:disabled) { border-color: var(--adult); }
+/* a button saying, for a moment, that what it did is done ("Saved") — the
+   answer belongs on the button that was pressed (moment.ts) */
+.btn.done, .btn.done:hover:not(:disabled) { background: var(--good); border-color: var(--good); color: var(--bg); }
 /* a band button whose panel is open (Filters) */
 .btn.acton { border-color: var(--accent); color: var(--accent); background: var(--accentSoft); }
 /* the count badge a button or a row carries */

@@ -2,13 +2,17 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import Icon from './Icon.vue'
 
-interface Opt { v: string | number; l: string }
+// `group`: options sharing one are listed under it, in the order given
+interface Opt { v: string | number; l: string; group?: string }
 const props = withDefaults(defineProps<{
   label?: string
   modelValue: string | number
   options: Opt[]
   searchable?: boolean // auto-enabled when > 6 options
-}>(), { label: '', searchable: undefined })
+  // a form's field: the row's full width, and never lit as a filter that is on —
+  // a field always holds a value
+  block?: boolean
+}>(), { label: '', searchable: undefined, block: false })
 const emit = defineEmits<{ (e: 'update:modelValue', v: string | number): void }>()
 
 const open = ref(false)
@@ -22,7 +26,7 @@ const filtered = computed(() => {
   return props.options.filter((o) => o.l.toLowerCase().includes(s))
 })
 const current = computed(() => props.options.find((o) => o.v === props.modelValue) ?? props.options[0])
-const active = computed(() => props.modelValue !== 'all' && props.modelValue !== 0)
+const active = computed(() => !props.block && props.modelValue !== 'all' && props.modelValue !== 0)
 
 function toggle() { open.value = !open.value; if (open.value) q.value = '' }
 function pick(o: Opt) { emit('update:modelValue', o.v); open.value = false }
@@ -34,17 +38,20 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown))
 </script>
 
 <template>
-  <div ref="root" class="pill" :class="{ on: active }" style="position:relative" @click="toggle">
-    <span v-if="label" class="k">{{ label }}</span>{{ current?.l }}<Icon name="chevron" :size="11" :sw="2" />
-    <div v-if="open" class="menu" style="min-width:180px" @click.stop>
+  <div ref="root" class="pill" :class="{ on: active, block }" style="position:relative" @click="toggle">
+    <span v-if="label" class="k">{{ label }}</span><span class="cur">{{ current?.l }}</span><Icon name="chevron" :size="11" :sw="2" />
+    <div v-if="open" class="menu" :style="{ minWidth: block ? '100%' : '180px' }" @click.stop>
       <div v-if="useSearch" class="ddsearch">
         <Icon name="search" :size="13" />
         <input v-model="q" class="ddsearchin" placeholder="Search…" @click.stop />
       </div>
       <div class="ddlist scroll">
-        <div v-for="o in filtered" :key="String(o.v)" class="item" :class="{ on: o.v === modelValue }" @click="pick(o)">
-          {{ o.l }}<Icon v-if="o.v === modelValue" name="check" :size="13" :sw="2.4" style="margin-left:auto;color:var(--accent)" />
-        </div>
+        <template v-for="(o, i) in filtered" :key="String(o.v)">
+          <div v-if="o.group && o.group !== filtered[i - 1]?.group" class="ddgroup">{{ o.group }}</div>
+          <div class="item" :class="{ on: o.v === modelValue }" @click="pick(o)">
+            {{ o.l }}<Icon v-if="o.v === modelValue" name="check" :size="13" :sw="2.4" style="margin-left:auto;color:var(--accent)" />
+          </div>
+        </template>
         <div v-if="!filtered.length" class="ddempty">No matches</div>
       </div>
     </div>
@@ -56,4 +63,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown))
 .ddsearchin { border: none; background: transparent; outline: none; color: var(--tx); font: 400 12px/1 system-ui; width: 100%; }
 .ddlist { max-height: 240px; display: flex; flex-direction: column; gap: 2px; }
 .ddempty { padding: 8px 10px; font: 400 12px/1 system-ui; color: var(--tx3); }
+.ddgroup { padding: 8px 10px 4px; font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); text-transform: uppercase; }
+.pill.block { display: flex; width: 100%; min-width: 0; }
+.pill.block .cur { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

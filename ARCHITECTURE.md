@@ -336,7 +336,8 @@ frontend/src/
   api.ts (the sidecar client) · local.ts (the window's preferences, kept in the vault) ·
   data.ts (domain helpers)
   sessions.ts (tab-session restore) · keys.ts (physical-key bindings) · normalize.ts
-  pagecapture.ts (the page-capture activity) · frames.ts (episode stills, cut in the window)
+  pagecapture.ts (the page-capture activity) · frames.ts (episode stills, cut in the window) ·
+  moment.ts (a state that lapses: "Saved" on the button that saved)
   tabstrip.ts (Chrome's tab strip, for both strips: where a new tab opens, which tab comes to
   the front when one closes, how wide tabs are — design/tab-strip-mockup.html)
   views/      LibraryView · AuthorsView (browse by any axis) · TitleView · ReaderView ·

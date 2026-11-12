@@ -52,6 +52,7 @@ import {
 } from '../store'
 import type { ImportEntry, ImportRole, ImportWork } from '../data'
 import { readLocal, readLocalOne, writeLocal, writeLocalOne } from '../local'
+import { useMoment } from '../moment'
 
 const PASS = 'import'
 // the poll is warm while the tab is in front, not while it waits behind another
@@ -84,6 +85,7 @@ function useProfile(p: ImportProfile) {
 }
 function newProfile() { useProfile(blankImportProfile()) }
 
+const { now: profileSaved, show: showProfileSaved } = useMoment(false)
 async function saveProfile() {
   profileErr.value = ''
   if (!profile.name.trim()) profile.name = scan.value ? baseName(scan.value.root) : 'Import'
@@ -93,6 +95,7 @@ async function saveProfile() {
     const saved = await api.saveImportProfiles(at >= 0 ? list : [...list, clone(profile)])
     profiles.value = saved
     profile.id = saved[at >= 0 ? at : saved.length - 1].id
+    showProfileSaved(true)
   } catch (e) {
     profileErr.value = failed(e)
   }
@@ -444,7 +447,8 @@ onMounted(async () => {
         <div style="flex:1"></div>
         <span class="eyebrow">PROFILE</span>
         <input v-model="profile.name" class="in pname" placeholder="name this profile" spellcheck="false" />
-        <button class="btn" @click="saveProfile">Save profile</button>
+        <button class="btn" :class="{ done: profileSaved }" @click="saveProfile">
+          <Icon v-if="profileSaved" name="check" :size="13" :sw="2.2" />{{ profileSaved ? 'Saved' : 'Save profile' }}</button>
         <button v-if="profile.id" class="btn ghost" title="Delete this profile from the library" @click="deleteProfile">Delete</button>
       </div>
       <div v-if="profileErr || scanErr" class="errline">{{ profileErr || scanErr }}</div>

@@ -18,6 +18,7 @@ import {
   nextLabel, nextLabels, PAGE_FILTER_DEFAULTS, recordLine, sameChapter,
   type Chapter,
 } from '../data'
+import { useMoment } from '../moment'
 import { pageCapture, startPageCapture, stopPageCapture, type PickField } from '../pagecapture'
 import Combo from './Combo.vue'
 import FieldVisibility from './FieldVisibility.vue'
@@ -59,13 +60,7 @@ const notOffered = computed(() =>
 
 const d = computed(() => draftState.cur)
 const pickTarget = ref(false)
-const flash = ref('')
-let flashTimer: ReturnType<typeof setTimeout> | undefined
-function showFlash(msg: string) {
-  flash.value = msg
-  if (flashTimer) clearTimeout(flashTimer)
-  flashTimer = setTimeout(() => { flash.value = '' }, 2600)
-}
+const { now: flash, show: showFlash } = useMoment('')
 defineExpose({ showFlash })
 
 // draft preview may be a data: URL (captured bytes) — only the stored cover
@@ -345,14 +340,11 @@ async function discard() {
 // What happened to the draft belongs ON the button that did it — a line of
 // green text beside three buttons is read last, if at all, and in a 344px dock
 // it wraps into a column.
-const saved = ref<'' | 'created' | 'updated'>('')
-let savedTimer: ReturnType<typeof setTimeout> | undefined
+const { now: saved, show: showSaved } = useMoment<'' | 'created' | 'updated'>('')
 async function save(asNew: boolean) {
   const wasNew = asNew || !d.value?.targetId
   if (!(await commitDraft(asNew))) return
-  saved.value = wasNew ? 'created' : 'updated'
-  if (savedTimer) clearTimeout(savedTimer)
-  savedTimer = setTimeout(() => { saved.value = '' }, 2600)
+  showSaved(wasNew ? 'created' : 'updated')
 }
 </script>
 
@@ -797,5 +789,4 @@ async function save(asNew: boolean) {
   border: 1px solid color-mix(in srgb, var(--good) 34%, var(--line));
 }
 .notice.plain { color: var(--tx2); background: var(--panel2); border-color: var(--line); }
-.btn.done { background: var(--good); border-color: var(--good); color: var(--bg); }
 </style>
