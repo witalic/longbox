@@ -8,7 +8,7 @@
 // WHICH fields exist is not decided here. The registry is served by the backend
 // (design/metadata-model.md), so a field the app gains — or the user defines —
 // draws itself without a line of code in this file.
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { DEFAULT_STATUSES, FLAG_DEFS, fieldBlocks, type FieldDef, type FlagKey } from '../data'
 import { addFlags, arrive, clearField, draftState, ruleTarget, setCoverUrl, setManual, throughRules, unlinkSource } from '../draft'
 import { store, visibleFields } from '../store'
@@ -182,10 +182,26 @@ function toggleFlag(k: FlagKey) {
   setManual('flags')
 }
 
-function promptCoverUrl() {
-  const url = window.prompt('Cover image URL:', d.value?.cover.sourceUrl || '')
-  if (url && /^https?:\/\//.test(url.trim())) setCoverUrl(url.trim(), d.value?.meta.source.url || '')
+// A cover by its address, typed in place — Electron has no window.prompt.
+const coverUrlOpen = ref(false)
+const coverUrl = ref('')
+const coverUrlBad = ref(false)
+function openCoverUrl() {
+  coverUrlOpen.value = !coverUrlOpen.value
+  coverUrl.value = d.value?.cover.sourceUrl || ''
+  coverUrlBad.value = false
 }
+function useCoverUrl() {
+  const url = coverUrl.value.trim()
+  if (!/^https?:\/\//i.test(url)) {
+    coverUrlBad.value = true
+    return
+  }
+  setCoverUrl(url, d.value?.meta.source.url || '')
+  coverUrlOpen.value = false
+}
+// another draft is another cover
+watch(d, () => { coverUrlOpen.value = false })
 function coverBg(preview: string) {
   return preview ? { background: `#181a1f url('${preview.replace(/'/g, '%27')}') center/cover no-repeat` } : {}
 }
@@ -213,7 +229,8 @@ function coverBg(preview: string) {
             <Icon name="chevron" :size="11" :sw="2.2"
                   :style="opened[f.id] ? 'transform:rotate(180deg)' : ''" />
           </button>
-          <button v-if="f.control === 'cover'" class="fact wide" title="Use an image URL" @click="promptCoverUrl">URL</button>
+          <button v-if="f.control === 'cover'" class="fact wide" :class="{ on: coverUrlOpen }" title="Use an image URL"
+                  @click="openCoverUrl">URL</button>
           <button class="fact" :disabled="f.control === 'cover' && d.cover.kind === 'none'"
                   :title="f.required ? 'Clear' : `Clear — ${f.label.toLowerCase()} is optional`"
                   @click="clearField(f.id)"><Icon name="x" :size="10" :sw="2.4" /></button>
@@ -270,6 +287,13 @@ function coverBg(preview: string) {
           <template v-else>No cover yet{{ props.capture ? ' — pick it on the page or paste a URL' : '' }}.</template>
         </div>
       </div>
+      <div v-if="f.control === 'cover' && coverUrlOpen" class="urlrow">
+        <input v-model="coverUrl" class="in mono" placeholder="https://… — the image's own address" autofocus
+               @input="coverUrlBad = false" @keydown.enter="useCoverUrl" @keydown.esc="coverUrlOpen = false" />
+        <button class="btn ghost small" @click="coverUrlOpen = false">Cancel</button>
+        <button class="btn accent small" :disabled="!coverUrl.trim()" @click="useCoverUrl">Use</button>
+      </div>
+      <div v-if="f.control === 'cover' && coverUrlOpen && coverUrlBad" class="urlbad">An image address starts with http:// or https://.</div>
 
       <!-- what a rule made of something you typed, and the way to keep your spelling -->
       <div v-if="notes[f.id]" class="rulenote">
@@ -322,6 +346,7 @@ function coverBg(preview: string) {
 .fact:hover { background: var(--hover); color: var(--tx); }
 .fact.wide { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .06em; padding: 0 6px; }
 .fact:disabled { opacity: .4; cursor: default; }
+.fact.on { background: var(--accentSoft); color: var(--accent); }
 
 /* provenance badge — the field widget's origin mark */
 .pbadge { font: 700 8px/1 ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; padding: 3px 6px; border-radius: 4px; flex: none; }
@@ -348,6 +373,9 @@ function coverBg(preview: string) {
 .coverrow { display: flex; gap: 12px; align-items: flex-start; }
 .coverthumb { width: 76px; height: 110px; flex: none; border-radius: 6px; border: 1px solid var(--line); background: var(--panel2); display: flex; align-items: center; justify-content: center; overflow: hidden; }
 .coverhint { font: 400 11px/1.5 system-ui; color: var(--tx3); padding-top: 4px; min-width: 0; }
+.urlrow { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+.urlrow .in { flex: 1; min-width: 0; height: 30px; font: 400 11px/1 ui-monospace, monospace; }
+.urlbad { margin-top: 5px; font: 400 11px/1.4 system-ui; color: var(--warn); }
 .srcline { display: flex; align-items: baseline; gap: 8px; min-width: 0; font: 500 12.5px/1.3 system-ui; color: var(--tx); padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); }
 .srcdom { flex: none; }
 .srcurl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--tx3); }
