@@ -16,7 +16,7 @@ import {
   setFieldHidden, store, toggleFacet, visibleFields, type FacetKey, type LibraryFilters,
 } from '../store'
 import { isBoolMap, isNumMap, readLocal, writeLocal } from '../local'
-import { FLAG_DEFS, type FacetValue, type Facets } from '../data'
+import { FLAG_LABEL, type FacetValue, type Facets } from '../data'
 
 const props = defineProps<{ sel?: LibraryFilters; facets?: Facets; base?: string }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
@@ -31,13 +31,12 @@ const progRows = [
   { v: 'reading', label: 'Reading' }, { v: 'completed', label: 'Completed' },
 ] as const
 
-const FLAG_LABELS: Record<string, string> = Object.fromEntries(FLAG_DEFS.map((f) => [f.key, f.label]))
 // The sidebar's reading ORDER is a view preference, not a field list: the set of
 // sections comes from the served registry, and anything it gains — a custom
 // field — simply appends after the ones spelled out here.
 const FACET_ORDER = ['authors', 'characters', 'studio', 'type', 'status', 'flags',
   'genres', 'tags', 'language']
-const VALUE_LABELS: Record<string, Record<string, string>> = { flags: FLAG_LABELS }
+const VALUE_LABELS: Record<string, Record<string, string>> = { flags: FLAG_LABEL }
 // A selection bag only holds the fields actually filtered on, so a section that
 // has never been touched — or a field added since — reads as empty, not as a crash.
 function picked(bag: Record<string, string[]>, key: FacetKey): string[] {

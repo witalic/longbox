@@ -15,7 +15,7 @@ import { browser, newTab } from '../browser'
 import { api, type DownloadItem } from '../api'
 import {
   chaptersInScope, compareChapterNums, coverAt, faviconFor, groupByNum, hostOf, labelChoices,
-  matchTitles, nextLabel, nextLabels, PAGE_FILTER_DEFAULTS, sameChapter,
+  nextLabel, nextLabels, PAGE_FILTER_DEFAULTS, recordLine, sameChapter,
   type Chapter,
 } from '../data'
 import { pageCapture, startPageCapture, stopPageCapture, type PickField } from '../pagecapture'
@@ -24,6 +24,7 @@ import FieldVisibility from './FieldVisibility.vue'
 import Icon from './Icon.vue'
 import MenuButton from './MenuButton.vue'
 import MetadataEditor from './MetadataEditor.vue'
+import TargetPicker from './TargetPicker.vue'
 
 const props = defineProps<{
   hasPage: boolean       // a page is loaded in the active tab → capture actions work
@@ -307,62 +308,8 @@ watch(labelNext, (next) => {
   if (!labelTouched.value) dLabel.value = next[0] ?? ''
 }, { immediate: true })
 
-// Edit-target suggestions, ranked by relevance to the LIVE page: the title
-// captured from exactly this page first, then titles whose name/alt/author
-// appears in the page title — each explicitly badged — then the rest; a search
-// box filters the whole list.
-const targetSearch = ref('')
-type TargetBadge = '' | 'page' | 'match' | 'near'
-const RANK: Record<TargetBadge, number> = { page: 0, match: 1, near: 2, '': 3 }
-// Canonical page identity: host (no www) + decoded path — protocol, query,
-// hash and trailing slashes never make "the same page" look different.
-function canon(u: string): string {
-  try {
-    const x = new URL(u)
-    return x.hostname.replace(/^www\./, '').toLowerCase()
-      + decodeURIComponent(x.pathname).replace(/\/$/, '')
-  } catch { return u }
-}
-// What you are looking at, and what you typed, are two different questions.
-// With no query the list ranks by how close each record is to THIS PAGE; typing
-// re-ranks by how close it is to what you typed. Either way the comparison runs
-// over the title AND its alts, and scores partial hits instead of dropping them
-// — the same record is filed under a romaji name as often as not.
-const targetRows = computed(() => {
-  const q = targetSearch.value.trim()
-  const page = props.pageUrl ? canon(props.pageUrl) : ''
-  const all = Object.values(store.byId)
-  const scored = new Map<string, number>()
-  for (const { t, score } of matchTitles(q || props.pageTitle, all, 0.34, 999)) {
-    scored.set(t.id, score)
-  }
-  const ql = q.toLowerCase()
-  return all
-    .map((t) => {
-      const score = scored.get(t.id) ?? 0
-      let badge: TargetBadge = ''
-      if (page && t.source.url && canon(t.source.url) === page) badge = 'page'
-      else if (score >= 0.99) badge = 'match'
-      else if (score > 0) badge = 'near'
-      return { t, badge, score }
-    })
-    .filter(({ t, score }) => {
-      if (!q) return true
-      // a typed query also matches plainly: a person's name, part of a word
-      return score > 0 || t.title.toLowerCase().includes(ql)
-        || t.alt.toLowerCase().includes(ql) || t.authors.some((a) => a.toLowerCase().includes(ql))
-    })
-    .sort((a, b) => RANK[a.badge] - RANK[b.badge] || b.score - a.score
-      || a.t.title.localeCompare(b.t.title))
-})
-const BADGE_LABEL: Record<string, string> = { page: 'THIS PAGE', match: 'SAME NAME' }
-// a near hit says HOW near, because "maybe this one" is only useful with a number
-const badgeText = (r: { badge: TargetBadge; score: number }) =>
-  r.badge === 'near' ? `${Math.round(r.score * 100)}% MATCH` : BADGE_LABEL[r.badge] ?? ''
-// a short list beats a wall: page hits + best matches first, search digs deeper
-const TARGET_LIMIT = 12
-const targetShown = computed(() => targetRows.value.slice(0, TARGET_LIMIT))
-const targetHidden = computed(() => Math.max(0, targetRows.value.length - TARGET_LIMIT))
+// the list under "Edit existing" — there is nothing to pick from an empty library
+const hasTitles = computed(() => Object.keys(store.byId).length > 0)
 
 async function startNew() {
   if (!(await confirmDiscard())) return
@@ -374,10 +321,7 @@ async function startNew() {
 // much of it is already here.
 function matchLine(id: string): string {
   const t = titleById(id)
-  if (!t) return 'no longer in the library'
-  const n = t.chapters.length
-  return [t.type, t.source.domain || 'no source', n ? `${n} ${n === 1 ? 'entry' : 'entries'}` : 'empty']
-    .filter(Boolean).join(' · ')
+  return t ? recordLine(t, t.type) : 'no longer in the library'
 }
 
 // "that one, not a new one": the draft is re-seeded from the existing title and
@@ -417,19 +361,9 @@ async function save(asNew: boolean) {
     <!-- no draft yet: choose one on purpose -->
     <div v-if="!d" class="nodraft">
       <div class="ndt">No draft open</div>
-      <div class="nds">A draft is what you capture into — it is yours, not the page's. Start a new manga or pick a library title to edit.</div>
-      <button class="btn accent" @click="startNew"><Icon name="plus" :size="14" :sw="2.2" />New manga</button>
-      <div v-if="targetRows.length || targetSearch" class="ndlist scroll">
-        <div class="ndlbl">EDIT EXISTING</div>
-        <div class="ndsearch"><Icon name="search" :size="12" /><input v-model="targetSearch" class="ndsearchin" placeholder="Search title, author…" /></div>
-        <div v-for="r in targetShown" :key="r.t.id" class="ndrow" :class="{ hit: r.badge }" @click="switchTarget(r.t.id)">
-          <span class="swatch" :style="r.t.cover ? { background: `#181a1f url('${coverAt(r.t.cover, 64)}') center/cover` } : {}"></span>
-          <span class="ndname">{{ r.t.title }}</span>
-          <span v-if="r.badge" class="ndbadge" :class="r.badge">{{ badgeText(r) }}</span>
-        </div>
-        <div v-if="targetHidden" class="ndnone">+ {{ targetHidden }} more — search to narrow down.</div>
-        <div v-if="!targetRows.length" class="ndnone">No titles match “{{ targetSearch }}”.</div>
-      </div>
+      <div class="nds">A draft is what you capture into — it is yours, not the page's. Start a new title or pick one from the library to edit.</div>
+      <button class="btn accent" @click="startNew"><Icon name="plus" :size="14" :sw="2.2" />New title</button>
+      <TargetPicker v-if="hasTitles" :page-url="props.pageUrl" :page-title="props.pageTitle" @pick="switchTarget" />
     </div>
 
     <template v-else>
@@ -439,7 +373,7 @@ async function save(asNew: boolean) {
            @click="d.targetId && openTitle(d.targetId)">
         <span class="cov" :style="(d.cover.preview || targetCover) ? { background: `#181a1f url('${(d.cover.preview || targetCover).replace(/'/g, '%27')}') center/cover no-repeat` } : {}"></span>
         <div class="txt">
-          <div class="eyebrow">{{ d.targetId ? 'EDITING LIBRARY TITLE' : 'NEW MANGA' }}</div>
+          <div class="eyebrow">{{ d.targetId ? 'EDITING LIBRARY TITLE' : 'NEW TITLE' }}</div>
           <div class="mname">{{ d.targetId ? d.targetLabel : (d.meta.title || 'Untitled') }}</div>
           <div class="msub">
             <span v-if="d.meta.source.url" class="srclink" :title="`${d.meta.source.url} — open in a browser tab`"
@@ -457,17 +391,10 @@ async function save(asNew: boolean) {
       </div>
       <!-- starting fresh is a first-class action, not a menu item -->
       <div class="newrow" @click="startNew">
-        <Icon name="plus" :size="13" :sw="2.2" /><span>New manga (fresh draft)</span>
+        <Icon name="plus" :size="13" :sw="2.2" /><span>New title (fresh draft)</span>
       </div>
-      <div v-if="pickTarget" class="targetmenu scroll">
-        <div class="ndsearch"><Icon name="search" :size="12" /><input v-model="targetSearch" class="ndsearchin" placeholder="Search title, author…" /></div>
-        <div v-for="r in targetShown" :key="r.t.id" class="ndrow" :class="{ hit: r.badge }" @click="switchTarget(r.t.id)">
-          <span class="swatch" :style="r.t.cover ? { background: `#181a1f url('${coverAt(r.t.cover, 64)}') center/cover` } : {}"></span>
-          <span class="ndname">{{ r.t.title }}</span>
-          <span v-if="r.badge" class="ndbadge" :class="r.badge">{{ BADGE_LABEL[r.badge] }}</span>
-        </div>
-        <div v-if="targetHidden" class="ndnone">+ {{ targetHidden }} more — search to narrow down.</div>
-      </div>
+      <TargetPicker v-if="pickTarget" menu :page-url="props.pageUrl" :page-title="props.pageTitle"
+                    @pick="switchTarget" />
 
       <!-- A new draft over a page the library may already hold. Auto-fill would
            quietly become a SECOND record of the same work, and the duplicate is
@@ -756,17 +683,10 @@ async function save(asNew: boolean) {
 <style scoped>
 .cp { width: 344px; flex: none; border-left: 1px solid var(--line); background: var(--bg2); display: flex; flex-direction: column; min-height: 0; }
 
-.nodraft { padding: 22px 16px; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; min-height: 0; }
+.nodraft { flex: 1; padding: 22px 16px 0; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; min-height: 0; }
 .ndt { font: 600 14px/1 system-ui; color: var(--tx); }
 .nds { font: 400 11.5px/1.5 system-ui; color: var(--tx3); }
-.ndlist { align-self: stretch; margin-top: 8px; overflow: auto; min-height: 0; border-top: 1px solid var(--line); padding-top: 10px; }
-.ndlbl { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); margin-bottom: 7px; }
-.ndrow { display: flex; align-items: center; gap: 9px; padding: 6px 6px; border-radius: 7px; cursor: pointer; }
-.ndrow:hover { background: var(--hover); }
-.ndrow.hit { background: var(--panel); border: 1px solid var(--line); }
-.ndrow.hit:hover { background: var(--hover); }
 .ndbadge { margin-left: auto; flex: none; font: 700 8px/1 ui-monospace, monospace; letter-spacing: .08em; padding: 3px 6px; border-radius: 4px; }
-.ndbadge.page { color: var(--good); border: 1px solid color-mix(in srgb, var(--good) 45%, var(--line)); }
 .ndbadge.match { color: var(--accent); background: var(--accentSoft); }
 .ndbadge.near { color: var(--tx2); border: 1px solid var(--line); }
 .guard { margin: 10px 12px 0; padding: 10px; border-radius: 9px; background: color-mix(in srgb, var(--warn) 10%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line)); }
@@ -777,9 +697,6 @@ async function save(asNew: boolean) {
 .gmeta { font: 400 10px/1.2 system-ui; color: var(--tx3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .grow:hover { border-color: var(--accent); }
 .gacts { margin-top: 9px; display: flex; gap: 7px; justify-content: flex-end; }
-.ndsearch { display: flex; align-items: center; gap: 7px; padding: 6px 8px; margin: 2px 0 6px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--tx3); }
-.ndsearchin { border: none; background: transparent; outline: none; color: var(--tx); font: 400 11.5px/1 system-ui; width: 100%; }
-.ndnone { padding: 8px 6px; font: 400 11px/1.4 system-ui; color: var(--tx3); }
 .swatch { width: 20px; height: 28px; border-radius: 4px; background: var(--panel2); border: 1px solid var(--line); flex: none; display: inline-flex; align-items: center; justify-content: center; color: var(--tx3); }
 .ndname { font: 500 12px/1.3 system-ui; color: var(--tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -795,7 +712,6 @@ async function save(asNew: boolean) {
 .dirty { color: var(--warn); font-weight: 600; }
 .hact { border: none; background: transparent; color: var(--tx3); cursor: pointer; padding: 4px; border-radius: 5px; }
 .hact:hover { background: var(--hover); color: var(--tx); }
-.targetmenu { max-height: 220px; overflow: auto; border-bottom: 1px solid var(--line); padding: 8px; background: var(--panel); }
 .newrow { display: flex; align-items: center; gap: 9px; padding: 9px 14px; border-bottom: 1px solid var(--line); font: 600 12px/1 system-ui; color: var(--accent); cursor: pointer; }
 .newrow:hover { background: var(--accentSoft); }
 .srcinit { width: 18px; height: 18px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; font: 600 8px/1 system-ui; color: #fff; background: var(--panel2); border: 1px solid var(--line); overflow: hidden; flex: none; }

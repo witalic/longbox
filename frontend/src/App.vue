@@ -252,7 +252,7 @@ function layoutTabs() {
   if (!strip || !scroller) return
   const tabs = [...scroller.querySelectorAll<HTMLElement>('.tab:not(.tabslide-leave-active)')]
   const kept = tabs.filter((el) => el.classList.contains('pinned') || el.classList.contains('home'))
-  const plus = strip.querySelector<HTMLElement>('.stripbtn')?.offsetWidth ?? 0
+  const plus = (strip.querySelector<HTMLElement>('.tabnew')?.offsetWidth ?? 0) + TAB_GAP
   const room = strip.clientWidth - plus - kept.reduce((n, el) => n + el.offsetWidth, 0)
     - TAB_GAP * Math.max(0, tabs.length - 1)
   Object.assign(tabWidth, tabWidths(room, tabs.length - kept.length, heldWidth.value))
@@ -500,7 +500,7 @@ if (new URLSearchParams(window.location.search).has('restore') && sessionHistory
           </div>
         </TransitionGroup>
       </div>
-      <button class="stripbtn" :title="stripMode === 'web' ? 'New browser tab' : 'New library tab'" @click="newStripTab">
+      <button class="tabnew" :title="stripMode === 'web' ? 'New browser tab' : 'New library tab'" @click="newStripTab">
         <Icon name="plus" :size="14" :sw="2.2" />
       </button>
       </div>
@@ -763,6 +763,10 @@ if (new URLSearchParams(window.location.search).has('restore') && sessionHistory
   border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent);
   border-top-color: var(--accent); animation: tabspin .8s linear infinite; }
 @keyframes tabspin { to { transform: rotate(360deg); } }
+/* the + is cut like a tab — the slot the next one opens into — and lit like an
+   inactive tab under the pointer */
+.tabnew { flex: none; align-self: flex-end; width: 34px; height: 35px; margin-left: 3px; border: 1px solid transparent; border-bottom: none; border-radius: 8px 8px 0 0; background: transparent; color: var(--tx2); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.tabnew:hover { background: var(--panel); border-color: color-mix(in srgb, var(--line) 55%, transparent); color: var(--tx); }
 .stripbtn { width: 40px; height: 100%; border: none; border-radius: 0; background: transparent; color: var(--tx2); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex: none; }
 .stripbtn:hover { background: var(--hover); color: var(--tx); }
 .stripbtn.on { background: var(--accentSoft); color: var(--accent); }

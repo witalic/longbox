@@ -110,14 +110,21 @@ top strip — it reads as a real browser and leaves the right edge for the captu
 
 The right panel is **the draft**, independent of navigation. It is one of:
 
-- **New manga** — an empty draft you're filling. Title required to save.
+- **New title** — an empty draft you're filling. Title required to save.
 - **Editing "X"** — a draft bound to an existing library title; captures/edits update X.
 
 It never changes because you navigated. The browser is just "where I can capture from right now".
 
 Panel contents (top→bottom):
-- **Header**: `NEW MANGA` (draft) or `EDITING · «title»`, with the target's cover/title, and a way
+- **Header**: `NEW TITLE` (draft) or `EDITING · «title»`, with the target's cover/title, and a way
   to switch target (or start a fresh draft).
+- **The target picker** (`TargetPicker.vue`, design/edit-target-picker-mockup.html) — the same
+  list under *Edit existing* when no draft is open and in the switch-target menu. A name is not an
+  identity, so each row shows the type and the authors (year · source · entries below), the typed
+  text is marked, and an alternative name that matched shows as an *aka* line. It narrows by type
+  (a row of chips) and by any field the library filters by (*+ Filter*: fields, then values), with
+  the library's own semantics — the sidecar answers the selection, the search stays client-side so
+  it can rank by similarity. Each row opens in the library to be checked before capturing into it.
 - **Auto-fill from this page** — one button. Runs, for the *current* page: the domain **recipe**
   selectors + **structured metadata** (`og:` / JSON-LD). Fills **only empty fields** (never
   clobbers your work). This is the "learned site → instant fill" path, on demand.

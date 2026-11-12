@@ -4,13 +4,13 @@
 // them the same shape, and `wide` is the only dial anyone needed.
 import Icon from './Icon.vue'
 
-withDefaults(defineProps<{ placeholder?: string; width?: number }>(),
-  { placeholder: 'Search…', width: 300 })
+// `width` caps it in a band; without one it takes the whole of its row
+withDefaults(defineProps<{ placeholder?: string; width?: number }>(), { placeholder: 'Search…' })
 const text = defineModel<string>({ required: true })
 </script>
 
 <template>
-  <div class="sbox" :style="{ maxWidth: `${width}px` }">
+  <div class="sbox" :style="width ? { maxWidth: `${width}px` } : {}">
     <Icon name="search" :size="13" />
     <input v-model="text" class="sin" :placeholder="placeholder" />
   </div>

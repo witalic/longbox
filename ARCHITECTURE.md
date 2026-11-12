@@ -349,6 +349,7 @@ frontend/src/
               TabHost (an app tab's screen, kept alive) · HistoryNav (‹ › and the steps) ·
               TabFace ·
               CapturePanel (draft + downloads dock) ·
+              TargetPicker (the draft's edit target: under Edit existing, and as the switch menu) ·
               PassButton + ProgressBar (run/progress/stop, one grammar everywhere) ·
               Settings* (one component per settings section) ·
               VideoSurface (preview + player, one per app) · ActivityPanel · PickInspector ·

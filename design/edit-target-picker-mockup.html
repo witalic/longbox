@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Edit-target picker — mockup</title>
+<style>
+/* ---- the app's own tokens (frontend/src/styles.css), verbatim ---- */
+:root {
+  --bg: #0a0b0d; --bg2: #0f1115; --panel: #15171b; --panel2: #1b1e24;
+  --line: #262a31; --hover: #2a2e36;
+  --tx: #e8eaef; --tx2: #9aa1ad; --tx3: #697080;
+  --accent: #7089e6; --accent-ink: #0d0e11; --accentSoft: rgba(112, 137, 230, .14);
+  --fav: #e0687a; --good: #5fb88a; --warn: #d6a44f; --adult: #e0687a; color-scheme: dark;
+}
+html[data-theme="light"] {
+  --bg: #f0eeea; --bg2: #e6e3dd; --panel: #faf9f6; --panel2: #edeae4;
+  --line: #d2cdc2; --hover: #e2ded6;
+  --tx: #2a2c31; --tx2: #575d67; --tx3: #8d95a1;
+  --accent: #5f77d4; --accent-ink: #ffffff; --accentSoft: rgba(95, 119, 212, .15);
+  --fav: #d6516a; --good: #3f9e6f; --warn: #b07d2a; --adult: #d6516a; color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--tx); font: 400 13px/1.45 system-ui; -webkit-font-smoothing: antialiased; }
+.mono { font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; }
+.page { max-width: 1240px; margin: 0 auto; padding: 26px 24px 60px; }
+.page > h1 { font: 700 22px/1.1 system-ui; margin: 0 0 4px; letter-spacing: -.3px; }
+.lede { color: var(--tx2); max-width: 100ch; margin: 0 0 18px; }
+.lede b { color: var(--tx); font-weight: 600; }
+.ic { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.mseg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.mseg button { height: 28px; border: none; background: transparent; color: var(--tx2); padding: 0 12px; font: 600 12px/1 system-ui; cursor: pointer; }
+.mseg button + button { border-left: 1px solid var(--line); }
+.mseg button.on { background: var(--accentSoft); color: var(--accent); }
+h2 { font: 600 15px/1.2 system-ui; margin: 34px 0 6px; }
+.cap { font: 600 11px/1 ui-monospace, monospace; letter-spacing: .1em; color: var(--tx3); margin: 0 0 8px; text-transform: uppercase; }
+.cols { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; }
+.col { width: 344px; }
+.notes { color: var(--tx2); max-width: 100ch; padding-left: 18px; margin: 8px 0 0; }
+.notes li { margin: 4px 0; }
+.notes b { color: var(--tx); font-weight: 600; }
+
+/* ---- primitives the panel already uses ---- */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--tx); border-radius: 6px; height: 30px; padding: 0 13px; cursor: pointer; font: 600 12px/1 system-ui; white-space: nowrap; }
+.btn.accent { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
+/* ---- the dock (CapturePanel: 344px) ---- */
+.dock { width: 344px; height: 660px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg2); display: flex; flex-direction: column; overflow: hidden; position: relative; }
+.nodraft { padding: 22px 16px 0; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; flex: none; }
+.ndt { font: 600 14px/1 system-ui; }
+.nds { font: 400 11.5px/1.5 system-ui; color: var(--tx3); }
+
+/* the bound-draft header and the fresh-draft row, as they are today */
+.bind { display: flex; gap: 11px; align-items: center; padding: 13px 14px; border-bottom: 1px solid var(--line); flex: none; }
+.bind .cov { width: 40px; height: 56px; border-radius: 5px; border: 1px solid var(--line); flex: none; }
+.bind .txt { min-width: 0; flex: 1; }
+.eyebrow { font: 700 8.5px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--warn); }
+.mname { margin-top: 4px; font: 600 13.5px/1.2 system-ui; }
+.msub { margin-top: 5px; font: 400 10.5px/1.3 system-ui; color: var(--tx3); }
+.hact { border: none; background: var(--hover); color: var(--tx); padding: 4px; border-radius: 5px; display: inline-flex; }
+.newrow { display: flex; align-items: center; gap: 9px; padding: 9px 14px; border-bottom: 1px solid var(--line); font: 600 12px/1 system-ui; color: var(--accent); flex: none; }
+.ptabs { display: flex; border-bottom: 1px solid var(--line); flex: none; }
+.ptabs span { flex: 1; text-align: center; color: var(--tx3); font: 600 11.5px/1 system-ui; padding: 10px 0; border-bottom: 2px solid transparent; }
+.ptabs span.on { color: var(--accent); border-bottom-color: var(--accent); }
+.ghostform { flex: 1; padding: 14px; display: flex; flex-direction: column; gap: 10px; opacity: .35; }
+.ghostform i { display: block; height: 30px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+
+/* ---- THE PICKER: one component, in both places ---- */
+.picker { flex: 1; min-height: 0; display: flex; flex-direction: column; margin: 12px 16px 0; border-top: 1px solid var(--line); padding-top: 10px; }
+.picker.menu { flex: none; height: 400px; margin: 0; padding: 10px 12px 0; border-top: none; border-bottom: 1px solid var(--line); background: var(--panel); }
+.plbl { display: flex; align-items: center; font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); margin-bottom: 8px; }
+.plbl .n { margin-left: auto; letter-spacing: .04em; font-weight: 500; }
+.psearch { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--tx3); flex: none; }
+.picker.menu .psearch { background: var(--bg2); }
+.psearch:focus-within { border-color: var(--accent); }
+.psearch input { flex: 1; min-width: 0; border: none; background: transparent; outline: none; color: var(--tx); font: 400 12px/1 system-ui; }
+.pchips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; flex: none; }
+.pill { height: 22px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--tx2); font: 600 11px/1 system-ui; display: inline-flex; align-items: center; gap: 5px; cursor: pointer; white-space: nowrap; }
+.pill:hover { color: var(--tx); border-color: var(--tx3); }
+.pill .n { font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); }
+.pill.on { background: var(--accentSoft); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.pill.on .n { color: var(--accent); }
+.pill.zero:not(.on) { opacity: .45; }
+.pill.add { border-style: dashed; color: var(--tx3); }
+.pill.add.open { border-style: solid; border-color: var(--accent); color: var(--accent); }
+.pill.f { background: var(--accentSoft); color: var(--tx); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); padding-right: 4px; }
+.pill.f .k { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .08em; color: var(--accent); }
+.pill.f .x { width: 16px; height: 16px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; color: var(--tx3); }
+.pill.f .x:hover { background: var(--hover); color: var(--tx); }
+.pill.f .x .ic { width: 10px; height: 10px; stroke-width: 2.6; }
+.pclear { font: 600 11px/22px system-ui; color: var(--tx3); cursor: pointer; padding: 0 4px; }
+.pclear:hover { color: var(--accent); }
+
+.plist { flex: 1; min-height: 0; overflow: auto; margin: 8px -6px 0; padding: 0 6px 10px; }
+.prow { position: relative; display: flex; gap: 10px; padding: 7px 8px; border-radius: 6px; border: 1px solid transparent; cursor: pointer; }
+.prow:hover { background: var(--hover); }
+.prow.hit { background: var(--panel); border-color: var(--line); }
+.picker.menu .prow.hit { background: var(--bg2); }
+.prow.hit:hover { background: var(--hover); }
+.prow + .prow { margin-top: 2px; }
+.pcov { width: 28px; height: 40px; border-radius: 4px; border: 1px solid var(--line); flex: none; }
+.pmain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding-top: 1px; }
+.pl1 { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.pname { font: 500 13px/1.2 system-ui; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.pl2 { display: flex; align-items: center; gap: 6px; min-width: 0; font: 400 12px/1.2 system-ui; color: var(--tx2); }
+.ptype { flex: none; font: 600 9px/1 ui-monospace, monospace; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line)); padding: 2px 5px; border-radius: 4px; }
+.pwho { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.pwho.none { color: var(--tx3); font-style: italic; }
+.pl3 { font: 400 11px/1.2 system-ui; color: var(--tx3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 28px; }
+.paka { font: 400 11px/1.2 system-ui; color: var(--tx3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badge { margin-left: auto; flex: none; font: 700 8px/1 ui-monospace, monospace; letter-spacing: .08em; padding: 3px 6px; border-radius: 4px; }
+.badge.page { color: var(--good); border: 1px solid color-mix(in srgb, var(--good) 45%, var(--line)); }
+.badge.match { color: var(--accent); background: var(--accentSoft); }
+.badge.near { color: var(--tx2); border: 1px solid var(--line); }
+.popen { position: absolute; right: 6px; bottom: 6px; width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel2); color: var(--tx2); display: none; align-items: center; justify-content: center; cursor: pointer; }
+.prow:hover .popen, .prow.demo-hover .popen { display: inline-flex; }
+.popen:hover { color: var(--accent); border-color: var(--accent); }
+.prow.demo-hover { background: var(--hover); }
+mark { background: color-mix(in srgb, var(--accent) 30%, transparent); color: var(--tx); border-radius: 2px; padding: 0 1px; }
+.pmore { padding: 8px 6px; font: 400 11px/1.4 system-ui; color: var(--tx3); }
+
+/* the + Filter popover: fields, then the values of one */
+.fpop { position: absolute; left: 12px; right: 12px; z-index: 5; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 18px 44px rgba(0,0,0,.55); padding: 6px; display: flex; flex-direction: column; max-height: 330px; }
+.fhead { display: flex; align-items: center; gap: 6px; padding: 2px 2px 6px; flex: none; }
+.fback { width: 24px; height: 24px; border-radius: 6px; border: none; background: transparent; color: var(--tx2); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.fback:hover { background: var(--hover); color: var(--tx); }
+.fttl { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
+.fpop .psearch { margin: 0 2px 6px; background: var(--panel); }
+.flist { overflow: auto; min-height: 0; }
+.frow { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-radius: 6px; font: 500 12px/1 system-ui; color: var(--tx2); cursor: pointer; }
+.frow:hover { background: var(--hover); color: var(--tx); }
+.frow .k { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .08em; color: var(--tx3); }
+.frow .n { margin-left: auto; font: 500 11px/1 ui-monospace, monospace; color: var(--tx3); }
+.frow .ic { color: var(--tx3); width: 12px; height: 12px; }
+.frow.on { color: var(--accent); }
+.fsec { font: 700 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); padding: 8px 8px 5px; }
+
+/* ---- the tab strip's + (already in the working tree) ---- */
+.stripdemo { width: 560px; height: 40px; background: var(--bg2); border: 1px solid var(--line); border-radius: 10px 10px 0 0; display: flex; padding-left: 14px; overflow: hidden; }
+.sd-tabs { display: flex; align-items: flex-end; gap: 3px; padding-top: 5px; }
+.sd-tab { height: 35px; width: 150px; padding: 0 10px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid color-mix(in srgb, var(--line) 55%, transparent); border-bottom: none; border-radius: 8px 8px 0 0; background: color-mix(in srgb, var(--panel) 55%, transparent); color: var(--tx3); font: 500 12px/1 system-ui; }
+.sd-tab.on { background: var(--bg); color: var(--tx); border-color: var(--line); box-shadow: inset 0 2.5px 0 var(--accent); }
+.sd-new { align-self: flex-end; width: 34px; height: 35px; margin-left: 3px; border: 1px solid transparent; border-bottom: none; border-radius: 8px 8px 0 0; color: var(--tx2); display: inline-flex; align-items: center; justify-content: center; }
+.sd-new.hover { background: var(--panel); border-color: color-mix(in srgb, var(--line) 55%, transparent); color: var(--tx); }
+.sd-old { width: 40px; height: 100%; display: inline-flex; align-items: center; justify-content: center; color: var(--tx); background: var(--hover); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-search" viewBox="0 0 24 24"><path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14M20 20l-3.5-3.5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-library" viewBox="0 0 24 24"><path d="M4 5h11v14H4zM17 7h3v12h-3"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol>
+  <symbol id="i-fwd" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16l-6.2 7.4V19l-3.6 2v-8.6z"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5h11v14H4zM17 7h3v12h-3"/></symbol>
+</svg>
+
+<div class="page">
+  <h1>Edit-target picker</h1>
+  <p class="lede">
+    The browser dock's <b>Edit existing</b> list, and the <b>switch target</b> menu of an open draft,
+    become ONE picker. Each row says <b>what</b> the record is (type) and <b>whose</b> (authors) — two
+    works sharing a name are told apart at a glance. A <b>type</b> row and <b>+ Filter</b> narrow the
+    list by any metadata field (built-in or yours), and every row can be <b>opened in the library</b>
+    to check it before you capture into it. Everything below is live: type, click the chips, open
+    + Filter, hover a row.
+  </p>
+  <div class="bar">
+    <div class="mseg" id="theme"><button class="on" data-t="dark">Dark</button><button data-t="light">Light</button></div>
+  </div>
+
+  <div class="cols">
+    <div class="col">
+      <div class="cap">1 · No draft — ranked by this page</div>
+      <div class="dock" id="d1"></div>
+    </div>
+    <div class="col">
+      <div class="cap">2 · Narrowed — type + a field filter</div>
+      <div class="dock" id="d2"></div>
+    </div>
+    <div class="col">
+      <div class="cap">3 · Draft open — switch target</div>
+      <div class="dock" id="d3"></div>
+    </div>
+  </div>
+
+  <ul class="notes">
+    <li><b>Row.</b> Line 1: title + the existing badge (THIS PAGE / SAME NAME / n% MATCH). Line 2: the
+      type tag and the authors (“no author” in muted italics when empty). Line 3: year · source site ·
+      how many entries. When the hit came from an alternative name, that name shows as an
+      <i>aka</i> line instead of line 3, with the hit marked.</li>
+    <li><b>Search</b> still covers title, alternative names and authors, ranked as today; the typed
+      text is highlighted where it matched.</li>
+    <li><b>Type row</b>: the library's types with their counts under the current filters — the
+      typed text narrows the list only, since it ranks by similarity and counts taken another way
+      would contradict it (a type with nothing left dims but keeps its place, so the row never
+      jumps). One click narrows to that type, a second click clears it.</li>
+    <li><b>+ Filter</b>: the filterable fields (the same list the library's filter block offers,
+      custom fields included), then the values of the chosen one with counts. Its search box finds
+      fields <i>and</i> values (“horror” → Tags · horror). A picked value becomes a chip; × drops it.
+      Same semantics as the library: values of a single-valued field are either/or, values of a
+      list field narrow together.</li>
+    <li><b>Open in the library</b> (the library icon, on hover): opens the title page in a library
+      tab; middle-click opens it in the background, as everywhere else. Clicking the row itself still
+      makes it the draft's target.</li>
+    <li>The switch-target menu (3) is the same picker, taller than today's 220px so the filters
+      have room. Its badges now show the n% of a near match too (today they are blank there).</li>
+    <li>“New manga” becomes <b>New title</b> everywhere in the dock (button, eyebrow, the fresh-draft
+      row) — already done in the working tree, shown here for context.</li>
+  </ul>
+
+  <h2>Tab strip — the + is cut like a tab</h2>
+  <p class="lede" style="margin-bottom:10px">Already done in the working tree (both strips, library and browser): the + takes a tab's
+    height and rounded top, and lights up like an inactive tab under the pointer.</p>
+  <div class="cap">before (hovered)</div>
+  <div class="stripdemo"><div class="sd-tabs"><span class="sd-tab on">Library</span></div><span class="sd-old"><svg class="ic"><use href="#i-plus"/></svg></span></div>
+  <div class="cap" style="margin-top:14px">after — at rest / hovered</div>
+  <div style="display:flex;gap:14px">
+    <div class="stripdemo" style="width:280px"><div class="sd-tabs"><span class="sd-tab on">Library</span></div><span class="sd-new"><svg class="ic"><use href="#i-plus"/></svg></span></div>
+    <div class="stripdemo" style="width:280px"><div class="sd-tabs"><span class="sd-tab on">Library</span></div><span class="sd-new hover"><svg class="ic"><use href="#i-plus"/></svg></span></div>
+  </div>
+</div>
+
+<script>
+const PAL = ['#3b4a7a', '#7a3b4f', '#3b6a5a', '#6a5a3b', '#4a3b7a', '#2f5e74', '#744f2f', '#5a2f74']
+const T = [
+  { id: 'a', title: 'Midnight Garden', alt: 'Hanbam-ui Jeongwon', type: 'manhwa', authors: ['Seo Jin-woo'], year: '2019', site: 'webtoons.com', n: 87, status: 'ongoing', genres: ['Horror', 'Drama'], tags: ['survival', 'apocalypse'], page: true },
+  { id: 'b', title: 'Midnight Garden', alt: 'Mayonaka no Niwa', type: 'manga', authors: ['Aoki Haru'], year: '2014', site: 'mangadex.org', n: 32, status: 'completed', genres: ['Romance', 'Drama'], tags: ['school'], score: 1 },
+  { id: 'c', title: 'Midnight Garden: Side Stories', alt: '', type: 'manhwa', authors: ['Seo Jin-woo'], year: '2021', site: 'webtoons.com', n: 12, status: 'completed', genres: ['Horror'], tags: ['survival'], score: .64 },
+  { id: 'd', title: 'The Garden at Midnight', alt: '', type: 'image set', authors: ['Lumi'], year: '2022', site: 'patreon.com', n: 14, status: 'ongoing', genres: [], tags: ['illustration'], score: .51 },
+  { id: 'e', title: 'Iron Harbor', alt: 'Tetsu no Minato', type: 'manga', authors: ['Kuroda Ren', 'Mori Aki'], year: '2011', site: 'mangadex.org', n: 120, status: 'completed', genres: ['Action'], tags: ['pirates'] },
+  { id: 'f', title: 'Paper Moons', alt: '', type: 'comic', authors: ['J. Whitfield'], year: '2018', site: 'comixology.com', n: 24, status: 'completed', genres: ['Fantasy'], tags: ['fairy tale'] },
+  { id: 'g', title: 'Glass Ward', alt: 'Yuri Byeongdong', type: 'manhwa', authors: ['Han Seol'], year: '2020', site: 'webtoons.com', n: 64, status: 'ongoing', genres: ['Horror', 'Mystery'], tags: ['hospital', 'survival'] },
+  { id: 'h', title: 'Saltwind', alt: '', type: 'manga', authors: [], year: '', site: '', n: 0, status: '', genres: [], tags: [] },
+  { id: 'i', title: 'Hollow Crown', alt: '', type: 'comic', authors: ['M. Castell'], year: '2016', site: 'comixology.com', n: 40, status: 'ongoing', genres: ['Fantasy', 'Action'], tags: ['kingdom'] },
+  { id: 'j', title: 'Night Shift Sketches', alt: '', type: 'image set', authors: ['Lumi'], year: '2023', site: 'patreon.com', n: 9, status: 'ongoing', genres: [], tags: ['illustration', 'horror'] },
+  { id: 'k', title: 'Seven Stairwells', alt: 'Ilgop Gyedan', type: 'manhwa', authors: ['Seo Jin-woo'], year: '2016', site: 'webtoons.com', n: 51, status: 'completed', genres: ['Horror'], tags: ['apartment', 'survival'] },
+]
+T.forEach((t, i) => { t.color = PAL[i % PAL.length] })
+const FIELDS = [
+  { id: 'authors', label: 'Authors', list: true },
+  { id: 'status', label: 'Status', list: false },
+  { id: 'genres', label: 'Genres', list: true },
+  { id: 'tags', label: 'Tags', list: true },
+  { id: 'year', label: 'Year', list: false },
+]
+const TYPES = ['manga', 'manhwa', 'comic', 'image set']
+const vals = (t, f) => (Array.isArray(t[f]) ? t[f] : (t[f] ? [t[f]] : []))
+
+const S = {
+  d1: { q: '', type: '', filters: [], pop: null, popQ: '', mode: 'nodraft', hover: 'b' },
+  d2: { q: '', type: 'manhwa', filters: [{ f: 'tags', v: 'survival' }], pop: 'authors', popQ: '', mode: 'nodraft' },
+  d3: { q: 'garden', type: '', filters: [], pop: null, popQ: '', mode: 'draft', hover: 'a' },
+}
+
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+function hl(s, q) {
+  if (!q) return esc(s)
+  const i = s.toLowerCase().indexOf(q.toLowerCase())
+  if (i < 0) return esc(s)
+  return esc(s.slice(0, i)) + '<mark>' + esc(s.slice(i, i + q.length)) + '</mark>' + esc(s.slice(i + q.length))
+}
+const ic = (n, cls = 'ic') => `<svg class="${cls}"><use href="#i-${n}"/></svg>`
+
+function passes(t, st, skipType) {
+  const q = st.q.trim().toLowerCase()
+  if (q && !(t.title.toLowerCase().includes(q) || t.alt.toLowerCase().includes(q) || t.authors.some((a) => a.toLowerCase().includes(q)))) return false
+  if (!skipType && st.type && t.type !== st.type) return false
+  const by = {}
+  for (const x of st.filters) (by[x.f] = by[x.f] || []).push(x.v)
+  for (const [f, vs] of Object.entries(by)) {
+    const def = FIELDS.find((d) => d.id === f)
+    const have = vals(t, f)
+    if (def.list ? !vs.every((v) => have.includes(v)) : !vs.some((v) => have.includes(v))) return false
+  }
+  return true
+}
+function rank(t) { return t.page ? 0 : t.score >= .99 ? 1 : t.score ? 2 : 3 }
+function badge(t) {
+  if (t.page) return '<span class="badge page">THIS PAGE</span>'
+  if (t.score >= .99) return '<span class="badge match">SAME NAME</span>'
+  if (t.score) return `<span class="badge near">${Math.round(t.score * 100)}% MATCH</span>`
+  return ''
+}
+
+function rowHtml(t, st) {
+  const q = st.q.trim()
+  const ql = q.toLowerCase()
+  const altHit = q && !t.title.toLowerCase().includes(ql) && t.alt.toLowerCase().includes(ql)
+  const who = t.authors.length ? `<span class="pwho">${t.authors.map((a) => hl(a, q)).join(', ')}</span>` : '<span class="pwho none">no author</span>'
+  const third = altHit ? `<div class="paka">aka ${hl(t.alt, q)}</div>`
+    : `<div class="pl3">${[t.year, t.site || 'no source', t.n ? `${t.n} ${t.n === 1 ? 'entry' : 'entries'}` : 'empty'].filter(Boolean).join(' · ')}</div>`
+  return `<div class="prow ${rank(t) < 3 ? 'hit' : ''} ${st.hover === t.id ? 'demo-hover' : ''}" data-row="${t.id}">
+    <span class="pcov" style="background:linear-gradient(160deg, ${t.color}, #111)"></span>
+    <div class="pmain">
+      <div class="pl1"><span class="pname">${hl(t.title, q)}</span>${badge(t)}</div>
+      <div class="pl2">${t.type ? `<span class="ptype">${esc(t.type)}</span>` : ''}${who}</div>
+      ${third}
+    </div>
+    <span class="popen" title="Open in the library — middle-click: in the background" data-open="${t.id}">${ic('library')}</span>
+  </div>`
+}
+
+function popHtml(st) {
+  const pq = st.popQ.trim().toLowerCase()
+  const pool = T.filter((t) => passes(t, { ...st, q: '' }))
+  const counts = (f) => {
+    const m = new Map()
+    for (const t of pool) for (const v of vals(t, f)) m.set(v, (m.get(v) || 0) + 1)
+    return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+  }
+  const picked = (f, v) => st.filters.some((x) => x.f === f && x.v === v)
+  let body = ''
+  let head = ''
+  if (st.pop === 'fields') {
+    head = `<span class="fttl" style="padding-left:6px">FILTER BY</span>`
+    const fl = FIELDS.filter((f) => !pq || f.label.toLowerCase().includes(pq))
+    body += fl.map((f) => `<div class="frow" data-field="${f.id}">${esc(f.label)}<span class="n">${counts(f.id).length}</span>${ic('fwd')}</div>`).join('')
+    if (pq) {
+      const hits = FIELDS.flatMap((f) => counts(f.id).filter(([v]) => v.toLowerCase().includes(pq)).map(([v, n]) => ({ f, v, n })))
+      if (hits.length) {
+        body += '<div class="fsec">VALUES</div>' + hits.map((h) => `<div class="frow ${picked(h.f.id, h.v) ? 'on' : ''}" data-pick="${h.f.id}|${esc(h.v)}"><span class="k">${esc(h.f.label.toUpperCase())}</span>${hl(h.v, st.popQ.trim())}<span class="n">${h.n}</span></div>`).join('')
+      }
+    }
+    if (!body) body = '<div class="pmore">Nothing matches.</div>'
+  } else {
+    const f = FIELDS.find((x) => x.id === st.pop)
+    head = `<button class="fback" data-back="1" title="All fields">${ic('back')}</button><span class="fttl">${esc(f.label.toUpperCase())}</span>`
+    const rows = counts(f.id).filter(([v]) => !pq || v.toLowerCase().includes(pq))
+    body = rows.map(([v, n]) => `<div class="frow ${picked(f.id, v) ? 'on' : ''}" data-pick="${f.id}|${esc(v)}">${hl(v, st.popQ.trim())}<span class="n">${n}</span></div>`).join('') || '<div class="pmore">No values.</div>'
+  }
+  const ph = st.pop === 'fields' ? 'Search fields and values…' : `Search ${FIELDS.find((x) => x.id === st.pop).label.toLowerCase()}…`
+  return `<div class="fpop" data-pop="1">
+    <div class="fhead">${head}</div>
+    <div class="psearch">${ic('search')}<input data-popq="1" value="${esc(st.popQ)}" placeholder="${ph}"></div>
+    <div class="flist">${body}</div>
+  </div>`
+}
+
+function pickerHtml(st, menu) {
+  const shown = T.filter((t) => passes(t, st)).sort((a, b) => rank(a) - rank(b) || (b.score || 0) - (a.score || 0) || a.title.localeCompare(b.title))
+  const typeCount = (ty) => T.filter((t) => t.type === ty && passes(t, { ...st, q: '' }, true)).length
+  const types = TYPES.map((ty) => `<span class="pill ${st.type === ty ? 'on' : ''} ${typeCount(ty) ? '' : 'zero'}" data-type="${ty}">${ty[0].toUpperCase() + ty.slice(1)}<span class="n">${typeCount(ty)}</span></span>`).join('')
+  const fchips = st.filters.map((x, i) => `<span class="pill f"><span class="k">${x.f.toUpperCase()}</span>${esc(x.v)}<span class="x" data-drop="${i}" title="Remove">${ic('x')}</span></span>`).join('')
+  const any = st.type || st.filters.length
+  return `<div class="picker ${menu ? 'menu' : ''}">
+    ${menu ? '' : `<div class="plbl">EDIT EXISTING<span class="n">${shown.length === T.length ? T.length : `${shown.length} OF ${T.length}`}</span></div>`}
+    <div class="psearch">${ic('search')}<input data-q="1" value="${esc(st.q)}" placeholder="Search title, alt name, author…"></div>
+    <div class="pchips">${types}</div>
+    <div class="pchips"><span class="pill add ${st.pop ? 'open' : ''}" data-add="1">${ic('filter')}Filter</span>${fchips}${any ? '<span class="pclear" data-clear="1">Clear</span>' : ''}</div>
+    <div class="plist">${shown.map((t) => rowHtml(t, st)).join('') || `<div class="pmore">No titles match.</div>`}</div>
+  </div>`
+}
+
+function render(id) {
+  const st = S[id]
+  const el = document.getElementById(id)
+  const focused = document.activeElement && el.contains(document.activeElement) ? (document.activeElement.dataset.q ? 'q' : document.activeElement.dataset.popq ? 'popq' : '') : ''
+  let html
+  if (st.mode === 'nodraft') {
+    html = `<div class="nodraft">
+      <div class="ndt">No draft open</div>
+      <div class="nds">A draft is what you capture into — it is yours, not the page's. Start a new title or pick one from the library to edit.</div>
+      <button class="btn accent">${ic('plus')}New title</button>
+    </div>${pickerHtml(st, false)}`
+  } else {
+    html = `<div class="bind">
+      <span class="cov" style="background:linear-gradient(160deg, #744f2f, #111)"></span>
+      <div class="txt"><div class="eyebrow">EDITING LIBRARY TITLE</div><div class="mname">Iron Harbor</div><div class="msub">mangadex.org</div></div>
+      <button class="hact">${ic('chev')}</button>
+    </div>
+    <div class="newrow">${ic('plus')}<span>New title (fresh draft)</span></div>
+    ${pickerHtml(st, true)}
+    <div class="ptabs"><span class="on">Metadata</span><span>Contents</span></div>
+    <div class="ghostform"><i></i><i></i><i></i></div>`
+  }
+  el.innerHTML = html
+  if (st.pop) {
+    const add = el.querySelector('[data-add]')
+    const top = add.getBoundingClientRect().bottom - el.getBoundingClientRect().top + 6
+    el.insertAdjacentHTML('beforeend', popHtml(st))
+    el.querySelector('.fpop').style.top = `${top}px`
+  }
+  if (focused) {
+    const inp = el.querySelector(focused === 'q' ? '[data-q]' : '[data-popq]')
+    if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length) }
+  }
+}
+const all = () => Object.keys(S).forEach(render)
+
+for (const id of Object.keys(S)) {
+  const el = document.getElementById(id)
+  el.addEventListener('input', (e) => {
+    const st = S[id]
+    if (e.target.dataset.q) st.q = e.target.value
+    else if (e.target.dataset.popq) st.popQ = e.target.value
+    render(id)
+  })
+  el.addEventListener('mouseover', () => { if (S[id].hover) { S[id].hover = ''; el.querySelectorAll('.demo-hover').forEach((r) => r.classList.remove('demo-hover')) } })
+  el.addEventListener('click', (e) => {
+    const st = S[id]
+    const t = e.target.closest('[data-type],[data-add],[data-drop],[data-clear],[data-field],[data-pick],[data-back],[data-open],[data-row],[data-pop]')
+    if (!t) { if (st.pop) { st.pop = null; st.popQ = ''; render(id) } return }
+    const d = t.dataset
+    if (d.type) st.type = st.type === d.type ? '' : d.type
+    else if (d.add) { st.pop = st.pop ? null : 'fields'; st.popQ = '' }
+    else if (d.drop) st.filters.splice(Number(d.drop), 1)
+    else if (d.clear) { st.type = ''; st.filters = [] }
+    else if (d.field) { st.pop = d.field; st.popQ = '' }
+    else if (d.back) { st.pop = 'fields'; st.popQ = '' }
+    else if (d.pick) {
+      const [f, v] = d.pick.split('|')
+      const i = st.filters.findIndex((x) => x.f === f && x.v === v)
+      if (i >= 0) st.filters.splice(i, 1)
+      else st.filters.push({ f, v })
+    }
+    else if (d.open) { alert('Opens the title page in a library tab.'); return }
+    else if (d.row) { alert('Makes this title the draft\'s target.'); return }
+    else return
+    render(id)
+  })
+}
+document.getElementById('theme').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return
+  document.documentElement.dataset.theme = b.dataset.t
+  document.querySelectorAll('#theme button').forEach((x) => x.classList.toggle('on', x === b))
+})
+all()
+</script>
+</body>
+</html>

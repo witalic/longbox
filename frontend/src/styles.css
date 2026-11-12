@@ -164,6 +164,7 @@ html.frameless .tabbar { -webkit-app-region: drag; padding-right: 138px; }
 html.frameless .tabbar .tab,
 html.frameless .tabbar .tact,
 html.frameless .tabbar .stripbtn,
+html.frameless .tabbar .tabnew,
 html.frameless .tabbar .alltabs,
 html.frameless .tabbar .tabsmenu { -webkit-app-region: no-drag; }
 /* a browser page gone fullscreen covers the strip, which would still drag */

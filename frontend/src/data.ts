@@ -23,6 +23,8 @@ export const FLAG_DEFS = [
   { key: 'censored', label: 'Censored', color: 'var(--cens)' },
 ] as const
 export type FlagKey = (typeof FLAG_DEFS)[number]['key']
+// a flag as it is shown: by its label, not the name it is stored under
+export const FLAG_LABEL: Record<string, string> = Object.fromEntries(FLAG_DEFS.map((f) => [f.key, f.label]))
 export interface SourceRef { domain: string; url: string }
 
 export interface FieldProvenance {
@@ -550,6 +552,14 @@ export function fieldValue(t: Title, f: FieldDef): string | string[] {
     : (t.custom ?? {})[f.id]
   if (Array.isArray(v)) return v.filter(Boolean) as string[]
   return typeof v === 'string' ? v : ''
+}
+
+// What a record IS, in one line after `lead` (its type, its year): where it was
+// captured from and how much of it is already here.
+export function recordLine(t: Title, lead: string): string {
+  const n = t.chapters.length
+  return [lead, t.source.domain || 'no source', n ? `${n} ${n === 1 ? 'entry' : 'entries'}` : 'empty']
+    .filter(Boolean).join(' · ')
 }
 
 export function hasValue(t: Title, f: FieldDef): boolean {

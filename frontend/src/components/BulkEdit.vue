@@ -8,7 +8,7 @@
 import { computed, ref, watch } from 'vue'
 import { api } from '../api'
 import {
-  FLAG_DEFS, fieldBlocks, type FieldDef, type FlagKey, type MetaAction, type MetaHeld, type MetaPreview,
+  FLAG_DEFS, FLAG_LABEL, fieldBlocks, type FieldDef, type FlagKey, type MetaAction, type MetaHeld, type MetaPreview,
 } from '../data'
 import { askConfirm, editInMetadata, refreshLibrary, runVaultPass, store, useShown, visibleFields } from '../store'
 import Combo from './Combo.vue'
@@ -153,7 +153,7 @@ function flagState(k: FlagKey): string {
   const n = flagHeld(k)
   return n && n < total.value ? `${n}/${total.value}` : ''
 }
-const flagLabel = (k: string) => FLAG_DEFS.find((f) => f.key === k)?.label ?? k
+const flagLabel = (k: string) => FLAG_LABEL[k] ?? k
 
 // ---- the footer: what each change touches, before anything is written ----
 // an add after the field is emptied reaches every title; before, only those without it

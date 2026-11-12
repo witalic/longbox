@@ -104,7 +104,7 @@ function blankSelection(): Record<FacetKey, string[]> {
 function selected(bag: Record<FacetKey, string[]>, key: FacetKey): string[] {
   return bag[key] ?? (bag[key] = [])
 }
-function blankLibrary(): LibraryFilters {
+export function blankLibrary(): LibraryFilters {
   return {
     density: 'grid', search: '', sort: 'updated', favOnly: false, progress: 'all',
     // the shelf is which TYPE you are looking at — navigation, kept apart from
