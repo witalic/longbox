@@ -1,7 +1,8 @@
 # Browser page — full refactor (design)
 
-Status: **proposal for approval**. Nothing implemented yet. Replaces the current `ScraperView`
-entirely (interface + logic).
+Status: **built** — it replaced the old `ScraperView` entirely (interface + logic), and later
+designs ([navigation.md](navigation.md), [vault-home.md](vault-home.md)) have moved parts of it
+on. Kept as the record of why the browser page is shaped the way it is.
 
 ## Why we're redoing it
 
