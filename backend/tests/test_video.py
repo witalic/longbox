@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from app.library import media
 from app.library.models import ChapterOut, ChapterRow, DraftIn, TitleMeta
 from app.library.service import Library
+from app.library.vault import Vault
 from app.main import create_app
 from app.settings import get_settings
 from .conftest import settled
@@ -897,3 +898,21 @@ def test_a_sidecar_from_before_the_digests_keeps_a_version_no_new_cut_can_reach(
     assert cut.startswith("3.") and cut != "3"
     assert cut != stills_version({"stills": 3, "stillsSha": {"poster": "cd"}})
     assert cut != stills_version({"stills": 3, "stillsSha": {"poster": "ab", "sheet": "cd"}})
+
+
+def test_a_made_still_preview_is_served_by_its_url_version_alone(tmp_path, monkeypatch):
+    lib, tid, attach = _episode_slot(tmp_path)
+    attach("ep.mp4", b"\x00" * 4096)
+    assert lib.save_chapter_frames(tid, "c1", "poster", _still(RED))
+    v = _row(lib, tid).stills
+    made = lib.chapter_frames(tid, "c1", "poster", 32)
+
+    def asked(*_a, **_kw):
+        raise AssertionError("the vault was asked for a still the URL already names")
+
+    for name in ("chapter_frames_path", "chapter_sidecars", "chapters_dir"):
+        monkeypatch.setattr(Vault, name, asked)
+    monkeypatch.setattr(Library, "_sidecars", asked)
+    assert lib.chapter_frames(tid, "c1", "poster", 32, v) == made
+    monkeypatch.undo()
+    lib.close()

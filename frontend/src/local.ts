@@ -22,11 +22,20 @@ export async function loadPrefs(): Promise<void> {
   } catch { /* defaults until the vault answers */ }
 }
 
+// What holds a change back to write it less often (the session snapshot) puts
+// it in here: whatever flushes — the window going, a switch of vault — takes it
+// along in the same write.
+const beforeFlush: (() => void)[] = []
+export function onBeforeFlush(fn: () => void): void {
+  beforeFlush.push(fn)
+}
+
 // Write what changed. Called on its own a moment after a change, and by
 // whatever is about to restart the app (switching vaults). A write waits for
 // the one before it: two in flight could land in either order, and the older
 // value would win.
 export function flushPrefs(keepalive = false): Promise<void> {
+  for (const fn of beforeFlush) fn()
   window.clearTimeout(flushTimer)
   flushTimer = undefined
   writing = writing.then(async () => {

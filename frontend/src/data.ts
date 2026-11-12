@@ -125,9 +125,21 @@ export interface TitleMeta {
 // at the same number rather than after a refused request.
 export const MAX_COVERS = 8
 
-// The flat wire DTO (meta + user layer + derived), as served by the backend.
-export interface Title extends TitleMeta {
+// What a list shows of a title — the library, a value page, a picker — and
+// never its chapters: the library is listed as cards, a title opened whole. A
+// Title IS a card, so every title the window receives refreshes its card.
+export interface TitleCard {
   id: string
+  title: string
+  alt: string
+  authors: string[]
+  year: string
+  type: MediaType
+  status: Status
+  genres: string[]
+  tags: string[]
+  flags: Flags
+  source: SourceRef
   // What a tile SHOWS, in rotation order: the title's own covers, or — when it
   // has none — stand-ins the backend cut from its own media.
   covers: string[]
@@ -135,10 +147,24 @@ export interface Title extends TitleMeta {
   ownCovers: string[] // the covers actually STORED; the editor manages exactly these
   fav: boolean
   rating: number
+  unread: number
+  chapterCount: number
+  pageCount: number  // the pages of every downloaded chapter
+  chapterLangs: string[]  // every language and group its chapters came in
+  chapterGroups: string[]
+  // what a tile with no cover of its own may wear: its first downloaded
+  // entries — a page, or an episode whose frame is cut or can be
+  standIns: Chapter[]
+  // moves with every write of the title: what the window holds of it, whole,
+  // is current while its rev is
+  rev: number
+}
+
+// The flat wire DTO (meta + user layer + derived), as served by the backend.
+export interface Title extends TitleMeta, TitleCard {
   // how the reader shows THIS title — empty until it was first adjusted. Read
   // field by field: it comes from a file a person may have edited by hand.
   reader: Partial<ReaderPrefs>
-  unread: number
   provenance: Provenance
   chapters: Chapter[]
 }
@@ -557,8 +583,8 @@ export function fieldValue(t: Title, f: FieldDef): string | string[] {
 
 // What a record IS, in one line after `lead` (its type, its year): where it was
 // captured from and how much of it is already here.
-export function recordLine(t: Title, lead: string): string {
-  const n = t.chapters.length
+export function recordLine(t: TitleCard, lead: string): string {
+  const n = t.chapterCount
   return [lead, t.source.domain || 'no source', n ? `${n} ${n === 1 ? 'entry' : 'entries'}` : 'empty']
     .filter(Boolean).join(' · ')
 }
@@ -640,10 +666,10 @@ export function titleSimilarity(a: string, b: string): number {
   return Math.max(dice, inside)
 }
 
-export interface TitleMatch { t: Title; score: number }
+export interface TitleMatch { t: TitleCard; score: number }
 
 /** The library records a name may already belong to — alts included. */
-export function matchTitles(name: string, titles: Title[], min = 0.5, limit = 6): TitleMatch[] {
+export function matchTitles(name: string, titles: TitleCard[], min = 0.5, limit = 6): TitleMatch[] {
   if (!name.trim()) return []
   const out: TitleMatch[] = []
   for (const t of titles) {

@@ -12,7 +12,7 @@ import {
   chapterRowsOf, emptyFacets, metaOf, PAGE_FILTER_DEFAULTS, pageFilterOf, readerPrefsOf,
   sameChapter, type Chapter, type CopyJob, type Facets, type FieldDef, type MetaScope, type PageFilter,
   type PausedImport,
-  type ReaderPrefs, type ReadState, type Source, type Title,
+  type ReaderPrefs, type ReadState, type Source, type Title, type TitleCard,
 } from './data'
 import {
   flushPrefs, isBoolMap, isRecord, localKeys, readLocal, readLocalOne, removeLocal, writeLocal, writeLocalOne,
@@ -124,7 +124,7 @@ interface State {
   browseHomepage: string
   libraryPath: string // the vault this window serves
   // data from the backend
-  titles: Title[] // current (filtered) library results
+  titles: TitleCard[] // current (filtered) library results
   total: number
   sources: Source[]
   sourceGroups: string[] // the user's ordered group names
@@ -138,7 +138,10 @@ interface State {
   fields: FieldDef[] // the metadata field registry, served by the backend
   // suggestion vocabulary per field id — everything the library already holds
   vocab: Record<string, string[]>
-  byId: Record<string, Title> // cache for open tabs / detail view
+  byId: Record<string, Title> // whole titles: the ones opened, and the detailed rows
+  // every title the window has listed, as a list shows it — what a picker or
+  // a name match searches; the library sends all of them at launch
+  cards: Record<string, TitleCard>
   loading: boolean
   error: string | null
   notice: string | null // something done that is worth a word (a download kept loose)
@@ -173,6 +176,7 @@ export const store = reactive<State>({
   fields: [],
   vocab: {},
   byId: {},
+  cards: {},
   loading: false,
   error: null,
   notice: null,
@@ -266,12 +270,53 @@ async function loadPageFilter() {
 }
 
 // ---- data loading ----
+// Whole titles. Each is a card as well: what a list shows of it moves with it.
+// The two are separate objects — a card is refreshed by a listing, a whole
+// title only whole, so a newer card never makes a stale title look current.
 export function cache(list: Title[]) {
   for (const t of list) {
     const existing = store.byId[t.id]
     if (existing) Object.assign(existing, t) // keep object identity for open views
     else store.byId[t.id] = t
+    const card = store.cards[t.id]
+    if (card) Object.assign(card, t)
+    else store.cards[t.id] = { ...t }
   }
+}
+// Cards, as a listing sends them. A whole title the window holds whose card
+// moved on is fetched again.
+export function cacheCards(list: TitleCard[]) {
+  const moved: string[] = []
+  for (const c of list) {
+    const card = store.cards[c.id]
+    if (card) Object.assign(card, c)
+    else store.cards[c.id] = c
+    if (store.byId[c.id] && store.byId[c.id].rev !== c.rev) moved.push(c.id)
+  }
+  if (moved.length) void fetchWhole(moved)
+}
+async function fetchWhole(ids: string[]) {
+  for (let i = 0; i < ids.length; i += 100) { // what one ask may name
+    try { cache(await api.titles(ids.slice(i, i + 100))) } catch (e) { store.error = String(e); return }
+  }
+}
+// The index moved on: the whole titles the window holds are checked in one ask,
+// and only the ones that changed fetched again — a title open in a tab, a
+// draft's target, the detailed rows. One that is gone is let go of.
+let heldAt = -1
+async function keepHeldCurrent(at: number) {
+  const ids = Object.keys(store.byId)
+  if (at < 0 || at === heldAt || !ids.length) return
+  heldAt = at
+  let revs: Record<string, number>
+  try { revs = await api.revs(ids) } catch { heldAt = -1; return }
+  for (const id of ids) {
+    if (revs[id] === undefined) {
+      delete store.byId[id]
+      delete store.cards[id]
+    }
+  }
+  await fetchWhole(ids.filter((id) => revs[id] !== undefined && store.byId[id]?.rev !== revs[id]))
 }
 
 // `{genres: ['action']}` → `['genres:action']` — the one filter shape.
@@ -312,16 +357,32 @@ export function metaScope(ids: string[] | null): MetaScope {
   return filters
 }
 
+// What the window last loaded, by the index's change counter (`epoch`): a
+// library tab shown again asks one number before reloading the whole library.
+// Read BEFORE the load, so a change landing during it reads as a change.
+let listedAt = -1
+let derivedAt = -1
+async function epochNow(): Promise<number> {
+  try {
+    const c = await api.libraryCount()
+    store.total = c.total
+    void keepHeldCurrent(c.epoch)
+    return c.epoch
+  } catch { return -1 }
+}
+
 export async function reloadLibrary() {
   store.loading = true
   store.error = null
   const q = buildQuery()
+  const at = await epochNow()
   try {
     // results + linked facet counts move together
     const [list, facets] = await Promise.all([api.library(q), api.facets(q)])
-    store.titles = list.map((t) => store.byId[t.id] ?? t)
-    cache(list)
+    cacheCards(list)
+    store.titles = list.map((t) => store.cards[t.id])
     store.facets = facets
+    listedAt = at
   } catch (e) {
     store.error = e instanceof Error ? e.message : String(e)
   } finally {
@@ -374,7 +435,17 @@ export async function refreshSources() {
 // or delete, or the source list and the suggestions go stale. Browse groups are
 // NOT here: that view loads the axis it is actually showing.
 export async function refreshDerived() {
+  const at = await epochNow()
   await Promise.all([refreshSources(), refreshVocab(), refreshShelfFacets()])
+  derivedAt = at
+}
+
+// A library or browse tab shown again: reload only what the library changed
+// under — one count, where a reload re-reads every title.
+async function reloadIfChanged(withList: boolean) {
+  const at = await epochNow()
+  if (withList && at !== listedAt) await reloadLibrary()
+  if (at !== derivedAt) void refreshDerived()
 }
 
 // A write that sends a WHOLE list — a site's bookmarks, the group order —
@@ -401,19 +472,21 @@ export async function init() {
     // must read as "reading the library", never as "your library is empty"
     // the field registry rides along: it is a dozen rows, and nothing that
     // shows metadata can draw a thing without it
+    const at = await epochNow()
     const [all, facets, settings, sync, fields] = await Promise.all(
       [api.library(), api.facets(), api.settings(), api.libraryStatus(), api.fields()])
     store.fields = fields
     Object.assign(opening, { active: sync.running, path: sync.path, done: sync.done, total: sync.total })
-    cache(all)
+    cacheCards(all)
     store.total = all.length
-    store.titles = all.map((t) => store.byId[t.id])
+    store.titles = all.map((t) => store.cards[t.id])
     // the unfiltered facets ARE the full vocabulary — asking twice is one
     // whole-library scan too many
     store.facets = facets
     applyVocab(facets)
     // no shelf is open at startup, so the unfiltered counts ARE the shelf's
     store.shelfFacets = facets
+    listedAt = derivedAt = at
     if (settings.homepage) store.browseHomepage = settings.homepage
     store.appMeta = settings.app || {}
     store.libraryPath = settings.library_path
@@ -422,8 +495,8 @@ export async function init() {
   } finally {
     store.loading = false
   }
-  // the Authors tab and the source list are not on the way to the grid
-  void refreshDerived()
+  // the source list is not on the way to the grid (the vocab came with it)
+  void refreshSources()
   void loadPageFilter()
   void refreshLoose()
   void refreshPausedImports()
@@ -571,9 +644,16 @@ function project(tab: AppTab) {
   if (p.kind === 'reader') Object.assign(store.reader, { chapterId: p.chapterId, page: p.page })
   store.view = viewOf(p)
 }
-async function ensureTitle(id: string) {
-  if (store.byId[id]) return
-  try { cache([await api.title(id)]) } catch (e) { store.error = String(e) }
+// A whole title: the one the window holds, or asked for.
+export async function loadTitle(id: string): Promise<Title | undefined> {
+  if (!store.byId[id]) {
+    try { cache([await api.title(id)]) } catch (e) { store.error = String(e) }
+  }
+  return store.byId[id]
+}
+// Whole titles for what a list shows open (the detailed rows) — in one ask.
+export async function loadTitles(ids: string[]) {
+  await fetchWhole(ids.filter((id) => !store.byId[id]))
 }
 export function showTab(id: string) {
   const tab = tabById(id)
@@ -584,9 +664,10 @@ export function showTab(id: string) {
     && (store.activeTab !== tab.id || store.view === 'browser' || store.view === 'sources')
   project(tab)
   const p = tab.place
-  if (p.kind === 'title' || p.kind === 'reader') void ensureTitle(p.id)
-  else if (p.kind === 'library' && p.axis) void refreshDerived()
-  if (again) void reloadLibrary()
+  // a title shown again may have moved on meanwhile (a run, a pass, a sync)
+  if (p.kind === 'title' || p.kind === 'reader') void loadTitle(p.id).then(() => reloadIfChanged(false))
+  else if (p.kind === 'library' && p.axis) void reloadIfChanged(false)
+  if (again) void reloadIfChanged(true)
 }
 // Back from the web to the app tab that was in front.
 export function showApp() {
@@ -697,12 +778,13 @@ export function openTitle(id: string) {
 // Middle-click: the tab opens behind the one in front.
 export function openTitleBackground(id: string, from: OpenedFrom = 'page') {
   if (!titleTab(id)) addTab({ kind: 'title', id }, openedAs(true, from))
-  void ensureTitle(id)
+  void loadTitle(id)
 }
 // A title that no longer exists cannot be captured into — the session ends with
 // it instead of posting pages at a dead id every couple of seconds.
 function forgetTitle(id: string) {
   delete store.byId[id]
+  delete store.cards[id]
   stopCaptureFor({ titleId: id })
 }
 function forgetTitleTabs(id: string) {
@@ -873,7 +955,7 @@ export function placeLabel(p: Place): string {
       return [where, p.sel.search && `“${p.sel.search}”`, one || (n && `${n} filter${n === 1 ? '' : 's'}`)]
         .filter(Boolean).join(' · ')
     }
-    case 'title': case 'reader': return titleById(p.id)?.title ?? 'Title'
+    case 'title': case 'reader': return cardById(p.id)?.title ?? 'Title'
     case 'page': return p.value
     case 'metadata':
       return p.ids ? `Metadata · ${p.ids.length} titles` : p.focus ? `Metadata · ${p.focus.value}` : 'Metadata'
@@ -930,15 +1012,14 @@ watch(() => `${store.libFocus}\n${libKey(libraryTab().place)}`, () => {
 // search the moment you type — a group you used once on another site is worth
 // finding, but not worth being offered by default.
 function ringsOf(chapters: { lang: string; group: string }[], domain: string,
-                 pick: (c: { lang: string; group: string }) => string): { near: string[]; all: string[] } {
+                 pick: (c: { lang: string; group: string }) => string,
+                 held: (t: TitleCard) => string[]): { near: string[]; all: string[] } {
   const near = new Set(chapters.map(pick).filter(Boolean))
   const all = new Set(near)
   const host = domain.toLowerCase()
-  for (const t of Object.values(store.byId)) {
+  for (const t of Object.values(store.cards)) {
     const sameSource = host && (t.source.domain || '').toLowerCase() === host
-    for (const c of t.chapters) {
-      const v = pick(c)
-      if (!v) continue
+    for (const v of held(t)) {
       if (sameSource) near.add(v)
       all.add(v)
     }
@@ -947,7 +1028,7 @@ function ringsOf(chapters: { lang: string; group: string }[], domain: string,
 }
 
 export function langRings(chapters: { lang: string; group: string }[] = [], domain = '') {
-  const rings = ringsOf(chapters, domain, (c) => c.lang)
+  const rings = ringsOf(chapters, domain, (c) => c.lang, (t) => t.chapterLangs)
   // the vocabulary the library already knows is near enough for a language
   for (const v of store.vocab.language ?? []) {
     if (!rings.near.includes(v)) rings.near.push(v)
@@ -956,7 +1037,7 @@ export function langRings(chapters: { lang: string; group: string }[] = [], doma
   return rings
 }
 export function groupRings(chapters: { lang: string; group: string }[] = [], domain = '') {
-  return ringsOf(chapters, domain, (c) => c.group)
+  return ringsOf(chapters, domain, (c) => c.group, (t) => t.chapterGroups)
 }
 
 // How many things a selection has switched on — what the Filters button
@@ -970,6 +1051,9 @@ export function activeFilterCount(f: LibraryFilters = store.library): number {
 // ---- lookups ----
 export function titleById(id: string | null): Title | undefined {
   return id ? store.byId[id] : undefined
+}
+export function cardById(id: string | null): TitleCard | undefined {
+  return id ? store.cards[id] : undefined
 }
 
 // ---- downloads: ONE poller for the whole app -------------------------------
@@ -1149,12 +1233,12 @@ async function writeThrough(apply: (v: never) => void, next: unknown, prev: unkn
   }
 }
 
-export async function setFavorite(t: Title, value: boolean) {
+export async function setFavorite(t: TitleCard, value: boolean) {
   await writeThrough((v) => { t.fav = v }, value, t.fav,
                      () => api.patchUser(t.id, { fav: value }))
 }
-export async function toggleFav(t: Title) { await setFavorite(t, !t.fav) }
-export async function setRating(t: Title, value: number) {
+export async function toggleFav(t: TitleCard) { await setFavorite(t, !t.fav) }
+export async function setRating(t: TitleCard, value: number) {
   // clicking the current rating again clears it — every star widget toggles
   const v = value === t.rating ? 0 : value
   await writeThrough((n) => { t.rating = n }, v, t.rating,
@@ -1487,7 +1571,7 @@ export function watchLibrarySync() {
 // How many files wait in the library's downloads (design/subtitles.md) — the
 // activity corner shows them, so they are never out of sight.
 export async function refreshLoose() {
-  try { store.loose = (await api.looseFiles()).length } catch { /* keep the previous count */ }
+  try { store.loose = (await api.looseCount()).n } catch { /* keep the previous count */ }
 }
 
 // The source groups as they are drawn: the stored list in its order, then any

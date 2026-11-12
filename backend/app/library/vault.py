@@ -256,6 +256,8 @@ class Vault:
         self.root = root
         if not root.is_dir():
             raise VaultGone(f"{root} is not there")
+        # documents' bytes as last read, by the stamp of the file they came from
+        self._docs: dict[str, tuple[tuple[int, int, int], bytes]] = {}
         # what the watchdog compares against: another folder at the same path is
         # not this vault, however much it looks like one
         self.id: str = self._identity()
@@ -324,9 +326,42 @@ class Vault:
     # would drop, on a vault that build still opens.
 
     def read_doc(self, name: str) -> dict:
+        """A vault document, read off the disk again only when its file changed:
+        one stat, where reading it was a transfer off what may be a network
+        disk (a hovered chip reads a vocabulary's pages, a page load the
+        rules). The stamp names the file itself — an atomic rewrite is a new
+        one. Taken under the document's lock, so a write in between can never
+        leave the older bytes kept as current. Each caller parses its own copy."""
+        path = self.root / name
+        with _doc_lock(path):
+            data = self._doc_bytes(name, fresh=False)
+        return self._parse_doc(name, data)
+
+    def _doc_bytes(self, name: str, *, fresh: bool) -> bytes | None:
+        """Under the document's lock: its bytes (None when absent). `fresh`
+        reads the disk whatever is kept — what a write builds on, so an edit
+        made outside the app is never written over from a kept copy."""
+        path = self.root / name
         try:
-            data = (self.root / name).read_bytes()
+            st = path.stat()
         except FileNotFoundError:
+            self._docs.pop(name, None)
+            return None
+        stamp = (st.st_mtime_ns, st.st_size, st.st_ino)
+        held = self._docs.get(name)
+        if not fresh and held is not None and held[0] == stamp:
+            return held[1]
+        try:
+            data = path.read_bytes()
+        except FileNotFoundError:
+            self._docs.pop(name, None)
+            return None
+        self._docs[name] = (stamp, data)
+        return data
+
+    @staticmethod
+    def _parse_doc(name: str, data: bytes | None) -> dict:
+        if data is None:
             return {}
         try:
             raw = json.loads(data.decode("utf-8"))
@@ -366,7 +401,7 @@ class Vault:
         locks an older build out of the others."""
         path = self.root / name
         with _doc_lock(path):
-            doc = self.read_doc(name)
+            doc = self._parse_doc(name, self._doc_bytes(name, fresh=True))
             got = doc.get("schema", schema)
             if not isinstance(got, int) or got > schema:
                 raise UnreadableDocument(f"{name} was written by a newer longbox — "
@@ -378,6 +413,7 @@ class Vault:
             if not (self.root / VAULT_FILE).is_file():
                 raise VaultGone(f"{self.root} is no longer the vault — {name} is not written")
             self.make_dir(path.parent)
+            self._docs.pop(name, None)
             _atomic_write(path, json.dumps(doc, ensure_ascii=False, indent=2).encode("utf-8"))
 
     # ---- the per-type layout ----
@@ -584,6 +620,37 @@ class Vault:
         except OSError:
             return 0
 
+    def title_dirs(self) -> tuple[set[str], bool]:
+        """Every title directory's name from ONE listing per shelf — no title
+        opened, no stat per title: what a quiet launch checks. `complete` is
+        False when a shelf could not be listed (a blink of the share is not a
+        shelf emptied)."""
+        ids: set[str] = set()
+        try:
+            shelves = list(os.scandir(self.root))
+        except OSError:
+            return ids, False
+        complete = True
+        for shelf in shelves:
+            if not shelf.is_dir() or _not_a_shelf(shelf.name):
+                continue
+            if os.path.isfile(os.path.join(shelf.path, "title.json")):
+                ids.add(shelf.name)  # an unmigrated title on the root, not a shelf
+                continue
+            try:
+                with os.scandir(shelf.path) as titles:
+                    for t in titles:
+                        if not t.is_dir():
+                            continue
+                        if t.name in ids:
+                            self._loc.pop(t.name, None)  # on two shelves: _find decides
+                        else:
+                            self._loc[t.name] = shelf.name
+                        ids.add(t.name)
+            except OSError:
+                complete = False
+        return ids, complete
+
     def list_ids(self) -> list[str]:
         """Scan the type shelves for title directories (holding a title.json)."""
         if not self.root.is_dir():
@@ -728,11 +795,14 @@ class Vault:
                     self._loc[sid] = new
         return True
 
-    def commit_meta(self, title_id: str, draft: DraftIn, *, create: bool = False) -> TitleDoc | None:
+    def commit_meta(self, title_id: str, draft: DraftIn, *, create: bool = False,
+                    existing: TitleDoc | None = None) -> TitleDoc | None:
         """Write the draft's layers (meta + provenance + chapters), preserving the
-        user layer untouched — a commit can never roll back a star or read progress."""
+        user layer untouched — a commit can never roll back a star or read progress.
+        `existing`: the document as the caller read it, under this same lock."""
         with self._lock(title_id):
-            existing = self.load(title_id)
+            if existing is None:
+                existing = self.load(title_id)
             if existing is None and not create:
                 return None
             # the TYPE decides the shelf — a change moves the whole directory
@@ -858,8 +928,10 @@ class Vault:
         out: dict[str, Path] = {}
         d = self._chapters_dir(title_id)
         try:
-            entries = [p for p in d.iterdir() if p.is_file()]
-        except OSError:
+            # a listing's entries carry their stat data: no round trip per file
+            with os.scandir(d) as items:
+                entries = [Path(e.path) for e in items if e.is_file()]
+        except FileNotFoundError:  # nothing stored; any other failure is no answer
             return out
         for p in sorted(entries):
             name, suffix = p.name, p.suffix.lower()
@@ -1425,7 +1497,7 @@ class Vault:
         try:
             with os.scandir(self._dir(title_id)) as items:
                 return _cover_slots(it.name for it in items if it.is_file())
-        except OSError:
+        except FileNotFoundError:  # no folder yet; any other failure is no answer
             return {}
 
     def cover_paths(self, title_id: str) -> list[Path]:

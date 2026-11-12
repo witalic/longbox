@@ -19,7 +19,7 @@ import {
   askConfirm, copies, downloads, dropCopy, dropMedia, forgetPausedImport, mediaJobs, openSection, passHome,
   passIcon, passPercent, retryCopy,
   pauseDownload, pauseImport, pausedImports, pollDownloads, resumeDownload, resumeImport, retryMedia, stopDownload,
-  stopVaultPass, store, titleById, vaultPass, watchDownloads, watchVaultPass, type MediaJob,
+  stopVaultPass, store, cardById, vaultPass, watchDownloads, watchVaultPass, type MediaJob,
 } from '../store'
 import { hostOf, type LooseFile } from '../data'
 
@@ -35,7 +35,7 @@ const running = computed(() => rows.value.filter((i) => i.state === 'downloading
   + mediaJobs.filter((j) => j.state === 'running').length
   + copies.jobs.filter((j) => j.state === 'running').length)
 
-function titleOf(id: string): string { return titleById(id)?.title || 'a title that is gone' }
+function titleOf(id: string): string { return cardById(id)?.title || 'a title that is gone' }
 function pct(i: { received: number; total: number }): number {
   return i.total ? Math.min(100, Math.round((i.received / i.total) * 100)) : 0
 }

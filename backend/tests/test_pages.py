@@ -16,6 +16,7 @@ from app.main import create_app
 from app.settings import get_settings
 
 
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("LONGBOX_CONFIG_DIR", str(tmp_path / "cfg"))
@@ -91,7 +92,7 @@ def test_what_the_owner_writes_lives_in_the_vault(client, tmp_path):
     other = Library(tmp_path / "lib")
     try:
         assert other.pages.get("tags", "Iyashikei").desc == "Healing slice of life."
-        assert ".pages" not in {t.id for t in other.query()} and other.count() == 1
+        assert ".pages" not in other.index.ids() and other.count() == 1
     finally:
         other.close()
 

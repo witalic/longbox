@@ -359,7 +359,7 @@ def in_scope(lib: Library, ids: list[str] | None, selection: dict) -> list[tuple
     of ids, or exactly what the library shows under these filters."""
     if ids is not None:
         return lib.index.docs_for(ids)
-    return [(tid, doc) for tid, doc, _m, _c in lib.index.query(**selection)]
+    return lib.index.docs(**selection)
 
 
 def _shown(value) -> str:

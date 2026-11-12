@@ -14,7 +14,7 @@ import {
 } from './data'
 import { isRecord, readLocal, writeLocal } from './local'
 import { captureValue, type CleanFlags } from './normalize'
-import { askConfirm, cache, refreshLibrary, store } from './store'
+import { askConfirm, cache, refreshDerived, store } from './store'
 
 // The draft's view of the cover — decoupled from any page:
 //  keep      editing an existing title, its stored cover stays as-is
@@ -463,7 +463,7 @@ export async function commitDraft(asNew = false): Promise<string | null> {
           saved = await api.setCover(saved.id, { url: d.cover.sourceUrl, referer: d.cover.referer })
         }
       } catch { /* the document is saved; a failed cover fetch is not fatal */ }
-    } else if (d.cover.kind === 'none' && target && store.byId[target]?.ownCovers.length) {
+    } else if (d.cover.kind === 'none' && target && store.cards[target]?.ownCovers.length) {
       // The draft models ONE cover — the first. Clearing that field means "drop
       // the cover I was editing", never "drop all eight of them"; removing the
       // rest is the strip's job on the title page, and it asks first.
@@ -471,7 +471,10 @@ export async function commitDraft(asNew = false): Promise<string | null> {
     }
     cache([saved])
     rememberDraftDefaults(d.meta) // the next fresh draft starts from these choices
-    await refreshLibrary()
+    // the suggestions learn the new values now; the library's list catches up
+    // when it is shown again (it asks the index whether anything changed) —
+    // a Save waiting for a whole-library reload was seconds on a big vault
+    void refreshDerived()
     draftFromTitle(store.byId[saved.id] ?? saved) // clean re-bind to what was just saved
     return saved.id
   } catch (e) {

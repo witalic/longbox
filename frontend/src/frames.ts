@@ -12,13 +12,13 @@
 //            grid IS the preview: an episode should look like something before
 //            anyone asks it to play.
 //
-// One at a time, only for episodes actually on screen, and never twice for the
-// same chapter in a session: a grid of forty episodes must not become forty
-// concurrent video reads.
+// One at a time, only for the stills something on screen wears, and never twice
+// for the same chapter in a session: a grid of forty episodes must not become
+// forty concurrent video reads.
 import { reactive } from 'vue'
 import { api } from './api'
 import { cache, store } from './store'
-import type { Chapter, Title } from './data'
+import type { Chapter, Title, TitleCard } from './data'
 
 // SQUARE, and that is the whole point: a 3x3 grid of frames has exactly the
 // aspect ratio of ONE frame, so the mosaic and the episode itself fit the same
@@ -35,7 +35,7 @@ const POSTER_EDGE = 640             // a tile is ~200px wide; no need for 4K
 // Which episodes are being cut right now — a preview says so instead of
 // pretending an empty pane is the finished thing.
 const cutting = reactive(new Set<string>())
-export function isCutting(t: Title, c: Chapter): boolean {
+export function isCutting(t: TitleCard, c: Chapter): boolean {
   return cutting.has(`${t.id}:${c.id}`)
 }
 
@@ -46,22 +46,22 @@ const queue: Job[] = []
 let running = false
 
 /** The one frame a tile wears. Cheap: three spots. */
-export function ensurePoster(t: Title, c: Chapter): void {
-  if (!c.poster) enqueue(t, c, false)
+export function ensurePoster(tid: string, c: Chapter): void {
+  if (!c.poster) enqueue(tid, c, false)
 }
 
 /** The contact grid a preview shows — and the poster too, if it is still missing. */
 export function ensureSheet(t: Title, c: Chapter): void {
   // a sheet cut in some other geometry cannot be sliced by this build: re-cut it
-  if (c.sheet !== SHEET_GRID) enqueue(t, c, true)
+  if (c.sheet !== SHEET_GRID) enqueue(t.id, c, true)
 }
 
-function enqueue(t: Title, c: Chapter, sheet: boolean): void {
+function enqueue(tid: string, c: Chapter, sheet: boolean): void {
   if (c.kind !== 'video' || !c.dl || c.playable === false) return
-  const key = `${t.id}:${c.id}:${c.v}:${sheet ? 'sheet' : 'poster'}`
+  const key = `${tid}:${c.id}:${c.v}:${sheet ? 'sheet' : 'poster'}`
   if (attempted.has(key)) return
   attempted.add(key)
-  queue.push({ tid: t.id, chapter: c, sheet })
+  queue.push({ tid, chapter: c, sheet })
   void drain()
 }
 
@@ -209,10 +209,12 @@ function encode(canvas: HTMLCanvasElement, quality = 0.82): Promise<Blob | null>
   return new Promise((r) => canvas.toBlob(r, 'image/jpeg', quality))
 }
 
-// Everything an on-screen list should ask for, in one call.
-export function ensurePostersFor(titles: Title[]): void {
+/** The posters the tiles of an on-screen list wear — what a tile with no cover
+ *  of its own may show (its card's stand-ins), never every episode of every
+ *  title in view: each cut is a read of a video on the vault's disk. */
+export function ensurePostersFor(titles: TitleCard[]): void {
   if (!store.total) return
   for (const t of titles) {
-    for (const c of t.chapters) ensurePoster(t, c)
+    for (const c of t.standIns) ensurePoster(t.id, c)
   }
 }

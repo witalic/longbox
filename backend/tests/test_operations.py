@@ -13,6 +13,8 @@ from app.library.models import ChapterRow, DraftIn, FieldProvenance, TitleMeta
 from app.library.operations import Action, InvalidAction
 from app.library.service import Library
 
+from .conftest import listed
+
 
 def make(lib: Library, title: str, *, type_: str = "manga", tags=(), status: str = "",
          prov: dict | None = None, chapters=()) -> str:
@@ -64,7 +66,7 @@ def test_a_merge_writes_only_the_titles_that_change(lib):
     assert lib.vault.load(a).meta.tags == ["romance", "action"]
     assert lib.vault.load(b).meta.tags == ["romance"]
     assert {t: stamp(lib, t) for t in (c, d)} == before          # never opened for writing
-    assert {r.id for r in lib.query(include={"tags": ("romance",)})} == {a, b, c}
+    assert {r.id for r in listed(lib, include={"tags": ("romance",)})} == {a, b, c}
 
 
 def test_a_bulk_change_keeps_the_updated_order(lib):
@@ -78,7 +80,7 @@ def test_a_bulk_change_keeps_the_updated_order(lib):
 
     run(lib, [Action(kind="rename", field="tags", values=["x"], to="z")])
     assert hour_ago < stamp(lib, old) <= hour_ago + 2 * 10**9
-    assert [t.id for t in lib.query(sort="updated")][0] == new   # still behind the newer title
+    assert [t.id for t in listed(lib, sort="updated")][0] == new   # still behind the newer title
 
 
 def test_a_move_fills_an_empty_slot_and_reports_a_taken_one(lib):
@@ -135,7 +137,7 @@ def test_renaming_a_whole_shelf_is_one_directory_rename(lib):
     for t in ids:
         assert lib.vault.load(t).meta.type == "webtoon"
         assert (lib.root / "webtoon" / t / "title.json").is_file()
-    assert {r.id for r in lib.query(include={"type": ("webtoon",)})} == set(ids)
+    assert {r.id for r in listed(lib, include={"type": ("webtoon",)})} == set(ids)
 
 
 def test_a_partial_type_change_moves_titles_and_sweeps_the_empty_shelf(lib):

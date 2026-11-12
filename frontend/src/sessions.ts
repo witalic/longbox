@@ -4,7 +4,7 @@
 // last 3 sessions — one click reopens their tabs in the background.
 import { reactive, watch } from 'vue'
 import { browser, newTabBackground } from './browser'
-import { isRecord, readLocal, removeLocal, writeLocal } from './local'
+import { isRecord, onBeforeFlush, readLocal, removeLocal, writeLocal } from './local'
 import {
   editInMetadata, editValueInMetadata, HOME, newLibraryTab, openSection, openTitleBackground, openValuePage,
   store, type Place,
@@ -19,6 +19,11 @@ export interface SessionSnap {
 const CUR = 'lb.session.current'
 const HIST = 'lb.sessions'
 const MAX = 3
+// A place moves with every page a reader turns and every letter a search
+// takes, and the snapshot lives in the vault's settings.json — on what may be a
+// network disk. Written at most this often, and with whatever else is written
+// (the window going, a switch of vault).
+const SNAP_EVERY = 15_000
 
 export const sessionHistory = reactive<SessionSnap[]>([])
 
@@ -42,17 +47,21 @@ export function initSessions() {
   removeLocal(CUR)
 
   // live snapshot of THIS session
+  let due: number | undefined
+  const snap = () => {
+    window.clearTimeout(due)
+    due = undefined
+    writeLocal(CUR, {
+      at: new Date().toISOString(),
+      places: store.tabs.filter((t) => t.id !== HOME).map((t) => t.place),
+      web: browser.tabs.filter((t) => t.url).map((t) => ({ url: t.url, title: t.title || t.label })),
+    } satisfies SessionSnap)
+  }
   watch(
     () => JSON.stringify([store.tabs.map((t) => t.place), browser.tabs.map((t) => t.url)]),
-    () => {
-      const snap: SessionSnap = {
-        at: new Date().toISOString(),
-        places: store.tabs.filter((t) => t.id !== HOME).map((t) => t.place),
-        web: browser.tabs.filter((t) => t.url).map((t) => ({ url: t.url, title: t.title || t.label })),
-      }
-      writeLocal(CUR, snap)
-    },
+    () => { if (due === undefined) due = window.setTimeout(snap, SNAP_EVERY) },
   )
+  onBeforeFlush(() => { if (due !== undefined) snap() })
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '')
@@ -71,7 +80,7 @@ function reopen(raw: unknown): boolean {
   switch (raw.kind) {
     case 'title': case 'reader': {
       const id = str(raw.id)
-      if (!store.byId[id]) return false
+      if (!store.cards[id]) return false
       openTitleBackground(id, 'outside')
       return true
     }

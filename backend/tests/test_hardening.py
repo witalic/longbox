@@ -13,11 +13,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.library import comicinfo, media
-from app.library.models import ChapterRow, DraftIn, TitleMeta
+from app.library.models import ChapterRow, DraftIn, TitleDoc, TitleMeta
 from app.library.service import Library
 from app.library.vault import Vault
 from app.main import create_app
 from app.settings import get_settings
+
+from .conftest import listed
 
 
 @pytest.fixture(autouse=True)
@@ -609,7 +611,7 @@ def test_launch_forgets_a_title_deleted_on_disk(tmp_path):
 
     shutil.rmtree(next(tmp_path.rglob("gone/title.json")).parent)
     lib = Library(tmp_path)
-    assert [t.title for t in lib.query()] == ["Stays"]
+    assert [t.title for t in listed(lib)] == ["Stays"]
     lib.close()
 
 
@@ -622,13 +624,14 @@ def test_launch_notices_chapter_media_added_on_disk(tmp_path):
     # the chapter directory moving is half of "did anything change" — a document
     # untouched since the last launch must not hide new media
     lib = Library(tmp_path)
-    assert lib.query()[0].chapters[0].pages == 1
+    assert listed(lib)[0].chapters[0].pages == 1
     lib.close()
 
 
 def test_a_listing_reads_no_chapter_sidecars(tmp_path, monkeypatch):
     """Page counts in a listing come from the index, not from one JSON file per
-    chapter — that pass is what made a big library take seconds to appear."""
+    chapter — that pass is what made a big library take seconds to appear. Nor
+    from the documents: a listing sends the cards the index keeps ready."""
     lib = Library(tmp_path)
     out = lib.create(DraftIn(meta=TitleMeta(title="Berserk")))
     lib.attach_chapter_media(out.id, num="5", lang="EN", group="dex",
@@ -640,9 +643,64 @@ def test_a_listing_reads_no_chapter_sidecars(tmp_path, monkeypatch):
     real = Vault.chapter_sidecars
     monkeypatch.setattr(Vault, "chapter_sidecars",
                         lambda self, tid: (calls.append(tid), real(self, tid))[1])
-    rows = lib.query()
-    assert rows[0].chapters[0].pages == 1  # composed from the indexed media
+    monkeypatch.setattr(TitleDoc, "model_validate_json", classmethod(lambda cls, *_a, **_kw: 1 / 0))
+    card = json.loads(lib.cards())[0]
+    assert (card["title"], card["chapterCount"], card["pageCount"]) == ("Berserk", 1, 1)
+    assert "chapters" not in card
     assert calls == []
+    lib.close()
+
+
+def test_a_read_mark_reads_no_chapter_sidecar_and_no_cover(tmp_path, monkeypatch):
+    """A star, a read mark, a video position move no chapter and no cover: the
+    answer is composed from the row the index already holds. Re-reading them
+    was every chapter's sidecar, twice, per click — on a network disk."""
+    from app.library.models import UserPatch
+
+    lib = Library(tmp_path)
+    out = lib.create(DraftIn(meta=TitleMeta(title="Berserk")))
+    lib.attach_chapter_media(out.id, num="5", lang="EN", group="dex",
+                             src=_one_page_zip(tmp_path / "in.zip"), sidecar={})
+    lib.set_cover(out.id, b"cover-bytes", "jpg")
+    before = lib.get(out.id)
+
+    def asked(*_a, **_kw):
+        raise AssertionError("a user-layer write read what it cannot have moved")
+
+    for name in ("chapter_sidecars", "chapter_sidecar", "cover_paths", "chapters_stamp"):
+        monkeypatch.setattr(Vault, name, asked)
+    got = lib.patch_user(out.id, UserPatch(fav=True, read={before.chapters[0].id: "read"}))
+    monkeypatch.undo()
+    assert got is not None and got.fav is True
+    assert got.covers == before.covers and got.chapters[0].pages == 1
+    card = json.loads(lib.cards())[0]  # …and the listing has it
+    assert card["fav"] is True and card["unread"] == 0
+    lib.close()
+
+
+def test_every_write_moves_the_epoch_a_window_reloads_by(tmp_path):
+    """A window holding a list asks `/library/count` for one number before it
+    reloads: every change to the listing moves it, a read never does."""
+    from app.library.models import UserPatch
+
+    lib = Library(tmp_path)
+    seen = [lib.index.epoch]
+
+    def moved() -> bool:
+        seen.append(lib.index.epoch)
+        return seen[-1] > seen[-2]
+
+    out = lib.create(DraftIn(meta=TitleMeta(title="Berserk")))
+    assert moved()
+    lib.cards()
+    lib.get(out.id)
+    assert not moved()
+    lib.patch_user(out.id, UserPatch(rating=4))
+    assert moved()
+    lib.delete(out.id)
+    assert moved()
+    with TestClient(create_app(lib)) as c:
+        assert c.get("/api/library/count").json() == {"total": 0, "epoch": lib.index.epoch}
     lib.close()
 
 
@@ -1104,3 +1162,44 @@ def test_a_type_change_that_cannot_move_its_folder_changes_nothing(tmp_path, mon
             assert not (tmp_path / "lib" / "manhwa").exists()
     finally:
         lib.close()
+
+
+def test_a_meta_commit_reads_its_title_once(tmp_path, monkeypatch):
+    """Saving the metadata of a title with hundreds of chapters rows — most of
+    them never downloaded — was a probe of ten extensions per such row and a
+    read of every chapter's sidecar, twice, on a network disk."""
+    lib = Library(tmp_path)
+    rows = [ChapterRow(id=f"c{i}", num=str(i)) for i in range(1, 41)]
+    out = lib.create(DraftIn(meta=TitleMeta(title="Long"), chapters=rows))
+    lib.attach_chapter_media(out.id, num="1", lang="", group="", chapter_id="c1",
+                             src=_one_page_zip(tmp_path / "in.zip"), sidecar={})
+    calls: dict[str, int] = {}
+
+    def counted(name):
+        real = getattr(Vault, name)
+
+        def wrapper(self, *a, **kw):
+            calls[name] = calls.get(name, 0) + 1
+            return real(self, *a, **kw)
+        return wrapper
+
+    for name in ("load", "chapter_media_path", "chapter_sidecars"):
+        monkeypatch.setattr(Vault, name, counted(name))
+    draft = DraftIn(meta=TitleMeta(title="Long", desc="edited"), chapters=rows[1:])  # c1 left out, stale
+    got = lib.commit(out.id, draft)
+    monkeypatch.undo()
+    assert got.desc == "edited" and got.chapters[0].id == "c1"  # the downloaded row put back
+    assert calls == {"load": 1}
+    lib.close()
+
+
+def test_a_document_restored_older_is_read_once_not_at_every_verification(tmp_path, monkeypatch):
+    lib = Library(tmp_path)
+    out = lib.create(DraftIn(meta=TitleMeta(title="Restored")))
+    doc_path = next(tmp_path.rglob("restored/title.json"))
+    st = doc_path.stat()
+    os.utime(doc_path, ns=(st.st_atime_ns, st.st_mtime_ns - 10_000_000_000))  # a backup's older copy
+    assert lib.sync() == 1
+    assert lib.sync() == 0
+    assert lib.get(out.id).title == "Restored"
+    lib.close()

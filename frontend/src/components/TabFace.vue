@@ -5,7 +5,7 @@
 import { computed } from 'vue'
 import Icon from './Icon.vue'
 import { coverAt, hueFor, initials } from '../data'
-import { titleById, type AppTab } from '../store'
+import { cardById, type AppTab } from '../store'
 
 const props = defineProps<{ tab: AppTab }>()
 const SECTION_ICON: Record<string, string> = { library: 'library', metadata: 'meta', import: 'import', settings: 'settings' }
@@ -13,7 +13,7 @@ const SECTION_ICON: Record<string, string> = { library: 'library', metadata: 'me
 const cover = computed(() => {
   const p = props.tab.place
   if (p.kind !== 'title' && p.kind !== 'reader') return null
-  const t = titleById(p.id)
+  const t = cardById(p.id)
   return t?.cover ? { background: `#181a1f url('${coverAt(t.cover, 64)}') center/cover` } : { background: hueFor(p.id) }
 })
 const person = computed(() => {

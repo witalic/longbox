@@ -204,12 +204,14 @@ class CopyQueue:
         """Whether this is the copy being written right now — not a leftover."""
         return self._writing is not None and path == self._writing
 
-    def close(self) -> None:
+    def close(self) -> bool:
+        """Stop the worker; say whether it has (it writes sidecars and the index)."""
         with self._lock:  # never between the worker's check of closing and its clearing of stop
             self._stop.set()
         thread = self._thread
         if thread is not None and thread.is_alive():
             thread.join(timeout=10)
+        return thread is None or not thread.is_alive()
 
     def _add(self, title_id: str, row: ChapterRow, title: str, of: str, *,
              requested: bool) -> CopyJob | None:

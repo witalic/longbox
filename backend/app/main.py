@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import logging
 import sys
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from .config_store import UnreadableConfig
 from .legacy_config import move_site_data_into
 from .library.service import Library
 from .library.vault import UnreadableDocument, VaultGone, is_vault
+from .passes import stop_event
 from .routers import downloads as downloads_router
 from .routers import imports as imports_router
 from .routers import library as library_router
@@ -30,6 +32,34 @@ from .settings import get_settings, resolve_library_path
 from .vault_watch import VaultWatch
 
 log = logging.getLogger("longbox")
+
+CLOSE_PATH = "/api/close"
+# How long a close waits for the writes on their way. A pass that will not stop
+# by then is cut off with the process — and the session is left open for it.
+CLOSE_WAIT_S = 5.0
+_READS = {"GET", "HEAD", "OPTIONS"}
+
+
+class _Writes:
+    """The requests that may write, in flight: a close waits for them, since one
+    may hold a write the index has not taken yet."""
+
+    def __init__(self) -> None:
+        self._n = 0
+        self._cv = threading.Condition()
+
+    def enter(self) -> None:
+        with self._cv:
+            self._n += 1
+
+    def leave(self) -> None:
+        with self._cv:
+            self._n -= 1
+            self._cv.notify_all()
+
+    def drained(self, timeout: float) -> bool:
+        with self._cv:
+            return self._cv.wait_for(lambda: self._n == 0, timeout)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 # A frozen sidecar carries the built UI inside its own bundle; a source checkout
@@ -107,6 +137,8 @@ async def lifespan(app: FastAPI):
 def create_app(library: Library | None = None) -> FastAPI:
     app = FastAPI(title="longbox", lifespan=lifespan)
     app.state.provided_library = library
+    app.state.closing = False
+    writes = _Writes()
     app.add_middleware(ApiGuard)
     app.include_router(library_router.router)
     app.include_router(settings_router.router)
@@ -135,12 +167,41 @@ def create_app(library: Library | None = None) -> FastAPI:
     @app.middleware("http")
     async def vault_gate(request: Request, call_next):
         """While the vault does not answer, nothing waits on it and nothing is
-        written anywhere: every API request is refused at once."""
-        watch: VaultWatch | None = getattr(request.app.state, "vault_watch", None)
-        if watch is not None and watch.state != "ok" and request.url.path.startswith("/api"):
-            return JSONResponse(status_code=503, content={"detail": "the vault is unreachable",
-                                                          "vault": watch.state})
-        return await call_next(request)
+        written anywhere: every API request is refused at once. So is every one
+        after the app began to close."""
+        if not request.url.path.startswith("/api"):
+            return await call_next(request)
+        writing = request.method not in _READS and request.url.path != CLOSE_PATH
+        if writing:
+            writes.enter()  # before the check: a close that begins now waits for this one
+        try:
+            if request.app.state.closing:
+                return JSONResponse(status_code=503, content={"detail": "the app is closing"})
+            watch: VaultWatch | None = getattr(request.app.state, "vault_watch", None)
+            if watch is not None and watch.state != "ok":
+                return JSONResponse(status_code=503, content={"detail": "the vault is unreachable",
+                                                              "vault": watch.state})
+            return await call_next(request)
+        finally:
+            if writing:
+                writes.leave()
+
+    @app.post(CLOSE_PATH)
+    def close(request: Request) -> dict:
+        """The shell's last word before it stops the sidecar, which on Windows
+        is a kill that runs no shutdown: the passes stop, the writes on their
+        way land, and the library closes — its session marked closed only when
+        nothing was cut off (design/state-model.md)."""
+        request.app.state.closing = True
+        lib: Library = request.app.state.library
+        stop_event().set()  # an import, a check, any pass, at its next step
+        lib.closing()
+        settled = writes.drained(CLOSE_WAIT_S)
+        watch: VaultWatch | None = request.app.state.vault_watch
+        if watch is not None:
+            watch.close()
+        lib.close(settled=settled)
+        return {"settled": settled}
 
     @app.get("/health")
     def health() -> dict:

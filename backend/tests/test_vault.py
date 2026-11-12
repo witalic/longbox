@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from app.library.migrations import CURRENT_SCHEMA
 from app.library.models import ChapterRow, DraftIn, FieldProvenance, TitleMeta, UserPatch
+from app.library.service import Library
 from app.library.vault import Vault, safe_id
+
+from .conftest import listed
 
 
 def test_safe_id_transliterates_and_falls_back():
@@ -133,9 +136,61 @@ def test_characters_field_and_facet(tmp_path):
     lib = Library(tmp_path)
     lib.create(DraftIn(meta=TitleMeta(title="A", characters=["Guts", "Griffith"])))
     lib.create(DraftIn(meta=TitleMeta(title="B", characters=["Guts"])))
-    assert sorted(t.id for t in lib.query(include={"characters": ("Guts",)})) == ["a", "b"]
-    assert [t.id for t in lib.query(include={"characters": ("Griffith",)})] == ["a"]
-    assert [t.id for t in lib.query(exclude={"characters": ("Griffith",)})] == ["b"]
+    assert sorted(t.id for t in listed(lib, include={"characters": ("Guts",)})) == ["a", "b"]
+    assert [t.id for t in listed(lib, include={"characters": ("Griffith",)})] == ["a"]
+    assert [t.id for t in listed(lib, exclude={"characters": ("Griffith",)})] == ["b"]
     chars = {x["v"]: x["n"] for x in lib.facets()["characters"]}
     assert chars == {"Guts": 2, "Griffith": 1}
+    lib.close()
+
+
+def test_a_document_is_read_again_only_when_its_file_changed(tmp_path, monkeypatch):
+    """A hovered chip reads a vocabulary's pages, a page load the rules: off a
+    network disk each read is a transfer. Unchanged, the file is not read."""
+    import pathlib
+
+    lib = Library(tmp_path)
+    vault = lib.vault
+    with vault.doc_transaction("rules.json", schema=1) as doc:
+        doc["rules"] = []
+    reads: list[str] = []
+    real = pathlib.Path.read_bytes
+    monkeypatch.setattr(pathlib.Path, "read_bytes",
+                        lambda self: (reads.append(self.name), real(self))[1])
+    first = vault.read_doc("rules.json")
+    first["rules"].append("mine to change")  # a copy: the next reader never sees it
+    assert vault.read_doc("rules.json") == {"rules": [], "schema": 1}
+    assert reads == ["rules.json"]
+
+    with vault.doc_transaction("rules.json", schema=1) as doc:  # written here: seen at once
+        doc["rules"] = [{"id": "r"}]
+    assert vault.read_doc("rules.json")["rules"] == [{"id": "r"}]
+    (tmp_path / "rules.json").write_text('{"rules": [], "schema": 1, "by": "hand"}', encoding="utf-8")
+    assert vault.read_doc("rules.json")["by"] == "hand"  # an edit made outside: seen too
+    monkeypatch.undo()
+    lib.close()
+
+
+def test_a_write_builds_on_the_file_never_on_a_kept_copy(tmp_path):
+    """Where a share gives files no id and a coarse time, an edit of the same
+    size can carry the stamp a kept copy was read under: a write still reads
+    the file itself, so nothing typed outside the app is written over."""
+    import os
+
+    lib = Library(tmp_path)
+    vault = lib.vault
+    path = tmp_path / "rules.json"
+    with vault.doc_transaction("rules.json", schema=1) as doc:
+        doc["by"] = "app"
+    assert vault.read_doc("rules.json")["by"] == "app"  # kept
+    st = path.stat()
+    edited = path.read_text(encoding="utf-8").replace('"app"', '"own"')  # same size
+    path.write_text(edited, encoding="utf-8")
+    os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns))  # the stamp it was kept under
+    vault._docs["rules.json"] = ((st.st_mtime_ns, st.st_size, path.stat().st_ino),
+                                 vault._docs["rules.json"][1])
+    with vault.doc_transaction("rules.json", schema=1) as doc:
+        assert doc["by"] == "own"
+        doc["more"] = True
+    assert vault.read_doc("rules.json") == {"by": "own", "more": True, "schema": 1}
     lib.close()

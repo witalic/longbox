@@ -185,6 +185,7 @@ def test_a_download_nobody_armed_lands_in_the_library_downloads(episode, tmp_pat
     assert {(f["name"], f["kind"], f["lang"], f["fileUrl"]) for f in files} == {
         ("Show - 05 [RUS].srt", "subtitle", "ru", "https://subs.site/5.srt"),
         ("Show - 05 [RUS] (2).srt", "subtitle", "ru", "https://subs.site/5.srt")}
+    assert c.get("/api/downloads/files/count").json() == {"n": 2}  # what the activity corner shows
     # the vault never reads its downloads as a type shelf
     assert [t["id"] for t in c.get("/api/library").json()] == [tid]
     assert Path(c.get("/api/downloads/folder").json()["path"]).name == "downloads"
@@ -196,6 +197,7 @@ def test_a_download_nobody_armed_lands_in_the_library_downloads(episode, tmp_pat
 
     assert c.delete("/api/downloads/files", params={"name": "Show - 05 [RUS] (2).srt"}).status_code == 204
     assert c.get("/api/downloads/files").json() == []
+    assert c.get("/api/downloads/files/count").json() == {"n": 0}
     assert c.delete("/api/downloads/files", params={"name": "../title.json"}).status_code == 404
 
 

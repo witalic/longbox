@@ -60,6 +60,7 @@ let sidecar = null
 let vaultRoot = ''        // the vault this run serves
 let vaultSession = null   // the embedded browser's profile, inside that vault
 let letGoOfVault = () => {} // drops the vault's lock
+let closeLibrary = async () => {} // asks the sidecar to close its library, once it serves one
 let vaultLost = false     // the vault stopped answering: nothing more is asked of its drive
 let windowShown = false   // until then a failure goes back to the launch window, not away
 let partialHome = ''      // the vault's folder for transfers being written
@@ -121,7 +122,7 @@ function spawnSidecar(port, token, root) {
     // launch window says why, instead of the next launch trying it again blind
     if (!windowShown) {
       const last = said.trim().split(/\r?\n/).filter((l) => /error|refused|denied|not a vault|cannot/i.test(l)).pop()
-      relaunch(['--launcher', `--why=${encodeURIComponent(`The library could not be opened${last ? `: ${last.trim()}` : '.'}`)}`])
+      void relaunch(['--launcher', `--why=${encodeURIComponent(`The library could not be opened${last ? `: ${last.trim()}` : '.'}`)}`])
       return
     }
     app.quit()
@@ -457,14 +458,26 @@ async function readLegacyPrefs(sess, port) {
   }
 }
 
+// The way out of a vault, in this order: the library closes (it writes until
+// then), the vault's lock goes, the sidecar stops. Stopped without being asked,
+// the sidecar leaves its session open and the next launch checks the whole
+// vault (design/state-model.md). A vault that is gone is not written to — its
+// lock goes stale on its own.
+async function stopSidecar() {
+  const running = sidecar && sidecar.exitCode === null && !sidecar.killed
+  if (!vaultLost) {
+    if (running) await closeLibrary()
+    letGoOfVault()
+  }
+  if (running) sidecar.kill()
+}
+
 // Start over: the sidecar, the window, the browser profile — into the vault the
 // config names, or into the launch window (`--launcher`). Switching vaults and
 // a vault coming back after a drop both end here (design/vault-home.md).
-function relaunch(extra = []) {
+async function relaunch(extra = []) {
   app.isQuitting = true
-  // a vault that is gone is not written to — its lock goes stale on its own
-  if (!vaultLost) letGoOfVault()
-  if (sidecar && !sidecar.killed) sidecar.kill()
+  await stopSidecar()
   const own = (a) => a === '--launcher' || a === '--restore' || a.startsWith('--why=')
   app.relaunch({ args: [...process.argv.slice(1).filter((a) => !own(a)), ...extra] })
   app.exit(0)
@@ -485,7 +498,7 @@ function watchVault(origin, win) {
     known = now
     if (now === 'back') {
       clearInterval(timer)
-      relaunch(['--restore']) // and the window reopens the tabs it had
+      void relaunch(['--restore']) // and the window reopens the tabs it had
       return
     }
     if (now === 'lost') {
@@ -522,6 +535,13 @@ async function main(root, legacy) {
 
   sidecar = spawnSidecar(port, token, root)
   await waitForHealth(port, token)
+  closeLibrary = async () => {
+    try {
+      await fetch(`${origin}/api/close`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15000),
+      })
+    } catch { /* stopped either way: the next launch checks the whole vault */ }
+  }
 
   const sess = vaultSession
   hardenSession(appSession, origin)
@@ -701,13 +721,13 @@ async function main(root, legacy) {
     if (e.sender !== win.webContents || !vaults.known().libraries.some((p) => vaults.same(p, String(root || '')))) return false
     await interruptAll('the app switched to another vault')
     vaults.register(String(root), { last: true })
-    relaunch()
+    void relaunch()
     return true
   })
   ipcMain.handle('lb-vault-launcher', async (e) => {
     if (e.sender !== win.webContents) return false
     if (!vaultLost) await interruptAll('the app switched to another vault')
-    relaunch(['--launcher'])
+    void relaunch(['--launcher'])
     return true
   })
   ipcMain.handle('lb-quit', (e) => {
@@ -928,7 +948,7 @@ async function boot() {
     // says why — never a quiet exit the next launch would repeat
     console.error(err)
     if (!windowShown) {
-      relaunch(['--launcher', `--why=${encodeURIComponent(`The library could not be opened: ${err.message || err}`)}`])
+      void relaunch(['--launcher', `--why=${encodeURIComponent(`The library could not be opened: ${err.message || err}`)}`])
       return
     }
     throw err
@@ -1105,11 +1125,20 @@ app.on('web-contents-created', (_e, contents) => {
   }
 })
 
-app.on('before-quit', () => {
+// A quit waits for the library to close — out of sight: the windows go at once.
+let stopping = false
+let stopped = false
+app.on('before-quit', (e) => {
   app.isQuitting = true
-  // a quit while the vault is gone leaves its lock behind: the next launch finds it stale
-  if (!vaultLost) letGoOfVault()
-  if (sidecar && !sidecar.killed) sidecar.kill()
+  if (stopped) return
+  e.preventDefault()
+  if (stopping) return
+  stopping = true
+  for (const w of BrowserWindow.getAllWindows()) w.hide()
+  void stopSidecar().finally(() => {
+    stopped = true
+    app.quit()
+  })
 })
 
 app.on('window-all-closed', () => app.quit())

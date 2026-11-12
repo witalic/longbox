@@ -18,13 +18,13 @@ import HistoryNav from '../components/HistoryNav.vue'
 import {
   store, openTitle, openTitleBackground, openReader, toggleFav, resetFilters,
   activeFilterCount, askConfirm, deleteTitles, openValuePage, setRating, refreshLibrary,
-  runVaultPass, opening, useShown, useTab, type LibraryPlace,
+  runVaultPass, opening, useShown, useTab, loadTitles, type LibraryPlace,
 } from '../store'
 import { startNewTitle } from '../browser'
 import { api } from '../api'
-import { ensurePostersFor } from '../frames'
+import { ensurePoster, ensurePostersFor } from '../frames'
 import { readLocalOne, writeLocalOne } from '../local'
-import { TITLE_SORTS, coverStyle, mediaLabel, orderedChaptersOf, initials, statusColor, type Chapter, type Title } from '../data'
+import { TITLE_SORTS, coverStyle, mediaLabel, orderedChaptersOf, initials, statusColor, type Chapter, type TitleCard } from '../data'
 import CoverArt from '../components/CoverArt.vue'
 
 // this tab's own selection — the one the library shows while the tab is in front
@@ -63,17 +63,20 @@ watch(
   () => goPage(1),
 )
 
-function unreadLabel(t: Title): string {
+function unreadLabel(t: TitleCard): string {
   return t.unread > 0 ? `${t.unread} new` : '—'
 }
 // The expanded strip previews the FIRST downloaded chapter: its first pages as
 // fixed-proportion tiles (2:3), horizontally scrollable when they overflow —
 // same cached server-side thumbnails as the title page's pane.
 const PREVIEW_PAGES = 10
-function orderedChapterRows(t: Title): Chapter[] {
-  return orderedChaptersOf(t.chapters, t.chapterOrder)
+// A list holds cards; a detailed row is drawn from its WHOLE title, asked for
+// with the page it is on — nothing until it has come.
+function orderedChapterRows(t: TitleCard): Chapter[] {
+  const whole = store.byId[t.id]
+  return whole ? orderedChaptersOf(whole.chapters, whole.chapterOrder) : []
 }
-function previewChapter(t: Title): Chapter | undefined {
+function previewChapter(t: TitleCard): Chapter | undefined {
   // the expanded strip previews PAGES; an episode has no page tiles to show
   return orderedChapterRows(t).find((c) => c.dl && c.kind !== 'video' && c.pages > 0)
 }
@@ -84,23 +87,27 @@ function previewChapter(t: Title): Chapter | undefined {
 // episodes actually on screen.
 // a library tab behind another one cuts no frames for results that are not its own
 const { whenShown } = useShown()
-watch(shown, () => whenShown(postersNow), { immediate: true })
-function postersNow() {
+watch([shown, () => lib.density], () => whenShown(() => void postersNow()), { immediate: true })
+async function postersNow() {
   ensurePostersFor(shown.value)
+  if (lib.density !== 'expanded') return
+  const page = shown.value
+  await loadTitles(page.map((t) => t.id))
+  // the detailed row's strip wears its episodes' posters
+  for (const t of page) {
+    if (!previewChapter(t)) for (const c of previewEpisodes(t)) ensurePoster(t.id, c)
+  }
 }
 
-function previewEpisodes(t: Title): Chapter[] {
+function previewEpisodes(t: TitleCard): Chapter[] {
   return orderedChapterRows(t).filter((c) => c.dl && c.kind === 'video').slice(0, PREVIEW_PAGES)
 }
-function recent(t: Title): Chapter[] {
+function recent(t: TitleCard): Chapter[] {
   return orderedChapterRows(t).slice(0, 8)
 }
-function pageThumb(t: Title, c: Chapter, index: number): string {
+function pageThumb(t: TitleCard, c: Chapter, index: number): string {
   // cap 1.5 crops webtoon-length pages to the tiles' 2:3 shape (previews only)
   return api.chapterPageSrc(t.id, c.id, index, c.v, 240, 1.5)
-}
-function pagesOf(t: Title): number {
-  return t.chapters.reduce((n, c) => n + (c.pages || 0), 0)
 }
 
 // ---- select mode: edit or delete many, "all" = everything matching the filters ----
@@ -122,7 +129,7 @@ function toggleSel(id: string) {
   else selIds.value.push(id)
 }
 // select-mode-aware card click: toggle instead of navigating
-function cardClick(t: Title) {
+function cardClick(t: TitleCard) {
   if (selMode.value) toggleSel(t.id)
   else void openTitle(t.id)
 }
@@ -284,8 +291,8 @@ async function undoApplied() {
             <span class="mono type">{{ t.type }}</span>
             <span class="sdot" :style="{ background: statusColor(t.status) }"></span><span class="cap">{{ t.status }}</span>
           </span>
-          <span class="mono dnum" :style="{ color: t.chapters.length ? 'var(--tx2)' : 'var(--tx3)' }" style="width:38px">{{ t.chapters.length || '—' }}</span>
-          <span class="mono dnum" :style="{ color: pagesOf(t) ? 'var(--tx2)' : 'var(--tx3)' }" style="width:56px">{{ pagesOf(t) || '—' }}</span>
+          <span class="mono dnum" :style="{ color: t.chapterCount ? 'var(--tx2)' : 'var(--tx3)' }" style="width:38px">{{ t.chapterCount || '—' }}</span>
+          <span class="mono dnum" :style="{ color: t.pageCount ? 'var(--tx2)' : 'var(--tx3)' }" style="width:56px">{{ t.pageCount || '—' }}</span>
           <span style="width:96px;display:flex;justify-content:flex-end"><Stars :value="t.rating" :size="13" interactive @set="setRating(t, $event)" /></span>
           <span class="mono" :style="{ width: '64px', textAlign: 'right', color: t.unread ? 'var(--accent)' : 'var(--tx3)' }">{{ unreadLabel(t) }}</span>
           <button class="iconbtn plain" style="width:32px;height:32px" :style="{ color: t.fav ? 'var(--fav)' : 'var(--tx3)' }" @click.stop="toggleFav(t)">
@@ -322,7 +329,7 @@ async function undoApplied() {
                 <Icon name="star" :size="16" :sw="1.8" :fill="t.fav ? 'var(--fav)' : 'none'" />
               </button>
               <Stars :value="t.rating" :size="15" interactive @set="setRating(t, $event)" />
-              <span class="mono ecounts">{{ t.chapters.length }} ch<template v-if="pagesOf(t)"> · {{ pagesOf(t) }} pg</template></span>
+              <span class="mono ecounts">{{ t.chapterCount }} ch<template v-if="t.pageCount"> · {{ t.pageCount }} pg</template></span>
               <span class="mono" :style="{ color: t.unread ? 'var(--accent)' : 'var(--tx3)', fontSize: '11px' }">{{ unreadLabel(t) }}</span>
             </div>
           </div>

@@ -25,10 +25,13 @@ content). Full model: `design/state-model.md`; layout: `ARCHITECTURE.md`.
   `routers/downloads.py` are the pattern). Absolute paths are kept only for places outside the
   vault (an import's source folder). `recipes.json`,
   `sources.json`, `rules.json`, `import-profiles.json`, `.pages/<vocabulary>.json`,
-  `settings.json`, `.longbox/state.json` and `downloads/index.json` go through
+  `settings.json`, `.longbox/state.json`, `.longbox/session.json` and `downloads/index.json` go through
   `Vault.read_doc()` / `Vault.doc_transaction()` (a list in one is read with `Vault.doc_items`):
   "absent" is the only empty answer — an unparseable file raises (409), a failed read raises as
-  itself, and a newer build's document is never written — so ANY change to the shape of one of
+  itself, and a newer build's document is never written. `read_doc` keeps the bytes it read against
+  the file's stamp (mtime, size, file id), under the document's lock, and each caller parses its
+  own copy: a document is read off the disk again only when its file changed — but
+  `doc_transaction` always reads the file itself, so a write never builds on a kept copy — so ANY change to the shape of one of
   them bumps ITS `SCHEMA` (the constant beside its store, passed to `doc_transaction`), or an older
   build will silently drop what it does not know. One number per document: a change to one never
   locks an older build out of the others.
@@ -47,13 +50,23 @@ content). Full model: `design/state-model.md`; layout: `ARCHITECTURE.md`.
 - **Startup does the minimum.** Anything expensive that ingest already guarantees is a one-time
   migration keyed by a marker in `vault.json`, run on a background thread — never work repeated
   on every launch (that is what once made the sidecar miss the shell's health timeout). A launch
-  serves from the index and verifies the vault on a BACKGROUND pass (`sync_in_background`);
-  nothing user-facing waits for the disk. That pass holds no title locks, so its bulk write is
-  guarded on both stamps — it may never overwrite a newer row.
-- **A listing touches no files.** The index row carries the title's chapter sidecars, its cover
-  URL and the mtimes they were read at, so `query()` is SQL plus composition. Anything a listing
-  needs is written INTO the index at write time (`Library._index`), never fetched per title —
-  on a network vault every stat is a round trip.
+  serves from the index and checks on a BACKGROUND pass (`sync_in_background`); nothing
+  user-facing waits for the disk. Every write updates the index, so a launch only lists the
+  shelves for titles added or removed by hand (`quick_sync`); the whole vault is verified
+  (`sync`) only for an empty index or a session that never settled (`.longbox/session.json`).
+  A write path that can leave the vault ahead of the index must fail loudly (a failed index
+  write sets `LibraryIndex.missed`), never silently. The shell stops the sidecar with a kill,
+  so shutdown work belongs in `POST /api/close` (main.py), never only in the lifespan. The verification holds no title locks, so
+  its bulk write is guarded on both stamps — it may never overwrite a newer row.
+- **A listing touches no files and parses no document.** The index row carries the title's
+  chapter sidecars, its cover URL and the mtimes they were read at; each write also stores the
+  title's card (`title_cards_v1`, composed in `cards.py`) and its filter values
+  (`title_values_v1`, from `fields.stored_values`), so `/library` is a join sending stored JSON
+  and a facet is a `GROUP BY`. Anything a list shows goes into the card, anything a filter asks
+  into the values — written at write time (`Library._index`), never fetched per title. Every
+  index write path (`upsert`, `upsert_many`, `apply_meta`, `rebuild`, `remove`) keeps both side
+  tables with the row; a card of another shape, or made by other rules (what a stand-in is,
+  what counts as unread), is a new `_vN` table.
 - **One scan, not three stats per title.** `Vault.scan()` reads the whole vault through
   `os.scandir`, whose entries already carry their stat data; per-title `is_file()` probing (six
   extensions for a cover, say) is what made opening a shared drive take twenty seconds.
@@ -80,3 +93,8 @@ content). Full model: `design/state-model.md`; layout: `ARCHITECTURE.md`.
   stays parallel to the pages (a key that outlives its page breaks capture dedup).
 - The index write belongs INSIDE the title lock (`Library._index`), and all index statements go
   through the index's own lock — one shared SQLite connection means one transaction context.
+- A write answers with `Library._indexed` — the title composed from the sidecars and covers its
+  index write just read, never read again for the answer (`media=False` for a write that touches
+  no sidecar, such as a meta commit). A path that changed nothing answers from what the index holds
+  (`_out_held`). Anything walking a title's chapters lists the chapters folder once
+  (`Vault.chapter_files`), never `chapter_media_path` per row.

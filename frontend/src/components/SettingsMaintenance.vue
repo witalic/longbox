@@ -86,8 +86,9 @@ function mirror() {
       <div class="text">
         <div class="label">Search index</div>
         <div class="hint">A cache derived from the title files on disk — deleting it never loses
-          content. Rebuild re-reads every title and recreates it, which is worth doing when the
-          folder was changed outside the app or search results look wrong. Your files are never
+          content. A launch picks up titles added to or removed from the folder; Rebuild re-reads
+          every title and recreates it, which is worth doing when files inside a title were
+          changed outside the app or search results look wrong. Your files are never
           modified.</div>
       </div>
       <span v-if="props.activeOp !== 'rebuild'" class="mini mono">{{ lastRun('rebuild index') }}</span>

@@ -18,6 +18,8 @@ from app.library.rules import Rule
 from app.library.service import Library
 from app.main import create_app
 from app.settings import get_settings
+
+from .conftest import listed
 from .test_video import _mkv
 
 JPEG =b"\xff\xd8\xff\xe0" + b"\x00" * 64
@@ -87,7 +89,7 @@ def go(lib, src, profile, overrides=None, **kw):
 
 
 def titles(lib) -> dict:
-    return {t.title: t for t in lib.query()}
+    return {t.title: t for t in listed(lib)}
 
 
 # ---- reading a tree ----------------------------------------------------------
@@ -234,7 +236,7 @@ def test_running_the_same_import_again_stores_nothing_twice(lib, tmp_path):
     go(lib, src, by_creator())
     again = go(lib, src, by_creator())
     assert (again.imported, again.skipped) == (0, 4)
-    assert [len(t.chapters) for t in lib.query()] == [2, 2]
+    assert [len(t.chapters) for t in listed(lib)] == [2, 2]
 
 
 def test_what_is_new_to_a_work_continues_after_what_it_holds(lib, tmp_path):
@@ -285,7 +287,7 @@ def test_a_separate_work_is_made_beside_one_of_the_same_name(lib, tmp_path):
     mp4(tmp_path / "src" / "Show" / "e1.mp4")
     p = fi.Profile(levels=[fi.Level(role="collection"), fi.Level(role="work")], workExists="separate")
     go(lib, tmp_path / "src", p)
-    assert sorted(len(t.chapters) for t in lib.query() if t.title == "Show") == [0, 1]
+    assert sorted(len(t.chapters) for t in listed(lib) if t.title == "Show") == [0, 1]
 
 
 # ---- what is refused ---------------------------------------------------------
@@ -448,7 +450,7 @@ def test_stop_puts_the_run_down_between_entries(lib, tmp_path):
     stop = threading.Event()
     stop.set()
     report = go(lib, creator_tree(tmp_path / "src"), by_creator(), stop=stop)
-    assert report.stopped and report.imported == 0 and lib.query() == []
+    assert report.stopped and report.imported == 0 and listed(lib) == []
 
 
 # ---- profiles and the API ----------------------------------------------------
@@ -503,7 +505,7 @@ def test_a_paused_import_is_carried_on_where_it_stopped(tmp_path, monkeypatch):
         assert (report["imported"], report["skipped"], report["paused"]) == (3, 1, False)
         assert (imports.PASS["done"], imports.PASS["total"]) == (4, 4)  # counted on from 1 of 4
         assert c2.get("/api/import/paused").json() == []
-    assert [len(t.chapters) for t in lib.query()] == [2, 2]
+    assert [len(t.chapters) for t in listed(lib)] == [2, 2]
     lib.close()
 
 

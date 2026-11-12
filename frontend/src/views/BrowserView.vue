@@ -541,7 +541,7 @@ async function autofill() {
     // targets a title is an edit of that title, and needs no second opinion.
     if (!d.targetId) {
       const name = String(s.fields.title || tab.title || '')
-      const near = matchTitles(name, Object.values(store.byId), 0.55, 4)
+      const near = matchTitles(name, Object.values(store.cards), 0.55, 4)
       if (near.length) {
         heldFill.value = s
         fillMatches.value = near.map((m) => ({ id: m.t.id, title: m.t.title, score: m.score }))

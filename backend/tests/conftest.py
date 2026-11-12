@@ -30,6 +30,7 @@ way — unless the test is about a folder that is not there:
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -85,3 +86,9 @@ def settled(lib: Library) -> Library:
     if thread is not None:
         thread.join(timeout=15)
     return lib
+
+
+def listed(lib: Library, **selection) -> list:
+    """The whole titles a selection lists, in its order — the listing itself
+    sends cards (TitleCard)."""
+    return lib.get_many([json.loads(c)["id"] for c in lib.index.cards(**selection)])

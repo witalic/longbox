@@ -13,6 +13,7 @@ one page.
 """
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from collections import Counter, defaultdict
@@ -25,7 +26,7 @@ from urllib.parse import quote, urlsplit
 
 from pydantic import BaseModel, field_validator
 
-from . import fields
+from . import cards, fields
 from . import operations as ops
 from . import rules as R
 from .vault import UnreadableDocument, Vault, _atomic_write, safe_id
@@ -285,8 +286,19 @@ def view(lib: Library, field_id: str, value: str) -> PageOut | None:
     notes = _rule_notes(rules, vocab, k)
     spelled = {key(s) for n in notes if n.kind == "spelling" for s in n.values}
 
+    # Who holds the value — and the spellings rules fold into it — off the
+    # stored values; only those titles' documents are read for the rest.
     spellings: Counter = Counter()
-    held: Counter = Counter()
+    holding: dict[str, set[str]] = defaultdict(set)
+    holders: set[str] = set()
+    for tid, v in lib.index.values_of(vocab):
+        kv = key(v)
+        if kv == k:
+            spellings[v] += 1
+            holders.add(tid)
+        elif kv in spelled:
+            holding[kv].add(tid)  # a title is counted once, however often it holds a spelling
+    held = Counter({kv: len(ids) for kv, ids in holding.items()})
     works: list[Work] = []
     sources: Counter = Counter()
     groups = _groups_for(vocab)
@@ -295,20 +307,8 @@ def view(lib: Library, field_id: str, value: str) -> PageOut | None:
     near_field: dict[tuple[str, str], str] = {}
     chapters = read = rated = rating_sum = 0
 
-    for tid, doc, sidecars, covers in lib.index.query():
-        here = False
-        holds: set[str] = set()
-        for v in ops.read(doc, vocab):
-            kv = key(v)
-            if kv == k:
-                spellings[v] += 1
-                here = True
-            elif kv in spelled:
-                holds.add(kv)
-        held.update(holds)  # a title is counted once, however often it holds a spelling
-        if not here:
-            continue
-        shown = lib.shown_covers(tid, doc, sidecars, covers)
+    for tid, doc, sidecars, covers in lib.index.query(ids=sorted(holders)) if holders else ():
+        shown = cards.shown_covers(tid, doc, sidecars, covers)
         works.append(Work(id=tid, title=doc.meta.title, cover=shown[0] if shown else "",
                           rating=doc.user.rating))
         chapters += len(doc.chapters)
@@ -359,28 +359,20 @@ def view(lib: Library, field_id: str, value: str) -> PageOut | None:
 
 def peek(lib: Library, field_id: str, value: str) -> PeekOut | None:
     """The page in brief, asked for on every hovered chip: a count, the
-    spelling, the first lines and a few covers — one pass over the documents
-    reading the one field, and covers for the first few titles only."""
+    spelling, the first lines and a few covers — off the stored values and
+    cards, no document read."""
     vocab = vocab_of(field_id)
     if vocab is None or not value.strip():
         return None
     k = key(value)
     spellings: Counter = Counter()
-    holders: list[str] = []
-    for tid, doc in lib.index.all_docs():
-        hit = [v for v in ops.read(doc, vocab) if key(v) == k]
-        if hit:
-            spellings.update(set(hit))
-            holders.append(tid)
-    covers: list[str] = []
-    for tid in holders:
-        if len(covers) >= 5:
-            break
-        got = lib.index.get(tid)
-        if got is not None:
-            shown = lib.shown_covers(tid, *got)
-            if shown:
-                covers.append(shown[0])
+    holders: set[str] = set()
+    for tid, v in lib.index.values_of(vocab):
+        if key(v) == k:
+            spellings[v] += 1
+            holders.add(tid)
+    covers = [c["cover"] for c in (json.loads(card) for card in lib.index.cards(ids=sorted(holders)))
+              if c["cover"]][:5] if holders else []
     page = lib.pages.get(vocab, value)
     return PeekOut(field=field_id, kind=kind_of(vocab),
                    value=spellings.most_common(1)[0][0] if spellings else (page.value if page else value.strip()),
@@ -433,9 +425,7 @@ def spelling_of(lib: Library, vocab: str, value: str) -> str:
     """How a value is written: as most titles hold it, else as its page was
     written, else as asked — the page may have been opened by any spelling."""
     k = key(value)
-    seen: Counter = Counter()
-    for _tid, doc in lib.index.all_docs():
-        seen.update({v for v in ops.read(doc, vocab) if key(v) == k})
+    seen: Counter = Counter(v for _tid, v in lib.index.values_of(vocab) if key(v) == k)
     if seen:
         return seen.most_common(1)[0][0]
     page = lib.pages.get(vocab, value)
@@ -520,7 +510,7 @@ def drop_image(lib: Library, field_id: str, value: str) -> None:
 
 
 def held_keys(lib: Library, vocab: str) -> set[str]:
-    return {key(v) for _tid, doc in lib.index.all_docs() for v in ops.read(doc, vocab)}
+    return {key(v) for _tid, v in lib.index.values_of(vocab)}
 
 
 class Stored(BaseModel):

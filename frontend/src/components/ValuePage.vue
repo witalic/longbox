@@ -17,12 +17,12 @@ import { api } from '../api'
 import { newTab, searchUrl } from '../browser'
 import { readLocalOne, writeLocalOne } from '../local'
 import {
-  activeFilterCount, askConfirm, buildQuery, cache, editValueInMetadata, followValue, openAxis, openTitle,
+  activeFilterCount, askConfirm, buildQuery, cacheCards, editValueInMetadata, followValue, openAxis, openTitle,
   openTitleBackground, openValuePage, resetFilters, runVaultPass, showInLibrary, store, useShown, useTab,
 } from '../store'
 import {
   TITLE_SORTS, coverAt, coverStyle, emptyFacets, hueFor, initials, linkLabel, siteOf,
-  type Facets, type PageLink, type PageRuleNote, type Title, type ValuePage,
+  type Facets, type PageLink, type PageRuleNote, type TitleCard, type ValuePage,
 } from '../data'
 
 const tab = useTab()
@@ -67,7 +67,7 @@ function worksQuery() {
   const q = buildQuery(r.sel)
   return { ...q, f: [...(q.f ?? []), `${r.field}:${r.value}`] }
 }
-const results = ref<Title[]>([])
+const results = ref<TitleCard[]>([])
 const workFacets = ref<Facets>(emptyFacets())
 const worksLoading = ref(false)
 let wseq = 0
@@ -79,8 +79,8 @@ async function loadWorks() {
     const q = worksQuery()
     const [list, counts] = await Promise.all([api.library(q), api.facets(q)])
     if (n !== wseq) return
-    cache(list)
-    results.value = list.map((t) => store.byId[t.id] ?? t)
+    cacheCards(list)
+    results.value = list.map((t) => store.cards[t.id] ?? t)
     workFacets.value = counts
   } catch (e) {
     if (n === wseq) store.error = failed(e)

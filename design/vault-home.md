@@ -46,6 +46,7 @@ without them, and two vaults on one computer share them.
                              (theme, density, keys, reader, panel sizes, folds, the tabs it had)
   .longbox/                  the app's own working files (a dot folder: never a shelf)
     lock.json                who has the vault open: computer, process, since, last seen
+    session.json             whether the last session settled (design/state-model.md, the index)
     browser/                 the embedded browser's profile: sign-ins (cookies), site storage,
                              service workers, HTTP and code cache
     state.json               transfers a quit cut short, paused imports, import reports

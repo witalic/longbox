@@ -221,30 +221,59 @@ class ChapterOut(ChapterRow):
     subtitles: list[SubtitleOut] = []  # an episode's subtitle tracks
 
 
-class TitleOut(BaseModel):
+# How many stand-ins a title with no stored cover is worth composing. The grid
+# rotates them on hover, and past a handful nobody ever sees the rest.
+STAND_INS = 6
+
+
+def chapter_out(c: ChapterRow, side: dict | None, user: UserLayer) -> ChapterOut:
+    """One chapter row as the window sees it: the row, its sidecar, its progress."""
+    copied = (side or {}).get("copy") or {}
+    # what the window is served: the playable copy wherever one exists
+    played = copied or side or {}
+    return ChapterOut(
+        **c.model_dump(), read=user.read.get(c.id, "unread"),
+        dl=side is not None, pages=(side or {}).get("pages", 0),
+        v=chapter_version(side),
+        kind=(side or {}).get("kind", "pages"),
+        position=float(user.position.get(c.id, 0.0)),
+        duration=float((side or {}).get("duration") or 0.0),
+        playable=bool((side or {}).get("playable", True)) or bool(copied),
+        playableCopy=bool(copied),
+        container=(side or {}).get("container", ""),
+        codec=played.get("codec", ""),
+        audio=played.get("audio", ""),
+        faststart=bool(played.get("faststart", True)),
+        poster=bool((side or {}).get("poster", False)),
+        sheet=str((side or {}).get("sheet") or ""),
+        stills=stills_version(side),
+        dlSource=(side or {}).get("pageUrl") or "",
+        dlAt=(side or {}).get("downloadedAt", ""),
+        origName=(side or {}).get("origName", ""),
+        subtitles=subtitles_of(side),
+    )
+
+
+class TitleCard(BaseModel):
+    """What a list shows of a title — the library, a value page, a picker — and
+    never its chapters: a library of thousands is listed as cards and a title is
+    opened whole. A TitleOut IS a card, so whatever a window receives of a
+    title refreshes the card it lists too."""
     id: str
     title: str
     alt: str
     authors: list[str]
-    studio: list[str]
     year: str
     type: MediaType
     status: Status
-    characters: list[str]
     genres: list[str]
     tags: list[str]
     flags: Flags
-    desc: str
     source: SourceRef
-    coverSource: str
-    chapterOrder: str
-    # user-defined field values, keyed by field id — served flat so the editor
-    # reads them the same way it reads a built-in
-    custom: dict[str, str | list[str]] = {}
     # Three answers, because there are three different questions.
     #
     # What a tile SHOWS, in rotation order: the title's own covers, or — when it
-    # has none — stand-ins cut from its own media (Library._stand_ins).
+    # has none — stand-ins cut from its own media (cards.stand_ins).
     covers: list[str] = []
     # The first of those. Almost every surface wants one image, and asking each
     # of them to index a list is how they end up disagreeing about which.
@@ -255,56 +284,89 @@ class TitleOut(BaseModel):
     ownCovers: list[str] = []
     fav: bool
     rating: int
-    reader: dict[str, Any] = {}
     unread: int  # chapters not marked read
+    chapterCount: int = 0
+    pageCount: int = 0  # the pages of every downloaded chapter
+    # every language and every group its chapters came in, as they first appear
+    chapterLangs: list[str] = []
+    chapterGroups: list[str] = []
+    # What a tile with no cover of its own may wear: its first downloaded
+    # entries — a page, or an episode whose frame is cut or can be.
+    standIns: list[ChapterOut] = []
+    # Moves with every write of the title (index.title_cards_v1): what a window
+    # holds of a title, whole, is current while its rev is.
+    rev: int = 0
+
+    @classmethod
+    def from_doc(cls, title_id: str, doc: TitleDoc, covers: list[str] | None = None,
+                 media: dict[str, dict] | None = None,
+                 own: list[str] | None = None, rev: int = 0) -> "TitleCard":
+        return cls(**_card_fields(title_id, doc, covers, media or {}, own, rev))
+
+
+def _pages(side: dict | None) -> int:
+    """A sidecar's page count as a number — one written by hand may say anything."""
+    try:
+        return max(0, int((side or {}).get("pages") or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _card_fields(title_id: str, doc: TitleDoc, covers: list[str] | None, media: dict[str, dict],
+                 own: list[str] | None, rev: int, chapters: list[ChapterOut] | None = None) -> dict:
+    """A card's fields, with the chapters already composed when there are any."""
+    m, u = doc.meta, doc.user
+    covers = list(covers or [])
+    own = list(own if own is not None else covers)
+    stand: list[ChapterOut] = []
+    if not own:
+        for i, c in enumerate(doc.chapters):
+            if len(stand) >= STAND_INS:
+                break
+            side = media.get(c.id)
+            if side is None:
+                continue
+            row = chapters[i] if chapters is not None else chapter_out(c, side, u)
+            if (row.poster or row.playable) if row.kind == "video" else row.pages:
+                stand.append(row)
+    return dict(
+        id=title_id, title=m.title, alt=m.alt, authors=m.authors, year=m.year,
+        type=m.type, status=m.status, genres=m.genres, tags=m.tags, flags=m.flags,
+        source=m.source, covers=covers, cover=covers[0] if covers else "", ownCovers=own,
+        fav=u.fav, rating=u.rating,
+        unread=sum(1 for c in doc.chapters if u.read.get(c.id, "unread") != "read"),
+        chapterCount=len(doc.chapters),
+        pageCount=sum(_pages(media.get(c.id)) for c in doc.chapters),
+        chapterLangs=list(dict.fromkeys(c.lang for c in doc.chapters if c.lang)),
+        chapterGroups=list(dict.fromkeys(c.group for c in doc.chapters if c.group)),
+        standIns=stand, rev=rev,
+    )
+
+
+class TitleOut(TitleCard):
+    studio: list[str]
+    characters: list[str]
+    desc: str
+    coverSource: str
+    chapterOrder: str
+    # user-defined field values, keyed by field id — served flat so the editor
+    # reads them the same way it reads a built-in
+    custom: dict[str, str | list[str]] = {}
+    reader: dict[str, Any] = {}
     provenance: dict[str, FieldProvenance]
     chapters: list[ChapterOut]
 
     @classmethod
     def from_doc(cls, title_id: str, doc: TitleDoc, covers: list[str] | None = None,
                  media: dict[str, dict] | None = None,
-                 own: list[str] | None = None) -> "TitleOut":
+                 own: list[str] | None = None, rev: int = 0) -> "TitleOut":
         m, u = doc.meta, doc.user
         media = media or {}
-        covers = list(covers or [])
-        own = list(own if own is not None else covers)
-        chapters = []
-        for c in doc.chapters:
-            side = media.get(c.id)
-            copied = (side or {}).get("copy") or {}
-            # what the window is served: the playable copy wherever one exists
-            played = copied or side or {}
-            chapters.append(ChapterOut(
-                **c.model_dump(), read=u.read.get(c.id, "unread"),
-                dl=side is not None, pages=(side or {}).get("pages", 0),
-                v=chapter_version(side),
-                kind=(side or {}).get("kind", "pages"),
-                position=float(u.position.get(c.id, 0.0)),
-                duration=float((side or {}).get("duration") or 0.0),
-                playable=bool((side or {}).get("playable", True)) or bool(copied),
-                playableCopy=bool(copied),
-                container=(side or {}).get("container", ""),
-                codec=played.get("codec", ""),
-                audio=played.get("audio", ""),
-                faststart=bool(played.get("faststart", True)),
-                poster=bool((side or {}).get("poster", False)),
-                sheet=str((side or {}).get("sheet") or ""),
-                stills=stills_version(side),
-                dlSource=(side or {}).get("pageUrl") or "",
-                dlAt=(side or {}).get("downloadedAt", ""),
-                origName=(side or {}).get("origName", ""),
-                subtitles=subtitles_of(side),
-            ))
+        chapters = [chapter_out(c, media.get(c.id), u) for c in doc.chapters]
         return cls(
-            id=title_id, title=m.title, alt=m.alt, authors=m.authors,
-            studio=m.studio,
-            year=m.year, type=m.type, status=m.status, genres=m.genres, tags=m.tags,
-            characters=m.characters,
-            flags=m.flags, desc=m.desc, source=m.source, coverSource=m.coverSource,
-            chapterOrder=m.chapterOrder, custom=dict(m.custom),
-            covers=covers, cover=covers[0] if covers else "", ownCovers=own,
-            fav=u.fav, rating=u.rating, reader=dict(u.reader),
-            unread=sum(1 for c in chapters if c.read != "read"),
+            **_card_fields(title_id, doc, covers, media, own, rev, chapters),
+            studio=m.studio, characters=m.characters, desc=m.desc, coverSource=m.coverSource,
+            chapterOrder=m.chapterOrder, custom=dict(m.custom), reader=dict(u.reader),
             provenance=doc.provenance, chapters=chapters,
         )
 

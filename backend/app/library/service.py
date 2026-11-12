@@ -6,6 +6,7 @@ The service also composes the flat wire DTO from the layered documents.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import re
@@ -22,7 +23,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from ..scraper.recipes import RecipeStore
 from ..scraper.sources import SourcePrefs
-from . import comicinfo, copies, fields, media, previews, subtitles
+from . import cards, comicinfo, copies, fields, media, previews, subtitles
 from .app_docs import AppSettings, AppState
 from .loose import LooseStore
 from . import rules as rules_mod
@@ -105,9 +106,30 @@ LEFTOVER_KINDS = ("stray", "orphan")
 # A list of thousands is not a list. Rows are capped; the totals never are, and
 # every list says how much of itself is showing.
 ROW_CAP = 200
-# How many stand-ins a title with no stored cover is worth composing. The grid
-# rotates them on hover, and past a handful nobody ever sees the rest.
-_DERIVED_COVERS = 6
+# Whether the last session ended settled: written open at launch, closed on
+# the way out — only when the launch's check finished, every index write landed
+# and no write was still on its way — with the index file as it was left. Still
+# open at the next launch, or the index changed since (an older build, which
+# keeps no marker, opened the vault), the index may be missing a write: only
+# then is the whole vault verified.
+SESSION_DOC = f"{APP_DIR}/session.json"
+SESSION_SCHEMA = 1
+
+
+def _stamp_of(path: Path) -> str:
+    try:
+        st = path.stat()
+    except OSError:
+        return ""
+    return f"{st.st_mtime_ns}.{st.st_size}"
+# What a preview URL's `v=` may be — the versions this sidecar hands out: a
+# cover's mtime.size.ext, a chapter's rev.size.pages[.cSIZE.MADE], an episode's
+# stills count[.digest]. A client's version is only a cache key to TRY first;
+# anything else goes the long way, and it is checked so a version can never
+# carry a path into the cache's file name.
+_V_COVER = re.compile(r"[0-9a-f]{1,20}\.\d{1,20}\.[A-Za-z0-9]{1,8}")
+_V_CHAPTER = re.compile(r"\d{1,20}\.\d{1,20}\.\d{1,20}(\.c\d{1,20}\.\d{1,20})?")
+_V_STILLS = re.compile(r"\d{1,20}(\.[0-9a-f]{12})?")
 # When this share of the media the library EXPECTS to hold cannot be read, the
 # count is not the answer — a whole library failing at once is a folder that
 # moved, not damage. The floor keeps a two-chapter vault from being told its
@@ -299,6 +321,8 @@ class Library:
         # …and what the app itself keeps: nothing of it stays on this computer
         self.settings = AppSettings(self.vault)
         self.state = AppState(self.vault)
+        # the index file as this session found it — the session marker's check
+        self._index_found = _stamp_of(root / "index.db")
         self.index = LibraryIndex(root / "index.db")
         # two concurrent creates may derive the same fresh id — serialize the
         # pick-unique-id → first-commit step
@@ -321,6 +345,9 @@ class Library:
         # be dropped in, edited or deleted while the app is closed — or by
         # another machine, on a shared drive.)
         self.sync_state = {"running": False, "done": 0, "total": 0, "changed": 0}
+        self._session_marked = False  # sync_in_background marks a serving session open
+        self._settled = False  # ...and its check finished
+        self._closed = False
         self._sync_thread: threading.Thread | None = None
         if not defer_sync:
             self.sync()
@@ -401,7 +428,7 @@ class Library:
         # The index already knows every title, so the sweep does not go back to
         # the disk to find that out. Empty means it has not been filled yet
         # (the startup migration), and the vault lists the shelves itself.
-        ids = [tid for tid, _doc in self.index.all_docs()] or None
+        ids = [tid for tid, _doc in self.index.docs()] or None
         if progress is not None:
             progress(0, len(ids or []))
         try:
@@ -452,7 +479,7 @@ class Library:
         Titles, not chapters, are the unit: the total is known before the walk
         starts (the index knows how many there are) and a caller that needed
         finer progress would be paying a chapter count it does not have yet."""
-        docs = self.index.all_docs()
+        docs = self.index.docs()
         total = len(docs)
         if progress is not None:
             progress(0, total)
@@ -745,7 +772,7 @@ class Library:
         seen = 0
         survivors: list[dict] = []
         scope = (list(title_ids) if title_ids is not None
-                 else [tid for tid, _d in self.index.all_docs()])
+                 else [tid for tid, _d in self.index.docs()])
         total = len(scope)
         if progress is not None:
             progress(0, total)
@@ -832,17 +859,29 @@ class Library:
         return self.vault.root
 
     def sync_in_background(self) -> None:
-        """Verify against disk without holding anything up. A first-ever open has
-        an empty index and fills it here, which the UI shows as progress; every
-        later open finds nothing to do and the user never learns it happened."""
+        """Bring the index in line with the vault without holding anything up.
+
+        The index lives in the vault and every write of longbox — on any
+        computer — updates it, so a launch only checks what a write of its own
+        cannot have told it: titles added or removed by hand (one listing per
+        shelf). The whole vault is verified — a listing of every title's
+        folder, minutes on a network disk — only when the index is empty, or
+        the last session never closed and may have missed a write. An edit
+        made by hand inside a title's folder waits for Rebuild (Maintenance)."""
         if self._sync_thread is not None and self._sync_thread.is_alive():
             return
         self.sync_state.update(running=True, done=0, total=0, changed=0)
 
         def run() -> None:
             try:
-                self.sync(lambda done, total: self.sync_state.update(done=done, total=total))
-                self.copies.fill()  # what the verification found on disk may need a copy
+                if self._session_open() or self.index.count() == 0:
+                    self.sync(lambda done, total: self.sync_state.update(done=done, total=total))
+                    settled = True
+                else:
+                    settled = self.quick_sync()
+                self.copies.fill()  # the queue is not kept across launches: offered again from the index
+                # a check a close cut short is owed again: the session stays open
+                self._settled = settled and not self._closing.is_set()
             except Exception:  # noqa: BLE001 — a failed verification must not take the app down
                 log.exception("background sync failed")
             finally:
@@ -857,6 +896,69 @@ class Library:
 
         self._sync_thread = threading.Thread(target=run, name="lb-sync", daemon=True)
         self._sync_thread.start()
+
+    def _session_open(self) -> bool:
+        """Mark this session open; say whether the index may be missing a write:
+        the last session never settled, left no marker (an older build), or the
+        index file changed after it was left."""
+        try:
+            last = self.vault.read_doc(SESSION_DOC)
+            settled = (last.get("open") is False and bool(self._index_found)
+                       and last.get("index") == self._index_found)
+            with self.vault.doc_transaction(SESSION_DOC, schema=SESSION_SCHEMA) as doc:
+                doc["open"] = True
+                doc.pop("index", None)
+            self._session_marked = True
+            return not settled
+        except Exception:  # noqa: BLE001 — a marker that cannot be read or written: verify
+            return True
+
+    def _session_close(self, settled: bool) -> None:
+        """After the index is closed: the session settled, and the file it left."""
+        if not (settled and self._session_marked and self._settled) or self.index.missed:
+            return  # left open: the next launch verifies the whole vault
+        try:
+            with self.vault.doc_transaction(SESSION_DOC, schema=SESSION_SCHEMA) as doc:
+                doc["open"] = False
+                doc["index"] = _stamp_of(self.vault.root / "index.db")
+        except Exception:  # noqa: BLE001 — the next launch then verifies, which is the safe side
+            log.warning("the session could not be marked closed")
+
+    def quick_sync(self) -> bool:
+        """Titles added or removed by hand while the app was closed: the shelves
+        listed, the new titles read, the gone ones dropped. Says whether every
+        shelf was seen."""
+        started = time.perf_counter()
+        # the index first: a title created while the shelves are listed is then
+        # in neither, never "gone"
+        indexed = self.index.ids()
+        on_disk, complete = self.vault.title_dirs()
+        # a shelf that could not be listed is not a shelf emptied
+        missing = indexed - on_disk if complete and on_disk else set()
+        new = on_disk - indexed
+        gone = 0
+        for tid in missing:
+            # …and one moved to another shelf mid-listing is still there
+            with self.vault.title_lock(tid):
+                if not self.vault.exists(tid):
+                    self.index.remove(tid)
+                    gone += 1
+        added = 0
+        for tid in sorted(new):
+            if self._closing.is_set():
+                break
+            with self.vault.title_lock(tid):
+                try:
+                    doc = self.vault.load(tid)
+                except Exception:  # noqa: BLE001 — one malformed title.json never blocks a launch
+                    continue
+                if doc is not None:
+                    self._index(tid, doc)
+                    added += 1
+        self.sync_state["changed"] = added + gone
+        log.info("opened %s quietly: %d titles on the shelves, %d new, %d gone (%.1fs)",
+                 self.vault.root, len(on_disk), added, gone, time.perf_counter() - started)
+        return complete
 
     def sync(self, progress=None) -> int:
         """Bring the index in line with the vault WITHOUT re-reading it whole.
@@ -956,19 +1058,34 @@ class Library:
         on it in the background stops where it is — the verification, the
         one-time passes, a playable copy's ffmpeg — and nothing picks up again in
         this process: the app restarts into the vault once it answers."""
-        self._closing.set()
-        self.copies.close()
-        self.previews.close()
+        self._session_marked = False  # a write may have been dropped: the next launch verifies
+        self._stop_work()
 
-    def close(self) -> None:
-        # tell the sweep to stop, give it a moment, then close the index it uses
+    def closing(self) -> None:
+        """The app is on its way out: every pass of the library stops at its next step."""
         self._closing.set()
-        self.copies.close()
-        self.previews.close()
+
+    def _stop_work(self) -> bool:
+        """Stop the background work; say whether its writers have stopped."""
+        self._closing.set()
+        stopped = self.copies.close()
+        self.previews.close()  # it writes previews only, never the index
         for thread in (self._normalize_thread, self._sync_thread):
             if thread is not None and thread.is_alive():
                 thread.join(timeout=10)
+                stopped = stopped and not thread.is_alive()
+        return stopped
+
+    def close(self, *, settled: bool = True) -> None:
+        """Stop the background work, close the index, and mark the session
+        closed. `settled=False`: a write may still be on its way (the sidecar
+        could not wait it out), so the session is left open."""
+        if self._closed:
+            return
+        self._closed = True
+        stopped = self._stop_work()
         self.index.close()
+        self._session_close(settled and stopped)
 
     # ---- DTO composition ----
 
@@ -999,7 +1116,14 @@ class Library:
             stamps.append((path.name, stat.st_mtime_ns, stat.st_size))
         return self._covers_of(title_id, tuple(stamps))
 
-    def _index(self, title_id: str, doc: TitleDoc) -> None:
+    def _indexed(self, title_id: str, doc: TitleDoc, sidecars_moved: bool = True) -> TitleOut:
+        """Index a write and answer with the title as that read it: a write
+        reads the chapter sidecars and the covers ONCE, not again for its answer."""
+        sides, covers = self._index(title_id, doc, sidecars_moved)
+        return self._out(title_id, doc, sides, covers)
+
+    def _index(self, title_id: str, doc: TitleDoc,
+               sidecars_moved: bool = True) -> tuple[dict[str, dict], str]:
         """Refresh the index for one title. ALWAYS called inside that title's
         lock: a doc read in a critical section and indexed after it is released
         can overwrite a newer writer's row with stale data. The chapter sidecars
@@ -1007,19 +1131,26 @@ class Library:
         # The write that just happened may not have moved the chapters directory
         # far enough for an mtime-keyed cache to notice (two changes can share one
         # timestamp), and a listing composed from a stale sidecar shows a chapter
-        # that is no longer there. After a write the cache is simply wrong.
-        self._sidecar_cache.pop(title_id, None)
-        # stamp BEFORE reading: a change that lands in between then looks newer
-        # than the row, so the next launch re-reads it — the other order would
-        # store fresh stamps over stale content and never notice
-        stamp = self.vault.chapters_stamp(title_id)
-        sides = self._sidecars(title_id)
-        covers = self._covers_url(title_id)
-        self.index.upsert(title_id, doc, self.vault.touched_at(title_id), sides, stamp, covers)
+        # that is no longer there. After a write the cache is simply wrong —
+        # unless the write is one that touches no sidecar.
+        if sidecars_moved:
+            self._sidecar_cache.pop(title_id, None)
+        try:
+            # stamp BEFORE reading: a change that lands in between then looks
+            # newer than the row, so the next verification re-reads it — the
+            # other order would store fresh stamps over stale content
+            stamp = self.vault.chapters_stamp(title_id)
+            sides = self._sidecars(title_id)
+            covers = self._covers_url(title_id)
+            self.index.upsert(title_id, doc, self.vault.touched_at(title_id), sides, stamp, covers)
+        except BaseException:
+            self.index.missed = True  # the vault holds a write the index does not
+            raise
         # whatever just arrived or changed, an episode the window cannot show
         # goes to the playable-copy queue from here — the one place every write passes
         self.copies.offer(title_id, doc, sides)
         self.previews.offer(title_id, self.tile_source(doc, sides, covers))
+        return sides, covers
 
     def _sidecars(self, title_id: str) -> dict[str, dict]:
         """Chapter sidecars, cached per title against the chapters dir's mtime.
@@ -1028,7 +1159,7 @@ class Library:
         d = self.vault.chapters_dir(title_id)
         try:
             stamp = d.stat().st_mtime_ns
-        except OSError:
+        except FileNotFoundError:  # nothing downloaded; any other failure is no answer
             self._sidecar_cache.pop(title_id, None)
             return {}
         hit = self._sidecar_cache.get(title_id)
@@ -1038,6 +1169,15 @@ class Library:
         self._sidecar_cache[title_id] = (stamp, loaded)
         return loaded
 
+    def _out_held(self, title_id: str, doc: TitleDoc) -> TitleOut:
+        """A title whose chapters and covers nothing changed: composed from what
+        the index holds of them — no sidecar read again, no cover listed."""
+        held = self.index.media_of(title_id)
+        if held is None:
+            return self._out_now(title_id, doc)
+        sides, _at, covers = held
+        return self._out(title_id, doc, sides, covers)
+
     def _out_now(self, title_id: str, doc: TitleDoc) -> TitleOut:
         """One title composed right after a write, when the sidecars on disk are
         newer than whatever the index row still carries."""
@@ -1045,55 +1185,18 @@ class Library:
         return self._out(title_id, doc, self._sidecars(title_id), self._covers_url(title_id))
 
     def _out(self, title_id: str, doc: TitleDoc, sidecars: dict[str, dict], covers: str) -> TitleOut:
-        media_map = {c.id: sidecars[safe_id(c.id)] for c in doc.chapters if safe_id(c.id) in sidecars}
-        own = covers.split()
-        return TitleOut.from_doc(title_id, doc,
-                                 own or self._stand_ins(title_id, doc, sidecars),
-                                 media_map, own=own)
-
-    def shown_covers(self, title_id: str, doc: TitleDoc, sidecars: dict[str, dict], covers: str) -> list[str]:
-        """What a listing shows for one index row: its own covers, or stand-ins."""
-        return covers.split() or self._stand_ins(title_id, doc, sidecars)
-
-    @staticmethod
-    def _stand_in_sources(doc: TitleDoc, sidecars: dict[str, dict]) -> list[tuple[str, str, dict]]:
-        """What a title with no cover of its own can show instead: the first page
-        of each downloaded chapter, or the frame the window already cut for an
-        episode's tile — (kind, chapter id, sidecar). Composed from the sidecars
-        the caller is already holding, so a coverless title costs no disk at all."""
-        out: list[tuple[str, str, dict]] = []
-        for c in doc.chapters:
-            if len(out) >= _DERIVED_COVERS:
-                break
-            side = sidecars.get(safe_id(c.id))
-            if not side:
-                continue
-            if side.get("kind") == "video":
-                if side.get("poster"):
-                    out.append(("poster", c.id, side))
-            elif side.get("pages"):
-                out.append(("page", c.id, side))
-        return out
-
-    @classmethod
-    def _stand_ins(cls, title_id: str, doc: TitleDoc, sidecars: dict[str, dict]) -> list[str]:
-        out = []
-        for kind, chapter_id, side in cls._stand_in_sources(doc, sidecars):
-            base = f"/api/titles/{title_id}/chapters/{chapter_id}"
-            out.append(f"{base}/frames/poster?v={stills_version(side)}" if kind == "poster"
-                       else f"{base}/pages/0?v={chapter_version(side)}")
-        return out
+        return cards.title_out(title_id, doc, sidecars, covers, self.index.rev_of(title_id))
 
     # ---- tile previews, made ahead (library/previews.py) ----
 
-    @classmethod
-    def tile_source(cls, doc: TitleDoc, sidecars: dict[str, dict], covers: str) -> previews.Source | None:
+    @staticmethod
+    def tile_source(doc: TitleDoc, sidecars: dict[str, dict], covers: str) -> previews.Source | None:
         """What a title's tile shows first, with the version it is cached under
         — read off what the index holds, so its key needs no disk."""
         own = covers.split()
         if own:
             return ("cover", "", parse_qs(urlsplit(own[0]).query).get("v", [""])[0])
-        stand_ins = cls._stand_in_sources(doc, sidecars)
+        stand_ins = cards.stand_in_sources(doc, sidecars)
         if not stand_ins:
             return None
         kind, chapter_id, side = stand_ins[0]
@@ -1139,13 +1242,18 @@ class Library:
 
     # ---- reads (via the index) ----
 
-    def query(self, **kwargs) -> list[TitleOut]:
-        return [self._out(tid, doc, media, covers)
-                for tid, doc, media, covers in self.index.query(**kwargs)]
+    def cards(self, **selection) -> str:
+        """The listing: the cards of the titles a selection holds, as ONE JSON
+        array — kept ready by the index, so a listing parses no document."""
+        return "[" + ",".join(self.index.cards(**selection)) + "]"
 
     def get(self, title_id: str) -> TitleOut | None:
         row = self.index.get(title_id)
         return self._out(title_id, *row) if row else None
+
+    def get_many(self, ids: list[str]) -> list[TitleOut]:
+        """Whole titles, in the order asked; one that is gone is left out."""
+        return [t for t in (self.get(tid) for tid in dict.fromkeys(ids)) if t is not None]
 
     def facets(self, selection: dict | None = None) -> dict[str, list[dict]]:
         return self.index.facet_counts(selection or {})
@@ -1158,7 +1266,7 @@ class Library:
         under the lock before anything is written; this only says where to look.
         """
         sep = join or ", "
-        return [tid for tid, doc in self.index.all_docs()
+        return [tid for tid, doc in self.index.docs()
                 if _retyped(doc.meta.custom.get(field_id), to_type, sep) is not None]
 
     def clear_field(self, field_id: str, progress: Progress = None,
@@ -1169,7 +1277,7 @@ class Library:
         value are opened. Nothing else about them is touched — this is the
         second half of "remove the field", for when you mean the data too."""
         started = time.monotonic()
-        scope = [tid for tid, doc in self.index.all_docs()
+        scope = [tid for tid, doc in self.index.docs()
                  if field_id in doc.meta.custom]
         total = len(scope)
         cleared = seen = 0
@@ -1203,7 +1311,7 @@ class Library:
         sep = (join or ", ").strip() or (join or ", ")
         bad: list[dict] = []
         total = 0
-        for tid, doc in self.index.all_docs():
+        for tid, doc in self.index.docs():
             value = doc.meta.custom.get(field_id)
             if not isinstance(value, list):
                 continue
@@ -1281,7 +1389,7 @@ class Library:
         is currently showing: reading the count off that made every field report
         whatever the library happened to be filtered to."""
         used: dict[str, int] = {f.id: 0 for f in fields.registry()}
-        for _tid, doc in self.index.all_docs():
+        for _tid, doc in self.index.docs():
             for f in fields.registry():
                 if f.values is not None:
                     if fields.facet_values(f, doc):
@@ -1308,22 +1416,20 @@ class Library:
         people = field_id == "authors"
         # Filtering a browse means "which groups survive, and what is left inside
         # them" — so it is the same selection the library is under, applied to the
-        # documents BEFORE they are grouped. A group with nothing left disappears.
-        docs = self.index.query(**(selection or {}))
+        # titles BEFORE they are grouped. A group with nothing left disappears.
+        # Grouped off the stored values, each title shown by its card.
         agg: dict[str, dict] = {}
-        for tid, doc, media, covers in docs:
-            m = doc.meta
-            for value in fields.facet_values(f, doc):
-                name = value.strip()
-                if not name:
-                    continue
-                g = agg.setdefault(name, {"works": {}, "chapters": 0, "tags": Counter()})
-                if tid not in g["works"]:
-                    shown = self.shown_covers(tid, doc, media, covers)
-                    g["works"][tid] = AuthorWork(id=tid, title=m.title,
-                                                 cover=shown[0] if shown else "")
-                    g["chapters"] += len(doc.chapters)
-                    g["tags"].update(m.tags)
+        shown: dict[str, dict] = {}
+        for value, tid, card in self.index.grouped(field_id, **(selection or {})):
+            name = value.strip()
+            if not name:
+                continue
+            g = agg.setdefault(name, {"works": {}, "chapters": 0, "tags": Counter()})
+            if tid not in g["works"]:
+                c = shown.get(tid) or shown.setdefault(tid, json.loads(card))
+                g["works"][tid] = AuthorWork(id=tid, title=c["title"], cover=c["cover"])
+                g["chapters"] += c["chapterCount"]
+                g["tags"].update(c["tags"])
         favs = self.vault.author_favorites() if people else set()
         vocab = vocab_of(field_id)
         try:
@@ -1350,11 +1456,7 @@ class Library:
     def sources(self) -> list[Source]:
         """Sites aggregated from the titles' source bindings. Recipe detail is
         joined on in the router (the recipe store is app-level state)."""
-        agg: dict[str, int] = {}
-        for _, doc in self.index.all_docs():
-            domain = doc.meta.source.domain or (urlsplit(doc.meta.source.url).hostname or "")
-            if domain:
-                agg[domain] = agg.get(domain, 0) + 1
+        agg = self.index.source_counts()
         return [
             Source(id=safe_id(domain), domain=domain, homepage=f"https://{domain}/", titles=n)
             for domain, n in sorted(agg.items())
@@ -1378,8 +1480,7 @@ class Library:
             doc = self.vault.commit_meta(tid, draft, create=True)
             assert doc is not None
             with self.vault.title_lock(tid):  # the rule holds for the first write too
-                self._index(tid, doc)
-        return self._out_now(tid, doc)
+                return self._indexed(tid, doc)
 
     def commit(self, title_id: str, draft: DraftIn) -> TitleOut | None:
         """Commit a draft into an existing title. Replaces the meta layers,
@@ -1388,13 +1489,14 @@ class Library:
         # about to replace would resurrect or drop rows
         with self.vault.title_lock(title_id):
             old = self.vault.load(title_id)
-            if old is not None:
-                self._reconcile_chapters(title_id, old, draft)
-            doc = self.vault.commit_meta(title_id, draft)
+            if old is None:
+                return None
+            self._reconcile_chapters(title_id, old, draft)
+            doc = self.vault.commit_meta(title_id, draft, existing=old)
             if doc is None:
                 return None
-            self._index(title_id, doc)
-        return self._out_now(title_id, doc)
+            # a meta commit writes no sidecar: the ones just read still hold
+            return self._indexed(title_id, doc, sidecars_moved=False)
 
     def _reconcile_chapters(self, title_id: str, old: TitleDoc, draft: DraftIn) -> None:
         """A meta commit must never orphan what the user already owns. Media
@@ -1490,15 +1592,19 @@ class Library:
             final[j] = anchor
         rows = final
 
-        sidecars = self.vault.chapter_sidecars(title_id)
+        sidecars = self._sidecars(title_id)
         kept = {safe_id(c.id) for c in rows}
+        stored: set[str] | None = None  # one listing, and only if a row has no sidecar
         for c in old.chapters:
+            if safe_id(c.id) in kept:
+                continue
             # media-backed = a sidecar OR a bare archive (a crash may have left
             # the zip without its sidecar) — either way the row must survive
-            has_media = (safe_id(c.id) in sidecars
-                         or self.vault.chapter_media_path(title_id, c.id) is not None)
-            if not has_media or safe_id(c.id) in kept:
-                continue
+            if safe_id(c.id) not in sidecars:
+                if stored is None:  # named as the filesystem matches them: in any case
+                    stored = {stem.casefold() for stem in self.vault.chapter_files(title_id)}
+                if safe_id(c.id).casefold() not in stored:
+                    continue
             if draft.meta.chapterOrder == "manual":
                 rows.append(c)
             else:
@@ -1514,8 +1620,15 @@ class Library:
             doc = self.vault.patch_user(title_id, patch)
             if doc is None:
                 return None
-            self._index(title_id, doc)
-        return self._out_now(title_id, doc)
+            held = self.index.media_of(title_id)
+            if held is None:  # not indexed yet: the whole way
+                return self._indexed(title_id, doc)
+            # The user layer moves no chapter and no cover, so the row's media
+            # and covers are still what is on disk. Reading them again was every
+            # chapter's sidecar — twice — for a read mark, a star, a video position.
+            sides, sides_at, covers = held
+            self.index.upsert(title_id, doc, self.vault.touched_at(title_id), sides, sides_at, covers)
+        return self._out(title_id, doc, sides, covers)
 
     def set_cover(self, title_id: str, data: bytes, ext: str, source_url: str = "",
                   append: bool = False) -> TitleOut | None:
@@ -1533,15 +1646,14 @@ class Library:
                 return None
             if append:
                 if self.vault.add_cover(title_id, data, ext) is None:
-                    return self._out_now(title_id, doc)
+                    return self._out_held(title_id, doc)
             else:
                 self.vault.write_cover(title_id, data, ext)
                 if source_url and doc.meta.coverSource != source_url:
                     doc.meta.coverSource = source_url
                     draft = DraftIn(meta=doc.meta, provenance=doc.provenance, chapters=doc.chapters)
                     doc = self.vault.commit_meta(title_id, draft) or doc
-            self._index(title_id, doc)
-        return self._out_now(title_id, doc)
+            return self._indexed(title_id, doc)
 
     def delete_cover(self, title_id: str, slot: int | None = None) -> TitleOut | None:
         """Remove one cover, or — with no slot — every cover this title has."""
@@ -1556,8 +1668,7 @@ class Library:
                 doc.meta.coverSource = ""
                 draft = DraftIn(meta=doc.meta, provenance=doc.provenance, chapters=doc.chapters)
                 doc = self.vault.commit_meta(title_id, draft) or doc
-            self._index(title_id, doc)
-        return self._out_now(title_id, doc)
+            return self._indexed(title_id, doc)
 
     def reorder_covers(self, title_id: str, order: list[int]) -> TitleOut | None:
         with self.vault.title_lock(title_id):
@@ -1565,8 +1676,7 @@ class Library:
             if doc is None:
                 return None
             self.vault.set_cover_order(title_id, order)
-            self._index(title_id, doc)
-        return self._out_now(title_id, doc)
+            return self._indexed(title_id, doc)
 
     # ---- chapter media (downloads) ----
 
@@ -1576,8 +1686,7 @@ class Library:
         saved = self.vault.commit_meta(title_id, draft)
         if saved is None:
             return None
-        self._index(title_id, saved)
-        return self._out_now(title_id, saved)
+        return self._indexed(title_id, saved)
 
     @staticmethod
     def _norm(s: str) -> str:
@@ -1759,7 +1868,7 @@ class Library:
             if doc is None:
                 return None
             if not change(doc):
-                return self._out_now(title_id, doc)
+                return self._out_held(title_id, doc)
             return self._recommit(title_id, doc)
 
     def import_entry(self, title_id: str, sources: list[Path], *, num: str, lang: str,
@@ -1931,8 +2040,7 @@ class Library:
                     keys=[*keys, *[k for _, _, k in fresh]],
                     defaults={"importedFrom": "page-capture"},
                     patch={"pageUrl": page_url})
-            self._index(title_id, doc)
-            return self._out_now(title_id, doc), len(fresh)
+            return self._indexed(title_id, doc), len(fresh)
 
     def delete_chapter_media(self, title_id: str, chapter_id: str) -> TitleOut | None:
         with self.vault.title_lock(title_id):
@@ -1940,8 +2048,7 @@ class Library:
             if doc is None:
                 return None
             self.vault.delete_chapter_media(title_id, chapter_id)
-            self._index(title_id, doc)
-        return self._out_now(title_id, doc)
+            return self._indexed(title_id, doc)
 
     def delete_chapter_row(self, title_id: str, chapter_id: str) -> TitleOut | None:
         """Remove the chapter row AND its downloaded media."""
@@ -1960,13 +2067,11 @@ class Library:
         return self.vault.root / APP_DIR / "cache" / "thumbs" / f"{key}.jpg"
 
     def _cached(self, key: str) -> tuple[bytes, str] | None:
-        cfile = self._thumb_file(key)
-        if cfile.is_file():
-            try:
-                return cfile.read_bytes(), "image/jpeg"
-            except OSError:
-                pass  # a half-written or vanished cache entry: just re-make it
-        return None
+        # one read, no stat first: on a network vault every call is a round trip
+        try:
+            return self._thumb_file(key).read_bytes(), "image/jpeg"
+        except OSError:
+            return None  # not made yet, or vanished: made again
 
     def _cached_thumb(self, key: str, source: Callable[[], tuple[bytes, str]], width: int,
                       cap: float | None = None) -> tuple[bytes, str]:
@@ -2015,8 +2120,15 @@ class Library:
         key = cache_key("page", page_image_version(path.name), safe_id(vocab), width)
         return self._cached_thumb(key, lambda: (path.read_bytes(), ct), width)
 
-    def cover_thumb(self, title_id: str, width: int, slot: int = 0) -> tuple[bytes, str] | None:
-        """A cached downscaled cover — grids and lists never load the original."""
+    def cover_thumb(self, title_id: str, width: int, slot: int = 0, version: str = "") -> tuple[bytes, str] | None:
+        """A cached downscaled cover — grids and lists never load the original.
+        With the version the URL carries, a made preview is served by its key
+        alone: no listing of the title's folder, no stat of the cover."""
+        if version and _V_COVER.fullmatch(version):
+            # the slot's file name is `cover.<ext>` / `cover-<n>.<ext>` (vault._cover_name)
+            hit = self._cached(self._cover_key(title_id, version, "cover" if slot == 0 else f"cover-{slot + 1}", width))
+            if hit is not None:
+                return hit
         path = self.vault.cover_path(title_id, slot)
         if path is None:
             return None
@@ -2087,8 +2199,7 @@ class Library:
                 raise subtitles.UnreadableSubtitle("subtitles belong to an episode — this entry has no video")
             self._add_subtitle(title_id, chapter_id, side, data, arrived, lang=lang, label=label,
                                default=default, file_url=file_url)
-            self._index(title_id, doc)
-            return self._out_now(title_id, doc)
+            return self._indexed(title_id, doc)
 
     def subtitle_from_downloads(self, title_id: str, chapter_id: str, name: str, *,
                                 lang: str = "", label: str = "",
@@ -2124,8 +2235,7 @@ class Library:
                 for t in tracks:
                     t["default"] = default and t is track
             self.vault.write_chapter_sidecar(title_id, chapter_id, {**side, "subtitles": tracks})
-            self._index(title_id, doc)
-            return self._out_now(title_id, doc)
+            return self._indexed(title_id, doc)
 
     def remove_subtitle(self, title_id: str, chapter_id: str, sub_id: str) -> TitleOut | None:
         with self.vault.title_lock(title_id):
@@ -2143,8 +2253,7 @@ class Library:
             if gone.get("default") and tracks:
                 tracks[0]["default"] = True
             self.vault.write_chapter_sidecar(title_id, chapter_id, {**side, "subtitles": tracks})
-            self._index(title_id, doc)
-            return self._out_now(title_id, doc)
+            return self._indexed(title_id, doc)
 
     def subtitle_file(self, title_id: str, chapter_id: str, sub_id: str) -> Path | None:
         side = self.vault.chapter_sidecar(title_id, chapter_id) or {}
@@ -2205,22 +2314,21 @@ class Library:
                 return None
             side = dict(self._sidecars(title_id).get(safe_id(chapter_id), {}))
             if not side:
-                return self._out_now(title_id, doc)
+                return self._out_held(title_id, doc)
             known = abs(float(side.get("duration") or 0.0) - seconds) < 0.5
             # Episodes stored before the app looked inside them carry no codec:
             # fill that in HERE, at first play, rather than on a listing (which
             # must touch no files) or on the serving path.
             probe_needed = side.get("kind") == "video" and "codec" not in side
             if known and not probe_needed:
-                return self._out_now(title_id, doc)
+                return self._out_held(title_id, doc)
             if probe_needed:
                 path = self.vault.chapter_media_path(title_id, chapter_id)
                 if path is not None:
                     side.update(media.probe_video(path))
             side["duration"] = round(seconds, 3)
             self.vault.write_chapter_sidecar(title_id, chapter_id, side)
-            self._index(title_id, doc)
-        return self._out_now(title_id, doc)
+            return self._indexed(title_id, doc)
 
     # ---- episode stills --------------------------------------------------
     #
@@ -2261,9 +2369,13 @@ class Library:
         return True
 
     def chapter_frames(self, title_id: str, chapter_id: str, kind: str,
-                       width: int | None = None) -> tuple[bytes, str] | None:
+                       width: int | None = None, version: str = "") -> tuple[bytes, str] | None:
         if kind not in FRAME_KINDS:
             return None
+        if width and version and _V_STILLS.fullmatch(version):
+            hit = self._cached(self._frames_key(kind, title_id, chapter_id, version, width))
+            if hit is not None:
+                return hit
         path = self.vault.chapter_frames_path(title_id, chapter_id, kind)
         if not path.is_file():
             return None
@@ -2284,14 +2396,19 @@ class Library:
             return None
         return media.image_entries(path)
 
-    def chapter_page(self, title_id: str, chapter_id: str, index: int,
-                     width: int | None = None, cap: float | None = None) -> tuple[bytes, str] | None:
+    def chapter_page(self, title_id: str, chapter_id: str, index: int, width: int | None = None,
+                     cap: float | None = None, version: str = "") -> tuple[bytes, str] | None:
         """One page, or None when it cannot be served.
 
         A page that will not decompress (a truncated download, a bad CRC) is a
         MISSING page, not a broken server: one damaged entry must not answer a
         thumbnail request with a traceback, and a grid that asks for eight of
         them must not fill the log eight times over."""
+        if width and version and _V_CHAPTER.fullmatch(version):
+            # the version the URL carries: a made preview costs one read
+            hit = self._cached(self._page_key(title_id, chapter_id, version, width, cap, index))
+            if hit is not None:
+                return hit
         path = self.vault.chapter_media_path(title_id, chapter_id)
         if path is None:
             return None
@@ -2394,8 +2511,7 @@ class Library:
             # aligned so a later capture can still tell its own pages apart
             self._write_media_sidecar(title_id, chapter_id, path, created=created,
                                       keys=[*keys, *([""] * len(files))])
-            self._index(title_id, doc)
-        return self._out_now(title_id, doc)
+            return self._indexed(title_id, doc)
 
     def reorder_chapter_pages(self, title_id: str, chapter_id: str, order: list[int]) -> TitleOut | None:
         """Rearrange the pages inside an entry's archive (raises ValueError on a
@@ -2409,8 +2525,7 @@ class Library:
             media.reorder_entries(path, order)
             self._write_media_sidecar(title_id, chapter_id, path,
                                       keys=[keys[i] for i in order if 0 <= i < len(keys)])
-            self._index(title_id, doc)
-        return self._out_now(title_id, doc)
+            return self._indexed(title_id, doc)
 
     def move_chapter_pages(self, title_id: str, src_id: str, dst_id: str,
                            indices: list[int]) -> TitleOut | None:
@@ -2429,7 +2544,7 @@ class Library:
             moved = sorted({i for i in indices if 0 <= i < len(entries)})
             names = {entries[i] for i in moved}
             if not names:
-                return self._out_now(title_id, doc)
+                return self._out_held(title_id, doc)
             dst = self.vault.chapter_media_path(title_id, dst_id)
             created = dst is None
             if dst is None:
@@ -2446,8 +2561,7 @@ class Library:
             else:
                 self._write_media_sidecar(title_id, src_id, src,
                                           keys=[k for i, k in enumerate(src_keys) if i not in set(moved)])
-            self._index(title_id, doc)
-        return self._out_now(title_id, doc)
+            return self._indexed(title_id, doc)
 
     def delete_chapter_pages(self, title_id: str, chapter_id: str, indices: list[int]) -> TitleOut | None:
         with self.vault.title_lock(title_id):
@@ -2470,8 +2584,7 @@ class Library:
                     self._write_media_sidecar(
                         title_id, chapter_id, path,
                         keys=[k for i, k in enumerate(keys) if i not in set(gone)])
-            self._index(title_id, doc)
-        return self._out_now(title_id, doc)
+            return self._indexed(title_id, doc)
 
     def delete(self, title_id: str) -> bool:
         # the index entry goes even if the directory could not be fully removed,

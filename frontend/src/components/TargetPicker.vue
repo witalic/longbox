@@ -13,7 +13,7 @@ import {
   altNames, coverStyle, FLAG_LABEL, matchTitles, recordLine, titleKey, type FacetValue, type Facets,
 } from '../data'
 import {
-  blankLibrary, buildQuery, cache, facetFields, openTitle, openTitleBackground, store, visibleFields,
+  blankLibrary, buildQuery, cacheCards, facetFields, openTitle, openTitleBackground, store, visibleFields,
   type LibraryFilters,
 } from '../store'
 import Icon from './Icon.vue'
@@ -58,7 +58,7 @@ watch(() => [narrowed.value ? JSON.stringify(buildQuery(sel).f) : '', store.glob
     const query = buildQuery(sel)
     const [list, facets] = await Promise.all([api.library(query), api.facets(query)])
     if (mine !== seq) return
-    cache(list)
+    cacheCards(list)
     admitted.value = new Set(list.map((t) => t.id))
     fetched.value = facets
   } catch (e) {
@@ -181,7 +181,7 @@ const rows = computed(() => {
   // as the matcher compares names: case and punctuation do not count
   const named = (n: string) => n.toLowerCase().includes(ql) || (!!qk && titleKey(n).includes(qk))
   const page = props.pageUrl ? canon(props.pageUrl) : ''
-  const all = Object.values(store.byId)
+  const all = Object.values(store.cards)
   const scored = new Map<string, number>()
   for (const { t, score } of matchTitles(qt.value || props.pageTitle, all, 0.34, 999)) {
     scored.set(t.id, score)
@@ -211,7 +211,7 @@ const rows = computed(() => {
 const LIMIT = 12
 const shown = computed(() => rows.value.slice(0, LIMIT))
 const hiddenCount = computed(() => Math.max(0, rows.value.length - LIMIT))
-const total = computed(() => Object.keys(store.byId).length)
+const total = computed(() => Object.keys(store.cards).length)
 
 const BADGE_LABEL: Record<string, string> = { page: 'THIS PAGE', match: 'SAME NAME' }
 // a near hit says HOW near, because "maybe this one" is only useful with a number

@@ -115,6 +115,9 @@ BUILTIN: tuple[Field, ...] = (
           values=lambda d: {c.lang for c in d.chapters if c.lang}, group="about"),
 )
 
+_BUILTIN_IDS = frozenset(f.id for f in BUILTIN)
+
+
 def control_for(type_: str) -> Control:
     return _CONTROL_FOR.get(type_, "line")
 
@@ -142,6 +145,18 @@ def _custom_values(fid: str) -> Callable[[TitleDoc], set[str]]:
     return read
 
 
+def stored_values(doc: TitleDoc) -> dict[str, set[str]]:
+    """Every value the index keeps to filter and count by: the built-ins that
+    have values, and EVERY user-defined key the document holds — described by
+    this vault's registry now or not, so defining a field, or making one a
+    facet, needs no pass over the library."""
+    out = {f.id: f.values(doc) for f in BUILTIN if f.values is not None}
+    for fid in doc.meta.custom:
+        if fid not in out and fid not in _BUILTIN_IDS:
+            out[fid] = _custom_values(fid)(doc)
+    return out
+
+
 def as_field(d: CustomFieldDef) -> Field:
     """A stored definition as the registry entry every consumer reads."""
     # a vault written before `description` existed says text + multiline
@@ -162,8 +177,7 @@ def as_field(d: CustomFieldDef) -> Field:
 def set_custom(defs: list[CustomFieldDef]) -> None:
     """Point the registry at THIS library's user-defined fields."""
     global _custom
-    taken = {f.id for f in BUILTIN}
-    _custom = tuple(as_field(d) for d in defs if d.id not in taken)
+    _custom = tuple(as_field(d) for d in defs if d.id not in _BUILTIN_IDS)
 
 
 def registry() -> tuple[Field, ...]:

@@ -12,6 +12,8 @@ const wideOf = new Map<string, boolean>()
 import { computed, ref, watch } from 'vue'
 import { api } from '../api'
 import { isReadable, type Chapter } from '../data'
+import { ensurePoster } from '../frames'
+import { useShown } from '../store'
 import Icon from './Icon.vue'
 
 const props = defineProps<{ titleId: string; chapter: Chapter }>()
@@ -47,6 +49,11 @@ const picks = computed(() => {
 })
 // cap 1.5 crops webtoon-length pages to a shape a slice can hold
 const pageAt = (i: number, w: number) => api.chapterPageSrc(props.titleId, c.value.id, i, c.value.v, w, 1.5)
+
+// an episode's card wears its poster, so the card is what asks for one — not
+// a pass over every episode the title holds (frames.ts: once, one at a time)
+const { whenShown } = useShown()
+watch(key, () => whenShown(() => ensurePoster(props.titleId, c.value)), { immediate: true })
 
 const progress = computed(() => {
   const ch = c.value

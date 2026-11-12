@@ -199,6 +199,12 @@ def loose_files(request: Request) -> list[LooseFile]:
     return _lib(request).loose.files()
 
 
+@router.get("/files/count")
+def loose_count(request: Request) -> dict[str, int]:
+    """How many files wait — what the activity corner shows, without listing them."""
+    return {"n": _lib(request).loose.count()}
+
+
 @router.delete("/files", status_code=204)
 def drop_loose_file(request: Request, name: str) -> Response:
     if not _lib(request).loose.remove(name):

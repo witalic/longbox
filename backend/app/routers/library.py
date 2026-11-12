@@ -201,7 +201,7 @@ def delete_field(field_id: str, request: Request, values: bool = False) -> list[
     return list_fields()
 
 
-@router.get("/library", response_model=list[TitleOut])
+@router.get("/library")
 def list_library(
     request: Request,
     search: str | None = None,
@@ -211,16 +211,39 @@ def list_library(
     sort: str = "updated",
     f: list[str] = Query(default=[], description="include, as field:value"),
     nf: list[str] = Query(default=[], description="exclude, as field:value"),
-) -> list[TitleOut]:
+) -> Response:
+    """The cards (TitleCard) of the titles a selection holds — a list never
+    carries chapters; a title is opened whole (`/titles/{id}`, `/library/titles`)."""
     sel = _selection(search, progress, fav, min_rating, f, nf)
-    return _lib(request).query(sort=sort, **sel)
+    return Response(content=_lib(request).cards(sort=sort, **sel), media_type="application/json")
+
+
+class RevsIn(BaseModel):
+    ids: list[str]
+
+
+@router.post("/library/revs")
+def library_revs(request: Request, body: RevsIn) -> dict[str, int]:
+    """Where the titles a window holds whole are now — it fetches again only
+    the ones that moved, and lets go of the ones that are gone."""
+    return _lib(request).index.revs(body.ids)
+
+
+@router.get("/library/titles", response_model=list[TitleOut])
+def library_titles(request: Request, ids: list[str] = Query(default=[])) -> list[TitleOut]:
+    """Whole titles, for the ones a list shows open (the detailed rows)."""
+    return _lib(request).get_many(ids[:100])
 
 
 @router.get("/library/count")
 def library_count(request: Request) -> dict[str, int]:
     """How many titles the library holds, unfiltered — the header's denominator.
-    Counting rows beats listing them just to read a length."""
-    return {"total": _lib(request).count()}
+    Counting rows beats listing them just to read a length. `epoch` moves with
+    every change to the index: a window that has a list asks this instead of
+    reloading it."""
+    lib = _lib(request)
+    epoch = lib.index.epoch  # read first: a change made during the count reads as a change
+    return {"total": lib.count(), "epoch": epoch}
 
 
 @router.get("/library/facets", response_model=FacetCounts)
@@ -314,18 +337,18 @@ class CoverIn(BaseModel):
 
 
 @router.get("/titles/{title_id}/cover")
-def get_cover(request: Request, title_id: str, w: int = 0, i: int = 0):
+def get_cover(request: Request, title_id: str, w: int = 0, i: int = 0, v: str = ""):
     """One cover; `i` is its position in the title's list (0 = the one every
     older URL means). `w` > 0 serves a cached high-quality downscale — the URL
     is versioned by mtime, so long client caching is safe."""
     width = min(max(w, 0), 1024) or None
     slot = min(max(i, 0), MAX_COVERS - 1)
     if width:
-        got = _lib(request).cover_thumb(title_id, width, slot)
+        got = _lib(request).cover_thumb(title_id, width, slot, v)
         if got is None:
             raise HTTPException(status_code=404, detail="no cover")
         data, ct = got
-        return Response(content=data, media_type=ct, headers={"Cache-Control": "max-age=86400"})
+        return Response(content=data, media_type=ct, headers=_versioned(v))
     path = _lib(request).vault.cover_path(title_id, slot)
     if path is None:
         raise HTTPException(status_code=404, detail="no cover")
@@ -780,18 +803,17 @@ def drop_copy(request: Request, job_id: str) -> dict:
 
 @router.get("/titles/{title_id}/chapters/{chapter_id}/frames/{kind}")
 def chapter_frames(request: Request, title_id: str, chapter_id: str, kind: str,
-                   w: int = 0) -> Response:
+                   w: int = 0, v: str = "") -> Response:
     """A stored still for an episode — `poster` or `sheet`.
 
     404 until the window has cut one: an episode with no stills yet is a normal
     state, not an error."""
     got = _lib(request).chapter_frames(title_id, chapter_id, kind,
-                                       min(max(w, 0), 1600) or None)
+                                       min(max(w, 0), 1600) or None, v)
     if got is None:
         raise HTTPException(status_code=404, detail="no frames")
     data, content_type = got
-    return Response(content=data, media_type=content_type,
-                    headers={"Cache-Control": "max-age=86400"})
+    return Response(content=data, media_type=content_type, headers=_versioned(v))
 
 
 @router.put("/titles/{title_id}/chapters/{chapter_id}/frames/{kind}", response_model=TitleOut)
@@ -813,17 +835,21 @@ async def put_chapter_frames(request: Request, title_id: str, chapter_id: str,
 
 @router.get("/titles/{title_id}/chapters/{chapter_id}/pages/{index}")
 def chapter_page(request: Request, title_id: str, chapter_id: str, index: int,
-                 w: int = 0, cap: float = 0) -> Response:
+                 w: int = 0, cap: float = 0, v: str = "") -> Response:
     """A page image; `w` > 0 serves a cached downscaled JPEG preview, and
     `cap` > 0 additionally crops very tall pages to width×cap from the top."""
     width = min(max(w, 0), 1024) or None
     ratio = min(max(cap, 0.0), 4.0) or None
-    got = _lib(request).chapter_page(title_id, chapter_id, index, width, ratio)
+    got = _lib(request).chapter_page(title_id, chapter_id, index, width, ratio, v)
     if got is None:
         raise HTTPException(status_code=404, detail="page not found")
     data, content_type = got
-    return Response(content=data, media_type=content_type,
-                    headers={"Cache-Control": "max-age=86400"})
+    return Response(content=data, media_type=content_type, headers=_versioned(v))
+
+
+def _versioned(v: str) -> dict[str, str]:
+    """A URL that names its version never changes what it serves."""
+    return {"Cache-Control": "max-age=31536000, immutable" if v else "max-age=86400"}
 
 
 @router.post("/titles/{title_id}/chapters/{chapter_id}/pages/delete", response_model=TitleOut)

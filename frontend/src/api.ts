@@ -6,7 +6,7 @@ import type {
   ImportPlan, ImportProfile, ImportReport, ImportScan, LooseFile, MetaAction, MetaField, MetaHeld, MetaPreview,
   MetaRun, MetaScope, MetaValue, PageFilter, PageLink, PausedImport, Recipe, Rule, RuleApply, RuleStats, Source,
   CopyJob,
-  StoredPage, Subtitle, Title, UserPatch, ValuePage, ValuePeek,
+  StoredPage, Subtitle, Title, TitleCard, UserPatch, ValuePage, ValuePeek,
 } from './data'
 
 export class ApiError extends Error {
@@ -82,9 +82,14 @@ export const api = {
   // titles holding a value per field, over the WHOLE library — the browser
   // only ever has the page it is showing
   fieldUsage: () => req<Record<string, number>>('/fields/usage'),
-  library: (q: LibraryQuery = {}) => req<Title[]>(`/library${qs({ ...q })}`),
+  // the cards of a selection; a title is opened whole (`title`, `titles`)
+  library: (q: LibraryQuery = {}) => req<TitleCard[]>(`/library${qs({ ...q })}`),
+  titles: (ids: string[]) => req<Title[]>(`/library/titles${qs({ ids })}`),
+  // where these titles are now; one that is gone is not named
+  revs: (ids: string[]) => req<Record<string, number>>('/library/revs', jsonBody('POST', { ids })),
   // the unfiltered size of the vault — never list titles just to count them
-  libraryCount: () => req<{ total: number }>('/library/count'),
+  // `epoch` moves with every change to the index: "has anything changed?" in one number
+  libraryCount: () => req<{ total: number; epoch: number }>('/library/count'),
   facets: (q: LibraryQuery = {}) => req<Facets>(`/library/facets${qs({ ...q })}`),
   title: (id: string) => req<Title>(`/titles/${id}`),
   titleFolder: (id: string) => req<{ path: string }>(`/titles/${id}/folder`),
@@ -195,6 +200,7 @@ export const api = {
   disarmDownload: () => reqVoid('/downloads/arm', { method: 'DELETE' }),
   // the library's downloads folder: what came with nothing armed
   looseFiles: () => req<LooseFile[]>('/downloads/files'),
+  looseCount: () => req<{ n: number }>('/downloads/files/count'),
   deleteLooseFile: (name: string) =>
     reqVoid(`/downloads/files?name=${encodeURIComponent(name)}`, { method: 'DELETE' }),
   looseFolder: () => req<{ path: string }>('/downloads/folder'),

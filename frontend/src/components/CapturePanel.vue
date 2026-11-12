@@ -9,7 +9,7 @@ import {
 import {
   addChapterRow, askConfirm, cache, downloads, groupRings, langRings, openTitle, pageFilter,
   pauseDownload, refreshTitle as refreshTitleOf, resetPageFilter, resumeDownload, savePageFilter,
-  stopDownload, store, titleById, watchDownloads,
+  stopDownload, store, titleById, cardById, loadTitle, watchDownloads,
 } from '../store'
 import { browser, newTab } from '../browser'
 import { api, type DownloadItem } from '../api'
@@ -66,7 +66,7 @@ defineExpose({ showFlash })
 
 // draft preview may be a data: URL (captured bytes) — only the stored cover
 // endpoint understands the ?w= downscale
-const targetCover = computed(() => coverAt((d.value?.targetId ? titleById(d.value.targetId)?.cover : '') || '', 96))
+const targetCover = computed(() => coverAt((d.value?.targetId ? cardById(d.value.targetId)?.cover : '') || '', 96))
 const srcIconFail = ref(false)
 watch(() => d.value?.meta.source.domain, () => { srcIconFail.value = false })
 
@@ -327,7 +327,7 @@ watch(labelNext, (next) => {
 }, { immediate: true })
 
 // the list under "Edit existing" — there is nothing to pick from an empty library
-const hasTitles = computed(() => Object.keys(store.byId).length > 0)
+const hasTitles = computed(() => Object.keys(store.cards).length > 0)
 
 async function startNew() {
   if (!(await confirmDiscard())) return
@@ -338,7 +338,7 @@ async function startNew() {
 // What the record IS, in one line: its kind, where it was captured from, and how
 // much of it is already here.
 function matchLine(id: string): string {
-  const t = titleById(id)
+  const t = cardById(id)
   return t ? recordLine(t, t.type) : 'no longer in the library'
 }
 
@@ -350,7 +350,7 @@ async function openInstead(id: string) {
 }
 
 async function switchTarget(id: string) {
-  const t = titleById(id)
+  const t = await loadTitle(id)
   if (!t) return
   if (!(await confirmDiscard())) return
   draftFromTitle(t)
@@ -422,11 +422,11 @@ async function save(asNew: boolean) {
         </div>
         <button v-for="m in props.fillMatches" :key="m.id" class="grow" @click="openInstead(m.id)">
           <span class="swatch"
-                :style="titleById(m.id)?.cover
-                  ? { background: `#181a1f url('${coverAt(titleById(m.id)!.cover, 64)}') center/cover` }
+                :style="cardById(m.id)?.cover
+                  ? { background: `#181a1f url('${coverAt(cardById(m.id)!.cover, 64)}') center/cover` }
                   : {}"></span>
           <span class="gmain">
-            <span class="ndname">{{ titleById(m.id)?.title || m.title }}</span>
+            <span class="ndname">{{ cardById(m.id)?.title || m.title }}</span>
             <!-- a name alone cannot answer "is this the same work": the manga and
                  its anime share it, and so do two rips from different sites -->
             <span class="gmeta">{{ matchLine(m.id) }}</span>

@@ -76,6 +76,9 @@ library/
                              preferences (every `lb.*` key local.ts keeps)
   .longbox/                  the app's own working files (design/vault-home.md):
     lock.json                who has the vault open — one app per vault
+    session.json             whether the last session settled (closed through `POST /api/close`
+                             before the shell stops the sidecar); one that did not makes the
+                             next launch verify the whole vault
     browser/                 the embedded browser's profile (sign-ins, site storage, caches)
     state.json               interrupted transfers, paused imports, import reports
     partial-downloads/       transfers being written
@@ -321,9 +324,12 @@ backend/app/
             loose.py (the library's downloads folder: what came with nothing armed) ·
             app_docs.py (the app's own documents: settings.json, .longbox/state.json) ·
             folder_import.py (a folder already on disk: profiles, scan, plan, run) ·
-            models.py (layers + flat DTO) · vault.py (shelves, locks, media ingest, covers,
+            models.py (layers + flat DTO + the card a list shows) ·
+            cards.py (a title on the wire: the whole DTO and its card, stand-in covers) ·
+            vault.py (shelves, locks, media ingest, covers,
             the vault/fields/authors/health files) · media.py (zip ops, conversion, thumbnails,
-            mp4/Matroska probe + faststart, digests) · index.py · service.py ·
+            mp4/Matroska probe + faststart, digests) ·
+            index.py (rows, cards and filter values; selections and facets in SQL) · service.py ·
             migrations.py (title.json schema steps) · versions.py (versions + cache keys) ·
             fields.py (the metadata registry: builtin + per-library custom) ·
             comicinfo.py (the ComicInfo.xml mirror: build, parse, write into an archive)

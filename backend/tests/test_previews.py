@@ -6,6 +6,7 @@ import threading
 import time
 import zipfile
 from io import BytesIO
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from PIL import Image
@@ -14,7 +15,7 @@ from app.library import media
 from app.library.models import DraftIn, TitleMeta
 from app.library.previews import TILE_W
 from app.library.service import Library
-from app.library.vault import APP_DIR
+from app.library.vault import APP_DIR, Vault
 
 
 @pytest.fixture
@@ -198,3 +199,46 @@ def test_a_large_jpeg_is_previewed_at_the_size_asked(size, cap, want):
     out = media.thumbnail(_jpeg(size), 420, cap)
     assert out is not None
     assert Image.open(BytesIO(out)).size == want
+
+
+def _no_vault(monkeypatch):
+    """A preview served by the version its URL names asks the vault nothing."""
+    def asked(*_a, **_kw):
+        raise AssertionError("the vault was asked for a preview the URL already names")
+
+    for name in ("cover_path", "cover_paths", "chapter_media_path", "chapter_sidecars", "title_dir"):
+        monkeypatch.setattr(Vault, name, asked)
+
+
+def test_a_made_cover_preview_is_served_by_its_url_version_alone(lib, monkeypatch):
+    out = lib.create(DraftIn(meta=TitleMeta(title="Iron Harbor")))
+    lib.set_cover(out.id, _jpeg(), "jpg")
+    lib.set_cover(out.id, _jpeg(color=(20, 20, 220)), "jpg", append=True)
+    urls = lib.get(out.id).covers
+    first, second = (parse_qs(urlsplit(u).query)["v"][0] for u in urls)
+    made = [lib.cover_thumb(out.id, TILE_W, slot) for slot in (0, 1)]
+    assert made[0] != made[1]
+    _no_vault(monkeypatch)
+    assert lib.cover_thumb(out.id, TILE_W, 0, first) == made[0]
+    assert lib.cover_thumb(out.id, TILE_W, 1, second) == made[1]  # each slot its own file
+
+
+def test_a_version_that_is_not_one_goes_the_long_way(lib, monkeypatch):
+    out = lib.create(DraftIn(meta=TitleMeta(title="Iron Harbor")))
+    lib.set_cover(out.id, _jpeg(), "jpg")
+    made = lib.cover_thumb(out.id, TILE_W)
+    asked: list[int] = []
+    real = Vault.cover_path
+    monkeypatch.setattr(Vault, "cover_path",
+                        lambda self, tid, slot=0: (asked.append(slot), real(self, tid, slot))[1])
+    for v in ("../../escape", "1.2.jpg/..", "0.0.jpg"):  # malformed, or never written
+        assert lib.cover_thumb(out.id, TILE_W, 0, v) == made
+    assert asked == [0, 0, 0]
+
+
+def test_a_made_page_preview_is_served_by_its_url_version_alone(lib, tmp_path, monkeypatch):
+    tid, cid = _coverless_title(lib, tmp_path)
+    v = lib.get(tid).chapters[0].v
+    made = lib.chapter_page(tid, cid, 0, TILE_W)
+    _no_vault(monkeypatch)
+    assert lib.chapter_page(tid, cid, 0, TILE_W, None, v) == made

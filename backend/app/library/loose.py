@@ -8,6 +8,7 @@ file came from is kept in `downloads/index.json`; a file put in the folder by
 hand is listed too."""
 from __future__ import annotations
 
+import os
 import re
 import shutil
 from datetime import datetime, timezone
@@ -88,9 +89,11 @@ class LooseStore:
             return {}  # where they came from is a nicety; the files are what matter
 
     def files(self) -> list[LooseFile]:
-        """Every download the folder holds, newest first."""
+        """Every download the folder holds, newest first — one listing, whose
+        entries carry their stat data (no round trip per file on a share)."""
         try:
-            entries = [p for p in self.folder.iterdir() if p.is_file() and _is_download(p.name)]
+            with os.scandir(self.folder) as items:
+                entries = [e for e in items if e.is_file() and _is_download(e.name)]
         except OSError:
             return []
         known = self._arrivals()
@@ -106,6 +109,15 @@ class LooseStore:
                                  pageUrl=came.pageUrl if came else "",
                                  lang=subtitles.guess_lang(p.name) if kind == "subtitle" else ""))
         return sorted(out, key=lambda f: f.at, reverse=True)
+
+    def count(self) -> int:
+        """How many downloads the folder holds — what the activity corner
+        shows, off one listing: no file stat-ed, no record read."""
+        try:
+            with os.scandir(self.folder) as items:
+                return sum(1 for e in items if e.is_file() and _is_download(e.name))
+        except OSError:
+            return 0
 
     def path(self, name: str) -> Path | None:
         """A file in the folder by its name — never a path out of it."""

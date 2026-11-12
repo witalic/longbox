@@ -241,18 +241,46 @@ It carries everything a listing needs — each title's **chapter media** (the si
 the filesystem**. On a vault that lives on a network share, one stat per title is the
 difference between a screen that appears and a screen that arrives.
 
-**The app is served from the index and verified against the vault afterwards.** A launch
-opens the database and answers immediately; a background pass then reads the vault in ONE
-directory scan (a directory entry already carries its stat data) and re-reads only the titles
-whose document, chapter directory or cover moved since they were indexed. Nothing waits for
-that answer, but it is never skipped either: the vault is the source of truth, and files can
-be added, edited or deleted while the app is closed — or by another machine sharing the
-drive. A first-ever open finds an empty index and fills it there, which the UI shows as
-progress instead of an empty library.
+**A list is cards; a title is opened whole.** Listing a title whole means every chapter with
+its media — tens of megabytes for a library of thousands, and a parse of every document. So
+each row's **card** (`TitleCard`: what a grid, a value page or a picker shows — no chapters) is
+written with the row, in `title_cards_v1`, and every value a filter or a facet asks about is a
+row of `title_values_v1`: a listing is a join that sends stored JSON, a facet a `GROUP BY`, and
+neither parses a document — nor does a browse axis, a hovered chip's peek or a value's spelling;
+a value page reads the documents of the titles that hold the value, and no others. A whole title (`TitleOut`, which IS a card) is fetched when it is
+opened, or for the detailed rows of the page on screen. The window keeps both: `store.cards`
+(everything it has listed — what a picker or a name match searches) and `store.byId` (the titles
+it has opened); every whole title it receives refreshes its card. Every card carries a `rev` that
+moves with each write of its title: when the index has moved on (its `epoch`), the window asks
+where the titles it holds whole are now and fetches again only the ones that moved — a whole
+title is never patched from a card, so an edit is never seeded from a stale one. Both side tables
+are derived from `titles` alone: filled in place at the first read that needs them, and a row
+written without them (by an older build) is found by its stamps — `touched`, `media_at`, `cover`,
+read off an index of those columns, never a document.
 
-Because that pass does NOT hold the title locks, its writes are guarded: a row built from a
-document (or a chapter directory) older than the one already indexed is refused, so a scan
-that started before a commit can never put the old state back on top of it.
+**The app is served from the index, and a launch checks only what the index cannot know.**
+A launch opens the database and answers immediately. The index lives in the vault and every
+write of longbox — from whichever computer opened it — updates it in the same breath, so what
+it can miss is only what happened outside the app: a title folder added or removed by hand.
+A background pass lists the shelves (one directory listing per shelf, no title opened), reads
+the new titles and drops the gone ones.
+
+The whole vault is verified — one listing per title folder, re-reading only the titles whose
+document, chapter directory or cover moved since they were indexed — when the index cannot
+be trusted to be complete: it is empty (a first-ever open fills it there, which the UI shows
+as progress), or the last session never settled. `.longbox/session.json` is written open at
+launch and closed on the way out — with the index file's stamp, so an index another build
+wrote since is not taken for the one left — and only when the launch's check finished, no index
+write failed (`LibraryIndex.missed`), the vault never stopped answering and no write was cut
+off. The shell's stop is a kill on Windows, which runs no shutdown, so before it the shell asks
+the sidecar to close (`POST /api/close`): new requests are refused, the passes stop, the
+writing requests on their way get a few seconds to land, and the library closes. A sidecar
+stopped without that — a crash, a pass that would not stop — leaves the session open. An edit
+made by hand INSIDE a title's folder waits for Settings → Maintenance → Rebuild.
+
+Because the verification does NOT hold the title locks, its writes are guarded: a row built
+from a document (or a chapter directory) older than the one already indexed is refused, so a
+scan that started before a commit can never put the old state back on top of it.
 
 
 **Why a plain zip:** atomic write of one file, and CBZ is the same container, so any
@@ -379,7 +407,9 @@ The routers (`backend/app/routers/*.py`) are authoritative; this is the map of f
 ```
 GET    /health                    open, pre-guard: echoes sha256(token) for the shell's handshake
 
-GET    /api/library?…             filtered list (flat DTO, composed from layers)
+GET    /api/library?…             the cards of a selection (TitleCard: no chapters), kept by the index
+GET    /api/library/titles?ids=…  whole titles, for the rows a list shows open
+POST   /api/library/revs          {ids} → where each is now: the window refetches only what moved
 GET    /api/library/count · /api/library/facets
 GET    /api/browse/{field_id}     the library grouped along any list field
 POST   /api/authors/{id}/favorite author favorites (user layer, vault-level)
