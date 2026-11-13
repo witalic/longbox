@@ -893,9 +893,3 @@ def test_a_copy_reads_what_it_writes_and_a_move_says_why_it_copied(lib, tmp_path
     assert (report.inPlace, report.copied) == (0, 3)
     assert report.copiedWhy == "no hard link: the drive refuses links"
     assert all(side.get("sha256") for side in _sides(lib, "again beach day"))
-
-
-def test_an_episode_rewritten_so_it_plays_at_once_is_counted(lib, tmp_path, monkeypatch):
-    monkeypatch.setattr("app.library.media.remux_faststart", lambda path: True)
-    report = go(lib, clips_tree(tmp_path / "src"), clips_profile())
-    assert report.rewritten == 2  # the two clips; the archive has no index to move

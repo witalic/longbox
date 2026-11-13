@@ -225,8 +225,13 @@ left out folds itself. The owner can untick a work or an entry, retype a work's 
 work values of its own (§4); those choices belong to this run, not to the profile.
 
 The run is a background job: works one at a time, each under its title lock; every entry goes
-through the same ingest as a download (zip invariant, faststart, ComicInfo, a sidecar stamped from
-the stored file). Progress counts files and bytes, and shows wherever the owner is: the sidebar's
+through the same ingest as a download (zip invariant, ComicInfo, a sidecar stamped from the stored
+file) — but for faststart (owner, 2026-11-14): an mp4 with its index behind the media is stored as
+it is and marked, and `library/faststart.py` moves the index after the run, one episode at a time.
+Moving it writes the whole file again; at ingest that doubled what an import writes on a network
+vault, and turned a move onto the vault's own drive (a hard link, nothing written) into a copy.
+The rewrite is made outside the title lock, lands only over the file it was made from, takes the
+new digest as it writes, and a close stops it — the mark stays for the next launch. Progress counts files and bytes, and shows wherever the owner is: the sidebar's
 corner rings the import's icon with how far it is, and its Activity panel — the downloads panel,
 grown to hold the one library job beside the transfers (`design/activity-mockup.html`) — names the
 file in flight, with Stop and the way back to Import. **Stop** lets the file in flight finish — the

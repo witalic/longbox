@@ -23,7 +23,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from ..scraper.recipes import RecipeStore
 from ..scraper.sources import SourcePrefs
-from . import cards, comicinfo, copies, fields, media, previews, subtitles
+from . import cards, comicinfo, copies, faststart, fields, media, previews, subtitles
 from .app_docs import AppSettings, AppState
 from .health import Health, Progress, cut_short
 from .loose import LooseStore
@@ -161,9 +161,11 @@ class Library:
         self._sidecar_cache: dict[str, tuple[int, dict[str, dict]]] = {}
         # before anything indexes a title: every index write offers its episodes
         self.copies = copies.CopyQueue(self, self._closing)
-        self.vault.let_go = self.copies.release
         # …and its tile preview, made ahead of the grid that will ask for it
         self.previews = previews.Previews(self, self._closing)
+        # an index an import left behind an episode's media, moved after it
+        self.faststart = faststart.Faststart(self, self._closing)
+        self.vault.let_go = self._let_go
         # what has been done to the library, and whether it is still whole
         self.health = Health(self)
         # What the index already holds needs no disk at all, so the library is
@@ -203,27 +205,23 @@ class Library:
             if self.vault.needs_normalize():
                 changed += max(0, self.normalize_archives())
             if self.vault.needs_faststart():
-                changed += self.refresh_episodes()
+                changed += self.faststart.refresh()
         except Exception:  # noqa: BLE001 — a failed pass must never take the app down
             log.exception("one-time vault pass failed")
         finally:
             self.migration_state.update(running=False, changed=changed)
             self.copies.resume()
 
-    def refresh_episodes(self) -> int:
-        """Bring stored episodes up to what the app records about them, once per
-        vault. Anything arriving now gets it at ingest."""
-        # the index knows every episode already; an empty one (a first open, a
-        # dropped cache) knows nothing, and the vault is walked instead
-        known = self.index.episodes() if self.index.count() else None
-        changed, touched = self.vault.refresh_stored_episodes(known, stop=self._closing)
-        if not self._closing.is_set():
-            self.vault.mark_faststart()
-        self._reindex(touched)
-        return changed
+    def _let_go(self, title_id: str, chapter_id: str | None) -> None:
+        """Before the vault replaces, moves or deletes an episode's file: what
+        reads it in the background lets go (Windows refuses the change else)."""
+        self.copies.release(title_id, chapter_id)
+        self.faststart.release(title_id, chapter_id)
 
-    def _reindex(self, title_ids: list[str], stop: threading.Event | None = None) -> None:
-        """Refresh the index rows for titles a PASS just rewrote.
+    def reindex(self, title_ids: list[str]) -> None:
+        """Refresh the index rows for titles a PASS just rewrote — all of them,
+        whatever stopped the pass: a skipped one leaves the vault ahead of the
+        index, and nothing would ever find it again.
 
         Not `sync()`. Sync exists to find changes nobody announced — a file
         dropped into the vault by hand — and it finds them by comparing
@@ -234,8 +232,6 @@ class Library:
         broken one. A pass knows exactly which titles it touched. There is
         nothing to detect."""
         for tid in title_ids:
-            if self._closing.is_set() or (stop is not None and stop.is_set()):
-                return
             with self.vault.title_lock(tid):
                 doc = self.vault.load(tid)
                 if doc is not None:
@@ -264,7 +260,7 @@ class Library:
                 force=force, progress=progress, ids=ids, stop=stop or self._closing)
             if not self._closing.is_set():
                 self.vault.mark_normalized()
-            self._reindex(touched, stop)
+            self.reindex(touched)
             self.health.record("convert archives", started,
                          f"{changed} converted" if changed else "everything already zip")
             return changed
@@ -351,6 +347,7 @@ class Library:
                 else:
                     settled = self.quick_sync()
                 self.copies.fill()  # the queue is not kept across launches: offered again from the index
+                self.faststart.fill()
                 # a check a close cut short is owed again: the session stays open
                 self._settled = settled and not self._closing.is_set()
             except Exception:  # noqa: BLE001 — a failed verification must not take the app down
@@ -539,6 +536,7 @@ class Library:
         """Stop the background work; say whether its writers have stopped."""
         self._closing.set()
         stopped = self.copies.close()
+        stopped = self.faststart.close() and stopped
         self.previews.close()  # it writes previews only, never the index
         for thread in (self._normalize_thread, self._sync_thread):
             if thread is not None and thread.is_alive():
@@ -1349,14 +1347,15 @@ class Library:
         zip. The originals are only ever read — copied, or hard-linked with
         `link` — so a move deletes them after this returns, never before. A
         file linked in is not read whole for its digest: none of it was read
-        to store it, and Health stamps the digest when it checks.
+        to store it, and Health stamps the digest when it checks. An mp4's
+        index is moved after the import (library/faststart.py).
 
         The identity is taken as given: the plan already ran it through the
         rules, and named a stored entry by the spelling it is stored under.
         Returns the outcome — "added", "replaced", or "exists" when the entry
         turned up meanwhile and `replace` is off — the entry's id, and how it
-        came in: `linked`, `why` it was copied otherwise, `rewritten` for an
-        episode whose index was moved to its front."""
+        came in: `linked`, `why` it was copied otherwise, `later` for an
+        episode whose index is left to the background."""
         root = self.vault.root.resolve()
         for folder in {s.parent for s in sources}:
             if folder.resolve().is_relative_to(root):
@@ -1374,7 +1373,7 @@ class Library:
                 return "exists", held.id, {}
             pack = len(sources) != 1 or sources[0].suffix.lower() in media.IMAGE_EXTS
             incoming = self.vault.incoming_path(title_id, ".zip" if pack else sources[0].suffix.lower())
-            how: dict = {"linked": False, "why": "", "rewritten": False}
+            how: dict = {"linked": False, "why": "", "later": False}
             try:
                 if pack:
                     media.pack_images(sources, incoming)
@@ -1386,8 +1385,8 @@ class Library:
                 for f, v in (("title", title), ("section", section), ("date", date)):
                     if v and not getattr(row, f):
                         setattr(row, f, v)
-                stored = self.vault.ingest_chapter_media(title_id, row.id, incoming, sidecar,
-                                                         filename=filename, digest=not how["linked"], told=how)
+                stored = self.vault.ingest_chapter_media(title_id, row.id, incoming, sidecar, filename=filename,
+                                                         digest=not how["linked"], remux=False, told=how)
             except BaseException:
                 incoming.unlink(missing_ok=True)
                 raise

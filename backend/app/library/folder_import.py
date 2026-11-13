@@ -931,7 +931,7 @@ class Report(BaseModel):
     inPlace: int = 0
     copied: int = 0
     copiedWhy: str = ""
-    rewritten: int = 0            # episodes whose index was moved to the front: written whole
+    later: int = 0                # episodes whose index is moved to the front after the import
     stopped: bool = False
     paused: bool = False          # stopped to be carried on (routers/imports.py)
 
@@ -1038,6 +1038,8 @@ def run(lib: Library, s: Scan, p: Profile, o: Overrides | None = None, *,
         if report.stopped:
             break
     _sweep(s.root, emptied)
+    if report.later:
+        lib.faststart.fill()
     if fired:
         lib.index.rule_fired(fired, report.at)
     return report
@@ -1063,7 +1065,7 @@ def _store(lib: Library, s: Scan, tid: str, wp: WorkPlan, ep: EntryPlan, e: _Ent
         report.skipped += 1
         return
     wd.added += 1
-    report.rewritten += bool(how.get("rewritten"))
+    report.later += bool(how.get("later"))
     if move and how.get("linked"):
         report.inPlace += 1
     elif move:

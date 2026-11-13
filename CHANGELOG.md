@@ -16,9 +16,19 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 
 ### Changed
 - **Import: a move onto the library's own drive reads nothing.** A file linked in place is no
-  longer read whole for its checksum — Health stamps it when it checks — and the report says how
-  many files moved in place, how many were copied after all (and why), and how many episodes were
-  written whole so they play at once.
+  longer read whole for its checksums — Health stamps them when it checks — and the report says how
+  many files moved in place and how many were copied after all (and why).
+- **Import: an mp4's index is moved after the import, in the background.** An episode whose index
+  sits at the end is stored as it is, and moved one at a time once the import is done — before, the
+  import wrote each such file twice. The title stays open to edits meanwhile, and closing the app
+  stops the rewrite at once; the next launch carries on.
+
+### Fixed
+- **An episode's checksum stays true after its index is moved.** The one-time pass over older
+  episodes rewrote the file but kept the checksum of the bytes before, which Health would report as
+  damage; it now records the checksum of what it wrote.
+- **A pass over the library that a close cuts short still records what it did.** Before, the
+  library could go on showing an episode or archive as it was before the pass had changed it.
 
 ## [3.6.4] — 2026-11-13
 

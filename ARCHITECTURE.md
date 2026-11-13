@@ -185,7 +185,8 @@ library/
   this, the whole-vault sweep is a **migration, not a startup chore**: it runs once per vault
   (marked by `zipNormalized` in `vault.json`), on a background thread, and Settings can re-run it
   for content dropped into the folder by hand. Its sibling, the episode pass (`videoFaststart`),
-  moves an older mp4's index to the front once per vault, the way ingest does for new ones, and
+  moves an older mp4's index to the front once per vault, the way ingest does for new ones (an
+  import leaves it to `library/faststart.py`, after the run), and
   re-describes stored episodes through the same probe ingest uses (`media.probe_video`: mp4
   boxes, or a Matroska file's track list — an mkv plays when its first video and audio tracks
   are web codecs). It takes the episodes from the index's carried sidecars and opens only those
@@ -337,6 +338,8 @@ backend/app/
             alongside the library's own answer; follows a rename) ·
             subtitles.py (an episode's subtitles: SRT/VTT/ASS → WebVTT, a language off a name) ·
             copies.py (playable copies: what needs one, the background queue, landing it) ·
+            faststart.py (stored episodes: an mp4's index moved after an import, out of the
+            title lock; the one-time episode pass) ·
             previews.py (tile previews: made one at a time, ahead of the grid, once per vault for older content) ·
             transcode.py (ffmpeg: finding it, reading streams, remux or H.264 encode) ·
             loose.py (the library's downloads folder: what came with nothing armed) ·

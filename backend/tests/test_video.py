@@ -388,8 +388,9 @@ def test_the_index_moves_in_front_and_the_media_moves_with_it(tmp_path):
     before = src.stat().st_size
 
     assert media.probe_mp4(src)["faststart"] is False
-    assert media.remux_faststart(src) is True
+    digest = media.remux_faststart(src)
     assert src.stat().st_size == before
+    assert digest == media.digest_of(src)  # taken as it was written
     assert media.probe_mp4(src)["faststart"] is True
 
     raw = src.read_bytes()
@@ -404,13 +405,13 @@ def test_a_file_the_rewrite_cannot_prove_it_understands_is_left_alone(tmp_path):
     stray = _index_last_mp4(tmp_path / "stray.mp4", b"\xab" * 512, stray_offset=True)
     for path in (fragmented, stray):
         before = path.read_bytes()
-        assert media.remux_faststart(path) is False
+        assert media.remux_faststart(path) == ""
         assert path.read_bytes() == before
 
     # nothing to do for a file that already leads with its index
     done = _index_last_mp4(tmp_path / "done.mp4", b"\xab" * 512)
-    assert media.remux_faststart(done) is True
-    assert media.remux_faststart(done) is False
+    assert media.remux_faststart(done)
+    assert media.remux_faststart(done) == ""
 
 
 def test_an_arriving_episode_is_stored_ready_to_play(tmp_path):
@@ -444,12 +445,14 @@ def test_episodes_already_in_the_vault_are_fixed_once(tmp_path):
     # the pass is consumed when a vault is first opened; this one is the
     # re-run, the way Settings would ask for it
     assert settled(lib).vault.needs_faststart() is False
-    assert lib.refresh_episodes() == 1
+    assert lib.faststart.refresh() == 1
 
     chapter = lib.get(out.id).chapters[0]
     assert chapter.faststart is True
     assert chapter.v != before                        # the version cannot repeat
-    assert lib.refresh_episodes() == 0
+    side = lib.vault.chapter_sidecar(out.id, cid)     # new bytes, a digest of them
+    assert side["sha256"] == side["content"] == media.digest_of(stored)
+    assert lib.faststart.refresh() == 0
     lib.close()
 
 
@@ -474,7 +477,7 @@ def test_a_pass_reaches_the_index_on_a_filesystem_that_rounds_its_clock(tmp_path
     assert lib.get(out.id).chapters[0].faststart is False
 
     assert settled(lib).vault.needs_faststart() is False
-    assert lib.refresh_episodes() == 1
+    assert lib.faststart.refresh() == 1
     assert lib.get(out.id).chapters[0].faststart is True
     lib.close()
 
@@ -567,12 +570,12 @@ def test_an_mkv_stored_before_the_app_read_its_tracks_is_restamped_once(tmp_path
     before = lib.get(out.id).chapters[0]
     assert before.playable is False
 
-    assert lib.refresh_episodes() == 1
+    assert lib.faststart.refresh() == 1
     chapter = lib.get(out.id).chapters[0]
     assert chapter.playable is True and chapter.faststart is True
     assert (chapter.codec, chapter.audio) == ("av1", "opus")
     assert chapter.v == before.v
-    assert lib.refresh_episodes() == 0
+    assert lib.faststart.refresh() == 0
     lib.close()
 
 
@@ -592,9 +595,9 @@ def test_an_mkv_whose_pcm_sound_was_called_unplayable_is_restamped_once(tmp_path
     lib._index(out.id, lib.vault.load(out.id))
     assert lib.get(out.id).chapters[0].playable is False
 
-    assert lib.refresh_episodes() == 1
+    assert lib.faststart.refresh() == 1
     assert lib.get(out.id).chapters[0].playable is True
-    assert lib.refresh_episodes() == 0
+    assert lib.faststart.refresh() == 0
     lib.close()
 
 
@@ -622,7 +625,7 @@ def test_the_episode_pass_opens_only_what_could_have_moved_on(tmp_path, monkeypa
     real = media.probe_video
     monkeypatch.setattr(media, "probe_video", lambda p: opened.append(p.stem) or real(p))
     monkeypatch.setattr(lib.vault, "list_ids", lambda: pytest.fail("the pass walked the vault"))
-    lib.refresh_episodes()
+    lib.faststart.refresh()
     assert opened == [ids["2"]]
     lib.close()
 
@@ -686,11 +689,11 @@ def test_learning_what_a_stored_episode_is_does_not_invalidate_it(tmp_path):
     lib._index(out.id, lib.vault.load(out.id))
     before = lib.get(out.id).chapters[0].v
 
-    assert lib.refresh_episodes() == 1
+    assert lib.faststart.refresh() == 1
     chapter = lib.get(out.id).chapters[0]
     assert chapter.container == "mp4" and chapter.playable is True
     assert chapter.v == before                    # the bytes never moved
-    assert lib.refresh_episodes() == 0            # and nothing is left to do
+    assert lib.faststart.refresh() == 0            # and nothing is left to do
     lib.close()
 
 

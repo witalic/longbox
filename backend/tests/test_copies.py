@@ -276,7 +276,7 @@ def test_a_stored_4_4_4_episode_is_found_by_the_pass_and_queued(tmp_path, ffmpeg
     lib._index(tid, lib.vault.load(tid))
     assert lib.get(tid).chapters[0].playable is True and lib.copies.jobs() == []
 
-    assert lib.refresh_episodes() == 1
+    assert lib.faststart.refresh() == 1
     assert lib.get(tid).chapters[0].playable is False
     assert [j["chapterId"] for j in lib.copies.jobs()] == [cid]
     lib.close()
@@ -422,7 +422,7 @@ def test_no_copy_starts_on_what_an_older_build_said_before_the_pass_corrects_it(
     tid, cid = _episode(lib, _mkv(tmp_path / "ep.mkv", (1, "V_AV1"), (2, "A_OPUS")))
     _as_an_older_build_left_it(lib, tid, cid)
     assert [j["chapterId"] for j in lib.copies.jobs()] == [cid]  # queued off the old word
-    lib.refresh_episodes()
+    lib.faststart.refresh()
     _run_all(lib)
     assert ffmpeg == [] and lib.copies.jobs() == []
     assert not lib.vault.chapter_copy_path(tid, cid).exists()
@@ -556,7 +556,7 @@ def test_the_copy_being_written_is_not_reported_as_a_leftover(tmp_path, ffmpeg):
 
 
 def test_a_matroska_file_described_by_its_tracks_is_not_reopened_by_a_later_pass():
-    from app.library.vault import _episode_may_be_stale
+    from app.library.faststart import stale as _episode_may_be_stale
 
     described = {"kind": "video", "container": "mkv", "codec": "av1", "audio": "opus", "faststart": True}
     assert not _episode_may_be_stale(described)

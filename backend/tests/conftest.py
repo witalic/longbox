@@ -36,6 +36,7 @@ from pathlib import Path
 import pytest
 
 from app.library.copies import CopyQueue
+from app.library.faststart import Faststart
 from app.library.previews import Previews
 from app.library.service import Library
 
@@ -52,6 +53,7 @@ def pytest_configure(config):
 @pytest.fixture(autouse=True)
 def _quiet_migrations(request, monkeypatch):
     monkeypatch.setattr(CopyQueue, "_start", lambda self: None)
+    monkeypatch.setattr(Faststart, "_start", lambda self: None)  # test_faststart runs it
     monkeypatch.setattr(Previews, "_start", lambda self: None)
     if "previews" not in request.keywords:
         monkeypatch.setattr(Previews, "backfill", lambda self: None)

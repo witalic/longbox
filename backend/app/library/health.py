@@ -565,4 +565,6 @@ class Health:
             side = self.vault.chapter_sidecar(title_id, chapter_id)
             if side is None or side.get("sha256"):
                 return  # ingested (or stamped) while the pass was reading
-            self.vault.write_chapter_sidecar(title_id, chapter_id, {**side, "sha256": digest})
+            # an episode's content is its file's digest, which a file linked in had not
+            content = {"content": digest} if side.get("kind") == "video" and not side.get("content") else {}
+            self.vault.write_chapter_sidecar(title_id, chapter_id, {**side, "sha256": digest, **content})

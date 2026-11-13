@@ -31,7 +31,7 @@ from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from . import media, subtitles
+from . import faststart, media, subtitles
 from .migrations import CURRENT_SCHEMA, migrate
 from .models import CustomFieldDef, DraftIn, TitleDoc, UserPatch
 
@@ -187,19 +187,6 @@ FASTSTART_VERSION = 4
 # The same for the pass that makes every title's tile preview (library/previews.py)
 # — content stored before writes made them. Bump with the tile width.
 PREVIEWS_VERSION = 1
-
-
-def _episode_may_be_stale(side: dict) -> bool:
-    """Whether reading an episode again could change what its sidecar says. The
-    pass opens only these, so a bump of FASTSTART_VERSION that teaches the
-    probe something new widens this to the episodes it is new for."""
-    ext = f".{side.get('container') or ''}"
-    return ("container" not in side or "codec" not in side
-            or (ext in media.MATROSKA_EXTS and "audio" not in side)  # by its name before version 2
-            or (ext in media.FASTSTART_EXTS and not side.get("faststart"))
-            or (side.get("codec") == "hevc" and "profile" not in side)  # version 3
-            or (ext in media.MATROSKA_EXTS and side.get("codec") == "h264" and "profile" not in side)
-            or (ext in media.MATROSKA_EXTS and side.get("audio") == "pcm" and not side.get("playable")))
 
 
 def _translit(s: str) -> str:
@@ -1044,7 +1031,8 @@ class Vault:
                           json.dumps(sidecar, indent=2, ensure_ascii=False).encode("utf-8"))
 
     def ingest_chapter_media(self, title_id: str, chapter_id: str, src: Path, sidecar: dict,
-                             *, filename: str = "", digest: bool = True, told: dict | None = None) -> Path:
+                             *, filename: str = "", digest: bool = True, remux: bool = True,
+                             told: dict | None = None) -> Path:
         """Move a downloaded/imported file into the vault and write its sidecar.
 
         PAGE media becomes `<stem>.zip`: zip content (incl. cbz) moves as-is,
@@ -1055,7 +1043,8 @@ class Vault:
         would pay a full rewrite for every edit; one that is no video raises.
         The sidecar always describes the file actually stored. `digest`: off
         for a file that arrived without being read (a hard link) — Health
-        stamps it later; `told` gets `rewritten` when an index was moved.
+        stamps it later; `remux` off leaves an mp4's index to the
+        background (library/faststart.py), and `told` gets `later`.
         """
         arrived_as = Path(filename or src.name).name
         named = Path(arrived_as).suffix.lower()
@@ -1107,11 +1096,14 @@ class Vault:
             # media costs a fetch of the file's tail before the first frame, and
             # every far seek pays again. A refusal is not a failure — the
             # episode is stored either way, and the sidecar records which it is.
-            if as_video and video_ext in media.FASTSTART_EXTS and not facts["faststart"]:
-                if media.remux_faststart(final):
-                    facts = media.probe_video(final)
-                    if told is not None:
-                        told["rewritten"] = True
+            later = as_video and video_ext in media.FASTSTART_EXTS and not facts["faststart"]
+            sha = media.remux_faststart(final) if later and remux else ""
+            facts = media.probe_video(final) if sha else facts
+            later = later and not remux
+            if later and told is not None:
+                told["later"] = True
+            sha = sha or (media.digest_of(final) if digest else "")
+            content = sha if as_video else media.content_digest(final)
             sidecar = {**sidecar,
                        # The vault renames every file to the chapter's id, so
                        # this is the only record of what the episode or chapter
@@ -1119,6 +1111,7 @@ class Vault:
                        "origName": arrived_as,
                        "kind": "video" if as_video else "pages",
                        **facts,
+                       **({faststart.LATER: True} if later else {}),
                        **({"subtitles": prev["subtitles"]} if as_video and prev.get("subtitles") else {}),
                        "pages": 0 if as_video else len(media.image_entries(final)),
                        "size": final.stat().st_size,
@@ -1126,10 +1119,11 @@ class Vault:
                        # written — the same read after the fact costs a full
                        # pass over a network vault; a file linked in was never
                        # read, and is left to Health
-                       **({"sha256": media.digest_of(final)} if digest else {}),
+                       **({"sha256": sha} if sha else {}),
                        # what the chapter SHOWS, for finding the same content
-                       # stored twice — see media.content_digest
-                       "content": media.content_digest(final),
+                       # stored twice — see media.content_digest; an episode's
+                       # is its file's
+                       **({"content": content} if content else {}),
                        "rev": int(prev.get("rev") or 0) + 1}
             _atomic_write(d / f"{stem}.json",
                           json.dumps(sidecar, indent=2, ensure_ascii=False).encode("utf-8"))
@@ -1280,11 +1274,12 @@ class Vault:
                 if not p.is_file():
                     continue
                 stamp = media.probe_video(p)
-                rewrote = False
-                if p.suffix.lower() in media.FASTSTART_EXTS and not stamp["faststart"] \
-                        and media.remux_faststart(p):
-                    rewrote, stamp = True, media.probe_video(p)
-                if self._restamp_episode(p.parent, p.stem, stamp, bump=rewrote):
+                rewrote = ""
+                if p.suffix.lower() in media.FASTSTART_EXTS and not stamp["faststart"]:
+                    rewrote = media.remux_faststart(p)
+                    if rewrote:  # new bytes, so a new digest — taken as they were written
+                        stamp = {**media.probe_video(p), "sha256": rewrote, "content": rewrote}
+                if self._restamp_episode(p.parent, p.stem, stamp, bump=bool(rewrote)):
                     changed += 1
                     if sid not in touched:
                         touched.append(sid)
@@ -1303,7 +1298,7 @@ class Vault:
             return
         for sid, sides in episodes.items():
             for stem, side in sides.items():
-                if not _episode_may_be_stale(side):
+                if not faststart.stale(side):
                     continue
                 ext = side.get("container")
                 p = self._chapters_dir(sid) / f"{stem}.{ext}" if ext else self.chapter_media_path(sid, stem)
@@ -1323,6 +1318,7 @@ class Vault:
             except (ValueError, OSError):
                 side = {}
         merged = {**side, **stamp}
+        merged.pop(faststart.LATER, None)  # tried: whether it moved or not, it is done
         if bump:
             merged["rev"] = int(side.get("rev") or 0) + 1
         if merged == side:

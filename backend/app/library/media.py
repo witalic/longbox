@@ -12,6 +12,7 @@ import os
 import time
 import re
 import shutil
+import threading
 import uuid
 import zipfile
 from collections.abc import Iterable, Iterator
@@ -339,65 +340,90 @@ def _shift_chunk_offsets(moov: bytearray, delta: int, media_box: tuple[int, int]
     return ok
 
 
-def remux_faststart(path: Path) -> bool:
-    """Move an mp4's index in front of its media. Returns whether it rewrote.
+def remux_faststart(path: Path) -> str:
+    """Move an mp4's index in front of its media (`faststart_copy`), in place.
+    Returns the sha256 of the file it wrote — "" when it did not rewrite, the
+    file untouched."""
+    try:
+        made = faststart_copy(path)
+        if made is None:
+            return ""
+        replace_atomically(made[0], path)
+        return made[1]
+    except OSError:
+        return ""
+
+
+def faststart_copy(path: Path, stop: threading.Event | None = None) -> tuple[Path, str] | None:
+    """An mp4 rearranged with its index in front, written beside it, and the
+    sha256 of that copy, taken as it was written; the caller puts it in place.
 
     A player cannot show a frame until it holds `moov`. Behind the media that
     costs a fetch of the file's tail before the first frame, and every far seek
     pays for it again. Moving it forward rearranges bytes — nothing is decoded
     or re-encoded, and the file keeps its exact length — but each chunk offset
     in the index is an ABSOLUTE file position, so all of them travel with the
-    media.
+    media. The copy needs the episode's size free beside it.
 
-    Refuses, leaving the file untouched, anything it cannot prove it
-    understands: a fragmented file, more than one media box, an index that
-    points outside it, or an offset that would no longer fit its field. The
-    rewrite goes through a second copy in the same directory, so ingest needs
-    the episode's size free while it runs.
+    None, writing nothing, for a file with nothing to move or one it cannot
+    prove it understands: a fragmented file, more than one media box, an index
+    that points outside it, or an offset that would no longer fit its field.
+    A failed write raises, and so does `stop` (InterruptedError, noticed
+    between chunks) — neither leaves a copy behind.
     """
-    try:
-        size = path.stat().st_size
-        with path.open("rb") as fh:
-            boxes = _top_level_boxes(fh, size)
-            names = [name for name, _, _ in boxes]
-            if not boxes or b"moof" in names:
-                return False
-            if names.count(b"moov") != 1 or names.count(b"mdat") != 1:
-                return False
-            moov_at, moov_len = next((o, ln) for n, o, ln in boxes if n == b"moov")
-            mdat_at, mdat_len = next((o, ln) for n, o, ln in boxes if n == b"mdat")
-            if moov_at < mdat_at or moov_len > _MAX_MOOV:
-                return False  # already in front, or an index too big to hold
+    size = path.stat().st_size
+    with path.open("rb") as fh:
+        boxes = _top_level_boxes(fh, size)
+        names = [name for name, _, _ in boxes]
+        if not boxes or b"moof" in names:
+            return None
+        if names.count(b"moov") != 1 or names.count(b"mdat") != 1:
+            return None
+        moov_at, moov_len = next((o, ln) for n, o, ln in boxes if n == b"moov")
+        mdat_at, mdat_len = next((o, ln) for n, o, ln in boxes if n == b"mdat")
+        if moov_at < mdat_at or moov_len > _MAX_MOOV:
+            return None  # already in front, or an index too big to hold
 
-            fh.seek(moov_at)
-            moov = bytearray(fh.read(moov_len))
-            if len(moov) != moov_len:
-                return False
-            if not _shift_chunk_offsets(moov, moov_len, (mdat_at, mdat_at + mdat_len)):
-                return False
+        fh.seek(moov_at)
+        moov = bytearray(fh.read(moov_len))
+        if len(moov) != moov_len:
+            return None
+        if not _shift_chunk_offsets(moov, moov_len, (mdat_at, mdat_at + mdat_len)):
+            return None
 
-            tmp = tmp_path(path)
-            try:
-                with tmp.open("wb") as out:
-                    for name, offset, length in boxes:
-                        if name == b"ftyp":
-                            _copy_range(fh, out, offset, length)
-                    out.write(moov)
-                    for name, offset, length in boxes:
-                        if name not in (b"ftyp", b"moov"):
-                            _copy_range(fh, out, offset, length)
-                # a rearrangement that changed the byte count, or left the index
-                # where it was, is one to throw away rather than trust
-                if tmp.stat().st_size != size or not probe_mp4(tmp).get("faststart"):
-                    tmp.unlink(missing_ok=True)
-                    return False
-            except OSError:
+        tmp = tmp_path(path)
+        try:
+            with tmp.open("wb") as raw:
+                out = _Hashed(raw, stop)
+                for name, offset, length in boxes:
+                    if name == b"ftyp":
+                        _copy_range(fh, out, offset, length)
+                out.write(moov)
+                for name, offset, length in boxes:
+                    if name not in (b"ftyp", b"moov"):
+                        _copy_range(fh, out, offset, length)
+            # a rearrangement that changed the byte count, or left the index
+            # where it was, is one to throw away rather than trust
+            if tmp.stat().st_size != size or not probe_mp4(tmp).get("faststart"):
                 tmp.unlink(missing_ok=True)
-                raise
-        replace_atomically(tmp, path)
-        return True
-    except OSError:
-        return False
+                return None
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
+    return tmp, out.sha.hexdigest()
+
+
+class _Hashed:
+    """A file being written, hashed as it goes — and where a stop is noticed."""
+
+    def __init__(self, out, stop: threading.Event | None) -> None:
+        self.out, self.stop, self.sha = out, stop, hashlib.sha256()
+
+    def write(self, data: bytes | bytearray) -> None:
+        if self.stop is not None and self.stop.is_set():
+            raise InterruptedError("stopped")
+        self.out.write(data)
+        self.sha.update(data)
 
 
 def _copy_range(fh, out, offset: int, length: int) -> None:

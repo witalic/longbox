@@ -234,9 +234,11 @@ of the same name beside it. **Cut from names** takes text out of every title it 
 The preview shows exactly what will be created before anything is written; the run copies or
 moves, keeps what you typed by hand, and skips what an earlier run already stored. A move onto the
 library's own drive copies nothing: a file comes in where it is, and its checksum is left to
-Health. The report says how many came in that way, how many had to be copied and why, and how many
-episodes were written whole so they play at once. Profiles keep
-the answer and travel with the library.
+Health. An mp4 whose index sits at the end is stored as it is, and the index is moved to the front
+afterwards, in the background, one episode at a time — the import does not wait for it, the title
+stays open to edits meanwhile, and closing the app picks it up again at the next launch. The report
+says how many files came in that way, how many had to be copied and why, and how many episodes are
+left to that background pass. Profiles keep the answer and travel with the library.
 
 ## Titles and their contents
 
@@ -276,7 +278,8 @@ its subtitles. Everything is stored as WebVTT, the format the player shows (ASS 
 flattened); the original file is kept beside it.
 
 **What is stored beside it.** At ingest longbox records the duration, container and codecs, and for
-`mp4`/`m4v` moves the index to the front when it is not there already, so playback starts at once.
+`mp4`/`m4v` moves the index to the front when it is not there already, so playback starts at once
+(an import leaves that to the background, after it).
 A file is stored under the name of what its bytes hold: an mkv that arrived called `.mp4` is kept
 as `.mkv`, and one that is no video at all is refused. A **contact sheet** — nine frames, plus the
 single frame a tile wears — is cut once, by the window that plays the file, and kept beside it.

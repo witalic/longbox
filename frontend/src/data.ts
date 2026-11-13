@@ -1089,7 +1089,7 @@ export interface ImportReport {
   inPlace: number
   copied: number
   copiedWhy: string
-  rewritten: number // episodes written whole, their index moved to the front
+  later: number // episodes whose index is moved to the front after the import, in the background
   stopped: boolean
   paused: boolean // stopped to be carried on — it waits in Activity
 }

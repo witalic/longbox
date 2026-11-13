@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from . import media, transcode
+from . import faststart, media, transcode
 from .models import ChapterRow, TitleDoc
 from .vault import safe_id
 
@@ -41,7 +41,9 @@ def original_of(side: dict) -> str:
 
 def needs_copy(side: dict) -> bool:
     failed = side.get("copyFailed")
+    # an episode owed a rewrite waits for it: a copy of the bytes before would not land
     return (side.get("kind") == "video" and side.get("playable") is False and not side.get("copy")
+            and not side.get(faststart.LATER)
             and not (isinstance(failed, dict) and failed.get("of") == original_of(side)))
 
 
