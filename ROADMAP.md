@@ -10,7 +10,7 @@ answered the rest.
 ## 3.5.0 — where sign-ins live
 
 Built: the choice, the question, the move and Settings → Browser ([design](design/sign-ins.md));
-the shell's tests (the profile, the vault's checks and its lock). Left: the ffmpeg update below.
+the shell's tests (the profile, the vault's checks and its lock); the ffmpeg update below.
 
 The embedded browser keeps its profile — sign-ins, site storage, caches — in the vault, where
 anyone who can read the vault can read the sessions too: a share, a removable disk, a backup, a

@@ -14,6 +14,10 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
   behind — the cache is deleted and refills. Forgetting a vault removes its sign-ins on this
   computer too.
 
+### Changed
+- The bundled ffmpeg, which makes playable copies of episodes, is FFmpeg 9.0 (was 7.1) — newer
+  decoders, with their fixes.
+
 ### Security
 - Vue 3.5.45, and the interface's build tools (vite 6.4.6 and what it carries), past their
   published advisories.
