@@ -20,7 +20,7 @@ dependencies = [
     "rarfile>=4.1",  # rar → zip conversion (needs an unrar/bsdtar backend at runtime)
     # ships the ffmpeg binary playable copies of episodes are made with —
     # pinned, so every build carries the same one (library/transcode.py)
-    "imageio-ffmpeg==0.6.0",
+    "imageio-ffmpeg==0.8.1",
 ]
 
 [project.optional-dependencies]
