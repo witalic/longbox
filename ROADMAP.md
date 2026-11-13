@@ -4,30 +4,8 @@ Where longbox is going, release by release. Every larger item starts as a design
 anything on screen, a mockup in [design/](design/) that the owner approves first; what has shipped
 moves to the [changelog](CHANGELOG.md). What longbox will not do is at the end.
 
-The first two releases answer an independent review of the code (2026-11-13).
-
-## 3.4.0 — hardening, and knowing a release is out
-
-- **DevTools only in a development run** — done: a released build opens them, or starts with
-  Chromium's remote debugging, only when started with `LONGBOX_DEVTOOLS=1`.
-- **An image fetched for a page never reaches the local network** — done, in the shell (covers,
-  page capture) and in the sidecar alike: every redirect is checked, and loopback, private and
-  link-local addresses are refused, unless the page itself is served from that network.
-- **Archives are converted entry by entry** — done: converting an archive, and reordering or
-  moving a chapter's pages, holds one page in memory, not the archive.
-- **The runtime's back doors closed** — done: Electron's build-time switches that let the app run
-  as plain Node (`ELECTRON_RUN_AS_NODE`), take `NODE_OPTIONS` or open an `--inspect` port are off
-  in every build, and the build fails if one stays on.
-  Cookie encryption, another such switch, stays off on purpose: it cannot be undone once on, and
-  where sign-ins live is the user's choice (3.5.0).
-- **Knowing a release is out** — done. The app asks once — on the first launch, and once after updating
-  to 3.4.0 — whether it may check for new versions. If yes, it asks GitHub for the latest release
-  at most once a day (GitHub sees the address and nothing else) and says when one is out, with
-  what is new and where to get it, and whether it fixes the built-in browser's security; nothing
-  is downloaded by itself. If no, it never asks. Settings → About changes the answer and checks on
-  a click. The project page's "no update check" is rewritten in the same release.
-- **Dependencies are watched.** Dependabot for Electron (each Chromium security fix becomes a
-  pull request, then a release), the Python and npm dependencies and the workflows' actions.
+The next release finishes answering an independent review of the code (2026-11-13); 3.4.0
+answered the rest.
 
 ## 3.5.0 — where sign-ins live
 
@@ -71,18 +49,17 @@ kept on each computer, it is what makes signing in again on another one quick.
   `normalize.ts`, `tabstrip.ts`, `local.ts` (what a stored preference is accepted as) and
   `updates.ts`. From then on a change to one of them comes with its test, as the sidecar's do.
 - **The monoliths, split by plan — one cut a release.** A file over 1,500 lines does not grow: new
-  code for it goes into the module it is being split into. The cuts, in order:
-  1. ~~`library/service.py` (2,600 lines): the vault passes and what they report — check,
-     revision, numbering gaps, leftovers — into `library/health.py`~~ — done (3.4.0);
-  2. `store.ts` (1,650): navigation — places, tabs, Back and Forward, the openers — into `nav.ts`;
-  3. `views/TitleView.vue` (1,700): the contents column — tree, edit mode, adding entries — into
+  code for it goes into the module it is being split into. The first cut — the vault's health out
+  of `library/service.py` into `library/health.py` — landed in 3.4.0. The rest, in order:
+  1. `store.ts` (1,650): navigation — places, tabs, Back and Forward, the openers — into `nav.ts`;
+  2. `views/TitleView.vue` (1,700): the contents column — tree, edit mode, adding entries — into
      `TitleContents.vue`, and the pages pane into `PagesPane.vue`;
-  4. `library/service.py`: chapter media — downloads, page capture, folder entries, the media
-     sidecar's one writer — into `library/chapters.py`, and episodes' subtitles and stills into
-     `library/episodes.py`;
-  5. `library/vault.py` (1,600): the vault's documents (`read_doc`, `doc_transaction`, the
+  3. `library/service.py` (2,060): chapter media — downloads, page capture, folder entries, the
+     media sidecar's one writer — into `library/chapters.py`, and episodes' subtitles and stills
+     into `library/episodes.py`;
+  4. `library/vault.py` (1,600): the vault's documents (`read_doc`, `doc_transaction`, the
      library's own files) into `library/docs.py`;
-  6. `store.ts`: the activity pollers (downloads, the vault pass, paused imports) into
+  5. `store.ts`: the activity pollers (downloads, the vault pass, paused imports) into
      `activity.ts`, and the user layer's write-through into `userlayer.ts`.
 
   `views/BrowserView.vue` (1,250) and `shell/main.js` (1,160) are next in line once these land.

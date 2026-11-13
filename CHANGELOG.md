@@ -6,6 +6,8 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 
 ## [Unreleased]
 
+## [3.4.0] — 2026-11-13
+
 ### Added
 - **Knowing a release is out.** The app asks once whether it may check GitHub for new versions —
   at most once a day, nothing sent but the request. A newer release shows as an arrow in the
@@ -16,7 +18,9 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 ### Changed
 - longbox is free software under the GPL-3.0-or-later.
 - A short README; installing and the first-launch steps on the project page; a user guide
-  (`docs/guide.md`) and `CONTRIBUTING.md`; screenshots of the app as it is now.
+  (`docs/guide.md`) and `CONTRIBUTING.md`; screenshots of the app as it is now; a roadmap.
+- For contributors: every push and pull request is checked on Windows and Linux; a release's
+  notes are its section of this changelog; Dependabot watches Electron and the dependencies.
 
 ### Fixed
 - An archive is converted on its way in, and a chapter's pages reordered or moved, one page at a
@@ -227,7 +231,8 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
   recipes, an explicit draft with per-field provenance, armed downloads, a library with linked
   faceted filters, and a reader.
 
-[Unreleased]: https://github.com/witalic/longbox/compare/v3.3.0...HEAD
+[Unreleased]: https://github.com/witalic/longbox/compare/v3.4.0...HEAD
+[3.4.0]: https://github.com/witalic/longbox/compare/v3.3.0...v3.4.0
 [3.3.0]: https://github.com/witalic/longbox/compare/v3.2.0...v3.3.0
 [3.2.0]: https://github.com/witalic/longbox/compare/v3.1.0...v3.2.0
 [3.1.0]: https://github.com/witalic/longbox/compare/v3.0.0...v3.1.0
