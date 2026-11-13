@@ -784,8 +784,9 @@ if (window === window.top) {
     else if (b) rememberUser(e)
   }, true)
 
-  // the shell sends a login only for this page's origin; it is checked again
-  // here, as it arrives — a page that went elsewhere meanwhile gets nothing.
+  // the shell sends a login only of this page's site, addressed to the page's
+  // origin as the shell saw it; that is checked again here, as it arrives — a
+  // page that went elsewhere meanwhile gets nothing.
   // On a sign-in's username step only the username is filled: the password
   // waits for its own step, and another click.
   ipcRenderer.on('lb-pw-fill', (_e, msg) => {

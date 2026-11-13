@@ -1,10 +1,10 @@
 <script setup lang="ts">
 // What the key in the browser's toolbar opens (design/password-manager.md): the
 // logins of the page's site — its own address's first, another address of the
-// site named on its row — Fill, copy the username or the password,
-// and a pencil that turns the popover into the login editor, in place — a new
-// one for this site, and Lock. Locked,
-// it asks for the master password first; with none yet, it offers to set one.
+// site named on its row — with Fill, copy the username or the password, and a
+// pencil that turns the popover into the login editor, in place; a new one for
+// this site, and Lock. Locked, it asks for the master password first; with none
+// yet, it offers to set one.
 import { computed, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import LoginEditor from './LoginEditor.vue'

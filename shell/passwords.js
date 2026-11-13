@@ -2,8 +2,8 @@
 // The password manager in the main process (design/password-manager.md): the
 // one place a vault's logins are unlocked, held and used. The app's window is
 // told what it lists — a password only when the owner reveals one — and a page
-// is given a login only when the owner fills it, for its own top-level origin,
-// into its top frame. A password a page sends in a sign-in comes here too,
+// is given a login only when the owner fills it, one of its top frame's site,
+// into that frame. A password a page sends in a sign-in comes here too,
 // never through the window, and is held only until the owner answers the bar
 // that offers to save it.
 const crypto = require('node:crypto')

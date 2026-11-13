@@ -86,10 +86,10 @@ const active = computed(() => activeTab())
 const domain = computed(() => hostOf(active.value?.url || ''))
 const isHttps = computed(() => (active.value?.url || '').startsWith('https://'))
 
-// ---- the key (design/password-manager.md): the logins of the page's exact
-// origin. Quiet on a page with no sign-in form and nothing saved for it; there
-// on one with a password field; lit, with their count, when logins are saved
-// for the site (known once unlocked). The form is the page's to report
+// ---- the key (design/password-manager.md): the logins of the page's site.
+// Quiet on a page with no sign-in form and nothing saved for it; there on one
+// with a password field, or a sign-in's username step; lit, with their count,
+// when logins are saved for the site (known once unlocked). The form is the page's to report
 // (pick-preload.js), tab by tab.
 const pwFields = reactive(new Map<string, number>())
 const pageOrigin = computed(() => {

@@ -57,7 +57,7 @@ jobs:
 
       - name: The shell's scripts parse, and its tests pass
         run: |
-          # what the shell runs with, not Electron: no install scripts, no binaries
+          # what the shell runs with: no dev tools, no install scripts — so no Electron binary
           (cd shell && npm ci --omit=dev --ignore-scripts)
           for f in shell/*.js; do node --check "$f"; done
           node --test "shell/*.test.js"

@@ -163,7 +163,7 @@ async function remove() {
     <div class="grid">
       <span class="k">Site</span>
       <input v-if="!login && pickOrigin" v-model="site" class="in mono" spellcheck="false" autocomplete="off"
-             title="The exact site: scheme, host and port — an http and an https site are two" />
+             title="The address it is saved for — scheme, host and port; it is offered on every address of its site, over the same scheme and port" />
       <div v-else class="origin mono" :title="origin"><Icon name="lock" :size="11" :sw="2" /><span>{{ origin }}</span>
         <span v-if="here !== undefined" class="why">this tab</span></div>
       <span class="k">Username</span>

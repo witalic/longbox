@@ -6,16 +6,17 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 
 ## [Unreleased]
 
-### Changed
-- **A login belongs to its site, not to one address.** One saved on mail.proton.me is offered on
-  account.proton.me too, its row saying where it was saved — the first fill there asks, naming both
-  addresses — and signing in there updates it rather than saving a second one. http and https, another port, and names many people own (each
-  github.io page) stay sites of their own. "Never for this site" covers the whole site.
-
 ### Added
 - **Copy the username or the password** straight from the key's popover in the browser, and from
   Sources → a site → Logins — for a form Fill cannot reach. A copied password still leaves the
   clipboard after 30 seconds.
+
+### Changed
+- **A login belongs to its site, not to one address.** One saved on mail.proton.me is offered on
+  account.proton.me too, its row saying where it was saved — the first fill there asks, naming both
+  addresses — and signing in there updates it rather than saving a second one. http and https,
+  another port, and names many people own (each github.io page) stay sites of their own. "Never
+  for this site" covers the whole site.
 
 ### Fixed
 - **Copying a password no longer brings the app down** 30 seconds later, when longbox clears it
