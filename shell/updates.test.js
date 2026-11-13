@@ -53,8 +53,12 @@ test('the window names a version, and only a release page of longbox is made of 
 test('a check reports GitHub refusing, or not answering, as an error', async () => {
   const refused = async () => ({ ok: false, status: 403 })
   assert.deepEqual(await check(refused, '3.4.0'), { ok: false, error: 'GitHub answered 403' })
-  const silent = (_url, { signal }) => new Promise((_r, reject) =>
-    signal.addEventListener('abort', () => reject(signal.reason)))
+  // A connection that never answers holds its socket open, which keeps the
+  // event loop alive; the timeout's own timer does not.
+  const silent = (_url, { signal }) => new Promise((_r, reject) => {
+    const socket = setInterval(() => {}, 1000)
+    signal.addEventListener('abort', () => { clearInterval(socket); reject(signal.reason) })
+  })
   assert.deepEqual(await check(silent, '3.4.0', 20), { ok: false, error: 'the connection timed out' })
 })
 
