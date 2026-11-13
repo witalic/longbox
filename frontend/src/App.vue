@@ -5,6 +5,7 @@ import {
 } from 'vue'
 import Icon from './components/Icon.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
+import MasterDialog from './components/MasterDialog.vue'
 import RailSection from './components/RailSection.vue'
 import {
   store, closeTab, toggleTabPin, moveTabBefore, init, shownAxes, runningDownloads,
@@ -25,6 +26,7 @@ import ActivityPanel from './components/ActivityPanel.vue'
 import UpdateAsk from './components/UpdateAsk.vue'
 import UpdatePanel from './components/UpdatePanel.vue'
 import { available, canCheck, noticed, updates, watchUpdates } from './updates'
+import { watchLogins } from './logins'
 import TabHost from './components/TabHost.vue'
 import TitleView from './views/TitleView.vue'
 import ReaderView from './views/ReaderView.vue'
@@ -430,6 +432,7 @@ function doRestore(i: number) {
 }
 
 void init().then(watchUpdates)
+void watchLogins()
 initSessions()
 // the app came back into a vault that had dropped: the tabs it had are put back
 // (the last run's session is the newest in the history now)
@@ -669,6 +672,7 @@ if (new URLSearchParams(window.location.search).has('restore') && sessionHistory
       <span class="errmsg">{{ store.error }}</span>
     </div>
     <ConfirmModal />
+    <MasterDialog />
     <ValuePeek />
     <VaultLost />
   </div>

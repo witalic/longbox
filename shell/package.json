@@ -29,8 +29,9 @@
       "output": "../dist-app",
       "buildResources": "."
     },
-    "files": ["main.js", "adblock.js", "launcher.js", "netguard.js", "profile.js", "updates.js", "vaults.js",
-              "app-preload.js", "launcher-preload.js", "pick-preload.js", "icon.*", "package.json"],
+    "files": ["main.js", "adblock.js", "launcher.js", "netguard.js", "passwords.js", "profile.js", "secrets.js",
+              "updates.js", "vaults.js", "app-preload.js", "launcher-preload.js", "pick-preload.js", "icon.*",
+              "package.json"],
     "extraResources": [
       { "from": "../dist-sidecar/longbox-sidecar", "to": "sidecar" },
       { "from": "../app-meta.json", "to": "app-meta.json" },

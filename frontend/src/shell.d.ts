@@ -34,6 +34,22 @@ declare global {
     published?: string
     security?: boolean
   }
+  // the vault's logins (shell/passwords.js): an answer, or what the owner is told
+  type LoginsAnswer<T> = { ok: true; value: T } | { ok: false; code: string; message: string }
+  interface LoginsState { exists: boolean; unlocked: boolean }
+  // a login as a list shows it — never its password; `previous`: the passwords it replaced, newest first
+  interface LoginSummary {
+    id: string
+    origin: string
+    username: string
+    note: string
+    created: string
+    updated: string
+    used: string
+    previous: { replaced: string }[]
+  }
+  // an editor's Save, in the order it was made: a new password, a previous one used again, one forgotten
+  type LoginStep = { password: string } | { use: number } | { forget: number }
   interface Window {
     longbox?: {
       pickFolder: (title?: string) => Promise<string | null>
@@ -63,6 +79,22 @@ declare global {
       // ('latest': the download) in the system's browser — false for anything else
       checkUpdates: () => Promise<UpdateCheck>
       openRelease: (which: string) => Promise<boolean>
+      logins: {
+        state: () => Promise<LoginsAnswer<LoginsState>>
+        setup: (master: string) => Promise<LoginsAnswer<void>>
+        unlock: (master: string) => Promise<LoginsAnswer<void>>
+        lock: () => Promise<LoginsAnswer<void>>
+        list: (origin?: string) => Promise<LoginsAnswer<LoginSummary[]>>
+        reveal: (id: string, previous?: number) => Promise<LoginsAnswer<string>>
+        copy: (id: string, previous?: number) => Promise<LoginsAnswer<void>>
+        copyText: (text: string) => Promise<LoginsAnswer<void>>
+        add: (login: { origin: string; username: string; password: string; note: string }) => Promise<LoginsAnswer<string>>
+        edit: (id: string, change: { username?: string; note?: string; steps?: LoginStep[] }) => Promise<LoginsAnswer<void>>
+        remove: (id: string) => Promise<LoginsAnswer<void>>
+        generate: (opts?: { length?: number; letters?: boolean; digits?: boolean; symbols?: boolean }) => Promise<LoginsAnswer<string>>
+        fill: (guestId: number, id: string) => Promise<LoginsAnswer<boolean>>
+        onState: (fn: (s: LoginsState) => void) => () => void
+      }
       // one site's share of the embedded browser: its cookie count, and clearing
       // them — or its storage and cached pages too; null/false when refused
       siteData: (domain: string) => Promise<{ cookies: number } | null>

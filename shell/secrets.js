@@ -102,20 +102,24 @@ function originOf(url) {
 const asBuffer = (password) => (Buffer.isBuffer(password) ? password : Buffer.from(String(password ?? ''), 'utf8'))
 const now = () => new Date().toISOString()
 
-// One vault's logins, unlocked. Every change is written at once, whole and
-// atomically, one change after another.
+// One vault's logins, unlocked: the logins, and the sites where saving one is
+// never offered — both inside the encryption, so the file says nothing of
+// which sites they are. Every change is written at once, whole and atomically,
+// one change after another.
 class Logins {
   #root
   #doc
   #key
   #entries
+  #never
   #writing = Promise.resolve()
 
-  constructor(root, doc, key, entries) {
+  constructor(root, doc, key, { logins, never }) {
     this.#root = root
     this.#doc = doc
     this.#key = key
-    this.#entries = entries
+    this.#entries = logins
+    this.#never = never
   }
 
   get unlocked() { return !!this.#key }
@@ -154,7 +158,7 @@ class Logins {
 
   async #save() {
     const header = headerOf(this.#doc)
-    const plain = Buffer.from(JSON.stringify(this.#entries))
+    const plain = Buffer.from(JSON.stringify({ logins: this.#entries, never: this.#never }))
     this.#doc = { ...this.#doc, data: seal(this.#key, plain, header) }
     await vaults.writeAtomic(fileOf(this.#root), JSON.stringify(this.#doc, null, 2))
   }
@@ -190,38 +194,35 @@ class Logins {
     })
   }
 
-  // A new password puts the one it replaces at the top of the previous ones;
-  // past three, the oldest goes.
-  update(id, { username, password, note }) {
+  // An editor's Save, as one write: the username and the note, and `steps` in
+  // the order they were made — `{ password }` a new one, `{ use: i }` the i-th
+  // previous one made the password again, `{ forget: i }` the i-th dropped. A
+  // password replaced goes to the top of the previous ones; past three, the
+  // oldest goes. A step that does not fit what is there changes nothing at all.
+  edit(id, { username, note, steps = [] }) {
     return this.#change(() => {
       const e = this.#entry(id)
+      let secret = e.secret
+      let previous = [...e.previous]
+      for (const step of steps) {
+        if (step && 'password' in step) {
+          previous = [{ secret, replaced: now() }, ...previous]
+          secret = this.#sealPassword(id, step.password)
+        } else if (step && Number.isInteger(step.use) && previous[step.use]) {
+          const back = previous[step.use]
+          previous = [{ secret, replaced: now() }, ...previous.filter((_, i) => i !== step.use)]
+          secret = back.secret
+        } else if (step && Number.isInteger(step.forget) && previous[step.forget]) {
+          previous = previous.filter((_, i) => i !== step.forget)
+        } else {
+          throw new SecretsError('ESTEP', 'that change does not fit this login any more')
+        }
+        previous = previous.slice(0, KEEP_PREVIOUS)
+      }
       if (username !== undefined) e.username = String(username)
       if (note !== undefined) e.note = String(note)
-      if (password !== undefined) {
-        e.previous = [{ secret: e.secret, replaced: now() }, ...e.previous].slice(0, KEEP_PREVIOUS)
-        e.secret = this.#sealPassword(id, password)
-      }
-      e.updated = now()
-    })
-  }
-
-  // A previous password becomes the password again; the one it replaces takes its place at the top.
-  usePrevious(id, index) {
-    return this.#change(() => {
-      const e = this.#entry(id)
-      const back = e.previous[index]
-      if (!back) throw new SecretsError('ENOENT', 'no such password')
-      e.previous = [{ secret: e.secret, replaced: now() }, ...e.previous.filter((_, i) => i !== index)]
-      e.secret = back.secret
-      e.updated = now()
-    })
-  }
-
-  forgetPrevious(id, index) {
-    return this.#change(() => {
-      const e = this.#entry(id)
-      if (!e.previous[index]) throw new SecretsError('ENOENT', 'no such password')
-      e.previous = e.previous.filter((_, i) => i !== index)
+      e.secret = secret
+      e.previous = previous
       e.updated = now()
     })
   }
@@ -236,6 +237,21 @@ class Logins {
 
   used(id) {
     return this.#change(() => { this.#entry(id).used = now() })
+  }
+
+  // Whether saving a login is never offered on this site — and the owner's
+  // answer to that, either way.
+  neverAsks(origin) {
+    this.#held()
+    return this.#never.includes(originOf(origin))
+  }
+
+  setNever(origin, never) {
+    return this.#change(() => {
+      const at = originOf(origin)
+      this.#never = this.#never.filter((o) => o !== at)
+      if (never) this.#never.push(at)
+    })
   }
 
   // The data key wrapped again under the new master password (and a new salt);
@@ -262,6 +278,7 @@ class Logins {
     if (this.#key) this.#key.fill(0)
     this.#key = null
     this.#entries = []
+    this.#never = []
   }
 }
 
@@ -283,14 +300,15 @@ async function create(root, master) {
   const kek = await derive(master, kdf)
   const key = crypto.randomBytes(32)
   const head = { schema: SCHEMA, kdf }
-  const doc = { ...head, key: seal(kek, key, headerOf(head)), data: seal(key, Buffer.from('[]'), headerOf(head)) }
+  const empty = Buffer.from(JSON.stringify({ logins: [], never: [] }))
+  const doc = { ...head, key: seal(kek, key, headerOf(head)), data: seal(key, empty, headerOf(head)) }
   kek.fill(0)
   await fs.promises.mkdir(path.join(root, vaults.APP_DIR), { recursive: true })
   // never over another file: one made meanwhile holds logins of its own
   await fs.promises.writeFile(fileOf(root), JSON.stringify(doc, null, 2), { flag: 'wx' }).catch((e) => {
     throw e.code === 'EEXIST' ? new SecretsError('EEXIST', 'this vault has a master password already') : e
   })
-  return new Logins(root, doc, key, [])
+  return new Logins(root, doc, key, { logins: [], never: [] })
 }
 
 async function unlock(root, master) {
@@ -302,13 +320,13 @@ async function unlock(root, master) {
   kek.fill(0)
   if (!key || key.length !== 32) throw new SecretsError('EPASSWORD', 'that is not the master password')
   const plain = open(key, doc.data, header)
-  let entries = null
-  try { entries = plain && JSON.parse(plain.toString('utf8')) } catch { /* below */ }
-  if (!Array.isArray(entries)) {
+  let data = null
+  try { data = plain && JSON.parse(plain.toString('utf8')) } catch { /* below */ }
+  if (!Array.isArray(data?.logins) || !Array.isArray(data?.never)) {
     key.fill(0)
     throw unreadable()
   }
-  return new Logins(root, doc, key, entries.map((e) => ({ ...e, previous: Array.isArray(e.previous) ? e.previous : [] })))
+  return new Logins(root, doc, key, data)
 }
 
 // A new password: `length` characters (8–64) of the kinds asked for, at least

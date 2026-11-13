@@ -11,7 +11,9 @@ import {
   reopenClosedTab, searchUrl, setTabAudible, setTabLoading, setTabTitle, tabById, typedAddress,
 } from '../browser'
 import CapturePanel from '../components/CapturePanel.vue'
+import LoginsPanel from '../components/LoginsPanel.vue'
 import MenuButton from '../components/MenuButton.vue'
+import ToolbarPopover from '../components/ToolbarPopover.vue'
 import RailSection from '../components/RailSection.vue'
 import Icon from '../components/Icon.vue'
 import PickInspector, { type ChainNode, type PickUse, type ProbeReq, type ProbeResult } from '../components/PickInspector.vue'
@@ -20,6 +22,7 @@ import {
   mergeCapture, mergeSnapshotRuled, noteCaptureSource, type EditableField, type Snapshot,
 } from '../draft'
 import { isBoolMap, readLocal, writeLocal } from '../local'
+import { loginsState, settled } from '../logins'
 import { pageCapture, pageKeyFor, stopCaptureFor, type PickField } from '../pagecapture'
 import { hostOf, matchTitles, type Candidate, type FieldRule, type Recipe } from '../data'
 import type { CleanFlags } from '../normalize'
@@ -80,6 +83,35 @@ watch(() => browser.tabs.map((t) => `${t.id}:${t.muted ? 1 : 0}`).join(), () => 
 const active = computed(() => activeTab())
 const domain = computed(() => hostOf(active.value?.url || ''))
 const isHttps = computed(() => (active.value?.url || '').startsWith('https://'))
+
+// ---- the key (design/password-manager.md): the logins of the page's exact
+// origin. Quiet on a page with no sign-in form and nothing saved for it; there
+// on one with a password field; lit, with their count, when logins are saved
+// for the site (known once unlocked). The form is the page's to report
+// (pick-preload.js), tab by tab.
+const pwFields = reactive(new Map<string, number>())
+const pageOrigin = computed(() => {
+  try {
+    const o = new URL(active.value?.url || '').origin
+    return /^https?:\/\//.test(o) ? o : ''
+  } catch { return '' }
+})
+const keyCount = ref(0)
+async function countLogins() {
+  const shell = window.longbox?.logins
+  const origin = pageOrigin.value
+  keyCount.value = shell && loginsState.unlocked && origin
+    ? (await settled(shell.list(origin)).catch(() => [])).length : 0
+}
+watch([pageOrigin, () => loginsState.unlocked], countLogins, { immediate: true })
+const keyTone = computed(() => (keyCount.value ? 'lit' : active.value && pwFields.get(active.value.id) ? '' : 'quiet'))
+const keyTitle = computed(() => (!pageOrigin.value ? 'Logins' : keyCount.value
+  ? `${keyCount.value} login${keyCount.value === 1 ? '' : 's'} for this site` : 'Logins for this site'))
+// the page a login is filled into, named the moment it is: a <webview> names
+// its page only once it is attached
+function guestNow(): number | null {
+  try { return wv()?.getWebContentsId?.() ?? null } catch { return null }
+}
 
 // ---- ad blocking (shell/adblock.js): the shield says what it does on this page,
 // and the ⋯ menu holds its switches — everywhere, and on this site ----
@@ -965,6 +997,9 @@ function onIpc(e: any, tabId: string) {
       openFromPage(req.url, !!req.background, tabId)
       break
     }
+    case 'pw-form':
+      pwFields.set(tabId, Number(msg?.fields) || 0)
+      break
   }
 }
 function onNav(e: any, tabId: string) {
@@ -1021,6 +1056,12 @@ function onReady(tabId: string) {
         <Icon name="lock" :size="12" :sw="1.9" :style="{ color: isHttps ? 'var(--good)' : 'var(--tx3)' }" />
         <input ref="addrEl" v-model="addr" class="urlin mono" placeholder="Search or type a URL" @keydown.enter="go" />
       </div>
+      <ToolbarPopover v-if="isElectron" :tone="keyTone" :title="keyTitle" @closed="countLogins">
+        <template #button><Icon name="key" :size="15" :sw="1.9" /><span v-if="keyCount" class="cnt">{{ keyCount }}</span></template>
+        <template #default="{ close }">
+          <LoginsPanel :origin="pageOrigin" :guest="guestNow" @close="close" @changed="countLogins" />
+        </template>
+      </ToolbarPopover>
       <!-- one click saves or unsaves; the LIST of a source's links lives in the
            rail, where you go to open one — a menu here just to hold one verb -->
       <span class="nb bm" :class="{ saved: bookmarked }"

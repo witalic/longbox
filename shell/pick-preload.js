@@ -667,3 +667,59 @@ window.addEventListener('mouseup', (e) => {
   if (e.button === 3) { e.preventDefault(); ipcRenderer.sendToHost('history', 'back') }
   else if (e.button === 4) { e.preventDefault(); ipcRenderer.sendToHost('history', 'forward') }
 }, true)
+
+// ---- the password manager (design/password-manager.md) ----
+// The top frame only: its sign-in form is what the key in the toolbar tells
+// of, and the one place a login is filled — never a frame inside the page.
+if (window === window.top) {
+  const shown = (el) => !el.disabled && !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)
+  const passwordFields = () => [...document.querySelectorAll('input[type="password"]')].filter(shown)
+  // the name a form asks with the password: the one it says is the username,
+  // else the last text field before the password
+  function usernameFor(pw) {
+    const scope = pw.form || document
+    const named = [...scope.querySelectorAll('input[autocomplete~="username"]')].find(shown)
+    if (named) return named
+    const before = [...scope.querySelectorAll('input')].filter((el) => shown(el)
+      && /^(|text|email|tel)$/.test(el.type) && (pw.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING))
+    return before[before.length - 1] || null
+  }
+  // set as typing would: the page's own listeners see an input and a change
+  function type(el, value) {
+    el.focus()
+    el.value = value
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+    el.dispatchEvent(new Event('change', { bubbles: true }))
+  }
+
+  let told = -1
+  const tell = () => {
+    const n = passwordFields().length
+    if (n !== told) {
+      told = n
+      ipcRenderer.sendToHost('pw-form', { fields: n })
+    }
+  }
+  let pending = 0
+  const soon = () => { if (!pending) pending = setTimeout(() => { pending = 0; tell() }, 300) }
+  const watch = () => {
+    tell()
+    new MutationObserver(soon).observe(document.documentElement, { subtree: true, childList: true,
+      attributes: true, attributeFilter: ['type', 'style', 'class', 'hidden', 'disabled'] })
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watch, { once: true })
+  else watch()
+
+  // the shell sends a login only for this page's origin; it is checked again
+  // here, as it arrives — a page that went elsewhere meanwhile gets nothing
+  ipcRenderer.on('lb-pw-fill', (_e, msg) => {
+    if (!msg || location.origin !== msg.origin) return
+    const focused = document.activeElement
+    const pw = focused instanceof HTMLInputElement && focused.type === 'password' && shown(focused)
+      ? focused : passwordFields()[0]
+    if (!pw) return
+    const user = usernameFor(pw)
+    if (user && msg.username) type(user, msg.username)
+    type(pw, msg.password)
+  })
+}

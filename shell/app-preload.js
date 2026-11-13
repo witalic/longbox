@@ -34,6 +34,29 @@ contextBridge.exposeInMainWorld('longbox', {
   signinsSizes: () => ipcRenderer.invoke('lb-signins-sizes'),
   setSignins: (keep, restart) => ipcRenderer.invoke('lb-signins-set', { keep: String(keep || ''), restart: !!restart }),
   forgetSignins: (root) => ipcRenderer.invoke('lb-signins-forget', String(root || '')),
+  // the vault's logins (design/password-manager.md): every answer is { ok, value }
+  // or { ok: false, code, message }. A password reaches the window only when the
+  // owner reveals it; copying and filling happen in the shell
+  logins: {
+    state: () => ipcRenderer.invoke('lb-pw-state'),
+    setup: (master) => ipcRenderer.invoke('lb-pw-setup', String(master ?? '')),
+    unlock: (master) => ipcRenderer.invoke('lb-pw-unlock', String(master ?? '')),
+    lock: () => ipcRenderer.invoke('lb-pw-lock'),
+    list: (origin) => ipcRenderer.invoke('lb-pw-list', String(origin ?? '')),
+    reveal: (id, previous) => ipcRenderer.invoke('lb-pw-reveal', String(id ?? ''), previous),
+    copy: (id, previous) => ipcRenderer.invoke('lb-pw-copy', String(id ?? ''), previous),
+    copyText: (text) => ipcRenderer.invoke('lb-pw-copy-text', String(text ?? '')),
+    add: (login) => ipcRenderer.invoke('lb-pw-add', login),
+    edit: (id, change) => ipcRenderer.invoke('lb-pw-edit', String(id ?? ''), change),
+    remove: (id) => ipcRenderer.invoke('lb-pw-remove', String(id ?? '')),
+    generate: (opts) => ipcRenderer.invoke('lb-pw-generate', opts),
+    fill: (guestId, id) => ipcRenderer.invoke('lb-pw-fill', Number(guestId), String(id ?? '')),
+    onState: (fn) => {
+      const h = (_e, s) => fn(s)
+      ipcRenderer.on('lb-pw-state', h)
+      return () => ipcRenderer.removeListener('lb-pw-state', h)
+    },
+  },
   // a release of longbox newer than this one? ({ ok, latest, newer, published,
   // security } or { ok: false, error }) — and a version's release page
   // ('latest': the download), opened in the system's browser

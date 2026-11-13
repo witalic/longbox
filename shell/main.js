@@ -19,6 +19,7 @@ const path = require('node:path')
 const adblock = require('./adblock')
 const launcher = require('./launcher')
 const netguard = require('./netguard')
+const passwords = require('./passwords')
 const profile = require('./profile')
 const updates = require('./updates')
 const vaults = require('./vaults')
@@ -496,6 +497,7 @@ async function stopSidecar() {
 // a vault coming back after a drop both end here (design/vault-home.md).
 async function relaunch(extra = []) {
   app.isQuitting = true
+  passwords.lock()
   // what the browser holds in memory reaches its profile before the process goes
   if (vaultSession) {
     await vaultSession.cookies.flushStore().catch(() => {})
@@ -527,6 +529,7 @@ function watchVault(origin, win) {
     }
     if (now === 'lost') {
       vaultLost = true
+      passwords.lock()
       for (const item of liveDownloads.values()) { try { item.cancel() } catch { /* done */ } }
     }
     if (!win.isDestroyed()) {
@@ -606,6 +609,7 @@ async function main(root, legacy, prof) {
 
   appWindow = win // guest-page handlers pop their menus over this one
   adblock.wire(sess, win.webContents, path.join(root, vaults.APP_DIR, 'adblock'))
+  passwords.wire(win, () => vaultRoot)
   presentAsChrome(sess, win.webContents)
 
   // DevTools on the app window, when debugging is allowed at all (DEVTOOLS): the
@@ -1238,6 +1242,7 @@ let stopping = false
 let stopped = false
 app.on('before-quit', (e) => {
   app.isQuitting = true
+  passwords.lock()
   if (stopped) return
   e.preventDefault()
   if (stopping) return

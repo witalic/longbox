@@ -57,6 +57,16 @@ const P: Record<string, string> = {
   sound: 'M4 9h4l5-4v14l-5-4H4zM17 9a4 4 0 0 1 0 6',
   muted: 'M4 9h4l5-4v14l-5-4H4zM17 10l4 4M21 10l-4 4',
   eyeoff: 'M3 3l18 18M10.6 6.3A9.6 9.6 0 0 1 12 6.2c5 0 8.5 5.8 8.5 5.8a17 17 0 0 1-2.9 3.6M6.4 8.2A17 17 0 0 0 3.5 12s3.5 5.8 8.5 5.8c1 0 2-.2 2.8-.5',
+  eye: 'M3.5 12S7 6.2 12 6.2 20.5 12 20.5 12 17 17.8 12 17.8 3.5 12 3.5 12zM12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5',
+  key: 'M8 11a4 4 0 1 0 0 8 4 4 0 0 0 0-8M10.9 12.1L20 3M17 6l3 3M14.5 8.5l2 2',
+  unlock: 'M6 10V8a6 6 0 0 1 11.3-2.8M5 10h14v10H5z',
+  copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
+  wand: 'M4 20L14.5 9.5M16 3l.9 2.1L19 6l-2.1.9L16 9l-.9-2.1L13 6l2.1-.9zM20 11l.6 1.4L22 13l-1.4.6L20 15l-.6-1.4L18 13l1.4-.6z',
+  trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
+  undo: 'M9 14L4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3',
+  clock: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 7v5l3 2',
+  info: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 11v6M12 7.5h.01',
+  warn: 'M12 3l10 18H2zM12 10v5M12 18h.01',
 }
 const props = withDefaults(defineProps<{ name: string; size?: number; sw?: number; fill?: string }>(), {
   size: 16, sw: 1.8, fill: 'none',
