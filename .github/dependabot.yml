@@ -1,21 +1,31 @@
-# Dependencies, watched (ROADMAP.md, "Dependencies are watched").
+# Dependencies, watched (CONTRIBUTING.md).
 #
 # Electron carries the browser people sign in with, so the shell is looked at
 # every day and Electron has a pull request of its own: each Chromium security
-# fix should reach a release. The rest is grouped, one pull request a week per
-# place, so updates arrive as a few reviewable changes rather than a stream.
+# fix should reach a release. Minor and patch updates are grouped, one pull
+# request per place, so they arrive as a few reviewable changes rather than a
+# stream. A MAJOR version never rides in a group: it comes as a pull request of
+# its own, to be taken on purpose — a new vite or TypeScript is a migration,
+# not an update.
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /shell
     schedule:
       interval: daily
+    ignore:
+      # it follows electron-builder, which carries the version the build hook
+      # (after-pack.js) was checked with
+      - dependency-name: "@electron/fuses"
+        update-types: ["version-update:semver-major"]
     groups:
       electron:
         patterns: ["electron"]
+        update-types: ["minor", "patch"]
       shell:
         patterns: ["*"]
         exclude-patterns: ["electron"]
+        update-types: ["minor", "patch"]
     commit-message:
       prefix: "chore(deps)"
 
@@ -26,6 +36,7 @@ updates:
     groups:
       frontend:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
     commit-message:
       prefix: "chore(deps)"
 
@@ -36,6 +47,7 @@ updates:
     groups:
       backend:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
     commit-message:
       prefix: "chore(deps)"
 
@@ -46,5 +58,6 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
     commit-message:
       prefix: "chore(ci)"

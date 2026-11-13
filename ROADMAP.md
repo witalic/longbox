@@ -25,6 +25,11 @@ they refill. This is the one exception to "the vault is home"
 ([design/vault-home.md](design/vault-home.md) records it). The first tests for the shell come
 with it: the move, the lock, the vault checks (`node:test`).
 
+Also in 3.5.0: **the bundled ffmpeg updated** (imageio-ffmpeg 0.6 → 0.8, Dependabot #9) — newer
+decoders, with their security fixes. The FFmpeg notice (`packaging/licenses/FFmpeg.txt`) names the
+exact builds shipped for each platform, as the GPL asks, so it is rewritten with them; playable
+copies are checked on the real binaries.
+
 ## 3.6.0 — password manager
 
 Logins for the sites in the embedded browser, encrypted in the vault under a master password,
