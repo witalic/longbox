@@ -40,7 +40,7 @@ when asked for, and saved after a sign-in when the owner says so.
 | Who | Has | Defended by |
 |---|---|---|
 | someone who copies the vault (it lives on a network share) | the encrypted file, offline, unlimited time | a slow KDF over the master password; nothing else in the file helps |
-| a web page in the embedded browser | the page it is on | exact-origin matching, fill only on click, never into another origin's frame, the choice made in the app's UI — not in the page |
+| a web page in the embedded browser | the page it is on | a login offered only on its own site (scheme, port and registrable domain, by the Public Suffix List with its private part — a github.io page is not another's site), fill only on click, only into the top frame of a page still on that site, the choice made in the app's UI — not in the page |
 | someone at the unlocked computer | the running app | out of scope (Lock; sleep, a locked screen and being idle lock too; the app closes) |
 | script that gets into the app's window | everything the window can ask the shell | the window is trusted, as a browser's own settings page is: a strict CSP (no inline script, no `eval`) and nothing rendered as HTML keep script out. A password is shown and copied without asking again (owner, 2026-11-13): script in the window could fill one into a tab and read it there through the `<webview>`, so a second ask would not stop it |
 
@@ -56,7 +56,7 @@ In the **shell's main process** (Node `crypto`), not in the sidecar and not in t
   window or a page as a string cannot be wiped, so it crosses only when it must;
 - the app window gets what a list needs (site, username, dates) and a password only when the owner
   reveals or copies one;
-- a guest page gets a credential only when the owner fills it, only for its own top-level origin.
+- a guest page gets a credential only when the owner fills it, only of its top frame's site.
 
 The shell already writes into the vault (`.longbox/adblock`, partial downloads), so the file
 belongs there with no sidecar round trip.
@@ -94,7 +94,14 @@ belongs there with no sidecar round trip.
   used }]`, where `secret` is the password sealed on its own with the data key (`{ nonce, data, tag
   }`) — decrypting the list opens no password — and `previous` the passwords it replaced, newest
   first, at most three: `[{ secret, replaced }]`, each sealed the same way. `origin` is scheme +
-  host + port, exactly as the sign-in page's.
+  host + port, exactly as the sign-in page's; the login belongs to that origin's **site**.
+- **A login's site** (owner, 2026-11-13 — exact origins at first, until a sign-in at
+  account.proton.me could not find the login saved at mail.proton.me): the origin's scheme, its
+  port, and its registrable domain — the name the Public Suffix List, private part included, says
+  one owner holds (`tldts`, in the shell already for ad blocking). mail.proton.me and
+  account.proton.me are one site; user1.github.io and user2.github.io are two, as are http and
+  https, or two ports. An address with no registrable domain (an IP, `localhost`) is its own site.
+  The never-asked list goes by site too.
 
 Forgetting the master password loses the secrets. Setup says so, plainly, once.
 
@@ -118,14 +125,15 @@ Forgetting the master password loses the secrets. Setup says so, plainly, once.
   the shield: always there, quiet when the page has no sign-in form and nothing is saved for it,
   normal on a page with a password field, or on a sign-in's username step (a field marked
   `autocomplete="username"`, no password field; the guest preload looks, top frame only), lit with
-  a count when logins are saved for that exact origin (known once unlocked). Its popover hangs from
+  a count when logins are saved for the page's site (known once unlocked). Its popover hangs from
   it — right under the toolbar, its right edge on the button's, the button lit while it is open —
   and lists the accounts: **Fill** puts the username and password into that form — on a sign-in
   in steps, the username on its step and the password on its own, a click each. With no saved
   login, it offers to generate a password (a sign-up form's new-password field).
 - The menu is the app's, not the page's: a page cannot draw a fake one or click it for the owner.
-- The fill goes to the top frame only, and only if its origin is still the entry's at the moment of
-  filling (a page that navigated meanwhile gets nothing). http pages get only logins saved on http.
+- The fill goes to the top frame only, and only if its origin is still of the entry's site at the
+  moment of filling (a page that navigated meanwhile gets nothing). http pages get only logins saved
+  on http.
 - **Save after sign-in.** When a form with a password is sent (submitted, Enter in it, its submit
   button clicked), the preload reports the username and password to the shell — a sign-in in steps,
   whose password step holds no username, with the username sent on its first step (kept in the
@@ -169,7 +177,8 @@ Length 20 by default (8–64), letters / digits / symbols toggles, look-alike ch
 One **login editor** — site, username, password (show, copy, generate), note, previous passwords,
 Delete — drawn in two places: the key's popover in the browser, and Sources → a site → Logins.
 
-- **The key's popover** lists the logins of the page's exact origin: **Fill**, copy the username,
+- **The key's popover** lists the logins of the page's site — its own address's first, another
+  address of the site named on its row: **Fill**, copy the username,
   copy the password (owner, 2026-11-13: a login whose form Fill cannot reach is still a click
   away), and a pencil that turns the popover into the editor, in place. **Add a login for this
   site** opens it empty. Sources → Logins has the same two copies on a closed card.

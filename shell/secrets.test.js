@@ -229,14 +229,28 @@ test('a deleted login goes with its previous passwords; the others stay', async 
   assert.throws(() => again.reveal(gone), { code: 'ENOENT' })
 })
 
-test('logins belong to an exact origin', async (t) => {
+test('logins belong to a site: its scheme, its port, and the name one owner holds', async (t) => {
   const root = vault(t)
   const logins = await secrets.create(root, MASTER)
   await logins.add({ origin: `${SITE}/sign-in?next=/`, username: 'https', password: 'x' })
+  await logins.add({ origin: 'https://mail.kestrel-reader.example', username: 'mail', password: 'm' })
   await logins.add({ origin: 'http://kestrel-reader.example', username: 'http', password: 'y' })
   await logins.add({ origin: `${SITE}:8443`, username: 'port', password: 'z' })
-  assert.deepEqual(logins.list(`${SITE}/anything`).map((e) => e.username), ['https'])
-  assert.deepEqual(logins.list('http://kestrel-reader.example/').map((e) => e.username), ['http'])
+  const names = (at) => logins.list(at).map((e) => e.username)
+  assert.deepEqual(names(`${SITE}/anything`), ['https', 'mail'])                     // the page's own address first
+  assert.deepEqual(names('https://mail.kestrel-reader.example/inbox'), ['mail', 'https'])
+  assert.deepEqual(names('https://account.kestrel-reader.example/login'), ['https', 'mail'])
+  assert.deepEqual(names('http://kestrel-reader.example/'), ['http'])                 // another scheme, another site
+  assert.deepEqual(names(`${SITE}:8443/`), ['port'])                                 // another port too
+  // a name many own is no one's site: one github.io page never sees another's
+  await logins.add({ origin: 'https://reader-one.github.io', username: 'one', password: 'p1' })
+  assert.deepEqual(names('https://reader-two.github.io/'), [])
+  assert.deepEqual(names('https://reader-one.github.io/app'), ['one'])
+  assert.equal(secrets.siteOf('https://a.b.co.uk/x'), secrets.siteOf('https://c.b.co.uk'))
+  assert.notEqual(secrets.siteOf('https://b.co.uk'), secrets.siteOf('https://d.co.uk'))
+  // an address with no such name is a site of its own
+  await logins.add({ origin: 'http://127.0.0.1:8080', username: 'ip', password: 'q' })
+  assert.deepEqual(names('http://127.0.0.2:8080/'), [])
   await assert.rejects(logins.add({ origin: 'file:///C:/x', username: 'f', password: 'p' }), { code: 'EORIGIN' })
   assert.throws(() => secrets.originOf('about:blank'), { code: 'EORIGIN' })
 })
@@ -246,6 +260,7 @@ test('the sites where saving is never offered are kept inside the encryption', a
   const logins = await secrets.create(root, MASTER)
   await logins.setNever(`${SITE}/sign-in`, true)
   assert.equal(logins.neverAsks(SITE), true)
+  assert.equal(logins.neverAsks('https://account.kestrel-reader.example/login'), true)  // the site, every address
   assert.deepEqual(logins.nevers(), [SITE])
   assert.equal(logins.neverAsks('http://kestrel-reader.example'), false)
   assert.doesNotMatch(fs.readFileSync(file(root), 'utf8'), /kestrel/)

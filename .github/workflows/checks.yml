@@ -33,7 +33,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: |
+            frontend/package-lock.json
+            shell/package-lock.json
 
       - uses: actions/setup-python@v7
         with:
@@ -55,5 +57,7 @@ jobs:
 
       - name: The shell's scripts parse, and its tests pass
         run: |
+          # what the shell runs with, not Electron: no install scripts, no binaries
+          (cd shell && npm ci --omit=dev --ignore-scripts)
           for f in shell/*.js; do node --check "$f"; done
           node --test "shell/*.test.js"

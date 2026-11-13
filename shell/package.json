@@ -14,7 +14,8 @@
     "pack:dir": "electron-builder --dir --publish never"
   },
   "dependencies": {
-    "@ghostery/adblocker-electron": "^2.20.3"
+    "@ghostery/adblocker-electron": "^2.20.3",
+    "tldts-experimental": "^7.4.19"
   },
   "devDependencies": {
     "@electron/fuses": "1.8.0",

@@ -136,16 +136,17 @@ function drop(guestId, offer) {
   take(guestId)?.password.fill(0)
 }
 
-function tell(guestId, kind) {
+// `origin`: the saved login's, for an update — it may be another address of the site
+function tell(guestId, kind, origin = '') {
   const offer = offers.get(guestId)
   if (!win || win.isDestroyed()) return
   win.webContents.send('lb-pw-offer', kind && offer
-    ? { guestId, kind, origin: offer.origin, username: offer.username } : { guestId, kind: null })
+    ? { guestId, kind, origin: origin || offer.origin, username: offer.username } : { guestId, kind: null })
 }
 
-// The saved login a sign-in is for — the same username, or the site's only
-// login when the form asked for none (a change-password page) — and whether it
-// sent the password already saved.
+// The saved login a sign-in is for — the same username on the site, the page's
+// own address first, or the site's only login when the form asked for none (a
+// change-password page) — and whether it sent the password already saved.
 function matchOf(offer) {
   const list = held().list(offer.origin)
   const login = list.find((x) => x.username === offer.username) || (!offer.username && list.length === 1 ? list[0] : null)
@@ -173,9 +174,14 @@ function judge(offer) {
 function judged(guestId, offer) {
   if (offers.get(guestId) !== offer) return
   let kind = null
-  try { kind = judge(offer).kind } catch { /* told as nothing to offer */ }
+  let origin = ''
+  try {
+    const { kind: k, match } = judge(offer)
+    kind = k
+    origin = match?.login.origin ?? ''
+  } catch { /* told as nothing to offer */ }
   if (!kind) drop(guestId, offer)
-  tell(guestId, kind)
+  tell(guestId, kind, origin)
 }
 
 // A sign-in a page of this window's sent, from its top frame — one the owner

@@ -149,8 +149,11 @@ password of yours, and filled when you click, never by themselves.
   lists the site's logins — **Fill** puts the username and password into the page's form, the two
   buttons beside it copy the username or the password — and its pencil edits a login right there.
   A sign-in that asks for the username first, and the password after, is filled a step at a time:
-  **Fill** on each step. A login belongs to an exact site: an http and an https address, or another
-  port, are other sites, and the page is filled only while it is still on the login's site.
+  **Fill** on each step. A login belongs to its site: one saved on mail.proton.me is offered on
+  account.proton.me too (its row says where it was saved), and signing in there updates it rather
+  than saving another. An http and an https address, another port, or a name many people own (each
+  github.io page is its own site) are other sites; the page is filled only while it is still on
+  the login's site.
 - **After a sign-in**, a bar under the toolbar offers to **Save** the login — or to **Update** the
   saved one, when you signed in with another password. **Never for this site** stops it asking
   there. The bar waits with its tab until you answer it.

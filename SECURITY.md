@@ -24,9 +24,10 @@ rather it were not.
   a flaw.
 - **The password manager.** The logins it keeps (`.longbox/secrets.json`) are encrypted under the
   master password; the app's main process alone unlocks them, and a page gets a login only when
-  you fill it, for its own site. A page that can read a login, have one filled into another site,
-  or save one by itself — or a copy of the vault that gives a login up without the master password
-  — is a vulnerability. Someone at the computer while the logins are unlocked is out of scope: they
+  you fill it, for its own site — the registrable domain, by the Public Suffix List, so a
+  `github.io` page is never another's site. A page that can read a login, have one filled into
+  another site, or save one by itself — or a copy of the vault that gives a login up without the
+  master password — is a vulnerability. Someone at the computer while the logins are unlocked is out of scope: they
   lock when the computer sleeps, its screen is locked or it goes unused for a while (Settings →
   Passwords), and with Lock. The app's own window is trusted with them — it can show any login —
   so script that gets into it, through anything the app displays, is a vulnerability in itself.

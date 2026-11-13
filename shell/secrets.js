@@ -13,6 +13,7 @@
 const crypto = require('node:crypto')
 const fs = require('node:fs')
 const path = require('node:path')
+const { getDomain } = require('tldts-experimental')
 const vaults = require('./vaults')
 
 const FILE = 'secrets.json'
@@ -165,6 +166,18 @@ function originOf(url) {
   return origin
 }
 
+// A login's site (owner, 2026-11-13): its scheme, its port and its registrable
+// domain — the name the Public Suffix List says one owner holds: proton.me for
+// mail.proton.me and account.proton.me alike; user.github.io, never github.io,
+// which many own. An address with no such name (an IP, localhost) is a site of
+// its own. The list's compact form may, unlikely, take a name for a suffix it
+// is not: that splits a site in two, never joins two owners' — the domain is
+// always a tail of the address's own name.
+function siteOf(origin) {
+  const u = new URL(originOf(origin))
+  return `${u.protocol}//${getDomain(u.hostname, { allowPrivateDomains: true }) || u.hostname}:${u.port}`
+}
+
 // a password of the store's own, taken as it is handed over: whoever handed it
 // may zero theirs before the change that seals it gets its turn
 function ownCopy(password) {
@@ -237,11 +250,14 @@ class Logins {
     return run
   }
 
-  // What a list shows of each login — never a password.
+  // What a list shows of each login — never a password. For an address: the
+  // logins of its site, its own origin's first.
   list(origin = '') {
     this.#held()
-    const only = origin ? originOf(origin) : ''
-    return this.#logins.filter((e) => !only || e.origin === only).map((e) => ({
+    const at = origin ? originOf(origin) : ''
+    const site = at && siteOf(at)
+    const own = (e) => (e.origin === at ? 0 : 1)
+    return this.#logins.filter((e) => !site || siteOf(e.origin) === site).sort((a, b) => own(a) - own(b)).map((e) => ({
       id: e.id, origin: e.origin, username: e.username, note: e.note, created: e.created, updated: e.updated,
       used: e.used, previous: e.previous.map((p) => ({ replaced: p.replaced })),
     }))
@@ -337,9 +353,11 @@ class Logins {
 
   // Whether saving a login is never offered on this site, the sites where it is
   // not — and the owner's answer to that, either way.
+  // never asked anywhere on the site of an address it was said for
   neverAsks(origin) {
     this.#held()
-    return this.#never.includes(originOf(origin))
+    const site = siteOf(origin)
+    return this.#never.some((o) => siteOf(o) === site)
   }
 
   nevers() {
@@ -504,4 +522,4 @@ function generate({ length = 20, letters = true, digits = true, symbols = true }
   }
 }
 
-module.exports = { KEEP_PREVIOUS, SecretsError, create, exists, generate, originOf, unlock }
+module.exports = { KEEP_PREVIOUS, SecretsError, create, exists, generate, originOf, siteOf, unlock }

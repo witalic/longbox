@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // What the key in the browser's toolbar opens (design/password-manager.md): the
-// logins of the page's exact origin — Fill, copy the username or the password,
+// logins of the page's site — its own address's first, another address of the
+// site named on its row — Fill, copy the username or the password,
 // and a pencil that turns the popover into the login editor, in place — a new
 // one for this site, and Lock. Locked,
 // it asks for the master password first; with none yet, it offers to set one.
@@ -21,8 +22,9 @@ const site = computed(() => (/^https?:\/\//.test(props.origin) ? props.origin : 
 const list = ref<LoginSummary[]>([])
 const error = ref('')
 const note = ref('')
-// the editor: the login (null: a new one) and the site it was opened for
-const editing = ref<{ login: LoginSummary | null; origin: string } | null>(null)
+// the editor: the login (null: a new one) and the site it was opened for;
+// `bound`: it is this tab's address's, so the editor follows where the tab goes
+const editing = ref<{ login: LoginSummary | null; origin: string; bound: boolean } | null>(null)
 
 async function load() {
   error.value = note.value = ''
@@ -88,7 +90,7 @@ function inSources() {
         <span class="t">{{ editing.login ? 'Edit login' : 'New login' }}</span>
         <button class="iconbtn plain" title="Close" @click="emit('close')"><Icon name="x" :size="13" :sw="2.2" /></button>
       </div>
-      <LoginEditor :login="editing.login" :origin="editing.origin" :here="site" @saved="done" @deleted="done"
+      <LoginEditor :login="editing.login" :origin="editing.origin" :here="editing.bound ? site : undefined" @saved="done" @deleted="done"
                    @cancel="editing = null" />
     </template>
     <template v-else>
@@ -110,18 +112,19 @@ function inSources() {
             opened; the next change writes the file again.</div>
           <div v-for="l in list" :key="l.id" class="acct">
             <span class="av">{{ (l.username || '?').slice(0, 1).toUpperCase() }}</span>
-            <span class="who"><b>{{ l.username || '(no username)' }}</b><span>{{ l.used ? `used ${ago(l.used)}` : 'not used yet' }}</span></span>
+            <span class="who"><b>{{ l.username || '(no username)' }}</b><span><template v-if="l.origin !== site"><span
+              class="mono">{{ hostOf(l.origin) }}</span> · </template>{{ l.used ? `used ${ago(l.used)}` : 'not used yet' }}</span></span>
             <button class="btn small accent" @click="fill(l)">Fill</button>
             <button class="iconbtn plain" title="Copy the username" :disabled="!l.username" @click="copy(l, 'username')">
               <Icon name="authors" :size="13" :sw="2" /></button>
             <button class="iconbtn plain" title="Copy the password — it leaves the clipboard after 30 seconds"
                     @click="copy(l, 'password')"><Icon name="key" :size="13" :sw="2" /></button>
-            <button class="iconbtn plain" title="Edit" @click="editing = { login: l, origin: l.origin }">
+            <button class="iconbtn plain" title="Edit" @click="editing = { login: l, origin: l.origin, bound: l.origin === site }">
               <Icon name="edit" :size="13" :sw="2" /></button>
           </div>
           <div v-if="!list.length" class="say">Nothing saved for this site yet.</div>
           <hr />
-          <button class="mi" @click="editing = { login: null, origin: site }"><Icon name="plus" :size="14" :sw="2" />Add a login for this site</button>
+          <button class="mi" @click="editing = { login: null, origin: site, bound: true }"><Icon name="plus" :size="14" :sw="2" />Add a login for this site</button>
           <button v-if="sourceSite" class="mi" @click="inSources"><Icon name="sources" :size="14" :sw="2" />All of this site's logins — Sources</button>
           <button class="mi" @click="lock"><Icon name="lock" :size="14" :sw="2" />Lock passwords</button>
         </template>
@@ -147,7 +150,7 @@ function inSources() {
 .av { margin-right: 4px; width: 26px; height: 26px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line); display: inline-flex; align-items: center; justify-content: center; font: 700 11px/1 system-ui; color: var(--tx2); flex: none; }
 .who { flex: 1; min-width: 0; }
 .who b { display: block; font: 500 12.5px/1.2 system-ui; color: var(--tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.who span { display: block; font: 400 11px/1.3 system-ui; color: var(--tx3); }
+.who > span { display: block; font: 400 11px/1.3 system-ui; color: var(--tx3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acct .iconbtn { width: 28px; height: 28px; }
 .mi { width: 100%; display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 9px; border: none; background: transparent; border-radius: 6px; color: var(--tx2); font: 500 12.5px/1 system-ui; cursor: pointer; text-align: left; }
 .mi:hover { background: var(--hover); color: var(--tx); }
