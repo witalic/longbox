@@ -33,7 +33,8 @@ copies are checked on the real binaries.
 ## 3.6.0 — password manager
 
 Logins for the sites in the embedded browser, encrypted in the vault under a master password,
-filled on click ([draft](design/password-manager.md), to be checked against 3.5.0). With sessions
+filled on click ([draft](design/password-manager.md), to be checked against 3.5.0). Only the key is
+held while unlocked; each password is decrypted at the moment it is used. With sessions
 kept on each computer, it is what makes signing in again on another one quick.
 
 ## Then
