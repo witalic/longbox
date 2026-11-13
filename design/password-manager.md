@@ -147,9 +147,18 @@ Forgetting the master password loses the secrets. Setup says so, plainly, once.
   not when the tab leaves the site, since a sign-in through another site (SSO) does just that; one
   nobody answers goes after ten minutes, its password with it. Nothing is kept unless saved.
   Only a sign-in the owner sent counts — a trusted event while the page holds a fresh gesture of
-  theirs — so a page cannot raise the bar by itself; and the bar lies over the top of the page,
-  never resizing it, so a page cannot learn from its own size whether a password it sent is the
-  saved one. A sign-in in a popup window (OAuth) is not offered.
+  theirs — so a page cannot raise the bar by itself. A form's submit counts only right after the
+  owner clicked in that form or pressed Enter in it: a page's own script can submit its form on any
+  click of theirs anywhere (`requestSubmit` arrives trusted, with the gesture), and that is not a
+  sign-in of theirs (an independent review, 2026-11-13). A field the page keeps out of sight —
+  hidden, transparent, a pixel wide — is not one the key counts or Fill types into. The bar lies
+  over the top of the page, never resizing it, so a page cannot learn from its own size whether a
+  password it sent is the saved one. A sign-in in a popup window (OAuth) is not offered.
+- **The bar does what it said.** Its answer carries what it showed — Save, or Update and of which
+  login's address — and the shell writes only that. A bar answered while locked learns only once
+  unlocked what the sign-in is; one that turns out to be other (an update, of a login at another
+  address of the site) is shown anew, and nothing is written. Of several logins with the sign-in's
+  username on the site, the one whose password it sent is the one it used — no bar.
 
 ## Ad blocking, from the shield
 

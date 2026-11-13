@@ -59,7 +59,8 @@ contextBridge.exposeInMainWorld('longbox', {
       ipcRenderer.on('lb-pw-offer', h)
       return () => ipcRenderer.removeListener('lb-pw-offer', h)
     },
-    answerOffer: (guestId, what) => ipcRenderer.invoke('lb-pw-offer-answer', Number(guestId), String(what ?? '')),
+    answerOffer: (guestId, what, shown) => ipcRenderer.invoke('lb-pw-offer-answer', Number(guestId), String(what ?? ''),
+      { kind: String(shown?.kind ?? ''), origin: String(shown?.origin ?? '') }),
     changeMaster: (current, next) => ipcRenderer.invoke('lb-pw-change-master', String(current ?? ''), String(next ?? '')),
     // the sites where saving a login is never offered, and changing that
     nevers: () => ipcRenderer.invoke('lb-pw-nevers'),

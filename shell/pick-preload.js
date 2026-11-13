@@ -674,7 +674,13 @@ window.addEventListener('mouseup', (e) => {
 // The top frame only: its sign-in form is what the key in the toolbar tells
 // of, and the one place a login is filled — never a frame inside the page.
 if (window === window.top) {
-  const shown = (el) => !el.disabled && !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)
+  // a field the page shows: drawn, with room to type in — one kept out of sight
+  // (hidden, transparent, a pixel) is none
+  const shown = (el) => {
+    if (el.disabled) return false
+    const r = el.getBoundingClientRect()
+    return r.width > 4 && r.height > 4 && el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })
+  }
   const passwordFields = () => [...document.querySelectorAll('input[type="password"]')].filter(shown)
   // the name a form asks with the password: the one it says is the username,
   // else the last text field before the password
@@ -721,8 +727,10 @@ if (window === window.top) {
   // A sign-in sent: its username and password go to the shell — never to the
   // window — which offers to save them. Only one the owner sent: a trusted
   // event while the page holds a fresh gesture of theirs, so a page cannot
-  // raise the offer by itself. A form is taken as it is submitted, or as Enter
-  // is pressed in it; a page that signs in with fetch and no form, as its
+  // raise the offer by itself. A form is taken as it is submitted right after
+  // the owner clicked in it or pressed Enter in it (a page's own script may
+  // submit it too, on any click of theirs anywhere — that is not it), or as
+  // Enter is pressed in it; a page that signs in with fetch and no form, as its
   // submit button is clicked. A new password is the one the form says is new,
   // else the last one (a change form's confirmation).
   let sentWhat = ''
@@ -753,7 +761,17 @@ if (window === window.top) {
     sentAt = Date.now()
     ipcRenderer.send('lb-pw-submitted', { username, password })
   }
-  document.addEventListener('submit', (e) => signedIn(e, e.target instanceof HTMLFormElement ? e.target : null), true)
+  let press = { el: null, at: 0 } // the owner's last click, or Enter
+  const pressed = (e) => { if (e.isTrusted) press = { el: e.target, at: Date.now() } }
+  document.addEventListener('click', pressed, true)
+  document.addEventListener('keydown', (e) => { if (e.key === 'Enter') pressed(e) }, true)
+  document.addEventListener('submit', (e) => {
+    const form = e.target instanceof HTMLFormElement ? e.target : null
+    const el = press.el
+    if (form && el instanceof Node && Date.now() - press.at < 1000 && (form.contains(el) || e.submitter?.contains(el))) {
+      signedIn(e, form)
+    }
+  }, true)
   document.addEventListener('keydown', (e) => {
     const el = e.target
     if (e.key !== 'Enter' || !(el instanceof HTMLInputElement)) return

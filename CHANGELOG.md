@@ -24,6 +24,14 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
   ask — is filled a step at a time: **Fill** on the username step fills the username, on the
   password step the password. Saving after it keeps the username from the first step.
 
+### Security
+- **A page could raise the bar that offers to save a login by itself**, with a username and
+  password of its choosing, by submitting its own form from its own script on any click of yours
+  anywhere on it. A sign-in counts now only when you clicked in its form or pressed Enter in it.
+- **A "Save…" answered while the logins were locked does what it said.** Once unlocked, a sign-in
+  that turns out to be an update of a saved login is shown as that, to be answered again — never
+  written over it unasked.
+
 ## [3.6.2] — 2026-11-13
 
 ### Fixed

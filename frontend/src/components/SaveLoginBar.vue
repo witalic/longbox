@@ -23,14 +23,17 @@ const busy = ref(false)
 const error = ref('')
 
 // Saving, or never asking here, needs the logins open: the master password first.
+// What the bar says as it is answered goes with the answer: once unlocked, a
+// sign-in that turns out to be another thing is shown anew instead.
 async function say(what: 'save' | 'never' | 'dismiss') {
   const shell = window.longbox?.logins
   if (!shell || busy.value) return
   busy.value = true
   error.value = ''
+  const shown = { kind: props.offer.kind, origin: props.offer.origin ?? '' }
   try {
     if (what !== 'dismiss' && !(await askMaster())) return
-    await settled(shell.answerOffer(props.offer.guestId, what))
+    if (await settled(shell.answerOffer(props.offer.guestId, what, shown)) === 'changed') return
     emit('answered', props.offer.guestId)
   } catch (e) {
     error.value = `Not saved: ${e instanceof Error ? e.message : String(e)}`

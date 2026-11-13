@@ -100,8 +100,9 @@ declare global {
         generate: (opts?: { length?: number; letters?: boolean; digits?: boolean; symbols?: boolean }) => Promise<LoginsAnswer<string>>
         fill: (guestId: number, id: string) => Promise<LoginsAnswer<boolean>>
         onOffer: (fn: (offer: LoginOffer) => void) => () => void
-        answerOffer: (guestId: number, what: 'save' | 'never' | 'dismiss') =>
-          Promise<LoginsAnswer<'saved' | 'updated' | 'same' | 'never' | 'dropped' | 'gone'>>
+        // `shown`: what the bar said as it was answered; 'changed': it turned out to mean other, and is shown anew
+        answerOffer: (guestId: number, what: 'save' | 'never' | 'dismiss', shown: { kind: LoginOffer['kind']; origin: string }) =>
+          Promise<LoginsAnswer<'saved' | 'updated' | 'same' | 'never' | 'dropped' | 'gone' | 'changed'>>
         changeMaster: (current: string, next: string) => Promise<LoginsAnswer<void>>
         nevers: () => Promise<LoginsAnswer<string[]>>
         setNever: (origin: string, never: boolean) => Promise<LoginsAnswer<void>>

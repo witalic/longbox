@@ -144,17 +144,21 @@ function tell(guestId, kind, origin = '') {
     ? { guestId, kind, origin: origin || offer.origin, username: offer.username } : { guestId, kind: null })
 }
 
-// The saved login a sign-in is for — the same username on the site, the page's
-// own address first, or the site's only login when the form asked for none (a
-// change-password page) — and whether it sent the password already saved.
+// The saved login a sign-in is for, and whether it sent the password already
+// saved: of the site's logins with its username (the page's own address first;
+// the site's only login when the form asked for none, a change-password page),
+// the one whose password it sent — else the first.
 function matchOf(offer) {
   const list = held().list(offer.origin)
-  const login = list.find((x) => x.username === offer.username) || (!offer.username && list.length === 1 ? list[0] : null)
-  if (!login) return null
-  const saved = held().reveal(login.id)
-  const same = saved.length === offer.password.length && crypto.timingSafeEqual(saved, offer.password)
-  saved.fill(0)
-  return { login, same }
+  const named = list.filter((x) => x.username === offer.username)
+  const pool = named.length ? named : !offer.username && list.length === 1 ? list : []
+  for (const login of pool) {
+    const saved = held().reveal(login.id)
+    const same = saved.length === offer.password.length && crypto.timingSafeEqual(saved, offer.password)
+    saved.fill(0)
+    if (same) return { login, same }
+  }
+  return pool.length ? { login: pool[0], same: false } : null
 }
 
 // What to offer: 'save', 'update', 'locked' (not known until the master
@@ -208,31 +212,42 @@ function submitted(e, msg) {
 }
 
 // The owner's answer to the bar: 'save' (a new login, or the saved one's new
-// password — whichever the sign-in turns out to be, now that it is unlocked),
-// 'never' for this site, or 'dismiss'. Answered, the offer is taken first, so
-// nothing zeroes its password while it is being saved; and the window is told
-// it is gone, unless the page sent a newer one meanwhile.
-async function answer(guestId, what) {
+// password), 'never' for this site, or 'dismiss'. `shown`: what the bar said
+// as it was answered — and only that is done. A bar answered while locked
+// learns only now what the sign-in is: when it turns out to be other than it
+// said (an update, of a login at another address of the site), it is shown
+// anew and nothing is written. Answered, the offer is taken first, so nothing
+// zeroes its password while it is being saved; and the window is told it is
+// gone, unless the page sent a newer one meanwhile.
+async function answer(guestId, what, shown) {
   try {
-    return await answered(guestId, what)
+    return await answered(guestId, what, shown)
   } finally {
     if (!offers.has(guestId)) tell(guestId, null)
   }
 }
-async function answered(guestId, what) {
+async function answered(guestId, what, shown) {
   if (!offers.has(guestId)) return 'gone'
   if (what !== 'save' && what !== 'never') {
     drop(guestId)
     return 'dropped'
   }
   held()
+  const now = what === 'save' ? judge(offers.get(guestId)) : null
+  if (now?.kind) {
+    const said = shown?.kind === 'update' ? 'update' : 'save'
+    if (now.kind !== said || (said === 'update' && now.match.login.origin !== shown?.origin)) {
+      judged(guestId, offers.get(guestId))
+      return 'changed'
+    }
+  }
   const offer = take(guestId)
   try {
     if (what === 'never') {
       await held().setNever(offer.origin, true)
       return 'never'
     }
-    const { kind, match } = judge(offer)
+    const { kind, match } = now
     if (!kind) return 'same'
     if (match) {
       await held().edit(match.login.id, { steps: [{ password: offer.password }], updated: match.login.updated })
@@ -303,7 +318,8 @@ function wire(window, root) {
   handle('lb-pw-remove', (id) => held().remove(String(id)))
   handle('lb-pw-generate', (opts) => secrets.generate(opts && typeof opts === 'object' ? opts : {}))
   handle('lb-pw-fill', (guestId, id) => fill(guestId, String(id)))
-  handle('lb-pw-offer-answer', (guestId, what) => answer(Number(guestId), String(what)))
+  handle('lb-pw-offer-answer', (guestId, what, shown) => answer(Number(guestId), String(what),
+    { kind: String(shown?.kind ?? ''), origin: String(shown?.origin ?? '') }))
   handle('lb-pw-change-master', (current, next) => held().changeMaster(String(current ?? ''), String(next ?? '')))
   handle('lb-pw-nevers', () => held().nevers())
   handle('lb-pw-set-never', (origin, never) => held().setNever(String(origin ?? ''), !!never))
