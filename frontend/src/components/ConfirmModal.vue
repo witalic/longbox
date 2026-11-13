@@ -1,6 +1,17 @@
 <script setup lang="ts">
+import { nextTick, ref, watch } from 'vue'
 import { confirmState, resolveConfirm } from '../confirm'
 import Icon from './Icon.vue'
+
+// The keyboard rests where a stray Enter does no harm: on Cancel when the
+// answer destroys, on the answer otherwise.
+const cancelBtn = ref<HTMLButtonElement | null>(null)
+const okBtn = ref<HTMLButtonElement | null>(null)
+watch(() => confirmState.open, async (open) => {
+  if (!open) return
+  await nextTick()
+  ;(confirmState.req.danger ? cancelBtn : okBtn).value?.focus()
+})
 </script>
 
 <template>
@@ -17,9 +28,9 @@ import Icon from './Icon.vue'
           </button>
         </div>
         <div class="actions">
-          <button class="btn ghost" @click="resolveConfirm(false)">Cancel</button>
+          <button ref="cancelBtn" class="btn ghost" @click="resolveConfirm(false)">Cancel</button>
           <button v-if="confirmState.req.altLabel" class="btn" @click="resolveConfirm('alt')">{{ confirmState.req.altLabel }}</button>
-          <button class="btn" :class="confirmState.req.danger ? 'danger' : 'accent'" autofocus @click="resolveConfirm(true)">
+          <button ref="okBtn" class="btn" :class="confirmState.req.danger ? 'danger' : 'accent'" @click="resolveConfirm(true)">
             {{ confirmState.req.okLabel || 'OK' }}
           </button>
         </div>
