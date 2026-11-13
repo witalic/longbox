@@ -163,8 +163,10 @@ password of yours, and filled when you click, never by themselves.
 The logins file (`.longbox/secrets.json`) holds nothing readable: a copy of the vault — a backup, a
 synced folder — protects them only as well as the master password does, so make it a long one.
 Changing the master password re-encrypts every login, so an older copy, opened with the old one,
-opens nothing saved since. Beside it, `secrets.prev.json` keeps the file as it was before the last
-change: if a crash ever leaves the file unreadable, longbox opens that one instead and says so.
+opens nothing saved since. Beside it, `secrets.prev.json` is a second copy of the file, written
+just after it: if the file ever does not read, longbox opens the copy instead and says so. The copy
+is always the file as it is now, so a deleted login, or the old master password, does not live on
+in it.
 
 ## Sources
 

@@ -6,6 +6,12 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 
 ## [Unreleased]
 
+### Security
+- **Passwords:** the second copy of the logins file (`secrets.prev.json`) kept the file as it was
+  before the last change — so a login just deleted, or every login under a master password just
+  changed, stayed readable in it until the next change. It is now a copy of the file as it is,
+  written just after it, and the next unlock writes it again if it is not.
+
 ## [3.6.0] — 2026-11-13
 
 ### Added

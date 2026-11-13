@@ -229,7 +229,7 @@ function handle(channel, fn) {
 
 async function unlocked(got) {
   logins = got
-  if (got.restored) console.error('secrets.json did not read; the generation before it was opened')
+  if (got.restored) console.error('secrets.json did not read; its second copy was opened')
   tellState(await state())
   // the bars that could not tell what to offer can now
   for (const [guestId, offer] of offers) judged(guestId, offer)

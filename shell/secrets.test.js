@@ -17,7 +17,7 @@ function vault(t) {
   return root
 }
 const file = (root) => path.join(root, '.longbox', 'secrets.json')
-const prev = (root) => path.join(root, '.longbox', 'secrets.prev.json')
+const copy = (root) => path.join(root, '.longbox', 'secrets.prev.json')
 const text = (buf) => {
   const s = buf.toString('utf8')
   buf.fill(0)
@@ -51,7 +51,7 @@ test('neither the file nor a list holds a password in the clear', async (t) => {
 test('a file edited by hand opens nothing, one that does not read is never written over', async (t) => {
   const root = vault(t)
   await (await secrets.create(root, MASTER)).add({ origin: SITE, username: 'u', password: 'p' })
-  fs.rmSync(prev(root)) // no generation before to fall back to
+  fs.rmSync(copy(root)) // no second copy to fall back to
   const doc = JSON.parse(fs.readFileSync(file(root), 'utf8'))
   fs.writeFileSync(file(root), JSON.stringify({ ...doc, kdf: { ...doc.kdf, N: doc.kdf.N / 2 } }))
   await assert.rejects(secrets.unlock(root, MASTER), { code: 'EPASSWORD' })        // the header: the key does not unwrap
@@ -69,7 +69,7 @@ test('a file edited by hand opens nothing, one that does not read is never writt
   assert.equal(fs.readFileSync(file(root), 'utf8'), '{ torn')
 })
 
-test('a file torn by a crash falls back to the generation before it, losing only the last change', async (t) => {
+test('a file that does not read falls back to its second copy, and the next change writes it again', async (t) => {
   const root = vault(t)
   const logins = await secrets.create(root, MASTER)
   await logins.add({ origin: SITE, username: 'first', password: 'p1' })
@@ -78,16 +78,61 @@ test('a file torn by a crash falls back to the generation before it, losing only
   fs.writeFileSync(file(root), '{ "schema": 1, "kd')
   const back = await secrets.unlock(root, MASTER)
   assert.equal(back.restored, true)
-  assert.deepEqual(back.list().map((e) => e.username), ['first'])
+  assert.deepEqual(back.list().map((e) => e.username), ['first', 'second'])
   assert.equal((await secrets.unlock(root, 'not the master password').catch((e) => e)).code, 'EBADFILE')
+  await back.add({ origin: SITE, username: 'third', password: 'p3' })
+  assert.equal(fs.readFileSync(file(root), 'utf8'), fs.readFileSync(copy(root), 'utf8'))
+  await back.lock()
+  const whole = await secrets.unlock(root, MASTER)
+  assert.equal(whole.restored, false)
+  assert.deepEqual(whole.list().map((e) => e.username), ['first', 'second', 'third'])
+})
+
+test('the second copy keeps nothing the file does not: no deleted login, no old master password', async (t) => {
+  const root = vault(t)
+  const logins = await secrets.create(root, MASTER)
+  const gone = await logins.add({ origin: SITE, username: 'deleted', password: 'p1' })
+  await logins.add({ origin: SITE, username: 'kept', password: 'p2' })
+  await logins.remove(gone)
+  await logins.changeMaster(MASTER, 'a brand new master')
+  await logins.lock()
+  fs.writeFileSync(file(root), '{ torn')                                            // only the copy is left to read
+  await assert.rejects(secrets.unlock(root, MASTER), { code: 'EBADFILE' })
+  const back = await secrets.unlock(root, 'a brand new master')
+  assert.equal(back.restored, true)
+  assert.deepEqual(back.list().map((e) => e.username), ['kept'])
+})
+
+test('a second copy that is not the file — a crash came between the two writes — is mended at unlock', async (t) => {
+  const root = vault(t)
+  const logins = await secrets.create(root, MASTER)
+  await logins.add({ origin: SITE, username: 'deleted', password: 'p1' })
+  const older = fs.readFileSync(file(root), 'utf8')
+  await logins.remove(logins.list()[0].id)
+  await logins.lock()
+  fs.writeFileSync(copy(root), older)
+  await secrets.unlock(root, MASTER)
+  assert.equal(fs.readFileSync(copy(root), 'utf8'), fs.readFileSync(file(root), 'utf8'))
+})
+
+test('a second copy that cannot be written does not undo the change', async (t) => {
+  const root = vault(t)
+  const logins = await secrets.create(root, MASTER)
+  fs.mkdirSync(copy(root))
+  t.mock.method(console, 'error', () => {})
+  await logins.add({ origin: SITE, username: 'saved', password: 'p1' })
+  assert.deepEqual(logins.list().map((e) => e.username), ['saved'])
+  await logins.lock()
+  assert.deepEqual((await secrets.unlock(root, MASTER)).list().map((e) => e.username), ['saved'])
 })
 
 test('a write that fails changes nothing — on disk or in memory — and the next one does not carry it', async (t) => {
   const root = vault(t)
   const logins = await secrets.create(root, MASTER)
   await logins.add({ origin: SITE, username: 'kept', password: 'p1' })
-  const breakWrites = () => { fs.rmSync(prev(root), { force: true }); fs.mkdirSync(prev(root)) }
-  const mendWrites = () => fs.rmSync(prev(root), { recursive: true })
+  const aside = `${file(root)}.aside`
+  const breakWrites = () => { fs.renameSync(file(root), aside); fs.mkdirSync(file(root)); fs.writeFileSync(path.join(file(root), 'x'), '') }
+  const mendWrites = () => { fs.rmSync(file(root), { recursive: true }); fs.renameSync(aside, file(root)) }
   breakWrites()
   await assert.rejects(logins.add({ origin: SITE, username: 'lost', password: 'p2' }))
   await assert.rejects(logins.changeMaster(MASTER, 'a brand new master'))
@@ -230,7 +275,7 @@ test('a new master password opens what the old one did, and the old one nothing'
   // a new data key too: a copy made before, opened with the old master, opens nothing written since
   const after = JSON.parse(fs.readFileSync(file(root), 'utf8'))
   fs.writeFileSync(file(root), JSON.stringify({ ...before, data: after.data }))
-  fs.rmSync(prev(root))
+  fs.rmSync(copy(root))
   await assert.rejects(secrets.unlock(root, MASTER), { code: 'EBADFILE' })
 })
 

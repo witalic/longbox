@@ -25,7 +25,7 @@ const stateHint = computed(() => {
   if (!loginsState.exists) return 'None yet. A master password of yours keeps them encrypted in the vault.'
   if (!loginsState.unlocked) return 'Locked — they open with the master password, once per start.'
   if (loginsState.restored) {
-    return 'The logins file did not read, so the copy kept before its last change was opened: that change is lost.'
+    return 'The logins file did not read, so its second copy was opened; the next change writes the file again.'
   }
   const c = count.value
   return c ? `${c.logins} login${c.logins === 1 ? '' : 's'} on ${c.sites} site${c.sites === 1 ? '' : 's'}, open until the app closes or they are locked.`

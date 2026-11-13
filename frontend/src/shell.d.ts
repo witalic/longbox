@@ -36,7 +36,7 @@ declare global {
   }
   // the vault's logins (shell/passwords.js): an answer, or what the owner is told
   type LoginsAnswer<T> = { ok: true; value: T } | { ok: false; code: string; message: string }
-  // `restored`: the file did not read, and the generation before it was opened (the last change lost)
+  // `restored`: the file did not read, and its second copy was opened
   interface LoginsState { exists: boolean; unlocked: boolean; restored: boolean }
   // a login as a list shows it — never its password; `previous`: the passwords it replaced, newest first
   interface LoginSummary {

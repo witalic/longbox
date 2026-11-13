@@ -80,9 +80,12 @@ belongs there with no sidecar round trip.
   whose header was edited does not decrypt.
 - **The one file with no other copy**, so it is written to survive a crash: a change is made on a
   copy and written — synced to disk before it is renamed in — and only then is it what the app
-  holds; a write that fails leaves the logins as they were, in memory as on disk. The file it
-  replaces is kept beside it (`secrets.prev.json`); a file that does not read falls back to it,
-  losing only the last change, and the app says so. The first file is linked in, so it never
+  holds; a write that fails leaves the logins as they were, in memory as on disk. A second copy
+  (`secrets.prev.json`) is written the same way just after it, and a file that does not read
+  falls back to it; the app says so. The copy is the file as it is now, never the generation
+  before (an independent review, 2026-11-13): that would keep a deleted login, or every login
+  under a master password since changed. One that cannot be written is removed, and one a crash
+  left behind is written again at the next unlock. The first file is linked in, so it never
   replaces one made meanwhile.
 - The entries, once decrypted: `[{ id, origin, username, secret, previous, note, created, updated,
   used }]`, where `secret` is the password sealed on its own with the data key (`{ nonce, data, tag

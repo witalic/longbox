@@ -16,7 +16,7 @@ const path = require('node:path')
 const vaults = require('./vaults')
 
 const FILE = 'secrets.json'
-const PREVIOUS_FILE = 'secrets.prev.json' // the generation before the last write
+const COPY_FILE = 'secrets.prev.json' // the second copy, written just after the file
 const SCHEMA = 1
 // ~128 MB and about half a second a guess: what a copied vault's file costs
 // whoever tries passwords on it. Kept in the file, so it can be raised later —
@@ -30,7 +30,7 @@ const KEEP_PREVIOUS = 3
 const WRITE_MS = 15000
 
 const fileOf = (root) => path.join(root, vaults.APP_DIR, FILE)
-const previousOf = (root) => path.join(root, vaults.APP_DIR, PREVIOUS_FILE)
+const copyOf = (root) => path.join(root, vaults.APP_DIR, COPY_FILE)
 const b64 = (buf) => buf.toString('base64')
 const unb64 = (s) => Buffer.from(typeof s === 'string' ? s : '', 'base64')
 
@@ -114,8 +114,7 @@ async function readDoc(root, file) {
 }
 
 // A new file, synced before it is renamed in, so a crash or a power cut leaves
-// the old one or the new one, never half of either; the one it replaces is kept
-// beside it as the generation before.
+// the old one or the new one, never half of either.
 const scratchOf = (file) => `${file}.${process.pid}-${crypto.randomBytes(4).toString('hex')}.tmp`
 async function writeSynced(file, text) {
   const fh = await fs.promises.open(file, 'w')
@@ -126,16 +125,37 @@ async function writeSynced(file, text) {
     await fh.close()
   }
 }
-async function writeDurably(root, text) {
-  const tmp = scratchOf(fileOf(root))
+async function replaceSynced(file, text) {
+  const tmp = scratchOf(file)
   try {
     await writeSynced(tmp, text)
-    await fs.promises.copyFile(fileOf(root), previousOf(root)).catch((e) => { if (e.code !== 'ENOENT') throw e })
-    await fs.promises.rename(tmp, fileOf(root))
+    await fs.promises.rename(tmp, file)
   } catch (e) {
     fs.promises.unlink(tmp).catch(() => {})
     throw e
   }
+}
+
+// The second copy, written just after the file: what a file that does not read
+// falls back to. It is the file as it is now, never a generation before it —
+// that would keep a deleted login, or every login under a master password since
+// changed — so one that cannot be written is removed rather than left behind.
+async function mirror(root, text) {
+  try {
+    await vaults.within(WRITE_MS, replaceSynced(copyOf(root), text), root)
+  } catch (e) {
+    console.error(`${COPY_FILE} was not written: ${e.message}`)
+    await vaults.within(WRITE_MS, fs.promises.rm(copyOf(root), { force: true }), root)
+      .catch((err) => console.error(`${COPY_FILE} was not removed: ${err.message}`))
+  }
+}
+
+// A second copy that is not the file as it reads now — a crash came between
+// the two writes — is written again.
+async function mend(root, doc) {
+  const text = JSON.stringify(doc, null, 2)
+  const copy = await vaults.within(8000, fs.promises.readFile(copyOf(root), 'utf8'), root).catch(() => null)
+  if (copy !== text) await mirror(root, text)
 }
 
 function originOf(url) {
@@ -199,12 +219,14 @@ class Logins {
         const plain = Buffer.from(JSON.stringify({ logins: next.logins, never: next.never }))
         const doc = { ...next.doc, data: seal(next.key, plain, headerOf(next.doc)) }
         plain.fill(0)
-        await vaults.within(WRITE_MS, writeDurably(this.#root, JSON.stringify(doc, null, 2)), this.#root)
+        const text = JSON.stringify(doc, null, 2)
+        await vaults.within(WRITE_MS, replaceSynced(fileOf(this.#root), text), this.#root)
         if (next.key !== this.#key) this.#key.fill(0)
         this.#doc = doc
         this.#key = next.key
         this.#logins = next.logins
         this.#never = next.never
+        await mirror(this.#root, text)
         return out
       } catch (e) {
         if (next.key !== this.#key) next.key.fill(0)
@@ -444,22 +466,23 @@ async function openDoc(doc, master) {
   return { key, data }
 }
 
-// Unlocked with the master password. A file that does not read — torn by a
-// crash, damaged since — falls back to the generation before it, losing only
-// the last change; `restored` says it did.
+// Unlocked with the master password. A file that does not read — torn, damaged
+// since — falls back to its second copy; `restored` says it did, and the next
+// change writes the file again.
 async function unlock(root, master) {
   let doc
   try {
     doc = await readDoc(root, fileOf(root))
     if (!doc) throw new SecretsError('ENOENT', 'this vault has no master password yet')
     const { key, data } = await openDoc(doc, master)
+    await mend(root, doc)
     return Object.assign(new Logins(root, doc, key, data), { restored: false })
   } catch (e) {
     if (e.code !== 'EBADFILE') throw e
-    const before = await readDoc(root, previousOf(root)).catch(() => null)
-    if (!before) throw e
-    const { key, data } = await openDoc(before, master).catch(() => { throw e })
-    return Object.assign(new Logins(root, before, key, data), { restored: true })
+    const copy = await readDoc(root, copyOf(root)).catch(() => null)
+    if (!copy) throw e
+    const { key, data } = await openDoc(copy, master).catch(() => { throw e })
+    return Object.assign(new Logins(root, copy, key, data), { restored: true })
   }
 }
 

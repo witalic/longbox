@@ -93,8 +93,8 @@ function inSources() {
             : 'Logins are kept in the vault, encrypted under a master password of yours.' }}</div>
         </template>
         <template v-else>
-          <div v-if="loginsState.restored" class="say warn">The logins file did not read, so the copy kept before its
-            last change was opened: that change is lost.</div>
+          <div v-if="loginsState.restored" class="say warn">The logins file did not read, so its second copy was
+            opened; the next change writes the file again.</div>
           <div v-for="l in list" :key="l.id" class="acct">
             <span class="av">{{ (l.username || '?').slice(0, 1).toUpperCase() }}</span>
             <span class="who"><b>{{ l.username || '(no username)' }}</b><span>{{ l.used ? `used ${ago(l.used)}` : 'not used yet' }}</span></span>
