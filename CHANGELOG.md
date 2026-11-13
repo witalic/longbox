@@ -24,6 +24,12 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
   playing before its tab was ever shown waits, and plays as you switch to it. Once you have seen a
   tab, what you leave playing there keeps playing.
 
+### Security
+- **A frame inside a page could change the address the browser showed for the tab** — moving within
+  itself was taken for the page's own move — and with it which saved login counted as the page's
+  own. The tab's address is now its top frame's alone, and a login is filled only into the address
+  the page was on as you chose it.
+
 ## [3.6.3] — 2026-11-13
 
 ### Added

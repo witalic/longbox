@@ -1060,6 +1060,12 @@ function onNav(e: any, tabId: string) {
     window.setTimeout(() => scanNow(tabId), 300)
   }
 }
+// an in-page navigation of a frame inside the page is not the tab's: the tab's
+// address — what the bar shows, what a login is checked against — is its top
+// frame's alone
+function onNavInPage(e: any, tabId: string) {
+  if (e?.isMainFrame !== false) onNav(e, tabId)
+}
 function onReady(tabId: string) {
   const tab = tabById(tabId)
   const view = wvRefs.get(tabId)
@@ -1199,7 +1205,7 @@ function onReady(tabId: string) {
           @leave-html-full-screen="leaveFull"
           @ipc-message="onIpc($event, t.id)"
           @did-navigate="onNav($event, t.id)"
-          @did-navigate-in-page="onNav($event, t.id)"
+          @did-navigate-in-page="onNavInPage($event, t.id)"
           @page-title-updated="setTabTitle(t.id, $event.title || '')"
           @did-start-loading="setTabLoading(t.id, true)"
           @did-stop-loading="setTabLoading(t.id, false)"

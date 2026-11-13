@@ -129,13 +129,16 @@ function opened(id, previous) {
 }
 
 // Into the page a tab shows, if it is still on the login's site: the origin is
-// the frame's own, never one the window names.
-function fill(guestId, id) {
+// the frame's own, never one the window names. `here`: the address the window
+// believed the page on as the owner chose — another address of the site is
+// asked about there first — so a page that is anywhere else now gets nothing.
+function fill(guestId, id, here) {
   const guest = webContents.fromId(Number(guestId))
   if (!guest || guest.isDestroyed() || guest.getType() !== 'webview' || guest.hostWebContents !== win.webContents) {
     return false
   }
   const frame = guest.mainFrame
+  if (frame.origin !== here) return false
   const login = held().list(frame.origin).find((x) => x.id === id)
   if (!login) return false
   frame.send('lb-pw-fill', { origin: frame.origin, username: login.username, password: opened(id) })
@@ -361,7 +364,7 @@ function wire(window, root) {
   }))
   handle('lb-pw-remove', (id) => held().remove(String(id)))
   handle('lb-pw-generate', (opts) => secrets.generate(opts && typeof opts === 'object' ? opts : {}))
-  handle('lb-pw-fill', (guestId, id) => fill(guestId, String(id)))
+  handle('lb-pw-fill', (guestId, id, here) => fill(guestId, String(id), String(here ?? '')))
   handle('lb-pw-offer-answer', (guestId, what, shown) => answer(Number(guestId), String(what),
     { kind: String(shown?.kind ?? ''), origin: String(shown?.origin ?? '') }))
   handle('lb-pw-change-master', (current, next) => held().changeMaster(String(current ?? ''), String(next ?? '')))

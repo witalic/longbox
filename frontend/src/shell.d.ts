@@ -100,7 +100,8 @@ declare global {
           Promise<LoginsAnswer<void>>
         remove: (id: string) => Promise<LoginsAnswer<void>>
         generate: (opts?: { length?: number; letters?: boolean; digits?: boolean; symbols?: boolean }) => Promise<LoginsAnswer<string>>
-        fill: (guestId: number, id: string) => Promise<LoginsAnswer<boolean>>
+        // `here`: the address the page was on as the owner chose — nothing is filled if it is elsewhere now
+        fill: (guestId: number, id: string, here: string) => Promise<LoginsAnswer<boolean>>
         onOffer: (fn: (offer: LoginOffer) => void) => () => void
         // `shown`: what the bar said as it was answered; 'changed': it turned out to mean other, and is shown anew
         answerOffer: (guestId: number, what: 'save' | 'never' | 'dismiss', shown: { kind: LoginOffer['kind']; origin: string }) =>

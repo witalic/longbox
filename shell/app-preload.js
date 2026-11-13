@@ -52,7 +52,7 @@ contextBridge.exposeInMainWorld('longbox', {
     edit: (id, change) => ipcRenderer.invoke('lb-pw-edit', String(id ?? ''), change),
     remove: (id) => ipcRenderer.invoke('lb-pw-remove', String(id ?? '')),
     generate: (opts) => ipcRenderer.invoke('lb-pw-generate', opts),
-    fill: (guestId, id) => ipcRenderer.invoke('lb-pw-fill', Number(guestId), String(id ?? '')),
+    fill: (guestId, id, here) => ipcRenderer.invoke('lb-pw-fill', Number(guestId), String(id ?? ''), String(here ?? '')),
     // after a page's sign-in, what to offer ({ guestId, kind, origin, username };
     // kind null: nothing any more) — and the owner's answer
     onOffer: (fn) => {
