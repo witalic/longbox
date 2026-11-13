@@ -24,6 +24,12 @@ choice is **where the profile lives**, and that covers site storage too, not onl
   the vault, its backups or its synced copies; another computer starts signed out and signs in on
   its own.
 
+Each vault on a computer has a profile of its own: the folder is named by the vault's **id** (the
+random one in its `vault.json`), never by its path — a vault opened from another drive letter or a
+share keeps its sign-ins, and two vaults never share a profile. (A vault folder copied to start a
+second vault carries the same id, so on one computer the two would share their sign-ins; a vault
+restored from a backup is the same vault, and that is right for it.)
+
 The choice belongs to the vault, so every computer that opens it does the same: it is kept in
 `.longbox/browser.json` (`{ "schema": 1, "keep": "vault" | "computer" }`), the shell's own file,
 read before the browser opens. **The app never chooses for the user:** both answers are offered
