@@ -15,18 +15,22 @@ from pathlib import Path
 
 import uvicorn
 
+from app.library.vault import APP_DIR
 from app.main import app
 
 
 def _log_to_file() -> None:
     """A packaged build has no console, so a slow or failed start is invisible —
-    to the user AND to anyone trying to report it. The log lands next to the
-    app's config, which is the one directory that always exists."""
-    cfg = os.environ.get("LONGBOX_CONFIG_DIR")
-    if not cfg:
+    to the user AND to anyone trying to report it. The log is the vault's, as
+    everything the app keeps is (design/vault-home.md): the app's folder on the
+    computer holds only where the vaults are, and the shell takes anything else
+    it finds there for an older build's, to be moved or removed."""
+    vault = os.environ.get("LONGBOX_LIBRARY_PATH")
+    if not vault:
         return
     try:
-        handler = RotatingFileHandler(Path(cfg) / "longbox.log", maxBytes=512_000,
+        # `.longbox` is there: the shell holds the vault's lock in it before it starts this
+        handler = RotatingFileHandler(Path(vault) / APP_DIR / "longbox.log", maxBytes=512_000,
                                       backupCount=1, encoding="utf-8")
     except OSError:
         return  # a log we cannot write must never stop the app from running

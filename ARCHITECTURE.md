@@ -76,6 +76,8 @@ library/
                              preferences (every `lb.*` key local.ts keeps)
   .longbox/                  the app's own working files (design/vault-home.md):
     lock.json                who has the vault open — one app per vault
+    longbox.log              the packaged sidecar's log (it has no console): the start, the
+                             vault's opening, what failed
     session.json             whether the last session settled (closed through `POST /api/close`
                              before the shell stops the sidecar); one that did not makes the
                              next launch verify the whole vault

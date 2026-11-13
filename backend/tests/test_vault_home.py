@@ -254,3 +254,29 @@ def test_a_moved_vault_finds_its_transfers_where_they_are(tmp_path):
     here = tmp_path / "elsewhere" / ".longbox" / "partial-downloads"
     assert paths == {did: str(here / "123-ep1.mp4"), "old": str(here / "9-ep2.mp4")}
     moved.close()
+
+
+def test_the_packaged_sidecar_logs_into_the_vault_never_into_the_apps_folder(tmp_path, monkeypatch):
+    # the shell takes anything in the app's folder besides config.json for an
+    # older build's: a log there sent every launch into the move of one
+    import logging
+
+    import sidecar
+
+    Library(tmp_path / "v").close()
+    (tmp_path / "v" / ".longbox").mkdir(exist_ok=True)  # the shell's, with its lock, before the sidecar starts
+    (tmp_path / "cfg").mkdir()
+    monkeypatch.setenv("LONGBOX_LIBRARY_PATH", str(tmp_path / "v"))
+    root = logging.getLogger()
+    level, before = root.level, list(root.handlers)
+    try:
+        sidecar._log_to_file()
+        added = [h for h in root.handlers if h not in before]
+        assert [h.baseFilename for h in added] == [str(tmp_path / "v" / ".longbox" / "longbox.log")]
+    finally:
+        for h in root.handlers[:]:
+            if h not in before:
+                root.removeHandler(h)
+                h.close()
+        root.setLevel(level)
+    assert list((tmp_path / "cfg").iterdir()) == []

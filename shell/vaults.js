@@ -323,7 +323,7 @@ const ADBLOCK = { 'adblock.json': 'prefs.json', 'adblock-engine.bin': 'engine.bi
 // What an older build left that no vault needs: the shell's own port, Chromium's
 // profile-wide files, logs, and the sidecar's previews (`cache/thumbs` — on
 // Windows the same folder as Chromium's `Cache`, whose `thumbs` is not copied).
-const LEFTOVERS = ['shell.json', 'Local State', 'longbox.log', 'Crashpad', 'logs', 'GrShaderCache', 'ShaderCache',
+const LEFTOVERS = ['shell.json', 'Local State', 'longbox.log', 'longbox.log.1', 'Crashpad', 'logs', 'GrShaderCache', 'ShaderCache',
   'GraphiteDawnCache', 'Dictionaries', 'DIPS', 'DIPS-journal', 'TransportSecurity', 'Network Persistent State',
   'cache']
 const LEGACY = new Set([...SITE_DATA, ...CACHES, ...Object.keys(ADBLOCK), 'partial-downloads', ...LEFTOVERS].map(fold))

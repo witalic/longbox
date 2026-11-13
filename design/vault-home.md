@@ -22,7 +22,8 @@ without them, and two vaults on one computer share them.
 
 - **The app's folder keeps only where the vaults are.** `config.json` holds the registered vault
   paths and the one opened last. Nothing else is written there — not by the sidecar, not by the
-  shell, not by Chromium.
+  shell, not by Chromium. The packaged sidecar's log is the vault's too (`.longbox/longbox.log`):
+  anything else in the app's folder is taken for an older build's, to be moved or removed.
 - **Everything else is bound to its vault**, the embedded browser included: each vault has its own
   sign-ins, site data and cache.
 - **Switching vaults restarts the app into the other one.** The browser's data lives in the vault,

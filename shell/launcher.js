@@ -262,8 +262,10 @@ async function choose({ forced, why, uiDir, icon }) {
 // progress (the browser's cache alone can be hundreds of megabytes on a network
 // drive). Only a copy: nothing is deleted until the app has what it needs. A copy
 // that fails stops here — the app does not open a vault half-moved into — and
-// "Try again" starts it over.
+// "Try again" starts it over. Nothing to copy — only leftovers, removed once
+// the app is open — shows nothing.
 async function moving(plan, { uiDir, icon }) {
+  if (!plan.parts.some((p) => p.items.length)) return
   const parts = () => plan.parts.filter((p) => p.items.length).map((p) => ({ what: p.what, done: p.done, total: p.total }))
   show(uiDir, icon)
   for (;;) {
@@ -358,7 +360,7 @@ async function signins(root, { uiDir, icon }) {
     const how = await once(name, ui, owing ? 'keep' : 'later', async () => {
       step = await profile.next({ root, home, id, keep, owe, mine: ours })
       if (!step) return
-      if (step.kind === 'move') shown = moving(step, name, ui)
+      if (step.kind === 'move') shown = showMove(step, name, ui)
       const old = step.kind === 'drop' && !step.staged
       if (old && shown) shown.removing()
       keep = await profile.take(step, { root, keep }, shown?.progress)
@@ -415,7 +417,7 @@ async function once(name, { uiDir, icon }, skip, run, stepOf) {
 
 // The move, as the window shows it: the copy's progress in bytes, then the old
 // profile's removal, caches and all.
-function moving(p, name, { uiDir, icon }) {
+function showMove(p, name, { uiDir, icon }) {
   const parts = [
     { what: 'Sign-ins and site data', done: 0, total: 0 },
     { what: p.toward === 'computer' ? "Removing the vault's old profile, cache included"

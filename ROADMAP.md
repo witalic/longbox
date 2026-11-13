@@ -13,10 +13,11 @@ moves to the [changelog](CHANGELOG.md). What longbox will not do is at the end.
 ## Alongside, a step per release
 
 - **Linters in CI**: ruff for the sidecar, eslint for the UI and the shell — first a rule set the
-  code already passes, then tightened.
+  code already passes, then tightened. `no-redeclare` replaces `shell/modules.test.js`.
 - **A UI smoke test in CI**: the off-screen Electron run that takes the project page's screenshots
   (`tools/screenshots.py`) already drives the real app through thirteen scenes over a generated
-  vault; it becomes a test that fails when a scene does.
+  vault; it becomes a test that fails when a scene does. It also starts the real shell twice over
+  the same app folder, as a user does: 3.5.0 to 3.6.1 opened no vault after the first start.
 - **Unit tests for the window's logic** (Vitest, run in CI with the type-check). First the pure
   modules where a mistake costs most: `data.ts` (chapter order, title matching, grouping),
   `normalize.ts`, `tabstrip.ts`, `local.ts` (what a stored preference is accepted as) and

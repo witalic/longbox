@@ -6,6 +6,14 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 
 ## [Unreleased]
 
+### Fixed
+- **longbox opens your vault again, every start.** Since 3.5.0 an installed longbox opened no vault
+  after its first start: the launch window said "The library could not be opened: Cannot
+  destructure property 'uiDir'…". The app took its own log in its folder on the computer for
+  something an older version had left there, and the step meant to move such things failed.
+  Nothing in the vault was touched. The log now lives in the vault (`.longbox/longbox.log`), and
+  the one left in the app's folder is removed at the next start.
+
 ## [3.6.1] — 2026-11-13
 
 ### Added

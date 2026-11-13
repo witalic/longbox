@@ -107,3 +107,33 @@ test('a lock that does not read is no lock', async (t) => {
   fs.writeFileSync(path.join(dir, '.longbox', 'lock.json'), JSON.stringify({ computer: 'pc', pid: 1 }))
   assert.deepEqual(await vaults.readLock(dir), { computer: 'pc', pid: 1 })
 })
+
+// legacyPlan asks Electron where the app's folder is: here, one of the test's
+function appFolder(t, home) {
+  const id = require.resolve('electron')
+  const was = require.cache[id]
+  require.cache[id] = { id, filename: id, loaded: true, exports: { app: { getPath: () => home } } }
+  t.after(() => { if (was) require.cache[id] = was; else delete require.cache[id] })
+}
+
+test('the app\'s folder as this build keeps it is no older build\'s; what an older one left is moved or dropped', async (t) => {
+  const dir = base(t)
+  const home = path.join(dir, 'home'), root = path.join(dir, 'v')
+  fs.mkdirSync(path.join(home, 'browsers', 'v-1'), { recursive: true })
+  fs.mkdirSync(path.join(root, '.longbox'), { recursive: true })
+  appFolder(t, home)
+  for (const n of ['config.json', 'lockfile', path.join('browsers', 'v-1.json')]) fs.writeFileSync(path.join(home, n), '{}')
+  const profile = path.join(home, 'browsers', 'v-1')
+  assert.equal(await vaults.legacyPlan(root, profile), null)
+  // an older build's log: dropped, nothing to copy — so nothing to show
+  fs.writeFileSync(path.join(home, 'longbox.log'), 'x')
+  fs.writeFileSync(path.join(home, 'longbox.log.1'), 'x')
+  const logs = await vaults.legacyPlan(root, profile)
+  assert.deepEqual(logs.drop.sort(), ['longbox.log', 'longbox.log.1'])
+  assert.equal(logs.parts.some((p) => p.items.length), false)
+  // its unfinished downloads: copied into the vault
+  fs.mkdirSync(path.join(home, 'partial-downloads'))
+  fs.writeFileSync(path.join(home, 'partial-downloads', 'a.part'), 'abc')
+  const plan = await vaults.legacyPlan(root, profile)
+  assert.deepEqual(plan.parts.map((p) => p.total), [0, 0, 3])
+})
