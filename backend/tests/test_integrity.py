@@ -6,6 +6,8 @@ the revision pass is the one place that goes looking on purpose.
 """
 from __future__ import annotations
 
+import json
+import os
 import threading
 import zipfile
 
@@ -197,8 +199,26 @@ def test_content_without_a_digest_is_left_out_rather_than_guessed_at(lib, tmp_pa
     for ch in lib.get(tid).chapters:
         side = _sidecar(lib, tid, ch.id)
         _write_sidecar(lib, tid, ch.id, {k: v for k, v in side.items() if k != "content"})
-    lib.sync()  # duplicates reads the index, so the sidecars have to land in it
+    # duplicates reads the index, so the sidecars have to land in it. Written
+    # behind the library's back they are a change made by hand: a rebuild reads
+    # them (sync compares stamps, and a write in the same clock tick moves none)
+    lib.rescan()
     assert lib.health.duplicates()["groups"] == []
+
+
+def test_a_rebuild_reads_a_sidecar_edited_in_place(lib, tmp_path):
+    """Settings → Rebuild picks up a change made by hand inside a title's folder.
+    A sidecar rewritten in place moves no stamp of the chapters folder — the
+    one the sidecar cache is keyed by — so the rebuild reads past the cache."""
+    tid, cid = _chapter(lib, tmp_path)
+    chapters = lib.vault.chapters_dir(tid)
+    held = chapters.stat().st_mtime_ns
+    path = chapters / f"{safe_id(cid)}.json"
+    side = json.loads(path.read_text(encoding="utf-8"))
+    path.write_text(json.dumps({**side, "filename": "edited.cbz"}), encoding="utf-8")
+    os.utime(chapters, ns=(held, held))
+    lib.rescan()
+    assert lib.index.media_of(tid)[0][safe_id(cid)]["filename"] == "edited.cbz"
 
 
 # ---- numbering gaps: silent unless the entries provably form a sequence ----

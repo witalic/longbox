@@ -284,7 +284,7 @@ def test_a_value_a_field_cannot_hold_is_left_out(lib):
     fields.set_custom(lib.vault.custom_fields())
     t = make(lib, "Lain")
     lib.vault.save_meta_value(t, lambda d: d.meta.custom.update({"released": "1998-07-06"}))
-    lib.sync()
+    lib.rescan()  # written behind the library's back, maybe in the tick of its row: sync cannot see it
     acts = ops.check([Action(kind="replace", field="released", find="-", to=""),
                       Action(kind="replace", field="title", find="Lain", to="")])
     p = ops.plan(lib, everything(lib), acts).preview

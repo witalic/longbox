@@ -19,6 +19,10 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 - The bundled ffmpeg, which makes playable copies of episodes, is FFmpeg 9.0 (was 7.1) — newer
   decoders, with their fixes.
 
+### Fixed
+- **Settings → Maintenance → Rebuild** reads a chapter's details off the disk even while the app
+  runs: a chapter file edited by hand in place is picked up, not served from what the app held.
+
 ### Security
 - Vue 3.5.45, and the interface's build tools (vite 6.4.6 and what it carries), past their
   published advisories.

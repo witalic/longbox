@@ -510,6 +510,10 @@ class Library:
                 docs[tid] = doc
                 doc_at, ch_at, stamps = scanned[tid]
                 touched[tid] = doc_at
+                # off the disk, not the cache: a sidecar edited in place moves no
+                # stamp the cache is keyed by, and a change made by hand is what
+                # a rebuild is for
+                self._sidecar_cache.pop(tid, None)
                 media[tid] = self._sidecars(tid)
                 media_at[tid] = ch_at
                 covers[tid] = self._covers_of(tid, stamps)
