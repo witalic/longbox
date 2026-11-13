@@ -147,7 +147,8 @@ password of yours, and filled when you click, never by themselves.
 - **The key.** Beside the star and the shield in the browser's toolbar: quiet on a page with no
   sign-in form, there on one, lit with a count when logins are saved for the site. Its popover
   lists the site's logins — **Fill** puts the username and password into the page's form — and its
-  pencil edits a login right there. A login belongs to an exact site: an http and an https address,
+  pencil edits a login right there. A sign-in that asks for the username first, and the password
+  after, is filled a step at a time: **Fill** on each step. A login belongs to an exact site: an http and an https address,
   or another port, are other sites, and the page is filled only while it is still on the login's
   site.
 - **After a sign-in**, a bar under the toolbar offers to **Save** the login — or to **Update** the

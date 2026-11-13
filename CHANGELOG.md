@@ -9,6 +9,9 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 ### Fixed
 - **Copying a password no longer brings the app down** 30 seconds later, when longbox clears it
   from the clipboard ("A JavaScript error occurred in the main process").
+- **A sign-in in steps** — the username on its own first, the password after, as Proton or Google
+  ask — is filled a step at a time: **Fill** on the username step fills the username, on the
+  password step the password. Saving after it keeps the username from the first step.
 
 ## [3.6.2] — 2026-11-13
 

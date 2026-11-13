@@ -116,16 +116,20 @@ Forgetting the master password loses the secrets. Setup says so, plainly, once.
 
 - **Fill on click.** The key is one of the page's buttons right of the address, with the star and
   the shield: always there, quiet when the page has no sign-in form and nothing is saved for it,
-  normal on a page with a password field (the guest preload looks, top frame only), lit with a
+  normal on a page with a password field, or a sign-in's username step (a field marked
+  `autocomplete="username"` with no password field; the guest preload looks, top frame only), lit with a
   count when logins are saved for that exact origin (known once unlocked). Its popover hangs from
   it — right under the toolbar, its right edge on the button's, the button lit while it is open —
-  and lists the accounts: **Fill** puts the username and password into that form. With no saved
+  and lists the accounts: **Fill** puts the username and password into that form — on a sign-in in
+  steps, the username on its step and the password on its own, a click each. With no saved
   login, it offers to generate a password (a sign-up form's new-password field).
 - The menu is the app's, not the page's: a page cannot draw a fake one or click it for the owner.
 - The fill goes to the top frame only, and only if its origin is still the entry's at the moment of
   filling (a page that navigated meanwhile gets nothing). http pages get only logins saved on http.
 - **Save after sign-in.** When a form with a password is sent (submitted, Enter in it, its submit
-  button clicked), the preload reports the username and password to the shell — never to the
+  button clicked), the preload reports the username and password to the shell — a sign-in in steps,
+  whose password step holds no username, with the username sent on its first step (kept in the
+  page's preload for ten minutes, never sent on its own) — never to the
   window — with the frame's own origin. The shell holds the password and tells the window what to
   offer, in a bar of the app's: *Save the login for … on x.com?* — Save · Never for this site · Not
   now; a saved login's username with another password: *Update* (the old password kept among the

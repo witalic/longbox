@@ -686,6 +686,10 @@ if (window === window.top) {
       && /^(|text|email|tel)$/.test(el.type) && (pw.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING))
     return before[before.length - 1] || null
   }
+  // A sign-in in steps asks for the username alone first, in the field it says
+  // is the username — the password comes on a step of its own.
+  const identifierField = () => [...document.querySelectorAll('input[autocomplete~="username"]')]
+    .find((el) => shown(el) && /^(|text|email|tel)$/.test(el.type)) || null
   // set as typing would: the page's own listeners see an input and a change
   function type(el, value) {
     el.focus()
@@ -694,9 +698,11 @@ if (window === window.top) {
     el.dispatchEvent(new Event('change', { bubbles: true }))
   }
 
+  // what the key tells of: the password fields here — or, on a sign-in's
+  // username step, that one field
   let told = -1
   const tell = () => {
-    const n = passwordFields().length
+    const n = passwordFields().length || (identifierField() ? 1 : 0)
     if (n !== told) {
       told = n
       ipcRenderer.sendToHost('pw-form', { fields: n })
@@ -721,12 +727,25 @@ if (window === window.top) {
   // else the last one (a change form's confirmation).
   let sentWhat = ''
   let sentAt = 0
+  // the username a sign-in in steps was given on its first step, kept in this
+  // page's memory for the password's step: ten minutes at most
+  let stepUser = ''
+  let stepUserAt = 0
+  function rememberUser(e) {
+    const el = identifierField()
+    if (e.isTrusted && el?.value && !passwordFields().length) {
+      stepUser = el.value.slice(0, 256)
+      stepUserAt = Date.now()
+    }
+  }
   function signedIn(e, form) {
+    rememberUser(e)
     if (!e.isTrusted || !navigator.userActivation?.isActive) return
     const filled = passwordFields().filter((el) => el.value && (!form || el.form === form))
     if (!filled.length) return
     const password = (filled.find((el) => /new-password/.test(el.autocomplete)) || filled[filled.length - 1]).value
-    const username = (usernameFor(filled[0])?.value ?? '').slice(0, 256)
+    const steps = Date.now() - stepUserAt < 10 * 60 * 1000 ? stepUser : ''
+    const username = (usernameFor(filled[0])?.value || steps).slice(0, 256)
     if (password.length > 1024) return
     const what = JSON.stringify([username, password])
     if (what === sentWhat && Date.now() - sentAt < 3000) return // one sign-in, seen twice
@@ -737,24 +756,33 @@ if (window === window.top) {
   document.addEventListener('submit', (e) => signedIn(e, e.target instanceof HTMLFormElement ? e.target : null), true)
   document.addEventListener('keydown', (e) => {
     const el = e.target
-    if (e.key === 'Enter' && el instanceof HTMLInputElement && (el.type === 'password'
-        || el.form?.querySelector('input[type="password"]'))) signedIn(e, el.form)
+    if (e.key !== 'Enter' || !(el instanceof HTMLInputElement)) return
+    if (el.type === 'password' || el.form?.querySelector('input[type="password"]')) signedIn(e, el.form)
+    else rememberUser(e)
   }, true)
   document.addEventListener('click', (e) => {
     const b = e.target instanceof Element ? e.target.closest('button, input[type="submit"]') : null
     if (b && !b.form && b.type === 'submit') signedIn(e, null)
+    else if (b) rememberUser(e)
   }, true)
 
   // the shell sends a login only for this page's origin; it is checked again
-  // here, as it arrives — a page that went elsewhere meanwhile gets nothing
+  // here, as it arrives — a page that went elsewhere meanwhile gets nothing.
+  // On a sign-in's username step only the username is filled: the password
+  // waits for its own step, and another click.
   ipcRenderer.on('lb-pw-fill', (_e, msg) => {
     if (!msg || location.origin !== msg.origin) return
     const focused = document.activeElement
     const pw = focused instanceof HTMLInputElement && focused.type === 'password' && shown(focused)
       ? focused : passwordFields()[0]
-    if (!pw) return
-    const user = usernameFor(pw)
-    if (user && msg.username) type(user, msg.username)
-    type(pw, msg.password)
+    const user = pw ? usernameFor(pw) : identifierField()
+    if (user && msg.username) {
+      type(user, msg.username)
+      if (!pw) {
+        stepUser = msg.username.slice(0, 256)
+        stepUserAt = Date.now()
+      }
+    }
+    if (pw) type(pw, msg.password)
   })
 }
