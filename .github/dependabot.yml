@@ -1,0 +1,50 @@
+# Dependencies, watched (ROADMAP.md, "Dependencies are watched").
+#
+# Electron carries the browser people sign in with, so the shell is looked at
+# every day and Electron has a pull request of its own: each Chromium security
+# fix should reach a release. The rest is grouped, one pull request a week per
+# place, so updates arrive as a few reviewable changes rather than a stream.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /shell
+    schedule:
+      interval: daily
+    groups:
+      electron:
+        patterns: ["electron"]
+      shell:
+        patterns: ["*"]
+        exclude-patterns: ["electron"]
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    groups:
+      frontend:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+    groups:
+      backend:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(ci)"
