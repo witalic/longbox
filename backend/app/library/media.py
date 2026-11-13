@@ -14,6 +14,8 @@ import re
 import shutil
 import uuid
 import zipfile
+from collections.abc import Iterable, Iterator
+from itertools import chain
 from pathlib import Path
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".bmp"}
@@ -632,12 +634,16 @@ def sniff_ext(data: bytes) -> str:
     return ""
 
 
-def _read_all_entries(src: Path) -> list[tuple[str, bytes]]:
-    """Every FILE entry (name, bytes) of a zip/cbz, 7z or rar archive.
-    Raises UnsupportedArchiveError when the format can't be read."""
+def _entries(src: Path) -> Iterator[tuple[str, bytes]]:
+    """Every FILE entry (name, bytes) of a zip/cbz, 7z or rar archive, ONE AT A
+    TIME: a large archive is never held in memory whole, only the entry being
+    copied. Raises UnsupportedArchiveError when the format can't be read."""
     if zipfile.is_zipfile(src):
         with zipfile.ZipFile(src) as z:
-            return [(i.filename, z.read(i.filename)) for i in z.infolist() if not i.filename.endswith("/")]
+            for info in z.infolist():
+                if not info.filename.endswith("/"):
+                    yield info.filename, z.read(info.filename)
+        return
     try:
         import tempfile
 
@@ -647,8 +653,10 @@ def _read_all_entries(src: Path) -> list[tuple[str, bytes]]:
             with py7zr.SevenZipFile(src) as z, tempfile.TemporaryDirectory(prefix="lb-7z-") as td:
                 z.extractall(td)
                 root = Path(td)
-                return [(f.relative_to(root).as_posix(), f.read_bytes())
-                        for f in sorted(root.rglob("*")) if f.is_file()]
+                for f in sorted(root.rglob("*")):
+                    if f.is_file():
+                        yield f.relative_to(root).as_posix(), f.read_bytes()
+            return
     except ImportError:
         pass
     except Exception as exc:  # noqa: BLE001 — corrupt/encrypted 7z
@@ -657,7 +665,10 @@ def _read_all_entries(src: Path) -> list[tuple[str, bytes]]:
         import rarfile
         if rarfile.is_rarfile(src):
             with rarfile.RarFile(src) as z:
-                return [(i.filename, z.read(i)) for i in z.infolist() if not i.is_dir()]
+                for info in z.infolist():
+                    if not info.is_dir():
+                        yield info.filename, z.read(info)
+            return
     except ImportError:
         pass
     except Exception as exc:  # noqa: BLE001 — usually "no unrar/bsdtar backend"
@@ -672,15 +683,18 @@ def repack_to_zip(src: Path, dst: Path) -> int:
     entry names preserved (WebP/AVIF pages convert to a standard format, the
     name keeping its stem). Returns the image-page count. This is how non-zip
     content enters the vault — nothing opaque is ever stored."""
-    entries = _read_all_entries(src)
     tmp = tmp_path(dst)
-    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as z:
-        for name, data in entries:
-            if Path(name).suffix.lower() in _CONVERT_EXTS:
-                data, ext = normalize_page(data, Path(name).suffix)
-                if ext != Path(name).suffix:
-                    name = Path(name).with_suffix(ext).as_posix()  # zip names use forward slashes
-            z.writestr(name, data)
+    try:
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as z:
+            for name, data in _entries(src):
+                if Path(name).suffix.lower() in _CONVERT_EXTS:
+                    data, ext = normalize_page(data, Path(name).suffix)
+                    if ext != Path(name).suffix:
+                        name = Path(name).with_suffix(ext).as_posix()  # zip names use forward slashes
+                z.writestr(name, data)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     replace_atomically(tmp, dst)
     return len(image_entries(dst))
 
@@ -787,17 +801,12 @@ def junk_entry_names(path: Path) -> list[str]:
         return []
 
 
-def _junk_entries(path: Path) -> list[tuple[str, bytes]]:
-    """Non-image entries (ComicInfo.xml, notes, …) — every rewrite carries them
-    over unchanged; editing pages must never silently drop a translator's files."""
-    if not path.is_file():
-        return []
-    out: list[tuple[str, bytes]] = []
+def _pages_of(path: Path, names: list[str]) -> Iterator[tuple[bytes, str]]:
+    """The named pages (bytes, ext) in the order given, read one at a time from
+    one open archive — a rewrite holds a single page in memory, not the chapter."""
     with zipfile.ZipFile(path) as z:
-        for info in z.infolist():
-            if not info.filename.endswith("/") and Path(info.filename).suffix.lower() not in IMAGE_EXTS:
-                out.append((info.filename, z.read(info.filename)))
-    return out
+        for name in names:
+            yield z.read(name), Path(name).suffix
 
 
 def remove_entries(path: Path, names: set[str]) -> int:
@@ -847,19 +856,30 @@ def normalize_page(data: bytes, ext: str) -> tuple[bytes, str]:
         return data, ext
 
 
-def _write_renumbered(path: Path, pages: list[tuple[bytes, str]], junk: list[tuple[str, bytes]]) -> None:
-    """Atomically rewrite the archive: pages as sequential zero-padded names
-    (001.jpg …) with WebP/AVIF converted to a standard format, non-image
-    entries carried over as-is."""
-    width = max(3, len(str(len(pages))))
+def _write_renumbered(path: Path, pages: Iterable[tuple[bytes, str]], count: int) -> int:
+    """Atomically rewrite the archive: `count` pages as sequential zero-padded
+    names (001.jpg …) with WebP/AVIF converted to a standard format, and the
+    archive's non-image entries (ComicInfo.xml, notes, …) carried over as-is —
+    editing pages must never silently drop a translator's files. `pages` is
+    consumed as it is written. Returns the pages written."""
+    width = max(3, len(str(count)))
     tmp = tmp_path(path)
-    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as z:
-        for i, (data, ext) in enumerate(pages, start=1):
-            data, ext = normalize_page(data, ext)
-            z.writestr(f"{i:0{width}d}.{_norm_ext(ext)}", data)
-        for name, data in junk:
-            z.writestr(name, data)
+    written = 0
+    try:
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as z:
+            for written, (data, ext) in enumerate(pages, start=1):
+                data, ext = normalize_page(data, ext)
+                z.writestr(f"{written:0{width}d}.{_norm_ext(ext)}", data)
+            if path.is_file():
+                with zipfile.ZipFile(path) as src:
+                    for info in src.infolist():
+                        if not info.filename.endswith("/") and Path(info.filename).suffix.lower() not in IMAGE_EXTS:
+                            z.writestr(info.filename, src.read(info.filename))
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     replace_atomically(tmp, path)
+    return written
 
 
 _SEQ_NAME = re.compile(r"^(\d+)\.([A-Za-z0-9]+)$")
@@ -881,7 +901,7 @@ def _canonical_width(names: list[str]) -> int:
     return width
 
 
-def renumber_and_append(path: Path, extra: list[tuple[bytes, str]]) -> int:
+def renumber_and_append(path: Path, extra: Iterable[tuple[bytes, str]], count: int | None = None) -> int:
     """THE way pages are added: the archive ends up with sequential zero-padded
     names (001.jpg …) in the current order, with `extra` (bytes, ext) appended —
     so 'appended' always MEANS last, whatever naming scheme the source site
@@ -890,34 +910,36 @@ def renumber_and_append(path: Path, extra: list[tuple[bytes, str]]) -> int:
     When the archive is already in that canonical form the existing pages are
     NOT decoded and re-written: the file is copied and the new pages appended to
     the copy, which is then swapped in. Same atomicity, but capturing page 300
-    of a chapter no longer costs reading 299 pages into memory first."""
+    of a chapter no longer costs reading 299 pages into memory first.
+
+    `extra` may be read lazily (pages moved from another archive), with `count`
+    saying how many it holds; a list needs no count."""
     _require_editable(path)
     names = image_entries(path) if path.is_file() else []
+    if count is None:
+        extra = list(extra)
+        count = len(extra)
     width = _canonical_width(names)
     # a wider page count (999 → 1000) needs the full renumber to stay sorted
-    if width and len(names) + len(extra) < 10 ** width:
+    if width and len(names) + count < 10 ** width:
         tmp = tmp_path(path)
         # copyfile, NOT copy2: copy2 carries the source's timestamps over, and
         # an archive that keeps its old mtime after an edit is indistinguishable
         # from one that never changed
         shutil.copyfile(path, tmp)
         try:
+            total = len(names)
             with zipfile.ZipFile(tmp, "a", zipfile.ZIP_STORED) as z:
-                for i, (data, ext) in enumerate(extra, start=len(names) + 1):
+                for total, (data, ext) in enumerate(extra, start=len(names) + 1):
                     data, ext = normalize_page(data, ext)
-                    z.writestr(f"{i:0{width}d}.{_norm_ext(ext)}", data)
-        except Exception:
+                    z.writestr(f"{total:0{width}d}.{_norm_ext(ext)}", data)
+        except BaseException:
             tmp.unlink(missing_ok=True)
             raise
         replace_atomically(tmp, path)
-        return len(names) + len(extra)
-    existing: list[tuple[bytes, str]] = []
-    for name in names:
-        data, _ = read_entry(path, name)
-        existing.append((data, Path(name).suffix))
-    pages = [*existing, *extra]
-    _write_renumbered(path, pages, _junk_entries(path))
-    return len(pages)
+        return total
+    existing = _pages_of(path, names) if names else iter(())
+    return _write_renumbered(path, chain(existing, extra), len(names) + count)
 
 
 def reorder_entries(path: Path, order: list[int]) -> int:
@@ -928,9 +950,7 @@ def reorder_entries(path: Path, order: list[int]) -> int:
     names = image_entries(path)
     if sorted(order) != list(range(len(names))):
         raise ValueError("order must be a permutation of the current page indices")
-    pages = [(read_entry(path, names[i])[0], Path(names[i]).suffix) for i in order]
-    _write_renumbered(path, pages, _junk_entries(path))
-    return len(pages)
+    return _write_renumbered(path, _pages_of(path, [names[i] for i in order]), len(order))
 
 
 def move_images(src: Path, dst: Path, names: set[str]) -> tuple[int, int]:
@@ -938,7 +958,7 @@ def move_images(src: Path, dst: Path, names: set[str]) -> tuple[int, int]:
     renumber_and_append). Dst is written FIRST, then src drops the pages — a
     crash in between duplicates pages instead of losing them.
     Returns (pages left in src, pages now in dst)."""
-    moved = [(read_entry(src, n)[0], Path(n).suffix) for n in image_entries(src) if n in names]
-    dst_count = renumber_and_append(dst, moved)
+    picked = [n for n in image_entries(src) if n in names]
+    dst_count = renumber_and_append(dst, _pages_of(src, picked), len(picked))
     src_left = remove_entries(src, names)
     return src_left, dst_count

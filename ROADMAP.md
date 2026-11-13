@@ -12,8 +12,8 @@ The first two releases answer an independent review of the code (2026-11-13).
   with `LONGBOX_DEVTOOLS=1`.
 - **A cover fetched by its address never reaches the local network** — done: every redirect is
   checked, and loopback, private and link-local addresses are refused.
-- **Archives are converted entry by entry.** A rar, 7z or zip is read into memory whole on its way
-  in; a large one should stream.
+- **Archives are converted entry by entry** — done: converting an archive, and reordering or
+  moving a chapter's pages, holds one page in memory, not the archive.
 - **The runtime's back doors closed.** Electron's build-time switches that let the app run as plain
   Node (`ELECTRON_RUN_AS_NODE`), take `NODE_OPTIONS` or open an `--inspect` port are turned off.
   Cookie encryption, another such switch, stays off on purpose: it cannot be undone once on, and
