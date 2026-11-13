@@ -148,8 +148,8 @@ password of yours, and filled when you click, never by themselves.
   sign-in form, there on one, lit with a count when logins are saved for the site. Its popover
   lists the site's logins — **Fill** puts the username and password into the page's form, the two
   buttons beside it copy the username or the password — and its pencil edits a login right there.
-  A sign-in that asks for the username first, and the password after, is filled a step at a time:
-  **Fill** on each step. A login belongs to its site: one saved on mail.proton.me is offered on
+  A sign-in that asks for the username first, and the password after, takes one **Fill** too: the
+  username now, the password as soon as its step shows. A login belongs to its site: one saved on mail.proton.me is offered on
   account.proton.me too (its row says where it was saved; the first fill there asks, naming both
   addresses, until the logins lock), and signing in there updates it rather than saving another. An http and an https address, another port, or a name many people own (each
   github.io page is its own site) are other sites; the page is filled only while it is still on

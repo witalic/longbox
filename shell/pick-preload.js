@@ -707,8 +707,14 @@ if (window === window.top) {
   // what the key tells of: the password fields here — or, on a sign-in's
   // username step, that one field
   let told = -1
+  let hadPassword = false
   const tell = () => {
-    const n = passwordFields().length || (identifierField() ? 1 : 0)
+    const passwords = passwordFields().length
+    // a password field come into sight: the shell may hold the password of a
+    // Fill on the username step before it
+    if (passwords && !hadPassword) ipcRenderer.send('lb-pw-step')
+    hadPassword = passwords > 0
+    const n = passwords || (identifierField() ? 1 : 0)
     if (n !== told) {
       told = n
       ipcRenderer.sendToHost('pw-form', { fields: n })
@@ -787,8 +793,8 @@ if (window === window.top) {
   // the shell sends a login only of this page's site, addressed to the page's
   // origin as the shell saw it; that is checked again here, as it arrives — a
   // page that went elsewhere meanwhile gets nothing.
-  // On a sign-in's username step only the username is filled: the password
-  // waits for its own step, and another click.
+  // On a sign-in's username step only the username is filled, and the shell is
+  // told: the password follows when its step shows, with no other click.
   ipcRenderer.on('lb-pw-fill', (_e, msg) => {
     if (!msg || location.origin !== msg.origin) return
     const focused = document.activeElement
@@ -800,6 +806,7 @@ if (window === window.top) {
       if (!pw) {
         stepUser = msg.username.slice(0, 256)
         stepUserAt = Date.now()
+        ipcRenderer.send('lb-pw-awaiting')
       }
     }
     if (pw) type(pw, msg.password)

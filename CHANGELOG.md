@@ -6,6 +6,11 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 
 ## [Unreleased]
 
+### Changed
+- **One Fill for a sign-in in steps.** Fill on the username step fills the username, and the
+  password follows by itself as soon as its step shows, on the same address within a minute — no
+  second trip to the key.
+
 ## [3.6.3] — 2026-11-13
 
 ### Added

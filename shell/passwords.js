@@ -15,6 +15,7 @@ const OFFER_MS = 10 * 60 * 1000  // an offer nobody answered goes, and its passw
 const USED_EVERY_MS = 60 * 1000  // a login signed in with again is stamped used once a minute at most
 const MAX_USERNAME = 256
 const MAX_PASSWORD = 1024
+const STEP_MS = 60 * 1000 // a Fill on a username step waits this long for its password step
 const IDLE_CHOICES = [5, 15, 30, 60, 0] // minutes; 0: never for being idle
 const IDLE_CHECK_MS = 30 * 1000
 
@@ -27,7 +28,28 @@ let idleMinutes = 15 // the window's choice, once it has told it
 let idleTimer = null
 // a page's id → the sign-in it sent: { origin, username, password: Buffer, timer }
 const offers = new Map()
+// A Fill on a sign-in's username step goes on to its password step: one Fill,
+// one sign-in. A page's id → { id, origin, at, until } — `until` set once the
+// page said it filled only the username.
+const steps = new Map()
 const watched = new WeakSet() // pages whose going is listened for
+
+// a page of this window's, from its top frame — else null
+function topOf(e) {
+  const guest = e.sender
+  if (!win || guest.getType() !== 'webview' || guest.hostWebContents !== win.webContents
+      || e.senderFrame !== guest.mainFrame) return null
+  return guest
+}
+function watchGone(guest) {
+  if (watched.has(guest)) return
+  watched.add(guest)
+  const id = guest.id
+  guest.once('destroyed', () => {
+    drop(id)
+    steps.delete(id)
+  })
+}
 
 function held() {
   if (!logins?.unlocked) throw new secrets.SecretsError('ELOCKED', 'the logins are locked')
@@ -117,8 +139,32 @@ function fill(guestId, id) {
   const login = held().list(frame.origin).find((x) => x.id === id)
   if (!login) return false
   frame.send('lb-pw-fill', { origin: frame.origin, username: login.username, password: opened(id) })
+  steps.set(guest.id, { id, origin: frame.origin, at: Date.now(), until: 0 })
+  watchGone(guest)
   void held().used(id).catch(() => {})
   return true
+}
+
+// The page filled only the username — a sign-in in steps: its password step is
+// waited for, a minute at most.
+function awaiting(e) {
+  const guest = topOf(e)
+  const step = guest && steps.get(guest.id)
+  if (step && step.origin === e.senderFrame.origin && Date.now() - step.at < 5000) step.until = Date.now() + STEP_MS
+}
+
+// A password field shown in a page's top frame: the password of the Fill that
+// waits for it, if one does — once, on the address it was filled on, the
+// logins still open. A page on another address, or later, gets nothing.
+function stepShown(e) {
+  const guest = topOf(e)
+  const step = guest && steps.get(guest.id)
+  if (!step?.until) return
+  steps.delete(guest.id)
+  const frame = guest.mainFrame
+  if (Date.now() > step.until || frame.origin !== step.origin || !logins?.unlocked) return
+  const login = logins.list(frame.origin).find((x) => x.id === step.id)
+  if (login) frame.send('lb-pw-fill', { origin: frame.origin, username: login.username, password: opened(step.id) })
 }
 
 // ---- after a sign-in: save, or update ----
@@ -193,9 +239,8 @@ function judged(guestId, offer) {
 // sent (the preload takes no other): its origin is the frame's own, never one
 // the page names.
 function submitted(e, msg) {
-  const guest = e.sender
-  if (!win || guest.getType() !== 'webview' || guest.hostWebContents !== win.webContents
-      || e.senderFrame !== guest.mainFrame) return
+  const guest = topOf(e)
+  if (!guest) return
   const origin = e.senderFrame.origin
   const password = typeof msg?.password === 'string' ? msg.password : ''
   const username = typeof msg?.username === 'string' ? msg.username : ''
@@ -204,11 +249,7 @@ function submitted(e, msg) {
   const offer = { origin, username, password: Buffer.from(password),
     timer: setTimeout(() => { drop(guest.id, offer); tell(guest.id, null) }, OFFER_MS) }
   offers.set(guest.id, offer)
-  if (!watched.has(guest)) {
-    watched.add(guest)
-    const id = guest.id
-    guest.once('destroyed', () => drop(id))
-  }
+  watchGone(guest)
   judged(guest.id, offer)
 }
 
@@ -327,6 +368,8 @@ function wire(window, root) {
   handle('lb-pw-nevers', (origin) => held().nevers(typeof origin === 'string' ? origin : ''))
   handle('lb-pw-set-never', (origin, never) => held().setNever(String(origin ?? ''), !!never))
   ipcMain.on('lb-pw-submitted', submitted)
+  ipcMain.on('lb-pw-awaiting', awaiting)
+  ipcMain.on('lb-pw-step', stepShown)
   powerMonitor.on('suspend', lockAway)
   powerMonitor.on('lock-screen', lockAway)
 }
