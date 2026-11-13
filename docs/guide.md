@@ -226,7 +226,9 @@ pattern reads `vidhub @kumo Kumo Works` as site, handle and creator, a template 
 `Kumo Works 2025.1` the work's title, entries are numbered in order, from their names, or not at
 all (the file's name is the label), and folders below a work become the **sections** its entries
 are grouped by. Videos become episodes, archives and folders of images become chapters, and the
-metadata editor fills in every work at once (or one work on its own).
+metadata editor fills in every work at once (or one work on its own). **Every file is a work of its
+own** turns a folder of loose clips into a title per clip, named after its file, its cover the image
+of the same name beside it.
 
 The preview shows exactly what will be created before anything is written; the run copies or
 moves, keeps what you typed by hand, and skips what an earlier run already stored. Profiles keep

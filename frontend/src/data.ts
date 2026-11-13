@@ -1005,6 +1005,7 @@ export interface ImportProfile {
   name: string
   levels: ImportLevel[]          // L0 (the folder picked) first, down to the work
   anchor: 'level' | 'media'
+  entryWorks: boolean            // every entry of a work's folder is a work of its own
   workTitle: string
   entryTitle: string
   dropTags: boolean
@@ -1102,7 +1103,7 @@ export interface PausedImport {
 
 export function blankImportProfile(): ImportProfile {
   return {
-    id: '', name: '', levels: [{ role: 'work', pattern: '' }], anchor: 'level',
+    id: '', name: '', levels: [{ role: 'work', pattern: '' }], anchor: 'level', entryWorks: false,
     workTitle: '{folder}', entryTitle: '{file}', dropTags: false, underscores: false,
     numbering: 'order', orderBy: 'name', numPattern: '', creatorTo: ['authors'], meta: {}, hidden: [],
     language: '', group: '', entryDate: true,

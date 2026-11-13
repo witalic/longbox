@@ -36,6 +36,16 @@ For trees whose depth varies ABOVE the work (some works directly in the root, ot
 creator folder), the Work role can instead be anchored to **the folder that holds the entries**;
 the levels above it are then read from the top as usual, and parts are not available.
 
+**Every file a work of its own** (owner, 2026-11-13; `entryWorks`): a folder of loose clips, where
+each video is a title and not an episode of the folder's. Every entry the work's folder would
+hold — a video, an archive, a folder of images, in its parts too — becomes a work with that one
+entry. Its title comes from `{file}` (the entry's name, cleaned as entry names are), which the
+title ticks offer in place of the folder's; its cover is an image beside it of the same name
+(`beach day.jpg` for `beach day.mp4`), no longer counted among what is left out. Such a work is
+named in the plan, in a typed title and in what is switched off by its entry's path; an entry is
+still known again by its folder and its path there, so a re-run recognises what either way of
+cutting stored.
+
 **Entries are found, not configured.** Inside a work and its parts:
 
 - a video file → one episode;

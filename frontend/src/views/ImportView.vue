@@ -237,15 +237,17 @@ function toggleCreatorTo(id: string) {
 // The work's title as the folder table draws it: some text, then the ticked
 // folder names, all joined by one separator. `workTitle` stays the one truth —
 // this reads it back, and a template the ticks cannot draw is left to Advanced.
-interface TitleShape { before: string; sep: string; names: string[] } // `L1` … `folder`, outermost first
+interface TitleShape { before: string; sep: string; names: string[] } // `L1` … `folder`, `file`, outermost first
 const SEP_AT_END = /\s*[-–—·|/:,]\s*$|\s+$/
 function readTitle(tpl: string): TitleShape | null {
   const bits = tpl.split(/\{(\w+)\}/) // literal, name, literal, … literal
   const names = bits.filter((_, i) => i % 2)
   const lits = bits.filter((_, i) => !(i % 2))
   if (!names.length || lits[lits.length - 1]) return null
-  if (!names.every((n, i) => (n === 'folder' ? i === names.length - 1 : /^L\d+$/.test(n)))) return null
-  const depths = names.filter((n) => n !== 'folder').map((n) => +n.slice(1))
+  const last = names.length - 1
+  if (!names.every((n, i) => (n === 'file' ? i === last
+    : n === 'folder' ? i === last || (i === last - 1 && names[last] === 'file') : /^L\d+$/.test(n)))) return null
+  const depths = names.filter((n) => n !== 'folder' && n !== 'file').map((n) => +n.slice(1))
   if (depths.some((x, i) => i && x <= depths[i - 1])) return null
   const lead = lits[0]
   const between = lits.slice(1, -1)
@@ -264,7 +266,8 @@ const shape = computed<TitleShape | null>(() => {
   if (!t || !byLevel.value) return t
   // the work's own level, named by its number, is the same tick as {folder}
   const names = t.names.map((n) => (n === `L${workAt.value}` ? 'folder' : n))
-  if (new Set(names).size < names.length || names.some((n) => n !== 'folder' && +n.slice(1) > workAt.value)) return null
+  if (new Set(names).size < names.length
+      || names.some((n) => n !== 'folder' && n !== 'file' && +n.slice(1) > workAt.value)) return null
   return { ...t, names }
 })
 const tickName = (d: number) => (d === workAt.value ? 'folder' : `L${d}`)
@@ -274,7 +277,7 @@ function toggleTitle(name: string) {
   if (!t) return
   const on = t.names.includes(name)
   if (on && t.names.length === 1) return // with no name every work would get the same title
-  const at = (n: string) => (n === 'folder' ? Infinity : +n.slice(1))
+  const at = (n: string) => (n === 'file' ? Infinity : n === 'folder' ? Number.MAX_SAFE_INTEGER : +n.slice(1))
   writeTitle({ ...t, names: (on ? t.names.filter((n) => n !== name) : [...t.names, name]).sort((a, b) => at(a) - at(b)) })
 }
 function setBefore(v: string) {
@@ -286,7 +289,18 @@ function setSep(v: string) {
   if (t) writeTitle({ ...t, sep: v })
 }
 function buildTitle() {
-  writeTitle({ before: '', sep: sepDraft.value, names: ['folder'] })
+  writeTitle({ before: '', sep: sepDraft.value, names: [profile.entryWorks ? 'file' : 'folder'] })
+}
+// Every entry a work of its own: its title names its file where it named the
+// work's folder — one name for them all — and back. A template the ticks
+// cannot draw is left as it is.
+function setEntryWorks(on: boolean) {
+  profile.entryWorks = on
+  const t = shape.value
+  if (!t || t.names.includes('file') === on) return
+  const names = on ? [...t.names.filter((n) => n !== 'folder'), 'file']
+    : [...t.names.filter((n) => n !== 'file' && n !== 'folder'), 'folder']
+  writeTitle({ ...t, names })
 }
 const titleParts = computed(() => {
   const t = shape.value
@@ -480,18 +494,29 @@ onMounted(async () => {
                     <span class="c"><button v-if="!byLevel || lv.depth < workAt" class="box" title="Its name is the creator"
                                             @click="toggleAuthor(lv.depth)">
                       <span class="fbox au" :class="{ on: isAuthor(lv.depth) }"><Icon v-if="isAuthor(lv.depth)" name="check" :size="9" :sw="3.2" /></span></button></span>
-                    <span class="c"><button v-if="byLevel" class="box" title="Each folder at this level is one work"
+                    <span class="c"><button v-if="byLevel" class="box"
+                                            :title="profile.entryWorks ? 'The files in each folder at this level are works' : 'Each folder at this level is one work'"
                                             @click="setWork(lv.depth)"><span class="rdot" :class="{ on: lv.depth === workAt }"></span></button></span>
                   </div>
                   <div class="frow last">
                     <span></span>
-                    <span class="nm" :class="{ span: byLevel }"><span class="tw mono">{{ branch(byLevel ? workAt + 1 : scan.levels.length) }}</span>
-                      <template v-if="!byLevel">the folder holding the files → <span class="tag">THE WORK</span></template>
+                    <span class="nm" :class="{ span: byLevel && !profile.entryWorks }"><span class="tw mono">{{ branch(byLevel ? workAt + 1 : scan.levels.length) }}</span>
+                      <template v-if="profile.entryWorks">each file in {{ byLevel ? 'it' : 'the folder holding them' }} →
+                        <span class="tag">A WORK</span></template>
+                      <template v-else-if="!byLevel">the folder holding the files → <span class="tag">THE WORK</span></template>
                       <template v-else-if="deeper">folders inside a work → its <span class="tag">SECTIONS</span>; a folder of images is one entry</template>
                       <template v-else>files inside a work → its entries</template></span>
-                    <span v-if="!byLevel" class="c"><button class="box" title="Its name goes into the work's title" @click="toggleTitle('folder')">
-                      <span class="fbox" :class="{ on: ticked('folder') }"><Icon v-if="ticked('folder')" name="check" :size="9" :sw="3.2" /></span></button></span>
+                    <span v-if="!byLevel || profile.entryWorks" class="c"><button class="box" title="Its name goes into the work's title"
+                                            @click="toggleTitle(profile.entryWorks ? 'file' : 'folder')">
+                      <span class="fbox" :class="{ on: ticked(profile.entryWorks ? 'file' : 'folder') }"><Icon
+                        v-if="ticked(profile.entryWorks ? 'file' : 'folder')" name="check" :size="9" :sw="3.2" /></span></button></span>
                   </div>
+                </div>
+                <div v-if="scan" class="goes">
+                  <button class="check" @click="setEntryWorks(!profile.entryWorks)">
+                    <span class="fbox" :class="{ on: profile.entryWorks }"><Icon v-if="profile.entryWorks" name="check" :size="9" :sw="3.2" /></span>Every
+                    file is a work of its own</button>
+                  <span class="hint">a folder of clips: each video its own title, its cover the image of the same name beside it</span>
                 </div>
                 <div v-if="hasCreator" class="goes"><span class="k">Author goes to</span>
                   <button v-for="f in peopleFields" :key="f.id" class="chip tog" :class="{ on: profile.creatorTo.includes(f.id) }"
@@ -584,8 +609,9 @@ onMounted(async () => {
                     <span class="k">Work title</span><input v-model="profile.workTitle" class="in mono" spellcheck="false" />
                     <span class="k">Entry name</span><input v-model="profile.entryTitle" class="in mono" spellcheck="false" />
                   </div>
-                  <div class="hint">Tokens: <span class="mono">{L0} {L1}… {folder} {creator}</span>, a pattern's parts, and for
-                    entries <span class="mono">{file} {n} {part} {date}</span>.</div>
+                  <div class="hint">Tokens: <span class="mono">{L0} {L1}… {folder} {creator}</span>, a pattern's parts,
+                    <span class="mono">{file}</span> when every file is a work, and for entries
+                    <span class="mono">{file} {n} {part} {date}</span>.</div>
                 </div>
               </template>
             </template>

@@ -18,7 +18,7 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -33,7 +33,9 @@ from .service import Library
 from .vault import Vault, safe_id
 
 DOC = "import-profiles.json"
-SCHEMA = 2  # the shape this build writes (Vault.doc_transaction); 2: a profile keeps the fields it hides
+# the shape this build writes (Vault.doc_transaction); 2: a profile keeps the fields it hides;
+# 3: a profile may make every entry a work of its own (`entryWorks`)
+SCHEMA = 3
 
 # an image under one of these names, in a work's own folder, is its cover
 COVER_NAMES = {"cover", "folder", "poster"}
@@ -66,6 +68,10 @@ class Profile(BaseModel):
     # `media`: the work is whichever folder holds the entries, at any depth —
     # for trees whose depth varies above the work
     anchor: Literal["level", "media"] = "level"
+    # every entry the work's folder holds is a work of its own — a folder of
+    # clips: its title from `{file}`, its cover the image of the same name
+    # beside it
+    entryWorks: bool = False
     workTitle: str = "{folder}"
     entryTitle: str = "{file}"
     dropTags: bool = False       # `[1080p] [Group]` out of entry names
@@ -401,7 +407,7 @@ class EntryPlan(BaseModel):
 
 
 class WorkPlan(BaseModel):
-    key: str                      # the work folder's path from the root ("." for the root)
+    key: str                      # the work folder's path from the root ("." for the root) — or its entry's
     folder: str
     title: str
     titleId: str = ""             # the library title it adds to
@@ -420,6 +426,9 @@ class WorkPlan(BaseModel):
     fired: list[str] = Field(default_factory=list, exclude=True)
     identityFired: list[str] = Field(default_factory=list, exclude=True)
     typed: bool = Field(default=False, exclude=True)
+    # its folder as a re-run recognises it (`_where`) — the folder's, also when
+    # each of its entries is a work
+    where: str = Field(default="", exclude=True)
 
 
 class Ignored(BaseModel):
@@ -455,6 +464,13 @@ class _Work:
     chain: list[Node]             # root → work
     cover: FileItem | None = None
     entries: list[_Entry] = field(default_factory=list)
+    one: _Entry | None = None     # the entry that is the work, when each is (`entryWorks`)
+
+    @property
+    def key(self) -> str:
+        """What the plan, the owner's own titles and what they switched off name
+        it by: its folder's path from the root — or its entry's."""
+        return self.one.path if self.one is not None else (self.node.rel or ".")
 
 
 def fill(template: str, tok: dict[str, str]) -> str:
@@ -563,6 +579,32 @@ def _collect(w: _Work, p: Profile, ignored: list[Ignored]) -> None:
     folder(w.node, [])
 
 
+def _each_a_work(w: _Work, p: Profile, ignored: list[Ignored]) -> list[_Work]:
+    """Every entry of a work's folder made a work of its own (`entryWorks`),
+    its cover the image beside it of the same name — taken off what is ignored."""
+    beside: dict[tuple[str, str], FileItem] = {}
+
+    def walk(n: Node) -> None:
+        for f in n.files:
+            if f.kind == "image":
+                beside.setdefault((n.rel, Path(f.name).stem.casefold()), f)
+        for d in n.dirs:
+            walk(d)
+    if p.cover:
+        walk(w.node)
+    def folder_of(rel: str) -> str:
+        parent = PurePosixPath(rel).parent.as_posix()
+        return "" if parent == "." else parent
+    out: list[_Work] = []
+    for e in w.entries:
+        src = e.sources[0] if e.kind != "images" else None
+        cover = beside.get((folder_of(src.rel), Path(src.name).stem.casefold())) if src is not None else None
+        out.append(_Work(w.node, w.chain, cover, [e], e))
+    used = {wk.cover.rel for wk in out if wk.cover is not None}
+    ignored[:] = [i for i in ignored if i.path not in used]
+    return out
+
+
 def _tokens(w: _Work, p: Profile, warnings: list[str]) -> tuple[dict[str, str], list[str]]:
     """The work's tokens — every folder name on its path, what the level
     patterns read out of them — and its creators, outermost first."""
@@ -586,6 +628,8 @@ def _tokens(w: _Work, p: Profile, warnings: list[str]) -> tuple[dict[str, str], 
             creators.append(groups.get("creator") or n.name)
     tok["folder"] = w.node.name
     tok["creator"] = creators[-1] if creators else tok.get("creator", "")
+    if w.one is not None:
+        tok["file"] = _clean(w.one.base, p)
     return tok, creators
 
 
@@ -656,16 +700,20 @@ def _plan(lib: Library, s: Scan, p: Profile, o: Overrides | None) -> tuple[Plan,
     found = _works(s, p, ignored)
     if not found:
         out.warnings.append("no folder sits where the work is — check the levels")
+    for w in found:
+        _collect(w, p, ignored)
+    if p.entryWorks:
+        found = [one for w in found for one in _each_a_work(w, p, ignored)]
     plans: list[WorkPlan] = []
     entries: dict[str, _Entry] = {}
     for w in found:
-        _collect(w, p, ignored)
-        key = w.node.rel or "."
+        key = w.key
         warnings: list[str] = []
         tok, creators = _tokens(w, p, warnings)
         typed = (o.titles.get(key) or "").strip()
-        title = typed or fill(p.workTitle, tok) or w.node.name
-        wp = WorkPlan(key=key, folder=w.node.name, title=title, warnings=warnings, tokens=tok,
+        title = typed or fill(p.workTitle, tok) or (w.one.base if w.one else w.node.name)
+        wp = WorkPlan(key=key, folder=Path(w.one.path).name if w.one else w.node.name, title=title,
+                      warnings=warnings, tokens=tok, where=_where(s, w.node.rel or "."),
                       own=bool(o.meta.get(key)), cover=w.cover.rel if w.cover else "", typed=bool(typed))
         values = _values(p, o.meta.get(key, {}), tok, creators, wp.warnings)
 
@@ -699,7 +747,9 @@ def _plan(lib: Library, s: Scan, p: Profile, o: Overrides | None) -> tuple[Plan,
         wp.meta = {k: v for k, v in ruled.items() if v and k not in locked}
 
         spellings = _identity(rules, p, tok, wp.identityFired, wp.warnings)
-        wp.entries = _entries(w, p, numrx, doc, sidecars, spellings, tok, off, wp, rules, _where(s, key))
+        # an entry is known again by its folder and its own path there, whichever
+        # way the works were cut
+        wp.entries = _entries(w, p, numrx, doc, sidecars, spellings, tok, off, wp, rules, wp.where)
         entries.update((e.path, e) for e in w.entries)
         plans.append(wp)
 
@@ -962,7 +1012,7 @@ def _store(lib: Library, s: Scan, tid: str, wp: WorkPlan, ep: EntryPlan, e: _Ent
     name = Path(e.path).name if e.path != "." else s.root.name
     # what the entry ARRIVED as — a folder's name must not read as a video
     filename = f"{name}.zip" if e.kind == "images" and _kind(name) == "video" else name
-    sidecar = {"importedFrom": IMPORTED_FROM, "origDir": _where(s, wp.key), "origPath": e.rel, "origSize": e.size,
+    sidecar = {"importedFrom": IMPORTED_FROM, "origDir": wp.where, "origPath": e.rel, "origSize": e.size,
                "downloadedAt": report.at}
     try:
         outcome, cid = lib.import_entry(tid, sources, num=ep.num, lang=ep.lang, group=ep.group,

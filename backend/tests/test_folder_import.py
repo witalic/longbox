@@ -773,3 +773,59 @@ def test_two_files_of_one_name_in_one_work_are_a_conflict_with_no_numbers(lib, t
     with_part = p.model_copy(update={"entryTitle": "{part} · {file}"})
     assert [e.num for e in fi.plan(lib, fi.scan(src), with_part).works[0].entries] == [
         "Day 1 · intro", "Day 2 · intro"]
+
+
+# ---- every entry a work of its own -------------------------------------------
+
+def clips_tree(src: Path) -> Path:
+    """A folder of loose clips, the thumbnail of one beside it."""
+    mp4(src / "Clips" / "beach day.mp4", b"\x01" * 100)
+    mp4(src / "Clips" / "night_drive.mp4", b"\x02" * 200)
+    archive(src / "Clips" / "storyboard.cbz")
+    image(src / "Clips" / "beach day.jpg")
+    return src
+
+
+def clips_profile(**kw) -> fi.Profile:
+    return fi.Profile(levels=[fi.Level(role="collection"), fi.Level(role="work")], entryWorks=True,
+                      workTitle="{file}", underscores=True, **kw)
+
+
+def test_every_entry_of_a_folder_can_be_a_work_of_its_own(lib, tmp_path):
+    pl = fi.plan(lib, fi.scan(clips_tree(tmp_path / "src")), clips_profile())
+
+    assert [(w.key, w.folder, w.title, len(w.entries)) for w in pl.works] == [
+        ("Clips/beach day.mp4", "beach day.mp4", "beach day", 1),
+        ("Clips/night_drive.mp4", "night_drive.mp4", "night drive", 1),
+        ("Clips/storyboard.cbz", "storyboard.cbz", "storyboard", 1)]
+    # the image of the same name is its clip's cover, not something left out
+    assert [w.cover for w in pl.works] == ["Clips/beach day.jpg", "", ""]
+    assert not any(i.path.endswith("beach day.jpg") for i in pl.ignored)
+    # a title typed for one of them, and one switched off, name it by its own path
+    o = fi.Overrides(titles={"Clips/night_drive.mp4": "Night Drive (2024)"}, off=["Clips/storyboard.cbz"])
+    pl = fi.plan(lib, fi.scan(tmp_path / "src"), clips_profile(), o)
+    assert [(w.title, w.action) for w in pl.works] == [
+        ("beach day", "new"), ("Night Drive (2024)", "new"), ("storyboard", "off")]
+
+
+def test_works_of_one_entry_each_are_stored_and_known_again(lib, tmp_path):
+    src = clips_tree(tmp_path / "src")
+    report = go(lib, src, clips_profile())
+
+    assert (report.imported, report.failed) == (3, [])
+    t = titles(lib)
+    assert sorted(t) == ["beach day", "night drive", "storyboard"]
+    assert [(c.kind, c.origName) for c in t["beach day"].chapters] == [("video", "beach day.mp4")]
+    assert t["beach day"].ownCovers and not t["night drive"].ownCovers
+    again = go(lib, src, clips_profile())
+    assert (again.imported, again.skipped) == (0, 3)
+    # a clip changed since: its own folder recorded, so it is replaced, not taken for another's
+    mp4(src / "Clips" / "night_drive.mp4", b"	" * 900)
+    pl = fi.plan(lib, fi.scan(src), clips_profile(entryExists="replace"))
+    assert [e.state for w in pl.works for e in w.entries] == ["exists", "replace", "exists"]
+
+
+def test_a_profile_that_cuts_every_entry_into_a_work_travels_with_the_library(lib):
+    saved = fi.ProfileStore(lib.vault).save([clips_profile(name="Clips")])
+    assert fi.ProfileStore(lib.vault).profiles()[0].entryWorks is True
+    assert saved[0].entryWorks is True

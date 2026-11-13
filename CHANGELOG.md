@@ -6,6 +6,11 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 
 ## [Unreleased]
 
+### Added
+- **Import: every file a work of its own.** For a folder of loose clips, each video (or archive, or
+  folder of images) becomes a title of its own, named after its file, its cover the image of the
+  same name beside it — Import → Structure, under the folders.
+
 ## [3.6.4] — 2026-11-13
 
 ### Added
