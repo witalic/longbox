@@ -31,6 +31,7 @@ The mockups open in any browser.
 | [playable-copies.md](playable-copies.md) | a copy the window can play, for an episode it cannot | — |
 | [update-check.md](update-check.md) | asking once whether to check for new versions, and saying when one is out | [update-check](update-check-mockup.html) |
 | [sign-ins.md](sign-ins.md) | where a vault keeps the browser's sign-ins: in the vault, or on each computer | [sign-ins](sign-ins-mockup.html) |
+| [password-manager.md](password-manager.md) | logins kept encrypted in the vault, filled on click, edited in the browser | [password-manager](password-manager-mockup.html) |
 
 ## Other mockups
 
