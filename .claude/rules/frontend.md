@@ -47,3 +47,9 @@ paths:
   nothing by the vault's own absolute path; the paths it hands the sidecar are made relative there
   (CLAUDE.md, "The vault is home"). Guard every `ipcMain` handler with an `e.sender` check, and
   remember frameless drag regions live in GLOBAL css (`html.frameless`), not scoped styles.
+- Logins (design/password-manager.md) are the shell's: `shell/passwords.js` holds them unlocked;
+  the window asks through `window.longbox.logins` (`logins.ts` unwraps the answers) and gets a
+  password only when the owner reveals one — copying and filling happen in the shell, and a
+  page's sign-in goes from its preload to the shell, never through the window. What crosses the
+  bridge is cloned: send plain copies, never a reactive object, and hand nothing back from a
+  callback the shell calls.

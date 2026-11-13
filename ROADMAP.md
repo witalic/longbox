@@ -6,6 +6,9 @@ moves to the [changelog](CHANGELOG.md). What longbox will not do is at the end.
 
 ## 3.6.0 — password manager
 
+Built: the store and the key, the save bar, Sources → Logins, Settings → Passwords, ad blocking from
+the shield. Left: the quality step below (`nav.ts`).
+
 Logins for the sites in the embedded browser, encrypted in the vault under a master password,
 filled on click ([draft](design/password-manager.md), to be checked against 3.5.0). Only the key is
 held while unlocked; each password is decrypted at the moment it is used. With sessions

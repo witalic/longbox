@@ -6,6 +6,21 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 
 ## [Unreleased]
 
+### Added
+- **Passwords.** longbox keeps the logins of the sites you capture from, encrypted in the vault
+  under a master password and filled on click. A key beside the star and the shield lists a
+  site's logins and edits them in place; after a sign-in a bar offers to save the login or update
+  its password; a new password keeps the previous ones (up to three); a password generator;
+  Sources → a site → Logins and Settings → Passwords.
+
+### Changed
+- Ad blocking is switched from the shield's own popover — on every site or none, paused on this
+  one, cookie banners and pop-ups, the lists — instead of the ⋯ menu.
+
+### Fixed
+- A confirmation that destroys something (clearing cookies, discarding an edit, deleting) rests the
+  keyboard on Cancel, so a stray Enter no longer does it.
+
 ## [3.5.0] — 2026-11-13
 
 ### Added

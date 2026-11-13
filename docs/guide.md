@@ -133,6 +133,35 @@ on the page; a click opens its popover, which switches it off everywhere, pauses
 (subdomains included) or lifts a pause, hides cookie banners and pop-ups too if asked, and says how
 fresh the lists are.
 
+### Passwords
+
+longbox keeps the logins of the sites you capture from — encrypted in the vault, under a master
+password of yours, and filled when you click, never by themselves.
+
+- **The master password.** Set the first time something needs the logins, given once each time the
+  app starts (and asked for again after **Lock**). It opens the vault's logins on any computer the
+  vault is opened from; it is never stored, and forgotten, it cannot be recovered — the logins are
+  lost with it. Settings → **Passwords** changes it.
+- **The key.** Beside the star and the shield in the browser's toolbar: quiet on a page with no
+  sign-in form, there on one, lit with a count when logins are saved for the site. Its popover
+  lists the site's logins — **Fill** puts the username and password into the page's form — and its
+  pencil edits a login right there. A login belongs to an exact site: an http and an https address,
+  or another port, are other sites, and the page is filled only while it is still on the login's
+  site.
+- **After a sign-in**, a bar under the toolbar offers to **Save** the login — or to **Update** the
+  saved one, when you signed in with another password. **Never for this site** stops it asking
+  there. The bar waits with its tab until you answer it.
+- **Editing.** A new password — typed, or generated (20 characters by default, nothing that reads
+  alike) — keeps the one it replaces: up to three previous passwords per login, each shown, copied,
+  **used again** or forgotten; the editor shows which one would be dropped before you save.
+  Changing a password here changes it in longbox only — change it on the site too. **Delete** asks
+  first and has no bin. A copied password leaves the clipboard after 30 seconds.
+- **Sources → a site → Logins** lists all of a site's logins, adds one for any of its addresses,
+  and lets a site you said **Never** to be offered again.
+
+The logins file (`.longbox/secrets.json`) holds nothing readable: a copy of the vault — a backup, a
+synced folder — protects them only as well as the master password does, so make it a long one.
+
 ## Sources
 
 The **Sources** page arranges the sites the browser keeps — the same tree its side rail draws.
@@ -310,8 +339,8 @@ demand, rewriting only what differs.
 
 One section at a time: **Storage** (your vaults — opening another restarts the app into it; create
 one, add one, forget one), **Health** (above), **Maintenance** (rebuild the index, convert
-archives, write metadata into them), **Fields**, **Browser**, **Appearance**, **Keyboard**,
-**About**. Everything that walks the library — a check, a conversion, a rebuild — takes the same
+archives, write metadata into them), **Fields**, **Browser**, **Passwords** (above), **Appearance**,
+**Keyboard**, **About**. Everything that walks the library — a check, a conversion, a rebuild — takes the same
 single slot, shows the same progress and can be stopped from where it was started.
 
 ### New versions

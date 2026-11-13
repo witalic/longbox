@@ -87,6 +87,8 @@ library/
     state.json               interrupted transfers, paused imports, import reports
     partial-downloads/       transfers being written
     adblock/                 the ad blocker's switch, paused sites and compiled lists
+    secrets.json             the logins of the password manager: encrypted under the master
+                             password (scrypt, AES-256-GCM; design/password-manager.md)
     cache/thumbs/            downscaled previews (a tile's made at every write — library/previews.py)
   <type-shelf>/              one directory per TYPE (manga/, image-set/, …; typeless → other/)
     <title-id>/
@@ -398,7 +400,12 @@ shell/
   netguard.js (whether an address is on the public internet — what an image fetched for a page
                may reach)
   profile.js (where a vault's browser profile lives — in the vault or on each computer — and the
-              move between them: design/sign-ins.md); all three tested with node:test (*.test.js)
+              move between them: design/sign-ins.md)
+  secrets.js (the password manager's store: the vault's logins encrypted under the master
+              password, the previous passwords, the generator) and passwords.js (the logins held
+              unlocked in the main process: the window's questions, filling a page, the clipboard,
+              a page's sign-in held for the save bar — design/password-manager.md); these, updates,
+              netguard, profile and vaults tested with node:test (*.test.js)
   after-pack.js + adhoc-sign.js (build hooks: Electron's fuses off, then the macOS ad-hoc signature)
   vaults.js (config.json, does a vault answer, is it one, its lock, making one, the move of
              what an older build kept on this computer)
