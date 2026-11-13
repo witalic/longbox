@@ -6,6 +6,8 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 
 ## [Unreleased]
 
+## [3.6.2] — 2026-11-13
+
 ### Fixed
 - **longbox opens your vault again, every start.** Since 3.5.0 an installed longbox opened no vault
   after its first start: the launch window said "The library could not be opened: Cannot
@@ -295,7 +297,8 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
   recipes, an explicit draft with per-field provenance, armed downloads, a library with linked
   faceted filters, and a reader.
 
-[Unreleased]: https://github.com/witalic/longbox/compare/v3.6.1...HEAD
+[Unreleased]: https://github.com/witalic/longbox/compare/v3.6.2...HEAD
+[3.6.2]: https://github.com/witalic/longbox/compare/v3.6.1...v3.6.2
 [3.6.1]: https://github.com/witalic/longbox/compare/v3.6.0...v3.6.1
 [3.6.0]: https://github.com/witalic/longbox/compare/v3.5.0...v3.6.0
 [3.5.0]: https://github.com/witalic/longbox/compare/v3.4.0...v3.5.0
