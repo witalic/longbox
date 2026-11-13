@@ -6,6 +6,8 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 
 ## [Unreleased]
 
+## [3.6.4] — 2026-11-13
+
 ### Added
 - **Logins in the sign-in form.** A click in a site's sign-in field shows its logins right under
   it; one more click fills — no trip to the key. The list is drawn by longbox over the page, never
@@ -350,7 +352,8 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
   recipes, an explicit draft with per-field provenance, armed downloads, a library with linked
   faceted filters, and a reader.
 
-[Unreleased]: https://github.com/witalic/longbox/compare/v3.6.3...HEAD
+[Unreleased]: https://github.com/witalic/longbox/compare/v3.6.4...HEAD
+[3.6.4]: https://github.com/witalic/longbox/compare/v3.6.3...v3.6.4
 [3.6.3]: https://github.com/witalic/longbox/compare/v3.6.2...v3.6.3
 [3.6.2]: https://github.com/witalic/longbox/compare/v3.6.1...v3.6.2
 [3.6.1]: https://github.com/witalic/longbox/compare/v3.6.0...v3.6.1
