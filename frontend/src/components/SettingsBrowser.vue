@@ -4,7 +4,8 @@
 // rather than offering buttons that quietly do nothing.
 import { ref } from 'vue'
 import { api } from '../api'
-import { askConfirm, store } from '../store'
+import { store } from '../store'
+import { askConfirm } from '../confirm'
 
 const homepage = defineModel<string>('homepage', { default: '' })
 

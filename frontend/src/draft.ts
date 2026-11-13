@@ -14,7 +14,8 @@ import {
 } from './data'
 import { isRecord, readLocal, writeLocal } from './local'
 import { captureValue, type CleanFlags } from './normalize'
-import { askConfirm, cache, refreshDerived, store } from './store'
+import { cache, refreshDerived, store } from './store'
+import { askConfirm } from './confirm'
 
 // The draft's view of the cover — decoupled from any page:
 //  keep      editing an existing title, its stored cover stays as-is

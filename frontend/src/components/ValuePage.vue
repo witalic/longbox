@@ -17,9 +17,11 @@ import { api } from '../api'
 import { newTab, searchUrl } from '../browser'
 import { readLocalOne, writeLocalOne } from '../local'
 import {
-  activeFilterCount, askConfirm, buildQuery, cacheCards, editValueInMetadata, followValue, openAxis, openTitle,
-  openTitleBackground, openValuePage, resetFilters, runVaultPass, showInLibrary, store, useShown, useTab,
+  activeFilterCount, buildQuery, cacheCards, editValueInMetadata, followValue, openAxis, openTitle,
+  openTitleBackground, openValuePage, resetFilters, runVaultPass, showInLibrary, store, useShown,
+  useTab,
 } from '../store'
+import { askConfirm } from '../confirm'
 import {
   TITLE_SORTS, coverAt, coverStyle, emptyFacets, hueFor, initials, linkLabel, siteOf,
   type Facets, type PageLink, type PageRuleNote, type TitleCard, type ValuePage,

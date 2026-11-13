@@ -16,9 +16,10 @@ import HistoryNav from '../components/HistoryNav.vue'
 import PassButton from '../components/PassButton.vue'
 import { api } from '../api'
 import {
-  activeFilterCount, askConfirm, metaScope, openValuePage, refreshLibrary, runVaultPass, stopVaultPass,
-  store, useShown, useTab, vaultPass, watchVaultPass, type MetadataPlace,
+  activeFilterCount, metaScope, openValuePage, refreshLibrary, runVaultPass, stopVaultPass, store,
+  useShown, useTab, vaultPass, watchVaultPass, type MetadataPlace,
 } from '../store'
+import { askConfirm } from '../confirm'
 import { hasValuePage } from '../peek'
 import {
   FLAG_DEFS, movedBefore,

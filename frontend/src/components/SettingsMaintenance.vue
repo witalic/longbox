@@ -9,7 +9,7 @@
 import { onMounted, ref } from 'vue'
 import PassButton from './PassButton.vue'
 import { api, type HistoryEntry } from '../api'
-import { askConfirm } from '../store'
+import { askConfirm } from '../confirm'
 import { ago } from '../data'
 
 const props = defineProps<{

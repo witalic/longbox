@@ -7,10 +7,11 @@ import {
   commitDraft, confirmDiscard, discardDraft, draftFromTitle, draftState, isDirty, newDraft,
 } from '../draft'
 import {
-  addChapterRow, askConfirm, cache, downloads, groupRings, langRings, openTitle, pageFilter,
-  pauseDownload, refreshTitle as refreshTitleOf, resetPageFilter, resumeDownload, savePageFilter,
-  stopDownload, store, titleById, cardById, loadTitle, watchDownloads,
+  addChapterRow, cache, downloads, groupRings, langRings, openTitle, pageFilter, pauseDownload,
+  refreshTitle as refreshTitleOf, resetPageFilter, resumeDownload, savePageFilter, stopDownload,
+  store, titleById, cardById, loadTitle, watchDownloads,
 } from '../store'
+import { askConfirm } from '../confirm'
 import { browser, newTab } from '../browser'
 import { api, type DownloadItem } from '../api'
 import { readLocalOne, writeLocalOne } from '../local'

@@ -19,6 +19,7 @@ import {
 } from './local'
 import { stopCaptureFor } from './pagecapture'
 import { adoptChildren, forgetOpeners, inStripOrder, insertionIndex, nextAfterClose, type Opening } from './tabstrip'
+import { askConfirm } from './confirm'
 
 export type View = 'library' | 'title' | 'reader' | 'authors' | 'page' | 'sources' | 'metadata' | 'import'
   | 'settings' | 'browser'
@@ -1632,21 +1633,3 @@ export async function switchVault(path: string): Promise<boolean> {
 
 export const vaultName = (path: string): string => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path
 
-// ---- styled confirm dialog (replaces native window.confirm) ----
-// `choices`: switches the dialog shows under its message; the caller reads
-// their `on` once it resolves true ("also clear its browser data")
-export interface ConfirmChoice { label: string; hint?: string; on: boolean }
-export interface ConfirmReq {
-  title?: string; message: string; okLabel?: string; danger?: boolean; choices?: ConfirmChoice[]
-}
-export const confirmState = reactive<{ open: boolean; req: ConfirmReq; resolve: ((v: boolean) => void) | null }>({
-  open: false, req: { message: '' }, resolve: null,
-})
-export function askConfirm(req: ConfirmReq): Promise<boolean> {
-  return new Promise((resolve) => { confirmState.open = true; confirmState.req = req; confirmState.resolve = resolve })
-}
-export function resolveConfirm(value: boolean) {
-  confirmState.resolve?.(value)
-  confirmState.open = false
-  confirmState.resolve = null
-}

@@ -16,10 +16,11 @@ import Pager from '../components/Pager.vue'
 import BulkEdit from '../components/BulkEdit.vue'
 import HistoryNav from '../components/HistoryNav.vue'
 import {
-  store, openTitle, openTitleBackground, openReader, toggleFav, resetFilters,
-  activeFilterCount, askConfirm, deleteTitles, openValuePage, setRating, refreshLibrary,
-  runVaultPass, opening, useShown, useTab, loadTitles, type LibraryPlace,
+  store, openTitle, openTitleBackground, openReader, toggleFav, resetFilters, activeFilterCount,
+  deleteTitles, openValuePage, setRating, refreshLibrary, runVaultPass, opening, useShown, useTab,
+  loadTitles, type LibraryPlace,
 } from '../store'
+import { askConfirm } from '../confirm'
 import { startNewTitle } from '../browser'
 import { api } from '../api'
 import { ensurePoster, ensurePostersFor } from '../frames'

@@ -9,7 +9,8 @@ import Icon from './Icon.vue'
 import SettingsFieldForm from './SettingsFieldForm.vue'
 import { api } from '../api'
 import type { FieldDef } from '../data'
-import { askConfirm, refreshLibrary, store } from '../store'
+import { refreshLibrary, store } from '../store'
+import { askConfirm } from '../confirm'
 
 const custom = computed(() => store.fields.filter((f) => !f.builtin))
 const builtin = computed(() => store.fields.filter((f) => f.builtin))

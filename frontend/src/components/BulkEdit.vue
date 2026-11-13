@@ -10,7 +10,10 @@ import { api } from '../api'
 import {
   FLAG_DEFS, FLAG_LABEL, fieldBlocks, type FieldDef, type FlagKey, type MetaAction, type MetaHeld, type MetaPreview,
 } from '../data'
-import { askConfirm, editInMetadata, refreshLibrary, runVaultPass, store, useShown, visibleFields } from '../store'
+import {
+  editInMetadata, refreshLibrary, runVaultPass, store, useShown, visibleFields,
+} from '../store'
+import { askConfirm } from '../confirm'
 import { vFocus } from '../focus'
 import Combo from './Combo.vue'
 import Icon from './Icon.vue'

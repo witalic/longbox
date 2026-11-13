@@ -7,7 +7,8 @@ import { computed, onMounted, ref } from 'vue'
 import Dropdown from './Dropdown.vue'
 import Icon from './Icon.vue'
 import { api } from '../api'
-import { askConfirm, cache, store } from '../store'
+import { cache, store } from '../store'
+import { askConfirm } from '../confirm'
 import type { Chapter, LooseFile, Subtitle, Title } from '../data'
 
 const props = defineProps<{ title: Title; chapter: Chapter }>()

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { confirmState, resolveConfirm } from '../store'
+import { confirmState, resolveConfirm } from '../confirm'
 import Icon from './Icon.vue'
 </script>
 
@@ -18,6 +18,7 @@ import Icon from './Icon.vue'
         </div>
         <div class="actions">
           <button class="btn ghost" @click="resolveConfirm(false)">Cancel</button>
+          <button v-if="confirmState.req.altLabel" class="btn" @click="resolveConfirm('alt')">{{ confirmState.req.altLabel }}</button>
           <button class="btn" :class="confirmState.req.danger ? 'danger' : 'accent'" autofocus @click="resolveConfirm(true)">
             {{ confirmState.req.okLabel || 'OK' }}
           </button>

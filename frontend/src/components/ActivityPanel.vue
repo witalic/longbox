@@ -16,11 +16,12 @@ import Icon from './Icon.vue'
 import ProgressBar from './ProgressBar.vue'
 import { api } from '../api'
 import {
-  askConfirm, copies, downloads, dropCopy, dropMedia, forgetPausedImport, mediaJobs, openSection, passHome,
-  passIcon, passPercent, retryCopy,
-  pauseDownload, pauseImport, pausedImports, pollDownloads, resumeDownload, resumeImport, retryMedia, stopDownload,
-  stopVaultPass, store, cardById, vaultPass, watchDownloads, watchVaultPass, type MediaJob,
+  copies, downloads, dropCopy, dropMedia, forgetPausedImport, mediaJobs, openSection, passHome,
+  passIcon, passPercent, retryCopy, pauseDownload, pauseImport, pausedImports, pollDownloads,
+  resumeDownload, resumeImport, retryMedia, stopDownload, stopVaultPass, store, cardById,
+  vaultPass, watchDownloads, watchVaultPass, type MediaJob,
 } from '../store'
+import { askConfirm } from '../confirm'
 import { hostOf, type LooseFile } from '../data'
 
 const props = defineProps<{ warning: string }>()

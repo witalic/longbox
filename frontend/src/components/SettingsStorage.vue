@@ -7,7 +7,8 @@
 import { ref } from 'vue'
 import Icon from './Icon.vue'
 import { api } from '../api'
-import { askConfirm, store, switchVault } from '../store'
+import { store, switchVault } from '../store'
+import { askConfirm } from '../confirm'
 
 const props = defineProps<{ path: string; titleCount: number; libraries: string[] }>()
 const emit = defineEmits<{ (e: 'changed'): void }>()
