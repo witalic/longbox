@@ -674,17 +674,40 @@ window.addEventListener('mouseup', (e) => {
 // ---- a tab opened behind another: its media waits until it is first shown ----
 // Chrome holds back the media of a tab never shown; Electron's pages do not, so
 // a video opened in a background tab (a middle click) played unseen. Here, in
-// every frame: what starts playing before the page was ever visible is paused
-// and started again as it first shows. Once seen, nothing is held — what the
-// owner leaves playing in a tab behind is theirs.
+// every frame: what starts playing while the tab was never shown is paused and
+// started again as it first shows. A tab once seen holds nothing back, whatever
+// its document — the shell knows which tabs were (tabs-seen.js), asked once
+// here, and only if something plays before this page was ever visible. What
+// the page pauses itself is not started again; a page that starts the same
+// media again and again is let be, after a few.
 {
   let seen = document.visibilityState === 'visible'
+  let asked = false
+  const seenNow = () => {
+    if (!seen && !asked) {
+      asked = true
+      seen = ipcRenderer.sendSync('lb-tab-seen') === true
+    }
+    return seen
+  }
   const held = new Set()
-  document.addEventListener('play', (e) => {
+  const ours = new WeakSet() // paused by this, not by the page
+  const tries = new WeakMap()
+  window.addEventListener('play', (e) => {
     const media = e.target
-    if (seen || !(media instanceof HTMLMediaElement)) return
+    if (!(media instanceof HTMLMediaElement) || seenNow()) return
+    const n = (tries.get(media) || 0) + 1
+    tries.set(media, n)
+    if (n > 5) return
     held.add(media)
+    ours.add(media)
     media.pause()
+  }, true)
+  window.addEventListener('pause', (e) => {
+    const media = e.target
+    if (!(media instanceof HTMLMediaElement)) return
+    if (ours.has(media)) ours.delete(media)
+    else held.delete(media)
   }, true)
   document.addEventListener('visibilitychange', () => {
     if (seen || document.visibilityState !== 'visible') return

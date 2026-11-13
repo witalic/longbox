@@ -141,7 +141,16 @@ watch(() => browser.tabs.map((t) => t.id).join(), () => {
 // was closed for the page (its ×), until they navigate.
 const fieldAt = ref<(FieldAt & { tabId: string }) | null>(null)
 const quiet = reactive(new Set<string>())
-watch(() => browser.activeId, () => { fieldAt.value = null })
+watch(() => browser.activeId, () => {
+  fieldAt.value = null
+  void nextTick(tellShown)
+})
+// the tab in front is a tab seen: what its pages start playing from now on is
+// not held back (shell/tabs-seen.js), whatever document they are
+function tellShown() {
+  const id = guestNow()
+  if (id !== null) window.longbox?.tabShown(id)
+}
 const keyPop = ref<InstanceType<typeof ToolbarPopover> | null>(null)
 function manageLogins() {
   fieldAt.value = null
@@ -1081,6 +1090,7 @@ function onNavInPage(e: any, tabId: string) {
   if (e?.isMainFrame !== false) onNav(e, tabId)
 }
 function onReady(tabId: string) {
+  if (tabId === browser.activeId) tellShown()
   const tab = tabById(tabId)
   const view = wvRefs.get(tabId)
   // Zoom is remembered by the ENGINE, per origin, and it survives a restart —

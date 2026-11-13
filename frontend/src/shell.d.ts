@@ -60,6 +60,8 @@ declare global {
       pickVault: (mode: 'open' | 'create') => Promise<{ ok: boolean; path?: string; reason?: string }>
       // a restart into another registered vault; false when it is not one
       switchVault: (root: string) => Promise<boolean>
+      // a browser tab shown: what its pages start playing from now on is not held back (shell/tabs-seen.js)
+      tabShown: (guestId: number) => void
       // a restart into the launch window
       openLauncher: () => Promise<boolean>
       quit: () => Promise<void>

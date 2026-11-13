@@ -30,7 +30,7 @@
       "output": "../dist-app",
       "buildResources": "."
     },
-    "files": ["main.js", "adblock.js", "launcher.js", "netguard.js", "passwords.js", "profile.js", "secrets.js",
+    "files": ["main.js", "adblock.js", "launcher.js", "netguard.js", "passwords.js", "profile.js", "secrets.js", "tabs-seen.js",
               "updates.js", "vaults.js", "app-preload.js", "launcher-preload.js", "pick-preload.js", "icon.*",
               "package.json"],
     "extraResources": [

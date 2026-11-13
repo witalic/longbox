@@ -20,6 +20,7 @@ const adblock = require('./adblock')
 const launcher = require('./launcher')
 const netguard = require('./netguard')
 const passwords = require('./passwords')
+const tabsSeen = require('./tabs-seen')
 const profile = require('./profile')
 const updates = require('./updates')
 const vaults = require('./vaults')
@@ -644,6 +645,8 @@ async function main(root, legacy, prof) {
     for (const [id, item] of jobs) await interrupt(id, item, reason)
     return jobs.length
   }
+
+  tabsSeen.wire(win)
 
   // the app has made room for a guest page's fullscreen: grant it now
   ipcMain.on('lb-page-fullscreen-ready', (e, token) => {

@@ -34,6 +34,8 @@ contextBridge.exposeInMainWorld('longbox', {
   signinsSizes: () => ipcRenderer.invoke('lb-signins-sizes'),
   setSignins: (keep, restart) => ipcRenderer.invoke('lb-signins-set', { keep: String(keep || ''), restart: !!restart }),
   forgetSignins: (root) => ipcRenderer.invoke('lb-signins-forget', String(root || '')),
+  // a browser tab shown: what its pages start playing from now on is not held back
+  tabShown: (guestId) => ipcRenderer.send('lb-tab-shown', Number(guestId)),
   // the vault's logins (design/password-manager.md): every answer is { ok, value }
   // or { ok: false, code, message }. A password reaches the window only when the
   // owner reveals it; copying and filling happen in the shell
