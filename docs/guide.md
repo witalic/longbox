@@ -150,8 +150,8 @@ password of yours, and filled when you click, never by themselves.
   buttons beside it copy the username or the password — and its pencil edits a login right there.
   A sign-in that asks for the username first, and the password after, is filled a step at a time:
   **Fill** on each step. A login belongs to its site: one saved on mail.proton.me is offered on
-  account.proton.me too (its row says where it was saved), and signing in there updates it rather
-  than saving another. An http and an https address, another port, or a name many people own (each
+  account.proton.me too (its row says where it was saved; the first fill there asks, naming both
+  addresses, until the logins lock), and signing in there updates it rather than saving another. An http and an https address, another port, or a name many people own (each
   github.io page is its own site) are other sites; the page is filled only while it is still on
   the login's site.
 - **After a sign-in**, a bar under the toolbar offers to **Save** the login — or to **Update** the

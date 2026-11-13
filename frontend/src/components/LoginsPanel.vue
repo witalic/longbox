@@ -8,8 +8,8 @@
 import { computed, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import LoginEditor from './LoginEditor.vue'
-import { ago, hostOf } from '../data'
-import { askMaster, lockLogins, loginsState, settled, showLoginsIn } from '../logins'
+import { addressOf, ago, hostOf } from '../data'
+import { askMaster, crossFills, lockLogins, loginsState, settled, showLoginsIn } from '../logins'
 import { store } from '../store'
 import { showSources } from '../nav'
 
@@ -43,9 +43,18 @@ watch([() => loginsState.unlocked, site], load, { immediate: true })
 async function unlock() {
   if (await askMaster()) await load()
 }
-async function fill(login: LoginSummary) {
+// a login of another address of the site, asked about before its first fill here
+const asking = ref<string | null>(null)
+async function fill(login: LoginSummary, sure = false) {
   const guest = props.guest()
   if (!shell || guest === null) return
+  const cross = `${login.id} ${site.value}`
+  if (login.origin !== site.value && !sure && !crossFills.has(cross)) {
+    asking.value = login.id
+    return
+  }
+  asking.value = null
+  if (login.origin !== site.value) crossFills.add(cross)
   try {
     if (await settled(shell.fill(guest, login.id))) emit('close')
     else error.value = 'The page is no longer on this site.'
@@ -110,18 +119,26 @@ function inSources() {
         <template v-else>
           <div v-if="loginsState.restored" class="say warn">The logins file did not read, so its second copy was
             opened; the next change writes the file again.</div>
-          <div v-for="l in list" :key="l.id" class="acct">
-            <span class="av">{{ (l.username || '?').slice(0, 1).toUpperCase() }}</span>
-            <span class="who"><b>{{ l.username || '(no username)' }}</b><span><template v-if="l.origin !== site"><span
-              class="mono">{{ hostOf(l.origin) }}</span> · </template>{{ l.used ? `used ${ago(l.used)}` : 'not used yet' }}</span></span>
-            <button class="btn small accent" @click="fill(l)">Fill</button>
-            <button class="iconbtn plain" title="Copy the username" :disabled="!l.username" @click="copy(l, 'username')">
-              <Icon name="authors" :size="13" :sw="2" /></button>
-            <button class="iconbtn plain" title="Copy the password — it leaves the clipboard after 30 seconds"
-                    @click="copy(l, 'password')"><Icon name="key" :size="13" :sw="2" /></button>
-            <button class="iconbtn plain" title="Edit" @click="editing = { login: l, origin: l.origin, bound: l.origin === site }">
-              <Icon name="edit" :size="13" :sw="2" /></button>
-          </div>
+          <template v-for="l in list" :key="l.id">
+            <div class="acct">
+              <span class="av">{{ (l.username || '?').slice(0, 1).toUpperCase() }}</span>
+              <span class="who"><b>{{ l.username || '(no username)' }}</b><span><template v-if="l.origin !== site"><span
+                class="mono">{{ addressOf(l.origin) }}</span> · </template>{{ l.used ? `used ${ago(l.used)}` : 'not used yet' }}</span></span>
+              <button class="btn small accent" @click="fill(l)">Fill</button>
+              <button class="iconbtn plain" title="Copy the username" :disabled="!l.username" @click="copy(l, 'username')">
+                <Icon name="authors" :size="13" :sw="2" /></button>
+              <button class="iconbtn plain" title="Copy the password — it leaves the clipboard after 30 seconds"
+                      @click="copy(l, 'password')"><Icon name="key" :size="13" :sw="2" /></button>
+              <button class="iconbtn plain" title="Edit" @click="editing = { login: l, origin: l.origin, bound: l.origin === site }">
+                <Icon name="edit" :size="13" :sw="2" /></button>
+            </div>
+            <div v-if="asking === l.id" class="ask">
+              <span>Fill the login saved for <b class="mono">{{ addressOf(l.origin) }}</b> into this page, on
+                <b class="mono">{{ addressOf(site) }}</b>? Asked once for each address, until the logins lock.</span>
+              <button class="btn small accent" @click="fill(l, true)">Fill here</button>
+              <button class="btn small ghost" @click="asking = null">Cancel</button>
+            </div>
+          </template>
           <div v-if="!list.length" class="say">Nothing saved for this site yet.</div>
           <hr />
           <button class="mi" @click="editing = { login: null, origin: site, bound: true }"><Icon name="plus" :size="14" :sw="2" />Add a login for this site</button>
@@ -152,6 +169,9 @@ function inSources() {
 .who b { display: block; font: 500 12.5px/1.2 system-ui; color: var(--tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .who > span { display: block; font: 400 11px/1.3 system-ui; color: var(--tx3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acct .iconbtn { width: 28px; height: 28px; }
+.ask { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 2px 9px 10px; font: 400 12px/1.45 system-ui; color: var(--tx2); }
+.ask span { flex: 1 1 100%; }
+.ask b { font-weight: 600; color: var(--tx); }
 .mi { width: 100%; display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 9px; border: none; background: transparent; border-radius: 6px; color: var(--tx2); font: 500 12.5px/1 system-ui; cursor: pointer; text-align: left; }
 .mi:hover { background: var(--hover); color: var(--tx); }
 hr { height: 1px; border: none; background: var(--line); margin: 5px 4px; }

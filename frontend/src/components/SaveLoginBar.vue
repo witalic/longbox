@@ -6,14 +6,13 @@
 // answered; the window only ever knows the username.
 import { computed, ref } from 'vue'
 import Icon from './Icon.vue'
+import { addressOf } from '../data'
 import { askMaster, settled } from '../logins'
 
 const props = defineProps<{ offer: LoginOffer }>()
 const emit = defineEmits<{ (e: 'answered', guestId: number): void }>()
 
-const host = computed(() => {
-  try { return new URL(props.offer.origin ?? '').host } catch { return '' }
-})
+const host = computed(() => addressOf(props.offer.origin ?? ''))
 // the page chose it: shown short, as a name, never as more of the bar
 const who = computed(() => {
   const u = props.offer.username ?? ''

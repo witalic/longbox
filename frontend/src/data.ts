@@ -700,6 +700,11 @@ export function hostOf(url: string): string {
   try { return new URL(url).hostname.replace(/^www\./, '') } catch { return '' }
 }
 
+// An address as it is — host and port, `www.` kept: where a login was saved.
+export function addressOf(url: string): string {
+  try { return new URL(url).host } catch { return '' }
+}
+
 // A drag-and-drop reorder: the row at `from` lands where `to` currently is, and
 // a `to` outside the list means the end. Written once because three views were
 // each getting the "dragging downwards shifts the target" adjustment right (or

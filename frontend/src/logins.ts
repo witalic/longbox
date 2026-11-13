@@ -9,6 +9,13 @@ import { readLocalOne, writeLocalOne } from './local'
 
 export const loginsState = reactive<LoginsState>({ exists: false, unlocked: false, restored: false })
 
+// A login filled into another address of its site than its own, said yes to —
+// `${login id} ${address}` — until the logins lock. The Public Suffix List
+// misses some names that many people own (nip.io and the like), so the first
+// such fill asks, naming both addresses.
+export const crossFills = new Set<string>()
+watch(() => loginsState.unlocked, (open) => { if (!open) crossFills.clear() })
+
 // After how many minutes with no use of the computer the logins lock by
 // themselves ('0': never for that) — the window's preference, told to the shell
 // at start and on every change. Sleep and a locked screen lock them always.

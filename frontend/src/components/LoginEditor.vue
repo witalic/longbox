@@ -9,6 +9,7 @@
 import { computed, reactive, ref } from 'vue'
 import Icon from './Icon.vue'
 import { askConfirm } from '../confirm'
+import { addressOf } from '../data'
 import { shortDate, settled } from '../logins'
 
 const props = defineProps<{
@@ -142,7 +143,7 @@ async function remove() {
   const n = login.previous.length
   const ok = await askConfirm({
     title: 'Delete this login?', okLabel: 'Delete', danger: true,
-    message: `${login.username || 'This login'} on ${new URL(login.origin).host} — its password`
+    message: `${login.username || 'This login'} on ${addressOf(login.origin)} — its password`
       + (n ? ` and its ${n} previous password${n === 1 ? '' : 's'}` : '')
       + ' are deleted from the vault. This cannot be undone. The account on the site stays as it is: only'
       + ' longbox forgets it.',

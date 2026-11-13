@@ -40,7 +40,7 @@ when asked for, and saved after a sign-in when the owner says so.
 | Who | Has | Defended by |
 |---|---|---|
 | someone who copies the vault (it lives on a network share) | the encrypted file, offline, unlimited time | a slow KDF over the master password; nothing else in the file helps |
-| a web page in the embedded browser | the page it is on | a login offered only on its own site (scheme, port and registrable domain, by the Public Suffix List with its private part — a github.io page is not another's site), fill only on click, only into the top frame of a page still on that site, the choice made in the app's UI — not in the page |
+| a web page in the embedded browser | the page it is on | a login offered only on its own site (scheme, port and registrable domain, by the Public Suffix List with its private part — a github.io page is not another's site), fill only on click — into an address other than the login's own only once the owner said yes to that address, naming both (the list misses some shared names) — only into the top frame of a page still on that site, the choice made in the app's UI — not in the page |
 | someone at the unlocked computer | the running app | out of scope (Lock; sleep, a locked screen and being idle lock too; the app closes) |
 | script that gets into the app's window | everything the window can ask the shell | the window is trusted, as a browser's own settings page is: a strict CSP (no inline script, no `eval`) and nothing rendered as HTML keep script out. A password is shown and copied without asking again (owner, 2026-11-13): script in the window could fill one into a tab and read it there through the `<webview>`, so a second ask would not stop it |
 
@@ -101,7 +101,11 @@ belongs there with no sidecar round trip.
   one owner holds (`tldts`, in the shell already for ad blocking). mail.proton.me and
   account.proton.me are one site; user1.github.io and user2.github.io are two, as are http and
   https, or two ports. An address with no registrable domain (an IP, `localhost`) is its own site.
-  The never-asked list goes by site too.
+  The never-asked list goes by site too. The list is not complete: names that many people own
+  through wildcard DNS or hosting it misses (nip.io, sslip.io and the like) would make strangers'
+  addresses one site. So a login filled into an address other than its own asks first in the key's
+  popover, naming both addresses — once for each login and address, until the logins lock (an
+  independent review, 2026-11-13).
 
 Forgetting the master password loses the secrets. Setup says so, plainly, once.
 
