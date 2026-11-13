@@ -835,4 +835,62 @@ if (window === window.top) {
     }
     if (pw) type(pw, msg.password)
   })
+
+  // The sign-in field the owner clicked, or tabbed into, is told to the window —
+  // where it is, in the window's pixels — which draws the site's logins under
+  // it, over the page; and that it is gone as the focus moves elsewhere in the
+  // page, it is typed in, Esc is pressed, or the page leaves. Focus that leaves
+  // the page altogether goes to the list itself (a press on it), and the window
+  // says when that goes. Where the field moves as the page scrolls or the view
+  // is resized, it is told again. A field the page focuses by itself tells
+  // nothing.
+  const signInField = (el) => el instanceof HTMLInputElement && shown(el) && (el.type === 'password'
+    || el === identifierField()
+    || (/^(|text|email|tel)$/.test(el.type) && passwordFields().some((pw) => usernameFor(pw) === el)))
+  let field = null
+  let fields = 0 // each field told of anew: the window times a click from it
+  const where = (el) => {
+    const r = el.getBoundingClientRect()
+    const z = webFrame.getZoomFactor()
+    return { n: fields, x: r.left * z, y: r.top * z, w: r.width * z, h: r.height * z,
+      kind: el.type === 'password' ? 'password' : 'username' }
+  }
+  function offer(el) {
+    field = el
+    fields++
+    ipcRenderer.sendToHost('pw-field', where(el))
+  }
+  function withdraw() {
+    if (!field) return
+    field = null
+    ipcRenderer.sendToHost('pw-field', null)
+  }
+  let tabbed = 0
+  document.addEventListener('click', (e) => { if (e.isTrusted && signInField(e.target)) offer(e.target) }, true)
+  document.addEventListener('keydown', (e) => {
+    if (!e.isTrusted) return
+    if (e.key === 'Tab') tabbed = Date.now()
+    else if (e.key === 'Escape') withdraw()
+  }, true)
+  document.addEventListener('focusin', (e) => {
+    if (Date.now() - tabbed < 300 && signInField(e.target)) offer(e.target)
+  }, true)
+  document.addEventListener('focusout', (e) => {
+    if (e.target === field) setTimeout(() => { if (document.hasFocus()) withdraw() }, 0)
+  }, true)
+  document.addEventListener('mousedown', (e) => { if (field && e.target !== field) withdraw() }, true)
+  document.addEventListener('input', (e) => { if (e.isTrusted && e.target === field) withdraw() }, true)
+  let moving = 0
+  const follow = () => {
+    if (!field || moving) return
+    moving = requestAnimationFrame(() => {
+      moving = 0
+      if (!field) return
+      if (!field.isConnected || !shown(field)) withdraw()
+      else ipcRenderer.sendToHost('pw-field', where(field))
+    })
+  }
+  window.addEventListener('scroll', follow, true)
+  window.addEventListener('resize', follow)
+  window.addEventListener('pagehide', withdraw)
 }

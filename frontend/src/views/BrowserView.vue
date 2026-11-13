@@ -17,6 +17,7 @@ import MenuButton from '../components/MenuButton.vue'
 import ToolbarPopover from '../components/ToolbarPopover.vue'
 import RailSection from '../components/RailSection.vue'
 import SaveLoginBar from '../components/SaveLoginBar.vue'
+import InlineFill, { type FieldAt } from '../components/InlineFill.vue'
 import Icon from '../components/Icon.vue'
 import PickInspector, { type ChainNode, type PickUse, type ProbeReq, type ProbeResult } from '../components/PickInspector.vue'
 import {
@@ -24,7 +25,7 @@ import {
   mergeCapture, mergeSnapshotRuled, noteCaptureSource, type EditableField, type Snapshot,
 } from '../draft'
 import { isBoolMap, readLocal, writeLocal } from '../local'
-import { loginsState, settled } from '../logins'
+import { loginsState, settled, suggestInForms } from '../logins'
 import { pageCapture, pageKeyFor, stopCaptureFor, type PickField } from '../pagecapture'
 import { hostOf, matchTitles, type Candidate, type FieldRule, type Recipe } from '../data'
 import type { CleanFlags } from '../normalize'
@@ -89,8 +90,8 @@ const isHttps = computed(() => (active.value?.url || '').startsWith('https://'))
 // ---- the key (design/password-manager.md): the logins of the page's site.
 // Quiet on a page with no sign-in form and nothing saved for it; there on one
 // with a password field, or a sign-in's username step; lit, with their count,
-// when logins are saved for the site (known once unlocked). The form is the page's to report
-// (pick-preload.js), tab by tab.
+// when logins are saved for the site (known once unlocked). The form is the
+// page's to report (pick-preload.js), tab by tab.
 const pwFields = reactive(new Map<string, number>())
 const pageOrigin = computed(() => {
   try {
@@ -132,6 +133,16 @@ function offerAnswered(guestId: number) {
 watch(() => browser.tabs.map((t) => t.id).join(), () => {
   for (const map of [offers, pwFields]) for (const id of [...map.keys()]) if (!tabById(id)) map.delete(id)
 })
+// The sign-in field the owner clicked on the page in front, and when it was
+// first told of: the site's logins are drawn under it (InlineFill). Gone as the
+// page says, or the tab changes or navigates.
+const fieldAt = ref<(FieldAt & { tabId: string }) | null>(null)
+watch(() => browser.activeId, () => { fieldAt.value = null })
+const keyPop = ref<InstanceType<typeof ToolbarPopover> | null>(null)
+function manageLogins() {
+  fieldAt.value = null
+  keyPop.value?.show()
+}
 // the page a login is filled into, named the moment it is: a <webview> names
 // its page only once it is attached
 function guestNow(): number | null {
@@ -1023,9 +1034,21 @@ function onIpc(e: any, tabId: string) {
     case 'pw-form':
       pwFields.set(tabId, Number(msg?.fields) || 0)
       break
+    case 'pw-field': {
+      const was = fieldAt.value
+      if (!msg || tabId !== browser.activeId) {
+        if (was?.tabId === tabId) fieldAt.value = null
+        break
+      }
+      const n = Number(msg.n)
+      fieldAt.value = { tabId, n, x: Number(msg.x), y: Number(msg.y), w: Number(msg.w), h: Number(msg.h),
+        at: was?.tabId === tabId && was.n === n ? was.at : Date.now() }
+      break
+    }
   }
 }
 function onNav(e: any, tabId: string) {
+  if (fieldAt.value?.tabId === tabId) fieldAt.value = null
   if (e?.url) onTabNavigated(tabId, e.url)
   // flipping to the next page IS the capture trigger — in the armed tab only
   if (pageCapture.active && tabId === pageCapture.tabId) {
@@ -1079,7 +1102,7 @@ function onReady(tabId: string) {
         <Icon name="lock" :size="12" :sw="1.9" :style="{ color: isHttps ? 'var(--good)' : 'var(--tx3)' }" />
         <input ref="addrEl" v-model="addr" class="urlin mono" placeholder="Search or type a URL" @keydown.enter="go" />
       </div>
-      <ToolbarPopover v-if="isElectron" :tone="keyTone" :title="keyTitle" @closed="countLogins">
+      <ToolbarPopover v-if="isElectron" ref="keyPop" :tone="keyTone" :title="keyTitle" @closed="countLogins">
         <template #button><Icon name="key" :size="15" :sw="1.9" /><span v-if="keyCount" class="cnt">{{ keyCount }}</span></template>
         <template #default="{ close }">
           <LoginsPanel :origin="pageOrigin" :guest="guestNow" @close="close" @changed="countLogins" />
@@ -1163,6 +1186,8 @@ function onReady(tabId: string) {
              cannot tell from its own size whether a password it sent is the saved one -->
         <SaveLoginBar v-if="activeOffer" :key="activeOffer.guestId" :offer="activeOffer"
                       @answered="offerAnswered" />
+        <InlineFill v-if="fieldAt && suggestInForms && isElectron" :field="fieldAt" :origin="pageOrigin"
+                    :guest="guestNow" @close="fieldAt = null" @manage="manageLogins" />
         <!-- allowpopups: a page's new-tab link reaches the shell, which makes it a tab
              (or, for a sign-in popup, a window of its own).
              None while the vault is gone: a page writes into the vault's browser profile. -->

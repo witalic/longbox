@@ -154,6 +154,9 @@ password of yours, and filled when you click, never by themselves.
   addresses, until the logins lock), and signing in there updates it rather than saving another. An http and an https address, another port, or a name many people own (each
   github.io page is its own site) are other sites; the page is filled only while it is still on
   the login's site.
+- **In the form.** Click into a site's sign-in field and its logins show right under it — one
+  more click fills the sign-in. The list is longbox's, drawn over the page; it shows nothing while
+  the logins are locked, and Settings → **Passwords** → *Suggest in sign-in forms* turns it off.
 - **After a sign-in**, a bar under the toolbar offers to **Save** the login — or to **Update** the
   saved one, when you signed in with another password. **Never for this site** stops it asking
   there. The bar waits with its tab until you answer it.

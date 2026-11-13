@@ -7,7 +7,7 @@ import { computed, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import StrengthMeter from './StrengthMeter.vue'
 import { hostOf } from '../data'
-import { IDLE_LOCKS, askMaster, idleLock, lockLogins, loginsState, settled, strength } from '../logins'
+import { IDLE_LOCKS, askMaster, idleLock, lockLogins, loginsState, settled, strength, suggestInForms } from '../logins'
 
 const shell = window.longbox?.logins
 const count = ref<{ logins: number; sites: number } | null>(null)
@@ -89,6 +89,15 @@ async function change() {
         <button v-for="v in IDLE_LOCKS" :key="v" class="opt" :class="{ on: idleLock === v }"
                 @click="idleLock = v">{{ IDLE_LABELS[v] }}</button>
       </div>
+    </div>
+    <div v-if="loginsState.exists" class="row">
+      <div class="text">
+        <div class="label">Suggest in sign-in forms</div>
+        <div class="hint">A click in a site's sign-in field shows its logins under it, to fill with one more click.
+          Off, the key in the toolbar alone fills.</div>
+      </div>
+      <button class="toggle" :class="{ on: suggestInForms }" role="switch" :aria-checked="suggestInForms"
+              aria-label="Suggest in sign-in forms" @click="suggestInForms = !suggestInForms"></button>
     </div>
     <div v-if="loginsState.exists" class="row">
       <div class="text">

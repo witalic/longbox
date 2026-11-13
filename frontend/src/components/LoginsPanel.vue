@@ -9,7 +9,7 @@ import { computed, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import LoginEditor from './LoginEditor.vue'
 import { addressOf, ago, hostOf } from '../data'
-import { askMaster, crossFills, lockLogins, loginsState, settled, showLoginsIn } from '../logins'
+import { askMaster, fillInto, lockLogins, loginsState, settled, showLoginsIn } from '../logins'
 import { store } from '../store'
 import { showSources } from '../nav'
 
@@ -47,17 +47,12 @@ async function unlock() {
 const asking = ref<string | null>(null)
 async function fill(login: LoginSummary, sure = false) {
   const guest = props.guest()
-  if (!shell || guest === null) return
-  const cross = `${login.id} ${site.value}`
-  if (login.origin !== site.value && !sure && !crossFills.has(cross)) {
-    asking.value = login.id
-    return
-  }
-  asking.value = null
-  if (login.origin !== site.value) crossFills.add(cross)
+  if (guest === null) return
   try {
-    if (await settled(shell.fill(guest, login.id))) emit('close')
-    else error.value = 'The page is no longer on this site.'
+    const how = await fillInto(guest, login, site.value, sure)
+    asking.value = how === 'ask' ? login.id : null
+    if (how === 'filled') emit('close')
+    else if (how === 'gone') error.value = 'The page is no longer on this site.'
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   }

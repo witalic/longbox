@@ -6,10 +6,11 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 
 ## [Unreleased]
 
-### Fixed
-- **A video opened in a tab behind (a middle click) no longer plays unseen.** What a page starts
-  playing before its tab was ever shown waits, and plays as you switch to it. Once you have seen a
-  tab, what you leave playing there keeps playing.
+### Added
+- **Logins in the sign-in form.** A click in a site's sign-in field shows its logins right under
+  it; one more click fills — no trip to the key. The list is drawn by longbox over the page, never
+  in it, so a page can neither hide it nor trick a click out of it. Settings → Passwords → *Suggest
+  in sign-in forms* turns it off.
 
 ### Changed
 - **Sources:** the view switch (Tree, Links), the search and **+ Group** sit in the band with the
@@ -17,6 +18,11 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 - **One Fill for a sign-in in steps.** Fill on the username step fills the username, and the
   password follows by itself as soon as its step shows, on the same address within a minute — no
   second trip to the key.
+
+### Fixed
+- **A video opened in a tab behind (a middle click) no longer plays unseen.** What a page starts
+  playing before its tab was ever shown waits, and plays as you switch to it. Once you have seen a
+  tab, what you leave playing there keeps playing.
 
 ## [3.6.3] — 2026-11-13
 

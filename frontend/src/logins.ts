@@ -16,6 +16,23 @@ export const loginsState = reactive<LoginsState>({ exists: false, unlocked: fals
 export const crossFills = new Set<string>()
 watch(() => loginsState.unlocked, (open) => { if (!open) crossFills.clear() })
 
+// A login filled into the page a tab shows, on the address `here`: 'ask' when
+// it is another address's and the owner has not said yes to this one yet
+// (`sure`: they just did); 'gone' when the page left the login's site.
+export async function fillInto(guest: number, login: LoginSummary, here: string, sure = false): Promise<'ask' | 'filled' | 'gone'> {
+  const shell = window.longbox?.logins
+  if (!shell) return 'gone'
+  const cross = `${login.id} ${here}`
+  if (login.origin !== here && !sure && !crossFills.has(cross)) return 'ask'
+  if (login.origin !== here) crossFills.add(cross)
+  return (await settled(shell.fill(guest, login.id))) ? 'filled' : 'gone'
+}
+
+// Whether a sign-in field the owner clicks shows the site's logins under it —
+// the window's preference; off, the key alone fills.
+export const suggestInForms = ref(readLocalOne('lb.loginsSuggest', ['1', '0'] as const, '1') === '1')
+watch(suggestInForms, (on) => writeLocalOne('lb.loginsSuggest', on ? '1' : '0'))
+
 // After how many minutes with no use of the computer the logins lock by
 // themselves ('0': never for that) — the window's preference, told to the shell
 // at start and on every change. Sleep and a locked screen lock them always.

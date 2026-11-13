@@ -137,6 +137,21 @@ Forgetting the master password loses the secrets. Setup says so, plainly, once.
   in the same tab, on the same address, within a minute, its password follows, once. Until then
   the password stays in the shell; a page on another address, or later, gets nothing. With no
   saved login, it offers to generate a password (a sign-up form's new-password field).
+- **In the form** (owner, 2026-11-13; [mockup](inline-fill-mockup.html)): a click of the owner's —
+  or Tab — into a sign-in field of the page's top frame (a field marked `autocomplete="username"`,
+  the username field of a form with a password, a password field) shows the site's logins under it.
+  The list is the app's, drawn over the page by the window, never in it: the page can neither cover
+  it, hide it, nor take a click on it, the ways menus drawn inside pages by browser extensions were
+  shown to be tricked. The preload tells the window where the field is (its box in the window's
+  pixels, the page's zoom applied) and that it is gone — the focus moving elsewhere in the page,
+  typing, Esc, the page leaving; focus that leaves the page goes to the list itself, which the
+  window closes on a press elsewhere in the app, Esc, a tab change or navigation. A click on a
+  login fills the sign-in (one in steps gets its password as its step shows); one of another
+  address of the site asks first, as the key's popover does. A click in its first half second is
+  not taken, so a page cannot move its field under the pointer as the owner clicks. A field the
+  page focuses by itself shows nothing; nor does anything while the logins are locked (which
+  logins a site has is itself encrypted) or when the site has none. Settings → Passwords →
+  *Suggest in sign-in forms* turns it off.
 - The menu is the app's, not the page's: a page cannot draw a fake one or click it for the owner.
 - The fill goes to the top frame only, and only if its origin is still of the entry's site at the
   moment of filling (a page that navigated meanwhile gets nothing). http pages get only logins saved

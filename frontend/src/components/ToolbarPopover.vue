@@ -28,6 +28,7 @@ onBeforeUnmount(() => resized.disconnect())
 function toggle() {
   return open.value ? close() : show()
 }
+defineExpose({ show })
 </script>
 
 <template>
