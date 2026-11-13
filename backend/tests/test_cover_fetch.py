@@ -3,6 +3,7 @@ sidecar must never be steered into this computer or its network — not by the
 address itself, and not by a redirect."""
 from __future__ import annotations
 
+import ipaddress
 import socket
 
 import httpx
@@ -30,9 +31,12 @@ def served(monkeypatch):
     asked: list[str] = []
 
     def resolve(host, port, *args, **kwargs):
-        if host not in HOSTS and not host.replace(".", "").isdigit():
-            raise socket.gaierror("unknown host")
-        ip = HOSTS.get(host, host)
+        try:
+            ip = str(ipaddress.ip_address(host))  # an address written out resolves to itself
+        except ValueError:
+            if host not in HOSTS:
+                raise socket.gaierror("unknown host")
+            ip = HOSTS[host]
         family = socket.AF_INET6 if ":" in ip else socket.AF_INET
         return [(family, socket.SOCK_STREAM, 6, "", (ip, port))]
 
@@ -68,6 +72,12 @@ def test_a_public_address_is_fetched(served):
     "http://metadata.example/latest",      # link-local
     "http://mapped.example/x.png",         # IPv4-mapped IPv6 of a private address
     "http://nowhere.example/x.png",        # a name that does not resolve
+    "http://[::1]/x.png",                  # this computer, in IPv6
+    "http://0.0.0.0/x.png",
+    "http://[::7f00:1]/x.png",             # IPv4-compatible IPv6 of 127.0.0.1
+    "http://[64:ff9b::c0a8:101]/x.png",    # NAT64 of 192.168.1.1
+    "http://[2002:c0a8:101::1]/x.png",     # 6to4 of 192.168.1.1
+    "http://[fec0::1]/x.png",              # site-local
 ])
 def test_an_address_off_the_public_internet_is_never_asked(served, url):
     _, asked = served
@@ -78,6 +88,13 @@ def test_an_address_off_the_public_internet_is_never_asked(served, url):
 def test_a_redirect_into_the_local_network_is_not_followed(served):
     routes, asked = served
     routes["https://cdn.example/c.png"] = moved("http://192.168.1.1/admin.png")
+    assert covers.fetch_cover("https://cdn.example/c.png") is None
+    assert asked == ["https://cdn.example/c.png"]
+
+
+def test_a_redirect_to_a_file_is_not_followed(served):
+    routes, asked = served
+    routes["https://cdn.example/c.png"] = moved("file:///C:/Windows/win.ini")
     assert covers.fetch_cover("https://cdn.example/c.png") is None
     assert asked == ["https://cdn.example/c.png"]
 

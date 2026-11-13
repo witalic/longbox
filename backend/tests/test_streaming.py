@@ -78,3 +78,20 @@ def test_an_archive_that_breaks_halfway_leaves_nothing_behind(tmp_path):
     with pytest.raises(zipfile.BadZipFile):
         media.repack_to_zip(src, dst)
     assert list(dst.parent.iterdir()) == []   # no half-written archive, no stray .tmp
+
+
+def test_a_rewrite_that_cannot_land_leaves_no_copy_behind(tmp_path, monkeypatch):
+    # the archive is held open elsewhere (a player, an antivirus): every replace
+    # is refused, and the scratch copy must not stay behind as a leftover
+    path = _archive(tmp_path / "ch.zip", pages=3)
+    before = path.read_bytes()
+
+    def refused(_src, _dst):
+        raise PermissionError("in use")
+
+    monkeypatch.setattr(media.os, "replace", refused)
+    monkeypatch.setattr(media.time, "sleep", lambda _s: None)
+    with pytest.raises(media.MediaInUseError):
+        media.reorder_entries(path, [2, 1, 0])
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["ch.zip"]
+    assert path.read_bytes() == before

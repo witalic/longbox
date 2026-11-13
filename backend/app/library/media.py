@@ -15,6 +15,7 @@ import shutil
 import uuid
 import zipfile
 from collections.abc import Iterable, Iterator
+from contextlib import closing
 from itertools import chain
 from pathlib import Path
 
@@ -504,16 +505,25 @@ _REPLACE_ATTEMPTS = 8
 
 
 def replace_atomically(tmp: Path, final: Path) -> None:
-    for attempt in range(_REPLACE_ATTEMPTS):
+    try:
+        for attempt in range(_REPLACE_ATTEMPTS):
+            try:
+                os.replace(tmp, final)  # atomic on the same filesystem
+                return
+            except PermissionError:
+                if attempt == _REPLACE_ATTEMPTS - 1:
+                    raise MediaInUseError(final.name)
+                # growing backoff: a stream that has just ended lets go within a
+                # beat, and this is the path a RE-download of an open episode takes
+                time.sleep(0.05 * (attempt + 1))
+    except BaseException:
+        # the copy that could not land is nobody's: left, it is a leftover the
+        # next health check reports
         try:
-            os.replace(tmp, final)  # atomic on the same filesystem
-            return
-        except PermissionError:
-            if attempt == _REPLACE_ATTEMPTS - 1:
-                raise MediaInUseError(final.name)
-            # growing backoff: a stream that has just ended lets go within a
-            # beat, and this is the path a RE-download of an open episode takes
-            time.sleep(0.05 * (attempt + 1))
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 def flush(path: Path) -> None:
@@ -814,11 +824,15 @@ def remove_entries(path: Path, names: set[str]) -> int:
     of image pages left."""
     _require_editable(path)
     tmp = tmp_path(path)
-    with zipfile.ZipFile(path) as src, zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as dst:
-        for info in src.infolist():
-            if info.filename in names:
-                continue
-            dst.writestr(info, src.read(info.filename))
+    try:
+        with zipfile.ZipFile(path) as src, zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as dst:
+            for info in src.infolist():
+                if info.filename in names:
+                    continue
+                dst.writestr(info, src.read(info.filename))
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     replace_atomically(tmp, path)
     return len(image_entries(path))
 
@@ -938,8 +952,11 @@ def renumber_and_append(path: Path, extra: Iterable[tuple[bytes, str]], count: i
             raise
         replace_atomically(tmp, path)
         return total
-    existing = _pages_of(path, names) if names else iter(())
-    return _write_renumbered(path, chain(existing, extra), len(names) + count)
+    if not names:
+        return _write_renumbered(path, extra, count)
+    # closed on a failure too: an open source would refuse the next edit of it
+    with closing(_pages_of(path, names)) as existing:
+        return _write_renumbered(path, chain(existing, extra), len(names) + count)
 
 
 def reorder_entries(path: Path, order: list[int]) -> int:
@@ -950,7 +967,8 @@ def reorder_entries(path: Path, order: list[int]) -> int:
     names = image_entries(path)
     if sorted(order) != list(range(len(names))):
         raise ValueError("order must be a permutation of the current page indices")
-    return _write_renumbered(path, _pages_of(path, [names[i] for i in order]), len(order))
+    with closing(_pages_of(path, [names[i] for i in order])) as pages:
+        return _write_renumbered(path, pages, len(order))
 
 
 def move_images(src: Path, dst: Path, names: set[str]) -> tuple[int, int]:
@@ -959,6 +977,7 @@ def move_images(src: Path, dst: Path, names: set[str]) -> tuple[int, int]:
     crash in between duplicates pages instead of losing them.
     Returns (pages left in src, pages now in dst)."""
     picked = [n for n in image_entries(src) if n in names]
-    dst_count = renumber_and_append(dst, _pages_of(src, picked), len(picked))
+    with closing(_pages_of(src, picked)) as pages:
+        dst_count = renumber_and_append(dst, pages, len(picked))
     src_left = remove_entries(src, names)
     return src_left, dst_count

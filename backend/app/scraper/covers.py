@@ -14,6 +14,7 @@ log = logging.getLogger("longbox")
 
 _MAX_BYTES = 8 * 1024 * 1024  # 8 MB — cover art, not a chapter
 _MAX_REDIRECTS = 5
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
 _EXT_BY_TYPE = {
     "image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png",
     "image/webp": "webp", "image/gif": "gif", "image/avif": "avif",
@@ -26,6 +27,21 @@ def is_remote(url: str) -> bool:
 
 def _client() -> httpx.Client:
     return httpx.Client(follow_redirects=False, timeout=15.0)
+
+
+def _public(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """An IPv4 address an IPv6 one carries — mapped, compatible, NAT64, 6to4 — is
+    judged as itself; a site-local one (fec0::/10, retired but routed by some
+    networks) is never public."""
+    if isinstance(ip, ipaddress.IPv6Address):
+        n = int(ip)
+        inner = (ip.ipv4_mapped or ip.sixtofour
+                 or (ipaddress.IPv4Address(n & 0xFFFFFFFF) if ip in _NAT64 or (n >> 32 == 0 and n > 1) else None))
+        if inner is not None:
+            return inner.is_global
+        if ip.is_site_local:
+            return False
+    return ip.is_global
 
 
 def on_public_internet(url: str) -> bool:
@@ -43,13 +59,8 @@ def on_public_internet(url: str) -> bool:
         found = socket.getaddrinfo(parts.hostname, port, type=socket.SOCK_STREAM)
     except (OSError, UnicodeError, ValueError):
         return False
-    addresses = set()
-    for *_, sockaddr in found:
-        ip = ipaddress.ip_address(str(sockaddr[0]).split("%")[0])
-        if ip.version == 6 and ip.ipv4_mapped is not None:
-            ip = ip.ipv4_mapped
-        addresses.add(ip)
-    return bool(addresses) and all(ip.is_global for ip in addresses)
+    addresses = {ipaddress.ip_address(str(sockaddr[0]).split("%")[0]) for *_, sockaddr in found}
+    return bool(addresses) and all(_public(ip) for ip in addresses)
 
 
 def fetch_cover(url: str, referer: str = "") -> tuple[bytes, str] | None:
