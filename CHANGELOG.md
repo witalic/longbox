@@ -11,6 +11,11 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 - A short README; installing and the first-launch steps on the project page; a user guide
   (`docs/guide.md`) and `CONTRIBUTING.md`; screenshots of the app as it is now.
 
+### Security
+- A released build no longer opens DevTools on F12; started with `LONGBOX_DEVTOOLS=1`, it does.
+- A cover fetched by its address never reaches this computer or its network — not by the address,
+  not by a redirect.
+
 ## [3.3.0] — 2026-11-12
 
 ### Added
