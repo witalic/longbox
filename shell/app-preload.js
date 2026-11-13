@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('longbox', {
     reveal: (id, previous) => ipcRenderer.invoke('lb-pw-reveal', String(id ?? ''), previous),
     copy: (id, previous) => ipcRenderer.invoke('lb-pw-copy', String(id ?? ''), previous),
     copyText: (text) => ipcRenderer.invoke('lb-pw-copy-text', String(text ?? '')),
+    copyName: (text) => ipcRenderer.invoke('lb-pw-copy-name', String(text ?? '')),
     add: (login) => ipcRenderer.invoke('lb-pw-add', login),
     edit: (id, change) => ipcRenderer.invoke('lb-pw-edit', String(id ?? ''), change),
     remove: (id) => ipcRenderer.invoke('lb-pw-remove', String(id ?? '')),

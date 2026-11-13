@@ -44,7 +44,7 @@ async function done() {
 }
 async function copy(l: LoginSummary, what: 'username' | 'password') {
   if (!shell) return
-  await settled(what === 'password' ? shell.copy(l.id) : shell.copyText(l.username))
+  await settled(what === 'password' ? shell.copy(l.id) : shell.copyName(l.username))
     .catch((e) => { error.value = e instanceof Error ? e.message : String(e) })
 }
 async function offerAgain(origin: string) {

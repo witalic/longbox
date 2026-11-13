@@ -52,16 +52,17 @@ async function clearClipboard(digest) {
   if (!digest) return
   if (copied === digest) copied = ''
   try {
-    const now = await clipboard.readText()
-    if (crypto.createHash('sha256').update(now).digest('hex') === digest) clipboard.clear()
+    const now = await clipboard.readText() // '' for a clipboard with no text: an image, say — never ours
+    if (now && crypto.createHash('sha256').update(now).digest('hex') === digest) clipboard.clear()
   } catch (err) {
     console.error('the clipboard was not cleared:', err)
   }
 }
 async function copy(text) {
-  await clipboard.writeText(text)
+  if (!text) return
   const digest = crypto.createHash('sha256').update(text).digest('hex')
-  copied = digest
+  copied = digest // known before it is written, so a Lock meanwhile clears it too
+  await clipboard.writeText(text)
   setTimeout(() => { void clearClipboard(digest) }, CLIPBOARD_MS).unref?.()
 }
 
@@ -74,10 +75,10 @@ function lock() {
   const was = logins
   logins = null
   watchIdle()
-  void clearClipboard(copied)
+  const clearing = clearClipboard(copied)
   tellState({ exists, unlocked: false, restored: false })
   if (was) locking = was.lock().finally(() => { locking = null })
-  return locking ?? Promise.resolve()
+  return Promise.all([locking, clearing]).then(() => {})
 }
 
 // And by themselves: when the computer sleeps or its screen is locked, and
@@ -307,6 +308,8 @@ function wire(window, root) {
   handle('lb-pw-reveal', (id, previous) => opened(id, previous))
   handle('lb-pw-copy', (id, previous) => copy(opened(id, previous)))
   handle('lb-pw-copy-text', (text) => copy(String(text ?? '')))
+  // a username: no secret, so it stays on the clipboard
+  handle('lb-pw-copy-name', (text) => clipboard.writeText(String(text ?? '')))
   handle('lb-pw-add', (login) => held().add({ origin: login?.origin, username: login?.username,
     password: String(login?.password ?? ''), note: login?.note }))
   handle('lb-pw-edit', (id, change) => held().edit(String(id), {

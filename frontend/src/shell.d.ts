@@ -93,6 +93,8 @@ declare global {
         reveal: (id: string, previous?: number) => Promise<LoginsAnswer<string>>
         copy: (id: string, previous?: number) => Promise<LoginsAnswer<void>>
         copyText: (text: string) => Promise<LoginsAnswer<void>>
+        // a username: copied as it is, never cleared after 30 seconds
+        copyName: (text: string) => Promise<LoginsAnswer<void>>
         add: (login: { origin: string; username: string; password: string; note: string }) => Promise<LoginsAnswer<string>>
         edit: (id: string, change: { username?: string; note?: string; steps?: LoginStep[]; updated?: string }) =>
           Promise<LoginsAnswer<void>>

@@ -66,7 +66,7 @@ async function copy(login: LoginSummary, what: 'username' | 'password') {
   if (!shell) return
   error.value = note.value = ''
   try {
-    await settled(what === 'password' ? shell.copy(login.id) : shell.copyText(login.username))
+    await settled(what === 'password' ? shell.copy(login.id) : shell.copyName(login.username))
     note.value = what === 'password' ? 'The password is copied — it leaves the clipboard after 30 seconds.'
       : 'The username is copied.'
   } catch (e) {

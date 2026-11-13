@@ -1103,6 +1103,9 @@ const EXIT_FULLSCREEN_WORLD = 1001
 // How long a gesture lets a page open a tab or a window: Chromium's
 // transient-activation lifespan.
 const GESTURE_MS = 5000
+// The page menu's copies: Electron's clipboard answers with a promise, and one
+// that fails must not go unhandled in the main process.
+const copyText = (text) => { clipboard.writeText(String(text ?? '')).catch((err) => console.error('copy failed:', err)) }
 
 app.on('web-contents-created', (_e, contents) => {
   contents.on('will-attach-webview', (_evt, webPreferences) => {
@@ -1174,13 +1177,13 @@ app.on('web-contents-created', (_e, contents) => {
           items.push(
             { label: 'Open link in new tab', click: () => openTab(params.linkURL, false) },
             { label: 'Open link in background tab', click: () => openTab(params.linkURL, true) },
-            { label: 'Copy link address', click: () => clipboard.writeText(params.linkURL) },
+            { label: 'Copy link address', click: () => copyText(params.linkURL) },
           )
         }
         if (params.mediaType === 'image' && params.srcURL) {
           if (items.length) items.push({ type: 'separator' })
           items.push(
-            { label: 'Copy image address', click: () => clipboard.writeText(params.srcURL) },
+            { label: 'Copy image address', click: () => copyText(params.srcURL) },
             {
               label: 'Save image as…',
               click: () => { manualSaves.add(params.srcURL); contents.downloadURL(params.srcURL) },
@@ -1189,7 +1192,7 @@ app.on('web-contents-created', (_e, contents) => {
         }
         if (params.selectionText) {
           if (items.length) items.push({ type: 'separator' })
-          items.push({ label: 'Copy', click: () => clipboard.writeText(params.selectionText) })
+          items.push({ label: 'Copy', click: () => copyText(params.selectionText) })
         }
         if (params.isEditable) {
           if (items.length) items.push({ type: 'separator' })
@@ -1203,7 +1206,7 @@ app.on('web-contents-created', (_e, contents) => {
           { label: 'Forward', enabled: nav.canGoForward(), click: () => nav.goForward() },
           { label: 'Reload', click: () => contents.reload() },
           { type: 'separator' },
-          { label: 'Copy page address', click: () => clipboard.writeText(contents.getURL()) },
+          { label: 'Copy page address', click: () => copyText(contents.getURL()) },
         )
         Menu.buildFromTemplate(items).popup({ window: appWindow })
       } catch (err) {
