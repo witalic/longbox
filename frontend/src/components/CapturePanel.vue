@@ -17,7 +17,7 @@ import { api, type DownloadItem } from '../api'
 import { readLocalOne, writeLocalOne } from '../local'
 import {
   chaptersInScope, compareChapterNums, coverAt, faviconFor, groupByNum, hostOf, labelChoices,
-  nextLabel, nextLabels, PAGE_FILTER_DEFAULTS, recordLine, sameChapter,
+  nextLabel, nextLabels, PAGE_FILTER_DEFAULTS, recordLine, sameChapter, bytes,
   type Chapter,
 } from '../data'
 import { useMoment } from '../moment'
@@ -249,9 +249,6 @@ async function disarm() {
 function pct(it: { received: number; total: number }): number {
   return it.total > 0 ? Math.min(100, Math.round((it.received / it.total) * 100)) : 0
 }
-function mb(n: number): string {
-  return n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.round(n / 1024)} KB`
-}
 const targetChapters = computed(() => (d.value?.targetId ? titleById(d.value.targetId)?.chapters ?? [] : []))
 
 // ONE chapter list: saved chapters merged with in-flight downloads (matched by
@@ -275,7 +272,7 @@ function amountOf(r: PanelRow): string {
   if (r.item) {
     if (r.item.state === 'failed') return 'failed'
     if (r.item.state === 'interrupted') return 'paused'
-    return r.item.total ? `${pct(r.item)}%` : mb(r.item.received)
+    return r.item.total ? `${pct(r.item)}%` : bytes(r.item.received)
   }
   if (!r.chapter?.dl) return ''
   return r.chapter.pages ? `${r.chapter.pages} pg` : 'file'

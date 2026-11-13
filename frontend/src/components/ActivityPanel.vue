@@ -22,7 +22,7 @@ import {
   vaultPass, watchDownloads, watchVaultPass, type MediaJob,
 } from '../store'
 import { askConfirm } from '../confirm'
-import { hostOf, type LooseFile } from '../data'
+import { bytes, hostOf, type LooseFile } from '../data'
 
 const props = defineProps<{ warning: string }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'quit'): void }>()
@@ -40,28 +40,24 @@ function titleOf(id: string): string { return cardById(id)?.title || 'a title th
 function pct(i: { received: number; total: number }): number {
   return i.total ? Math.min(100, Math.round((i.received / i.total) * 100)) : 0
 }
-function mb(n: number): string { return `${(n / 1048576).toFixed(1)} MB` }
 function amount(i: { received: number; total: number }): string {
-  return i.total ? `${mb(i.received)} / ${mb(i.total)}` : mb(i.received)
+  return i.total ? `${bytes(i.received)} / ${bytes(i.total)}` : bytes(i.received)
 }
 
 // ---- the library job ----
 const HOME = { import: 'Import', metadata: 'Metadata', settings: 'Settings' } as const
 const passTitle = computed(() => (vaultPass.op ? vaultPass.op[0].toUpperCase() + vaultPass.op.slice(1) : 'A library job'))
-function size(n: number): string {
-  return n >= 2 ** 30 ? `${(n / 2 ** 30).toFixed(1)} GB` : mb(n)
-}
 // only an import counts bytes, and its steps are files
 type Counted = { done: number; total: number; doneBytes: number; totalBytes: number }
 function jobAmount(p: Counted): string {
-  if (p.totalBytes) return `${p.done} of ${p.total} files · ${size(p.doneBytes)} of ${size(p.totalBytes)}`
+  if (p.totalBytes) return `${p.done} of ${p.total} files · ${bytes(p.doneBytes)} of ${bytes(p.totalBytes)}`
   return p.total ? `${p.done} of ${p.total}` : ''
 }
 const folderName = (root: string) => root.split(/[\\/]/).filter(Boolean).pop() || root
 // what a queued job carries: the one file, or how many images
 function mediaWhat(j: MediaJob): string {
-  const bytes = size(j.files.reduce((n, f) => n + f.size, 0))
-  return j.kind === 'archive' ? `${j.files[0]?.name ?? 'a file'} · ${bytes}` : `${j.files.length} images · ${bytes}`
+  const total = bytes(j.files.reduce((n, f) => n + f.size, 0))
+  return j.kind === 'archive' ? `${j.files[0]?.name ?? 'a file'} · ${total}` : `${j.files.length} images · ${total}`
 }
 function openHome() {
   openSection(passHome(vaultPass.key))
@@ -99,9 +95,6 @@ function when(at: string): string {
   if (Number.isNaN(d.getTime())) return ''
   const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   return d.toDateString() === new Date().toDateString() ? `today ${time}` : d.toLocaleDateString([], { month: 'short', day: 'numeric' })
-}
-function sizeOf(n: number): string {
-  return n < 1048576 ? `${Math.max(1, Math.round(n / 1024))} KB` : size(n)
 }
 
 </script>
@@ -250,7 +243,7 @@ function sizeOf(n: number): string {
           <span class="lkind mono" :class="f.kind">{{ ext(f.name) }}</span>
           <div class="lmain">
             <div class="dlname mono" :title="f.name">{{ f.name }}</div>
-            <div class="lsub">{{ sizeOf(f.size) }} · {{ when(f.at) }}<template v-if="f.pageUrl || f.fileUrl"> · from {{ hostOf(f.pageUrl || f.fileUrl) }}</template></div>
+            <div class="lsub">{{ bytes(f.size) }} · {{ when(f.at) }}<template v-if="f.pageUrl || f.fileUrl"> · from {{ hostOf(f.pageUrl || f.fileUrl) }}</template></div>
           </div>
           <button v-if="canOpenFolder" class="btn ghost small" title="Open the library's downloads folder" @click="showFolder">
             <Icon name="folder" :size="12" :sw="1.9" />Show

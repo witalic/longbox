@@ -743,6 +743,13 @@ export function ago(when: string | number): string {
   return `${Math.round(s / 86400)} days ago`
 }
 
+// A size, as a human reads it: GB, MB, or KB for anything smaller.
+export function bytes(n: number): string {
+  if (n >= 1073741824) return `${(n / 1073741824).toFixed(1)} GB`
+  if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`
+  return `${Math.max(n > 0 ? 1 : 0, Math.round(n / 1024))} KB`
+}
+
 // Running time, as a human reads it.
 export function formatDuration(seconds: number): string {
   if (!seconds || !Number.isFinite(seconds)) return ''
