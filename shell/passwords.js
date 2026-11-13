@@ -15,7 +15,7 @@ const OFFER_MS = 10 * 60 * 1000  // an offer nobody answered goes, and its passw
 const USED_EVERY_MS = 60 * 1000  // a login signed in with again is stamped used once a minute at most
 const MAX_USERNAME = 256
 const MAX_PASSWORD = 1024
-const STEP_MS = 60 * 1000 // a Fill on a username step waits this long for its password step
+const STEP_MS = 60 * 1000 // a Fill waits this long for the page to want its password
 const IDLE_CHOICES = [5, 15, 30, 60, 0] // minutes; 0: never for being idle
 const IDLE_CHECK_MS = 30 * 1000
 
@@ -28,9 +28,9 @@ let idleMinutes = 15 // the window's choice, once it has told it
 let idleTimer = null
 // a page's id → the sign-in it sent: { origin, username, password: Buffer, timer }
 const offers = new Map()
-// A Fill on a sign-in's username step goes on to its password step: one Fill,
-// one sign-in. A page's id → { id, origin, at, until } — `until` set once the
-// page said it filled only the username.
+// A Fill, waiting for the page to want its password: at once, when the page has
+// a password field, or on the password step of a sign-in in steps — one Fill,
+// one sign-in. A page's id → { id, origin, until }.
 const steps = new Map()
 const watched = new WeakSet() // pages whose going is listened for
 
@@ -97,6 +97,7 @@ function lock() {
   const was = logins
   logins = null
   watchIdle()
+  steps.clear()
   const clearing = clearClipboard(copied)
   tellState({ exists, unlocked: false, restored: false })
   if (was) locking = was.lock().finally(() => { locking = null })
@@ -141,28 +142,22 @@ function fill(guestId, id, here) {
   if (frame.origin !== here) return false
   const login = held().list(frame.origin).find((x) => x.id === id)
   if (!login) return false
-  frame.send('lb-pw-fill', { origin: frame.origin, username: login.username, password: opened(id) })
-  steps.set(guest.id, { id, origin: frame.origin, at: Date.now(), until: 0 })
+  // the username now; the password only once the page has a field for it
+  frame.send('lb-pw-fill', { origin: frame.origin, username: login.username })
+  steps.set(guest.id, { id, origin: frame.origin, until: Date.now() + STEP_MS })
   watchGone(guest)
   void held().used(id).catch(() => {})
   return true
 }
 
-// The page filled only the username — a sign-in in steps: its password step is
-// waited for, a minute at most.
-function awaiting(e) {
-  const guest = topOf(e)
-  const step = guest && steps.get(guest.id)
-  if (step && step.origin === e.senderFrame.origin && Date.now() - step.at < 5000) step.until = Date.now() + STEP_MS
-}
-
-// A password field shown in a page's top frame: the password of the Fill that
-// waits for it, if one does — once, on the address it was filled on, the
-// logins still open. A page on another address, or later, gets nothing.
+// The page's top frame has a password field — the one it already had as the
+// Fill came, or its password step's: the password of the Fill that waits for
+// it, if one does — once, on the address it was filled on, within a minute,
+// the logins still open. A page on another address, or later, gets nothing.
 function stepShown(e) {
   const guest = topOf(e)
   const step = guest && steps.get(guest.id)
-  if (!step?.until) return
+  if (!step) return
   steps.delete(guest.id)
   const frame = guest.mainFrame
   if (Date.now() > step.until || frame.origin !== step.origin || !logins?.unlocked) return
@@ -371,7 +366,6 @@ function wire(window, root) {
   handle('lb-pw-nevers', (origin) => held().nevers(typeof origin === 'string' ? origin : ''))
   handle('lb-pw-set-never', (origin, never) => held().setNever(String(origin ?? ''), !!never))
   ipcMain.on('lb-pw-submitted', submitted)
-  ipcMain.on('lb-pw-awaiting', awaiting)
   ipcMain.on('lb-pw-step', stepShown)
   powerMonitor.on('suspend', lockAway)
   powerMonitor.on('lock-screen', lockAway)

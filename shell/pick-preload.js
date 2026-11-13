@@ -816,24 +816,23 @@ if (window === window.top) {
 
   // the shell sends a login only of this page's site, addressed to the page's
   // origin as the shell saw it; that is checked again here, as it arrives — a
-  // page that went elsewhere meanwhile gets nothing.
-  // On a sign-in's username step only the username is filled, and the shell is
-  // told: the password follows when its step shows, with no other click.
+  // page that went elsewhere meanwhile gets nothing. A Fill brings the username;
+  // the password comes only once asked for — at once, with a password field
+  // here, or on a sign-in's password step, as its field shows (no other click).
   ipcRenderer.on('lb-pw-fill', (_e, msg) => {
     if (!msg || location.origin !== msg.origin) return
     const focused = document.activeElement
     const pw = focused instanceof HTMLInputElement && focused.type === 'password' && shown(focused)
       ? focused : passwordFields()[0]
     const user = pw ? usernameFor(pw) : identifierField()
-    if (user && msg.username) {
-      type(user, msg.username)
-      if (!pw) {
+    if (user && msg.username && user.value !== msg.username) type(user, msg.username)
+    if (!pw) {
+      if (msg.username) {
         stepUser = msg.username.slice(0, 256)
         stepUserAt = Date.now()
-        ipcRenderer.send('lb-pw-awaiting')
       }
-    }
-    if (pw) type(pw, msg.password)
+    } else if (typeof msg.password === 'string') type(pw, msg.password)
+    else ipcRenderer.send('lb-pw-step')
   })
 
   // The sign-in field the owner clicked, or tabbed into, is told to the window —
