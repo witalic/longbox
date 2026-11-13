@@ -3,10 +3,17 @@
 // dialog that asks for it (MasterDialog.vue). The logins themselves stay in the
 // shell (shell/passwords.js); a password reaches the window only when the
 // owner reveals one.
-import { reactive } from 'vue'
+import { reactive, ref, watch } from 'vue'
 import { hostOf } from './data'
+import { readLocalOne, writeLocalOne } from './local'
 
 export const loginsState = reactive<LoginsState>({ exists: false, unlocked: false, restored: false })
+
+// After how many minutes with no use of the computer the logins lock by
+// themselves ('0': never for that) — the window's preference, told to the shell
+// at start and on every change. Sleep and a locked screen lock them always.
+export const IDLE_LOCKS = ['5', '15', '30', '60', '0'] as const
+export const idleLock = ref(readLocalOne('lb.loginsIdle', IDLE_LOCKS, '15'))
 
 // The master password asked for: 'setup' the first time, 'unlock' after;
 // `resolve` answers whoever asked, true once given.
@@ -29,6 +36,12 @@ export async function watchLogins() {
   const shell = window.longbox?.logins
   if (!shell) return
   shell.onState((s) => { Object.assign(loginsState, s) }) // nothing handed back: the bridge would clone it
+  const tell = (v: string) => { void settled(shell.lockWhenIdle(Number(v))).catch(() => {}) }
+  tell(idleLock.value)
+  watch(idleLock, (v) => {
+    writeLocalOne('lb.loginsIdle', v)
+    tell(v)
+  })
   Object.assign(loginsState, await settled(shell.state()))
 }
 

@@ -6,6 +6,10 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 
 ## [Unreleased]
 
+### Added
+- **Passwords lock by themselves** when the computer sleeps or its screen is locked, and after 15
+  minutes with no use of it — Settings → Passwords → *Lock when idle* sets how long, or never.
+
 ### Security
 - **Passwords:** the second copy of the logins file (`secrets.prev.json`) kept the file as it was
   before the last change — so a login just deleted, or every login under a master password just

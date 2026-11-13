@@ -12,7 +12,9 @@ when asked for, and saved after a sign-in when the owner says so.
 - **A master password, once per app start.** No PIN: a PIN is only worth having to re-unlock a
   session that locked itself, and a PIN that survives a restart would leave a copied vault file
   protected by the PIN alone. The secrets stay unlocked until the app closes or the owner locks
-  them.
+  them — or they lock by themselves (an independent review, 2026-11-13; owner, the same day): when
+  the computer sleeps or its screen is locked, and after a time with no use of the computer, 15
+  minutes unless the owner chooses 5, 30, 60 or never.
 - **No binding to the OS or the device.** No DPAPI, no keychain: the master password alone opens
   the secrets, on any computer the vault is opened from.
 - **In the vault** (design/vault-home.md): the encrypted file travels with the vault.
@@ -39,7 +41,8 @@ when asked for, and saved after a sign-in when the owner says so.
 |---|---|---|
 | someone who copies the vault (it lives on a network share) | the encrypted file, offline, unlimited time | a slow KDF over the master password; nothing else in the file helps |
 | a web page in the embedded browser | the page it is on | exact-origin matching, fill only on click, never into another origin's frame, the choice made in the app's UI — not in the page |
-| someone at the unlocked computer | the running app | out of scope (lock button; the app closes) |
+| someone at the unlocked computer | the running app | out of scope (Lock; sleep, a locked screen and being idle lock too; the app closes) |
+| script that gets into the app's window | everything the window can ask the shell | the window is trusted, as a browser's own settings page is: a strict CSP (no inline script, no `eval`) and nothing rendered as HTML keep script out. A password is shown and copied without asking again (owner, 2026-11-13): script in the window could fill one into a tab and read it there through the `<webview>`, so a second ask would not stop it |
 
 The master password's strength IS the protection of a copied vault. Setting it shows a strength
 estimate and refuses a short one (under 10 characters).
@@ -102,7 +105,12 @@ Forgetting the master password loses the secrets. Setup says so, plainly, once.
 - First use: set the master password (twice), with the strength estimate and the warning above.
 - **Lock** in the key's popover and in Settings; the app quitting, or the vault dropping, locks
   too — once what is being written is written. A password still on the clipboard goes with it.
-- Settings → Passwords: change the master password; lock.
+- **Locked by themselves:** when the computer sleeps or its screen is locked (Electron's
+  `powerMonitor`; Linux tells the screen lock only on some desktops), and after the chosen minutes
+  with no use of the computer — its keyboard and mouse, in any app — checked every 30 seconds while
+  unlocked. The choice is the window's preference (`lb.loginsIdle`), told to the shell at start and
+  on each change; until told, the shell takes 15 minutes.
+- Settings → Passwords: lock; how long idle before they lock; change the master password.
 
 ## In the browser
 

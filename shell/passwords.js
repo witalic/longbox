@@ -7,7 +7,7 @@
 // never through the window, and is held only until the owner answers the bar
 // that offers to save it.
 const crypto = require('node:crypto')
-const { clipboard, ipcMain, webContents } = require('electron')
+const { clipboard, ipcMain, powerMonitor, webContents } = require('electron')
 const secrets = require('./secrets')
 
 const CLIPBOARD_MS = 30 * 1000
@@ -15,12 +15,16 @@ const OFFER_MS = 10 * 60 * 1000  // an offer nobody answered goes, and its passw
 const USED_EVERY_MS = 60 * 1000  // a login signed in with again is stamped used once a minute at most
 const MAX_USERNAME = 256
 const MAX_PASSWORD = 1024
+const IDLE_CHOICES = [5, 15, 30, 60, 0] // minutes; 0: never for being idle
+const IDLE_CHECK_MS = 30 * 1000
 
 let logins = null    // the vault's logins, while unlocked
 let locking = null   // a lock still writing what it was writing
 let exists = false   // whether the vault has a master password, as last seen
 let win = null
 let rootOf = () => ''
+let idleMinutes = 15 // the window's choice, once it has told it
+let idleTimer = null
 // a page's id → the sign-in it sent: { origin, username, password: Buffer, timer }
 const offers = new Map()
 const watched = new WeakSet() // pages whose going is listened for
@@ -61,10 +65,26 @@ function copy(text) {
 function lock() {
   const was = logins
   logins = null
+  watchIdle()
   clearClipboard(copied)
   tellState({ exists, unlocked: false, restored: false })
   if (was) locking = was.lock().finally(() => { locking = null })
   return locking ?? Promise.resolve()
+}
+
+// And by themselves: when the computer sleeps or its screen is locked, and
+// after the owner's choice of minutes with no use of the computer — its
+// keyboard and mouse, in any app — looked at while they are unlocked.
+function watchIdle() {
+  clearInterval(idleTimer)
+  idleTimer = null
+  if (!logins?.unlocked || !idleMinutes) return
+  idleTimer = setInterval(() => {
+    if (powerMonitor.getSystemIdleTime() >= idleMinutes * 60) void lock()
+  }, IDLE_CHECK_MS)
+}
+function lockAway() {
+  if (logins) void lock()
 }
 
 // A password is decrypted for one use and its Buffer zeroed after it.
@@ -229,6 +249,7 @@ function handle(channel, fn) {
 
 async function unlocked(got) {
   logins = got
+  watchIdle()
   if (got.restored) console.error('secrets.json did not read; its second copy was opened')
   tellState(await state())
   // the bars that could not tell what to offer can now
@@ -249,6 +270,10 @@ function wire(window, root) {
     await unlocked(await secrets.unlock(rootOf(), String(master ?? '')))
   })
   handle('lb-pw-lock', () => lock())
+  handle('lb-pw-lock-idle', (minutes) => {
+    idleMinutes = IDLE_CHOICES.includes(Number(minutes)) ? Number(minutes) : 15
+    watchIdle()
+  })
   handle('lb-pw-list', (origin) => held().list(typeof origin === 'string' ? origin : ''))
   handle('lb-pw-reveal', (id, previous) => opened(id, previous))
   handle('lb-pw-copy', (id, previous) => { copy(opened(id, previous)) })
@@ -269,6 +294,8 @@ function wire(window, root) {
   handle('lb-pw-nevers', () => held().nevers())
   handle('lb-pw-set-never', (origin, never) => held().setNever(String(origin ?? ''), !!never))
   ipcMain.on('lb-pw-submitted', submitted)
+  powerMonitor.on('suspend', lockAway)
+  powerMonitor.on('lock-screen', lockAway)
 }
 
 module.exports = { lock, wire }

@@ -7,7 +7,7 @@ import { computed, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import StrengthMeter from './StrengthMeter.vue'
 import { hostOf } from '../data'
-import { askMaster, lockLogins, loginsState, settled, strength } from '../logins'
+import { IDLE_LOCKS, askMaster, idleLock, lockLogins, loginsState, settled, strength } from '../logins'
 
 const shell = window.longbox?.logins
 const count = ref<{ logins: number; sites: number } | null>(null)
@@ -20,16 +20,20 @@ watch(() => loginsState.unlocked, async (open) => {
   count.value = { logins: all.length, sites: new Set(all.map((l) => hostOf(l.origin))).size }
 }, { immediate: true })
 
+const IDLE_LABELS: Record<(typeof IDLE_LOCKS)[number], string> = {
+  '5': '5 min', '15': '15 min', '30': '30 min', '60': '1 hour', '0': 'Never',
+}
+
 const stateHint = computed(() => {
   if (!shell) return 'Logins need the desktop app.'
   if (!loginsState.exists) return 'None yet. A master password of yours keeps them encrypted in the vault.'
-  if (!loginsState.unlocked) return 'Locked — they open with the master password, once per start.'
+  if (!loginsState.unlocked) return 'Locked — they open with the master password.'
   if (loginsState.restored) {
     return 'The logins file did not read, so its second copy was opened; the next change writes the file again.'
   }
   const c = count.value
-  return c ? `${c.logins} login${c.logins === 1 ? '' : 's'} on ${c.sites} site${c.sites === 1 ? '' : 's'}, open until the app closes or they are locked.`
-    : 'Open until the app closes or they are locked.'
+  return c ? `${c.logins} login${c.logins === 1 ? '' : 's'} on ${c.sites} site${c.sites === 1 ? '' : 's'}, open until they are locked.`
+    : 'Open until they are locked.'
 })
 
 // a new master password: the current one, then the new one twice
@@ -74,6 +78,17 @@ async function change() {
       </div>
       <button v-if="shell && loginsState.unlocked" class="btn" @click="lockLogins"><Icon name="lock" :size="13" :sw="2" />Lock</button>
       <button v-else-if="shell" class="btn" @click="askMaster">{{ loginsState.exists ? 'Unlock…' : 'Set a master password…' }}</button>
+    </div>
+    <div v-if="loginsState.exists" class="row">
+      <div class="text">
+        <div class="label">Lock when idle</div>
+        <div class="hint">After this long with no use of the computer. They lock, too, when it sleeps or its
+          screen is locked, and when the app closes.</div>
+      </div>
+      <div class="seg">
+        <button v-for="v in IDLE_LOCKS" :key="v" class="opt" :class="{ on: idleLock === v }"
+                @click="idleLock = v">{{ IDLE_LABELS[v] }}</button>
+      </div>
     </div>
     <div v-if="loginsState.exists" class="row">
       <div class="text">

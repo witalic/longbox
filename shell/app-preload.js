@@ -42,6 +42,7 @@ contextBridge.exposeInMainWorld('longbox', {
     setup: (master) => ipcRenderer.invoke('lb-pw-setup', String(master ?? '')),
     unlock: (master) => ipcRenderer.invoke('lb-pw-unlock', String(master ?? '')),
     lock: () => ipcRenderer.invoke('lb-pw-lock'),
+    lockWhenIdle: (minutes) => ipcRenderer.invoke('lb-pw-lock-idle', Number(minutes)),
     list: (origin) => ipcRenderer.invoke('lb-pw-list', String(origin ?? '')),
     reveal: (id, previous) => ipcRenderer.invoke('lb-pw-reveal', String(id ?? ''), previous),
     copy: (id, previous) => ipcRenderer.invoke('lb-pw-copy', String(id ?? ''), previous),

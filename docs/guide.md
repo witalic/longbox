@@ -139,7 +139,9 @@ longbox keeps the logins of the sites you capture from — encrypted in the vaul
 password of yours, and filled when you click, never by themselves.
 
 - **The master password.** Set the first time something needs the logins, given once each time the
-  app starts (and asked for again after **Lock**). It opens the vault's logins on any computer the
+  app starts, and again once they lock: with **Lock**, when the computer sleeps or its screen is
+  locked, and after 15 minutes with no use of the computer (Settings → **Passwords** → *Lock when
+  idle*: 5, 15, 30 minutes, an hour, or never). It opens the vault's logins on any computer the
   vault is opened from; it is never stored, and forgotten, it cannot be recovered — the logins are
   lost with it. Settings → **Passwords** changes it.
 - **The key.** Beside the star and the shield in the browser's toolbar: quiet on a page with no

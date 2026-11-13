@@ -58,7 +58,7 @@ async function offerAgain(origin: string) {
   <div class="slog">
     <div class="body scroll">
       <template v-if="!loginsState.unlocked">
-        <div class="say">{{ loginsState.exists ? 'The logins open with the master password, once per start.'
+        <div class="say">{{ loginsState.exists ? 'The logins open with the master password.'
           : 'Logins are kept in the vault, encrypted under a master password of yours.' }}</div>
         <button class="btn small" @click="askMaster"><Icon name="lock" :size="12" :sw="2" />
           {{ loginsState.exists ? 'Unlock…' : 'Set a master password…' }}</button>

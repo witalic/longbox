@@ -89,7 +89,7 @@ function inSources() {
         <template v-else-if="!loginsState.unlocked">
           <button class="mi" @click="unlock"><Icon name="lock" :size="14" :sw="2" />
             {{ loginsState.exists ? 'Unlock…' : 'Set a master password…' }}</button>
-          <div class="say">{{ loginsState.exists ? 'The logins open with the master password, once per start.'
+          <div class="say">{{ loginsState.exists ? 'The logins open with the master password.'
             : 'Logins are kept in the vault, encrypted under a master password of yours.' }}</div>
         </template>
         <template v-else>

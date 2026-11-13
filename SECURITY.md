@@ -26,8 +26,10 @@ rather it were not.
   master password; the app's main process alone unlocks them, and a page gets a login only when
   you fill it, for its own site. A page that can read a login, have one filled into another site,
   or save one by itself — or a copy of the vault that gives a login up without the master password
-  — is a vulnerability. Someone at the computer while the logins are unlocked is out of scope; Lock
-  them, or close the app.
+  — is a vulnerability. Someone at the computer while the logins are unlocked is out of scope: they
+  lock when the computer sleeps, its screen is locked or it goes unused for a while (Settings →
+  Passwords), and with Lock. The app's own window is trusted with them — it can show any login —
+  so script that gets into it, through anything the app displays, is a vulnerability in itself.
 - **What arrives from outside.** Archives, images, videos and subtitles come from the web and from
   folders you import. A file that writes outside its title's folder or runs code when it is read
   is a vulnerability; one that merely fails to open is a bug — open an issue for that.

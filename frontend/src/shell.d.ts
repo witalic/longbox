@@ -87,6 +87,8 @@ declare global {
         setup: (master: string) => Promise<LoginsAnswer<void>>
         unlock: (master: string) => Promise<LoginsAnswer<void>>
         lock: () => Promise<LoginsAnswer<void>>
+        // minutes with no use of the computer before they lock by themselves; 0: never for that
+        lockWhenIdle: (minutes: number) => Promise<LoginsAnswer<void>>
         list: (origin?: string) => Promise<LoginsAnswer<LoginSummary[]>>
         reveal: (id: string, previous?: number) => Promise<LoginsAnswer<string>>
         copy: (id: string, previous?: number) => Promise<LoginsAnswer<void>>
