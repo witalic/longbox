@@ -44,17 +44,25 @@ function tellState(s) {
 }
 
 // ---- the clipboard: a copied password for 30 seconds ----
+// Electron's clipboard answers with promises; a clearing that fails is said,
+// never thrown out of a timer, where it would take the app down.
 
 let copied = '' // the digest of the password on the clipboard, while it may be — never the password
-function clearClipboard(digest) {
-  if (digest && crypto.createHash('sha256').update(clipboard.readText()).digest('hex') === digest) clipboard.clear()
+async function clearClipboard(digest) {
+  if (!digest) return
   if (copied === digest) copied = ''
+  try {
+    const now = await clipboard.readText()
+    if (crypto.createHash('sha256').update(now).digest('hex') === digest) clipboard.clear()
+  } catch (err) {
+    console.error('the clipboard was not cleared:', err)
+  }
 }
-function copy(text) {
-  clipboard.writeText(text)
+async function copy(text) {
+  await clipboard.writeText(text)
   const digest = crypto.createHash('sha256').update(text).digest('hex')
   copied = digest
-  setTimeout(() => clearClipboard(digest), CLIPBOARD_MS).unref?.()
+  setTimeout(() => { void clearClipboard(digest) }, CLIPBOARD_MS).unref?.()
 }
 
 // Locked: on the owner's word, when the vault drops, and when the app goes.
@@ -66,7 +74,7 @@ function lock() {
   const was = logins
   logins = null
   watchIdle()
-  clearClipboard(copied)
+  void clearClipboard(copied)
   tellState({ exists, unlocked: false, restored: false })
   if (was) locking = was.lock().finally(() => { locking = null })
   return locking ?? Promise.resolve()
@@ -276,8 +284,8 @@ function wire(window, root) {
   })
   handle('lb-pw-list', (origin) => held().list(typeof origin === 'string' ? origin : ''))
   handle('lb-pw-reveal', (id, previous) => opened(id, previous))
-  handle('lb-pw-copy', (id, previous) => { copy(opened(id, previous)) })
-  handle('lb-pw-copy-text', (text) => { copy(String(text ?? '')) })
+  handle('lb-pw-copy', (id, previous) => copy(opened(id, previous)))
+  handle('lb-pw-copy-text', (text) => copy(String(text ?? '')))
   handle('lb-pw-add', (login) => held().add({ origin: login?.origin, username: login?.username,
     password: String(login?.password ?? ''), note: login?.note }))
   handle('lb-pw-edit', (id, change) => held().edit(String(id), {

@@ -6,6 +6,10 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 
 ## [Unreleased]
 
+### Fixed
+- **Copying a password no longer brings the app down** 30 seconds later, when longbox clears it
+  from the clipboard ("A JavaScript error occurred in the main process").
+
 ## [3.6.2] — 2026-11-13
 
 ### Fixed
