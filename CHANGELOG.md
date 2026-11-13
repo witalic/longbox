@@ -6,6 +6,10 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 
 ## [Unreleased]
 
+### Security
+- Vue 3.5.45, and the interface's build tools (vite 6.4.6 and what it carries), past their
+  published advisories.
+
 ## [3.4.0] — 2026-11-13
 
 ### Added
