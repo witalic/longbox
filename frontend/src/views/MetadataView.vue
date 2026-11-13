@@ -15,10 +15,8 @@ import FilterBlock from '../components/FilterBlock.vue'
 import HistoryNav from '../components/HistoryNav.vue'
 import PassButton from '../components/PassButton.vue'
 import { api } from '../api'
-import {
-  activeFilterCount, metaScope, openValuePage, refreshLibrary, runVaultPass, stopVaultPass, store,
-  useShown, useTab, vaultPass, watchVaultPass, type MetadataPlace,
-} from '../store'
+import { activeFilterCount, metaScope, refreshLibrary, runVaultPass, stopVaultPass, store, vaultPass, watchVaultPass } from '../store'
+import { openValuePage, useShown, useTab, type MetadataPlace } from '../nav'
 import { askConfirm } from '../confirm'
 import { hasValuePage } from '../peek'
 import {

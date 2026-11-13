@@ -10,10 +10,8 @@ import { computed, ref, watch } from 'vue'
 import Icon from '../components/Icon.vue'
 import SearchBox from '../components/SearchBox.vue'
 import Pager from '../components/Pager.vue'
-import {
-  activeFilterCount, axisSurface, buildQuery, hiddenAxes, openTitle, openTitleBackground, openValuePage,
-  setFieldHidden, showInLibrary, shownAxes, store, useShown, useTab, type LibraryPlace,
-} from '../store'
+import { activeFilterCount, axisSurface, buildQuery, hiddenAxes, setFieldHidden, shownAxes, store } from '../store'
+import { openTitle, openTitleBackground, openValuePage, showInLibrary, useShown, useTab, type LibraryPlace } from '../nav'
 import FilterBlock from '../components/FilterBlock.vue'
 import HistoryNav from '../components/HistoryNav.vue'
 import MenuButton from '../components/MenuButton.vue'

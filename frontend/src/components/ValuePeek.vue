@@ -3,7 +3,7 @@
 // mounted by App, placed next to whichever chip asked.
 import { coverAt } from '../data'
 import { peek, peekClose, peekHold, peekOff } from '../peek'
-import { openValuePage, showInLibrary as filterLibrary } from '../store'
+import { openValuePage, showInLibrary as filterLibrary } from '../nav'
 
 function open() {
   const d = peek.data

@@ -354,7 +354,8 @@ backend/app/
   routers/  library.py · downloads.py · recipes.py · settings.py · metadata.py · imports.py
 frontend/src/
   App.vue (the frame: views, tabs, activity panel, close guard) · styles.css (the design tokens)
-  store.ts (app state, navigation: the app tabs and their places, facets, user layer, downloads) ·
+  store.ts (app state: library data, facets, user layer, downloads) ·
+  nav.ts (navigation: the app tabs and their places, Back and Forward, the openers) ·
   draft.ts (THE draft) · browser.ts (the web's tabs)
   api.ts (the sidecar client) · local.ts (the window's preferences, kept in the vault) ·
   data.ts (domain helpers)

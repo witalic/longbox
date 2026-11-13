@@ -5,10 +5,8 @@
 import { reactive, watch } from 'vue'
 import { browser, newTabBackground } from './browser'
 import { isRecord, onBeforeFlush, readLocal, removeLocal, writeLocal } from './local'
-import {
-  editInMetadata, editValueInMetadata, HOME, newLibraryTab, openSection, openTitleBackground, openValuePage,
-  store, type Place,
-} from './store'
+import { HOME, store } from './store'
+import { editInMetadata, editValueInMetadata, newLibraryTab, openSection, openTitleBackground, openValuePage, type Place } from './nav'
 
 export interface SessionSnap {
   at: string // ISO — when the snapshot was last updated

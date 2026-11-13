@@ -16,11 +16,8 @@ import Pager from './Pager.vue'
 import { api } from '../api'
 import { newTab, searchUrl } from '../browser'
 import { readLocalOne, writeLocalOne } from '../local'
-import {
-  activeFilterCount, buildQuery, cacheCards, editValueInMetadata, followValue, openAxis, openTitle,
-  openTitleBackground, openValuePage, resetFilters, runVaultPass, showInLibrary, store, useShown,
-  useTab,
-} from '../store'
+import { activeFilterCount, buildQuery, cacheCards, resetFilters, runVaultPass, store } from '../store'
+import { editValueInMetadata, followValue, openAxis, openTitle, openTitleBackground, openValuePage, showInLibrary, useShown, useTab } from '../nav'
 import { askConfirm } from '../confirm'
 import {
   TITLE_SORTS, coverAt, coverStyle, emptyFacets, hueFor, initials, linkLabel, siteOf,

@@ -12,10 +12,8 @@ import { api } from '../api'
 import {
   altNames, coverStyle, FLAG_LABEL, matchTitles, recordLine, titleKey, type FacetValue, type Facets,
 } from '../data'
-import {
-  blankLibrary, buildQuery, cacheCards, facetFields, openTitle, openTitleBackground, store, visibleFields,
-  type LibraryFilters,
-} from '../store'
+import { blankLibrary, buildQuery, cacheCards, facetFields, store, visibleFields, type LibraryFilters } from '../store'
+import { openTitle, openTitleBackground } from '../nav'
 import Icon from './Icon.vue'
 import SearchBox from './SearchBox.vue'
 

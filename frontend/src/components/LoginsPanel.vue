@@ -8,7 +8,8 @@ import Icon from './Icon.vue'
 import LoginEditor from './LoginEditor.vue'
 import { ago, hostOf } from '../data'
 import { askMaster, lockLogins, loginsState, settled, showLoginsIn } from '../logins'
-import { showSources, store } from '../store'
+import { store } from '../store'
+import { showSources } from '../nav'
 
 // `guest`: the page a login would be filled into, now
 const props = defineProps<{ origin: string; guest: () => number | null }>()

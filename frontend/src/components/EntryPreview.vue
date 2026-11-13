@@ -13,7 +13,7 @@ import { computed, ref, watch } from 'vue'
 import { api } from '../api'
 import { isReadable, type Chapter } from '../data'
 import { ensurePoster } from '../frames'
-import { useShown } from '../store'
+import { useShown } from '../nav'
 import Icon from './Icon.vue'
 
 const props = defineProps<{ titleId: string; chapter: Chapter }>()

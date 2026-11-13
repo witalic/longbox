@@ -4,7 +4,7 @@
 // Alt+← / Alt+→ and the mouse's side buttons do the same (App.vue).
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import Icon from './Icon.vue'
-import { activeAppTab, goBack, goForward, placeLabel } from '../store'
+import { activeAppTab, goBack, goForward, placeLabel } from '../nav'
 
 const tab = computed(() => activeAppTab())
 const canBack = computed(() => !!tab.value?.back.length && !tab.value.hold)

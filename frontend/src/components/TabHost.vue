@@ -4,7 +4,7 @@
 // set up — is there when the tab comes back. The view inside reads its place
 // from here, and every box it scrolled is scrolled back.
 import { onActivated, provide } from 'vue'
-import { TAB, type AppTab } from '../store'
+import { TAB, type AppTab } from '../nav'
 import LibraryView from '../views/LibraryView.vue'
 import AuthorsView from '../views/AuthorsView.vue'
 import MetadataView from '../views/MetadataView.vue'

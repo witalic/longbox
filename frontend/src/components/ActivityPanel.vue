@@ -15,12 +15,8 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import ProgressBar from './ProgressBar.vue'
 import { api } from '../api'
-import {
-  copies, downloads, dropCopy, dropMedia, forgetPausedImport, mediaJobs, openSection, passHome,
-  passIcon, passPercent, retryCopy, pauseDownload, pauseImport, pausedImports, pollDownloads,
-  resumeDownload, resumeImport, retryMedia, stopDownload, stopVaultPass, store, cardById,
-  vaultPass, watchDownloads, watchVaultPass, type MediaJob,
-} from '../store'
+import { copies, downloads, dropCopy, dropMedia, forgetPausedImport, mediaJobs, passHome, passIcon, passPercent, retryCopy, pauseDownload, pauseImport, pausedImports, pollDownloads, resumeDownload, resumeImport, retryMedia, stopDownload, stopVaultPass, store, cardById, vaultPass, watchDownloads, watchVaultPass, type MediaJob } from '../store'
+import { openSection } from '../nav'
 import { askConfirm } from '../confirm'
 import { bytes, hostOf, type LooseFile } from '../data'
 

@@ -35,12 +35,8 @@ import {
 
 // domains whose favicon failed to load → fall back to the initial letters
 const noIcon = reactive<Record<string, boolean>>({})
-import {
-  addChapterRow, cache, commitChapterOrder, deleteTitle, editChapterRow, goLibrary, groupRings,
-  hiddenOf, langRings, mediaJobs, openReader, openTitle, openValuePage, queueMedia, setFavorite,
-  setFieldHidden, setRating, setRead, showInLibrary, store, titleById, visibleFields,
-  type MediaEntry,
-} from '../store'
+import { addChapterRow, cache, commitChapterOrder, editChapterRow, groupRings, hiddenOf, langRings, mediaJobs, queueMedia, setFavorite, setFieldHidden, setRating, setRead, store, titleById, visibleFields, type MediaEntry } from '../store'
+import { deleteTitle, goLibrary, openReader, openTitle, openValuePage, showInLibrary } from '../nav'
 import { askConfirm } from '../confirm'
 import {
   READ_COLOR as readColor, groupByNum, opensSection, statusColor, initials,

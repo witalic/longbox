@@ -4,7 +4,8 @@
 // capture from right now".
 import { reactive } from 'vue'
 import { confirmDiscard, draftFromTitle, draftState, newDraft } from './draft'
-import { showApp, showDraft, store, titleById } from './store'
+import { store, titleById } from './store'
+import { showApp, showDraft } from './nav'
 import { adoptChildren, forgetOpeners, inStripOrder, insertionIndex, nextAfterClose, type Opening } from './tabstrip'
 
 export interface BrowserTab {

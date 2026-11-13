@@ -7,7 +7,7 @@ moves to the [changelog](CHANGELOG.md). What longbox will not do is at the end.
 ## 3.6.0 — password manager
 
 Built: the store and the key, the save bar, Sources → Logins, Settings → Passwords, ad blocking from
-the shield. Left: the quality step below (`nav.ts`).
+the shield, and the quality step (navigation out of `store.ts` into `nav.ts`).
 
 Logins for the sites in the embedded browser, encrypted in the vault under a master password,
 filled on click ([draft](design/password-manager.md), to be checked against 3.5.0). Only the key is
@@ -37,17 +37,16 @@ in the same format ([mockup](design/password-manager-mockup.html)).
   code for it goes into the module it is being split into. The first cut — the vault's health out
   of `library/service.py` into `library/health.py` — landed in 3.4.0. 3.5.0 took smaller ones out
   of `store.ts` (the confirmation dialog into `confirm.ts`, a restart's guards into `restart.ts`)
-  and gave the shell its first tests, run in CI. The rest, in order:
-  1. `store.ts` (1,610): navigation — places, tabs, Back and Forward, the openers — into `nav.ts`,
-     in 3.6.0;
-  2. `views/TitleView.vue` (1,700): the contents column — tree, edit mode, adding entries — into
+  and gave the shell its first tests, run in CI. 3.6.0 took navigation — places, tabs, Back and
+  Forward, the openers — out of `store.ts` into `nav.ts` (1,610 → 1,140 lines). The rest, in order:
+  1. `views/TitleView.vue` (1,700): the contents column — tree, edit mode, adding entries — into
      `TitleContents.vue`, and the pages pane into `PagesPane.vue`;
-  3. `library/service.py` (2,060): chapter media — downloads, page capture, folder entries, the
+  2. `library/service.py` (2,060): chapter media — downloads, page capture, folder entries, the
      media sidecar's one writer — into `library/chapters.py`, and episodes' subtitles and stills
      into `library/episodes.py`;
-  4. `library/vault.py` (1,600): the vault's documents (`read_doc`, `doc_transaction`, the
+  3. `library/vault.py` (1,600): the vault's documents (`read_doc`, `doc_transaction`, the
      library's own files) into `library/docs.py`;
-  5. `store.ts`: the activity pollers (downloads, the vault pass, paused imports) into
+  4. `store.ts`: the activity pollers (downloads, the vault pass, paused imports) into
      `activity.ts`, and the user layer's write-through into `userlayer.ts`.
 
   `views/BrowserView.vue` (1,250) and `shell/main.js` (1,250) are next in line once these land.

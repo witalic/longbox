@@ -102,7 +102,7 @@ tab. The web browser's item is renamed **Web** (D2), so *Browse by* means one th
 
 ## 7. How it is built
 
-- The navigation section of `store.ts` owns the app tabs: `{ id, place, back[], forward[],
+- `nav.ts` owns the app tabs: `{ id, place, back[], forward[],
   pinned, hold }`. `store.view`, `activeTitle`, `reader` and `library` are what the tab in front
   holds (`project`); a view drawn in a tab reads its own place through `useTab()`.
 - A library tab owns ONE selection object for its life; `store.library` points at the one in

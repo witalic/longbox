@@ -11,7 +11,8 @@ import Icon from '../components/Icon.vue'
 import Dropdown from '../components/Dropdown.vue'
 import VideoSurface from '../components/VideoSurface.vue'
 import { api } from '../api'
-import { closeReader, keepReaderSpot, setRead, setReaderPrefs, store, titleById } from '../store'
+import { setRead, setReaderPrefs, store, titleById } from '../store'
+import { closeReader, keepReaderSpot } from '../nav'
 import {
   READ_COLOR as readColor, coverAt, filterOptions, formatDuration, groupByNum, hueFor,
   isReadable, mediaLabel, opensSection, orderedChaptersOf, readerPrefsOf, type Chapter, type Title,

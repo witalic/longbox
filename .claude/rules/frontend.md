@@ -29,10 +29,11 @@ paths:
   back off reactive state across awaits — a Finish mid-flight would otherwise file results
   into the wrong entry. Queued page images each hold their own title/chapter, so the queue
   survives finishing a chapter and drains into the one it was scanned for.
-- Navigation is the app tabs in `store.ts` (design/navigation.md): every place is a tab with
+- Navigation is the app tabs in `nav.ts` (design/navigation.md): every place is a tab with
   its own Back / Forward. A view drawn in a tab reads its place through `useTab()`, never off
-  global state, and a view kept alive behind another tab gates its loads with `useShown()`. A
-  title's tabs go with it (`forgetTitleTabs`). Opening another vault is a restart into it
+  global state, and a view kept alive behind another tab gates its loads with `useShown()`.
+  `nav.ts` reads and writes `store.ts`; `store.ts` takes only the `AppTab` type back. A
+  title's tabs go with it (`deleteTitle`). Opening another vault is a restart into it
   (`switchVault` → the shell), so no view ever has to forget the vault it was drawn from.
 - Covers/pages in grids load through `coverAt(...)` / the `?w=` endpoints — never decode
   full-size originals in a grid.

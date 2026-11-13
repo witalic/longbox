@@ -15,11 +15,8 @@ import Dropdown from '../components/Dropdown.vue'
 import Pager from '../components/Pager.vue'
 import BulkEdit from '../components/BulkEdit.vue'
 import HistoryNav from '../components/HistoryNav.vue'
-import {
-  store, openTitle, openTitleBackground, openReader, toggleFav, resetFilters, activeFilterCount,
-  deleteTitles, openValuePage, setRating, refreshLibrary, runVaultPass, opening, useShown, useTab,
-  loadTitles, type LibraryPlace,
-} from '../store'
+import { store, toggleFav, resetFilters, activeFilterCount, setRating, refreshLibrary, runVaultPass, opening, loadTitles } from '../store'
+import { openTitle, openTitleBackground, openReader, deleteTitles, openValuePage, useShown, useTab, type LibraryPlace } from '../nav'
 import { askConfirm } from '../confirm'
 import { startNewTitle } from '../browser'
 import { api } from '../api'

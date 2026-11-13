@@ -5,7 +5,8 @@
 import { computed } from 'vue'
 import Icon from './Icon.vue'
 import { coverAt, hueFor, initials } from '../data'
-import { cardById, type AppTab } from '../store'
+import { cardById } from '../store'
+import { type AppTab } from '../nav'
 
 const props = defineProps<{ tab: AppTab }>()
 const SECTION_ICON: Record<string, string> = { library: 'library', metadata: 'meta', import: 'import', settings: 'settings' }

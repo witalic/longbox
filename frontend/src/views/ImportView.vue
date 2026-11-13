@@ -47,9 +47,8 @@ import PassButton from '../components/PassButton.vue'
 import RailSection from '../components/RailSection.vue'
 import HistoryNav from '../components/HistoryNav.vue'
 import { api } from '../api'
-import {
-  goLibrary, pauseImport, refreshLibrary, runVaultPass, stopVaultPass, store, useShown, vaultPass, watchVaultPass,
-} from '../store'
+import { pauseImport, refreshLibrary, runVaultPass, stopVaultPass, store, vaultPass, watchVaultPass } from '../store'
+import { goLibrary, useShown } from '../nav'
 import type { ImportEntry, ImportRole, ImportWork } from '../data'
 import { readLocal, readLocalOne, writeLocal, writeLocalOne } from '../local'
 import { useMoment } from '../moment'

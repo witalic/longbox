@@ -7,12 +7,8 @@ import Icon from './components/Icon.vue'
 import ConfirmModal from './components/ConfirmModal.vue'
 import MasterDialog from './components/MasterDialog.vue'
 import RailSection from './components/RailSection.vue'
-import {
-  store, closeTab, toggleTabPin, moveTabBefore, init, shownAxes, runningDownloads,
-  unfinishedDownloads, vaultPass, passIcon, passPercent, pausedImports, mediaJobs, copies, activeAppTab, tabById, showTab, showDraft,
-  leaveDraft, goLibrary, goBrowse, newLibraryTab, openSection, showApp, showSources, placeLabel, goBack, goForward,
-  appStripOrder, DRAFT, HOME, type AppTab, type LibraryPlace, type Section,
-} from './store'
+import { store, init, shownAxes, runningDownloads, unfinishedDownloads, vaultPass, passIcon, passPercent, pausedImports, mediaJobs, copies, DRAFT, HOME } from './store'
+import { closeTab, toggleTabPin, moveTabBefore, activeAppTab, tabById, showTab, showDraft, leaveDraft, goLibrary, goBrowse, newLibraryTab, openSection, showApp, showSources, placeLabel, goBack, goForward, appStripOrder, type AppTab, type LibraryPlace, type Section } from './nav'
 import { inStripOrder, TAB_GAP, TAB_MAX, TAB_NARROW, TAB_TINY, tabWidths } from './tabstrip'
 import {
   browser, openBrowse, activateTab, closeTab as closeBrowserTab, newTab, toggleTabPin as toggleBrowserTabPin,

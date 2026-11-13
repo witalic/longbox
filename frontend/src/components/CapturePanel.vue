@@ -6,11 +6,8 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import {
   commitDraft, confirmDiscard, discardDraft, draftFromTitle, draftState, isDirty, newDraft,
 } from '../draft'
-import {
-  addChapterRow, cache, downloads, groupRings, langRings, openTitle, pageFilter, pauseDownload,
-  refreshTitle as refreshTitleOf, resetPageFilter, resumeDownload, savePageFilter, stopDownload,
-  store, titleById, cardById, loadTitle, watchDownloads,
-} from '../store'
+import { addChapterRow, cache, downloads, groupRings, langRings, pageFilter, pauseDownload, refreshTitle as refreshTitleOf, resetPageFilter, resumeDownload, savePageFilter, stopDownload, store, titleById, cardById, loadTitle, watchDownloads } from '../store'
+import { openTitle } from '../nav'
 import { askConfirm } from '../confirm'
 import { browser, newTab } from '../browser'
 import { api, type DownloadItem } from '../api'
