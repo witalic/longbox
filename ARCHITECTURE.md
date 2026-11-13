@@ -79,7 +79,11 @@ library/
     session.json             whether the last session settled (closed through `POST /api/close`
                              before the shell stops the sidecar); one that did not makes the
                              next launch verify the whole vault
-    browser/                 the embedded browser's profile (sign-ins, site storage, caches)
+    browser.json             where the browser's profile lives: in the vault, or on each
+                             computer (design/sign-ins.md); none yet, and the launch asks
+    browser/                 the embedded browser's profile (sign-ins, site storage, caches),
+                             when the vault keeps it — else on each computer, in the app's
+                             folder under browsers/<vault id>/
     state.json               interrupted transfers, paused imports, import reports
     partial-downloads/       transfers being written
     adblock/                 the ad blocker's switch, paused sites and compiled lists
@@ -114,8 +118,10 @@ library/
   imports, the preview cache — so a library moved to another machine arrives whole, and two
   vaults keep two of everything. Every path the vault stores is relative to it, resolved against
   the vault open now (`PARTIAL_DIR` records in `routers/downloads.py`), so a moved vault, or one
-  opened under another drive letter, works as it is. The app's folder on this computer keeps `config.json` and
-  nothing else: the registered vaults and the one opened last. Chromium's own default profile
+  opened under another drive letter, works as it is. The app's folder on this computer keeps `config.json` —
+  the registered vaults and the one opened last — and, for a vault that keeps its sign-ins on each
+  computer, that vault's browser profile (`browsers/<vault id>/`, design/sign-ins.md): the one
+  exception, and the user's choice. Chromium's own default profile
   and crash dumps are pointed at the system's temporary folder. What an older build kept in the
   app's folder moves once into the first vault this build opens: the shell copies the browser
   profile, the ad blocker and partial transfers (`vaults.legacyPlan`), hands the window's old

@@ -38,8 +38,10 @@ paths:
   full-size originals in a grid.
 - Scoped-CSS note: shared form-row grammar rendered by child components (e.g. `EntryFields`) is
   styled from the host via `:deep()` so the CSS keeps one source.
-- Shell: the app's folder holds `config.json` only — the browser's profile is the vault's
-  (`session.fromPath`, for `<webview>`s), the window's session is in memory, Chromium's default
+- Shell: the app's folder holds `config.json` — and, for a vault that keeps its sign-ins on each
+  computer, its browser profile under `browsers/<vault id>/` (design/sign-ins.md); otherwise the
+  browser's profile is the vault's (`session.fromPath`, for `<webview>`s; `shell/profile.js` says
+  which), the window's session is in memory, Chromium's default
   profile goes to temp. What the shell writes into the vault names nothing by the vault's own
   absolute path; the paths it hands the sidecar are made relative there (CLAUDE.md, "The vault
   is home"). Guard every `ipcMain` handler with an `e.sender` check, and remember

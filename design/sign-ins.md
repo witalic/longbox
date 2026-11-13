@@ -1,6 +1,7 @@
 # longbox — where sign-ins live
 
-Status: **proposal for approval** — mockup `design/sign-ins-mockup.html`. ROADMAP.md, 3.5.0.
+Status: **built** (3.5.0) — mockup `design/sign-ins-mockup.html`, approved by the owner with D1
+and D2 as proposed.
 
 ## 1. Why
 

@@ -5,7 +5,7 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
 const ACTS = new Set(['retry', 'quit', 'open', 'choose', 'anyway', 'create', 'create-parent', 'create-name',
-  'create-go', 'back'])
+  'create-go', 'back', 'signins-vault', 'signins-computer'])
 
 contextBridge.exposeInMainWorld('launcher', {
   state: () => ipcRenderer.invoke('lb-launcher-get'),

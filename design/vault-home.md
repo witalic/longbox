@@ -227,6 +227,9 @@ back.
 
 ## What it costs
 
+(Since 3.5.0 the last two points below are a choice: a vault can keep its sign-ins on each
+computer instead — design/sign-ins.md. That is the one exception to this note's rule.)
+
 - **The browser works off the network drive.** Sign-ins, site storage and the HTTP cache are read
   and written on the vault's drive, so pages in the embedded browser load a little slower from a NAS
   than from a local disk, and a drive that drops mid-session can lose the last few writes of a

@@ -17,6 +17,7 @@ const path = require('node:path')
 const adblock = require('./adblock')
 const launcher = require('./launcher')
 const netguard = require('./netguard')
+const profile = require('./profile')
 const updates = require('./updates')
 const vaults = require('./vaults')
 
@@ -70,7 +71,8 @@ const SIDECAR_BIN = path.join(ASSETS, 'sidecar', IS_WIN ? 'longbox-sidecar.exe' 
 
 let sidecar = null
 let vaultRoot = ''        // the vault this run serves
-let vaultSession = null   // the embedded browser's profile, inside that vault
+let vaultSession = null   // the embedded browser's profile — in the vault, or on this computer
+let profileDir = ''       // where that profile is (design/sign-ins.md)
 let letGoOfVault = () => {} // drops the vault's lock
 let closeLibrary = async () => {} // asks the sidecar to close its library, once it serves one
 let vaultLost = false     // the vault stopped answering: nothing more is asked of its drive
@@ -524,13 +526,15 @@ function watchVault(origin, win) {
   }, 3000)
 }
 
-async function main(root, legacy) {
+async function main(root, legacy, profileAt) {
   vaultRoot = root
+  profileDir = profileAt
   partialHome = path.join(root, vaults.APP_DIR, 'partial-downloads')
   await fs.promises.mkdir(partialHome, { recursive: true })
-  // the embedded browser's profile is the vault's; the app window's session is
-  // in memory — nothing of the window's own is kept in a browser any more
-  vaultSession = session.fromPath(path.join(root, vaults.APP_DIR, 'browser'))
+  // the embedded browser's profile is where the vault says (in it, or on this
+  // computer); the app window's session is in memory — nothing of the window's
+  // own is kept in a browser any more
+  vaultSession = session.fromPath(profileDir)
   const appSession = session.fromPartition('lb-app')
   if (legacy) {
     const prefs = legacy.oldPort ? await readLegacyPrefs(vaultSession, legacy.oldPort) : null
@@ -944,6 +948,31 @@ async function main(root, legacy) {
     return true
   })
 
+  // Where this vault's sign-ins live (design/sign-ins.md): Settings → Browser
+  // shows it and changes it; the profile moves on the next start, before the
+  // browser opens it — so a change can restart at once.
+  ipcMain.handle('lb-signins', async (e) => {
+    if (e.sender !== win.webContents) return null
+    const { keep } = await profile.readChoice(vaultRoot)
+    // `here`: where the profile in use is; it differs from `keep` until the next start moves it
+    const here = path.resolve(profileDir) === path.resolve(profile.vaultDir(vaultRoot)) ? 'vault' : 'computer'
+    return { keep, here, ...((await profile.sizes(profileDir).catch(() => null)) || { data: 0, cache: 0 }) }
+  })
+  ipcMain.handle('lb-signins-set', async (e, req) => {
+    if (e.sender !== win.webContents || (req?.keep !== 'vault' && req?.keep !== 'computer')) return false
+    await profile.writeChoice(vaultRoot, req.keep)
+    if (req.restart) {
+      await interruptAll('the app restarted to move its sign-ins')
+      void relaunch()
+    }
+    return true
+  })
+  // forgetting a vault (Settings → Storage) takes this computer's sign-ins for it too
+  ipcMain.handle('lb-signins-forget', async (e, root) => {
+    if (e.sender !== win.webContents || typeof root !== 'string' || !root) return 0
+    return profile.forget(app.getPath('userData'), root)
+  })
+
   // Knowing a release is out (design/update-check.md): one request to GitHub,
   // made only when the window asks — whether and how often is the user's answer.
   // Its pages open in the system's browser, never the embedded one: the window
@@ -989,7 +1018,8 @@ async function boot() {
   try {
     const legacy = await vaults.legacyPlan(root)
     if (legacy) await launcher.moving(legacy, opts)
-    await main(root, legacy)
+    const profileAt = await launcher.signins(root, opts)
+    await main(root, legacy, profileAt)
   } catch (err) {
     // the vault could not be opened after all: back to the launch window, which
     // says why — never a quiet exit the next launch would repeat

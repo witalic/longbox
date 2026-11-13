@@ -38,12 +38,13 @@ async function add(mode: 'open' | 'create') {
 async function forget(p: string) {
   const ok = await askConfirm({
     title: 'Forget vault', okLabel: 'Forget',
-    message: `Remove “${p}” from the list? The folder and all its files stay on disk — `
-      + 'nothing is deleted.',
+    message: `Remove “${p}” from the list? The folder and all its files stay on disk — nothing in it is `
+      + 'deleted. If it kept its sign-ins on this computer, they are removed from this computer.',
   })
   if (!ok) return
   try {
     await api.removeLibrary(p)
+    await window.longbox?.forgetSignins?.(p)
     emit('changed')
   } catch (e) { error.value = String(e) }
 }

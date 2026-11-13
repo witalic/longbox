@@ -36,11 +36,25 @@ the video files they arrived as. A SQLite index next to them makes the app fast;
 deleting it never loses anything, and it is rebuilt from the folders.
 
 **Everything the app keeps lives in the vault**: recipes, sources with their groups and links,
-your fields, how the reader shows each title, the window's settings, the embedded browser's
-sign-ins and cache, unfinished transfers, previews. Every path stored inside it is relative, so
-copying the folder to another machine — or opening it from a different drive letter — moves the
-whole library, and two vaults never share a thing. The app's own folder keeps only where your
-vaults are. Several vaults can be registered; one is open at a time.
+your fields, how the reader shows each title, the window's settings, unfinished transfers,
+previews — and the embedded browser's sign-ins and cache, unless you keep those on each computer
+(below). Every path stored inside it is relative, so copying the folder to another machine — or
+opening it from a different drive letter — moves the whole library, and two vaults never share a
+thing. The app's own folder keeps where your vaults are. Several vaults can be registered; one is
+open at a time.
+
+**Where the sign-ins live** is each vault's own choice, asked once when longbox opens a vault that
+has not answered — a new one, or one from before 3.5.0:
+
+- **In the vault** — they travel with it to every computer that opens it, and whoever can read the
+  vault's folder (a network share, a backup, a synced copy) can use them.
+- **On this computer** — they live in longbox's folder on the computer that opened the vault; the
+  vault holds none of them, and another computer signs in on its own.
+
+Settings → Browser changes it either way. The move happens on the next start, before the browser
+opens: the sign-ins and site data are copied to the new place, and only then is the old profile
+removed — all of it; the cache is deleted, not moved, and refills. Forgetting a vault in Settings →
+Storage removes this computer's sign-ins for it too.
 
 **Opening a vault is quick.** The app is served from the index at once and checks behind the
 window only what the index cannot know: title folders added or removed by hand. The whole vault
@@ -85,7 +99,7 @@ mute), a floating find bar, a page context menu (copy or save an image, open a l
 background tab), and the shortcuts a browser is expected to have — `F5`, `Ctrl+R` (`Shift`
 bypasses the cache), `Ctrl+F`, `Ctrl+L`, `Ctrl+T`/`W`/`Shift+T`, `Alt+←/→`, `Ctrl+0/±`,
 `Ctrl+1…9` — working over the page itself, not only over the app's own chrome. Its sign-ins and
-cache are the vault's own.
+cache are the vault's own — in the vault, or on each computer, as the vault chose (above).
 
 **Visual capture.** A page is captured into an explicit **draft**. Auto-fill it from the site's
 recipe, or pick any element on the page and refine its selector in the inspector (scope, position,

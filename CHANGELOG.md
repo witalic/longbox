@@ -6,6 +6,14 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 
 ## [Unreleased]
 
+### Added
+- **Where sign-ins live.** Each vault chooses where the built-in browser keeps its sign-ins and
+  site data: in the vault (they travel with it, and whoever can read the vault can use them) or on
+  each computer (the vault holds none). Asked once of every vault, with nothing chosen for you;
+  Settings → Browser changes it either way. The move happens on the next start, and leaves nothing
+  behind — the cache is deleted and refills. Forgetting a vault removes its sign-ins on this
+  computer too.
+
 ### Security
 - Vue 3.5.45, and the interface's build tools (vite 6.4.6 and what it carries), past their
   published advisories.

@@ -41,7 +41,9 @@ The version has ONE source, `app-meta.json`; never hand-edit a version anywhere 
 - The **vault is the source of truth**; the SQLite index is a rebuildable cache.
 - **The vault is home** (`design/vault-home.md`): EVERYTHING the app keeps lives in the vault it
   serves (titles, settings, the browser's profile, transfers, caches); the app's folder on the
-  computer holds only `config.json` — where the vaults are. **Every path stored in the vault is
+  computer holds only `config.json` — where the vaults are. **One exception, the user's choice:**
+  a vault that keeps its sign-ins on each computer has its browser profile in the app's folder,
+  under `browsers/<vault id>/` (`design/sign-ins.md`). **Every path stored in the vault is
   relative to the vault** (forward slashes) and resolved against the vault open now when read, so
   a vault moved, or opened from another computer under another drive letter or a UNC path, works
   as it is. Only references to places outside the vault (an import's source folder) are absolute.

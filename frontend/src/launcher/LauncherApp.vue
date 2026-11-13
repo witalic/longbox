@@ -73,6 +73,7 @@ const mb = (n: number) => `${Math.max(0, Math.round(n / (1024 * 1024)))} MB`
             <span v-if="s.screen === 'opening' && s.waited" class="t mono">{{ s.waited }} s</span>
           </div>
           <p v-if="s.screen === 'opening'">A network drive that has just woken up can take a few seconds. The app opens as soon as it answers.</p>
+          <p v-if="s.screen === 'starting' && s.notice" class="notice">{{ s.notice }}</p>
         </div>
         <div class="wfoot">
           <button v-if="s.screen === 'opening'" class="btn" @click="act('choose')">Choose another vault…</button>
@@ -112,8 +113,8 @@ const mb = (n: number) => `${Math.max(0, Math.round(n / (1024 * 1024)))} MB`
           <h1>Where should longbox keep your library?</h1>
           <p v-if="s.error" class="err">{{ s.error }}</p>
           <p>Everything longbox keeps lives in one folder — the <b>vault</b>: your titles and their files, recipes
-            and rules, the browser's sign-ins and cache, and your settings. This computer only remembers where the
-            vault is.</p>
+            and rules, your settings, and the browser's sign-ins unless you keep them on each computer. This computer
+            remembers where the vault is.</p>
           <div v-if="others.length" class="list scroll">
             <div v-for="o in others" :key="o.path" class="vrow">
               <div class="who"><b>{{ o.name }}</b><span>{{ o.path }}</span></div>
@@ -232,6 +233,72 @@ const mb = (n: number) => `${Math.max(0, Math.round(n / (1024 * 1024)))} MB`
       </template>
 
       <!-- the one-time move of this computer's data -->
+      <!-- where this vault's sign-ins live (design/sign-ins.md): nothing chosen for the human -->
+      <template v-else-if="s.screen === 'signins' && s.signins">
+        <div class="wbody">
+          <div class="head"><span class="badge acc"><Icon name="lock" :size="18" /></span>
+            <h1>Where should this vault keep its sign-ins?</h1></div>
+          <div class="path"><Icon name="folder" :size="14" /><b class="vname">{{ s.signins.name }}</b><span class="vpath mono">{{ s.signins.path }}</span></div>
+          <p>The built-in browser keeps your <b>sign-ins to sites</b>, and what sites store, in a profile.
+            Settings → Browser changes where it lives later, either way.</p>
+          <div class="cards">
+            <div class="card">
+              <h3>In the vault</h3>
+              <p>They travel with the vault to every computer that opens it. Whoever can read the vault's folder can use
+                them — on a network share, a backup or a synced copy too.</p>
+              <span v-if="s.signins.sizes" class="size mono">Stays where it is.</span>
+              <button class="btn" @click="act('signins-vault')">Keep them in the vault</button>
+            </div>
+            <div class="card">
+              <h3>On this computer</h3>
+              <p>Kept in longbox's folder on this computer; the vault holds none of them. Another computer signs in on its
+                own.</p>
+              <span v-if="s.signins.sizes === undefined" class="size mono">Measuring what would move…</span>
+              <span v-else-if="s.signins.sizes" class="size mono">Moves {{ mb(s.signins.sizes.data) }} · deletes the
+                {{ mb(s.signins.sizes.cache) }} cache, which refills.</span>
+              <button class="btn" @click="act('signins-computer')">Keep them on this computer</button>
+            </div>
+          </div>
+        </div>
+        <div class="wfoot"><span class="hint">{{ s.signins.sizes === null ? 'This vault has no sign-ins yet.' : 'Nothing moves until you choose.' }}</span>
+          <span class="sp" /><button class="btn ghost" @click="act('quit')">Quit</button></div>
+      </template>
+
+      <template v-else-if="s.screen === 'movefailed' && s.move && s.move.kind !== 'legacy'">
+        <div class="wbody">
+          <div class="head"><span class="badge bad"><Icon name="x" :size="18" /></span>
+            <h1>{{ s.move.kind === 'drop' ? 'Removing the old profile did not finish' : `Moving ${s.move.name}'s sign-ins did not finish` }}</h1></div>
+          <p v-if="s.move.kind === 'drop'">The browser does not open until it is gone. Trying again picks up where it stopped.</p>
+          <p v-else>The sign-ins are where they were until the copy is whole, and the browser does not open half-moved.
+            Trying again picks up where it stopped.</p>
+          <p v-if="s.error" class="err mono">{{ s.error }}</p>
+        </div>
+        <div class="wfoot">
+          <button class="btn accent" @click="act('retry')">Try again</button>
+          <span class="sp" /><button class="btn ghost" @click="act('quit')">Quit</button>
+        </div>
+      </template>
+      <template v-else-if="s.screen === 'moving' && s.move && s.move.kind !== 'legacy'">
+        <div class="wbody">
+          <div class="head"><span class="badge acc"><Icon name="forward" :size="18" /></span>
+            <h1>{{ s.move.kind === 'computer' ? `Moving ${s.move.name}'s sign-ins to this computer` : `Moving ${s.move.name}'s sign-ins into the vault` }}</h1></div>
+          <p v-if="s.move.kind === 'computer'">From now on they live in longbox's folder here, and the vault keeps none of them.</p>
+          <p v-else>From now on they live in the vault, and travel with it to every computer that opens it.</p>
+          <div class="parts">
+            <div v-for="(p, i) in s.move.parts" :key="p.what" class="part" :class="{ wait: i === 1 && !p.total }">
+              <Icon v-if="p.total && p.done >= p.total" name="check" :size="14" class="ok" />
+              <span v-else-if="p.total" class="spin" />
+              <span v-else class="ring" />
+              <span class="what">{{ p.what }}</span>
+              <span class="size mono">{{ i === 0 && p.done && p.done < p.total ? `${mb(p.done)} of ${mb(p.total)}` : mb(p.total) }}</span>
+              <span v-if="i === 0 && p.done && p.done < p.total" class="pbar"><span :style="{ width: `${(p.done / p.total) * 100}%` }" /></span>
+            </div>
+          </div>
+        </div>
+        <div class="wfoot"><span class="hint">The old profile goes only once the copy is whole — stopping now loses nothing.</span>
+          <span class="sp" /><button class="btn ghost" @click="act('quit')">Quit</button></div>
+      </template>
+
       <template v-else-if="s.screen === 'movefailed'">
         <div class="wbody">
           <div class="head"><span class="badge bad"><Icon name="x" :size="18" /></span><h1>Moving this computer's data did not finish</h1></div>
@@ -336,5 +403,10 @@ const mb = (n: number) => `${Math.max(0, Math.round(n / (1024 * 1024)))} MB`
 .part .pbar > span { display: block; height: 100%; background: var(--accent); }
 .part.wait .what { color: var(--tx3); }
 .part .spin { width: 12px; height: 12px; }
+.card .size { font-size: 11px; color: var(--tx3); }
+.card .btn { align-self: stretch; }
+.path .vname { color: var(--tx); font: 600 12px/1 system-ui; flex: none; }
+.path .vpath { margin-left: auto; color: var(--tx3); font-size: 11px; }
+.notice { border-left: 2px solid var(--accent); padding: 2px 0 2px 10px; font-size: 12px; }
 .part .ring { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line); }
 </style>

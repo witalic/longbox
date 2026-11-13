@@ -8,6 +8,7 @@
 const { BrowserWindow, app, dialog, ipcMain, nativeTheme } = require('electron')
 const os = require('node:os')
 const path = require('node:path')
+const profile = require('./profile')
 const vaults = require('./vaults')
 
 const SHOW_AFTER_MS = 1000   // an answer inside this opens the app with no window
@@ -16,11 +17,12 @@ const ASK_EVERY_MS = 3000
 
 let win = null
 let state = { screen: 'first', vault: null, waited: 0, others: [], lock: null, create: null, notvault: null,
-  move: null, error: '' }
+  move: null, signins: null, notice: '', error: '' }
 let token = 0          // the attempt in flight; a newer one makes the older stand down
 let anyway = false     // the human said to open a vault that is in use
 let settle = null      // resolves `choose` with the vault that opened (and what lets it go)
 let retryMove = null   // the failed move's "Try again"
+let answerSignins = null // the sign-ins question's answer, while it is asked
 
 function push() {
   if (win && !win.isDestroyed()) win.webContents.send('lb-launcher-state', state)
@@ -170,6 +172,10 @@ function wire() {
       retryMove()
       return state
     }
+    if ((act === 'signins-vault' || act === 'signins-computer') && answerSignins) {
+      answerSignins(act === 'signins-vault' ? 'vault' : 'computer')
+      return state
+    }
     if (!settle) return state // a vault was chosen already: the window only reports from here
     switch (act) {
       case 'retry':
@@ -255,22 +261,95 @@ async function moving(plan, { uiDir, icon }) {
   const parts = () => plan.parts.filter((p) => p.items.length).map((p) => ({ what: p.what, done: p.done, total: p.total }))
   show(uiDir, icon)
   for (;;) {
-    set({ screen: 'moving', error: '', move: { parts: parts() } })
+    set({ screen: 'moving', error: '', move: { kind: 'legacy', parts: parts() } })
     let last = 0
     try {
       await vaults.copyLegacy(plan, () => {
         if (Date.now() - last < 150) return
         last = Date.now()
-        set({ move: { parts: parts() } })
+        set({ move: { kind: 'legacy', parts: parts() } })
       })
-      set({ screen: 'starting', move: { parts: parts() } })
+      set({ screen: 'starting', move: { kind: 'legacy', parts: parts() } })
       return
     } catch (err) {
-      set({ screen: 'movefailed', error: err.message, move: { parts: parts() } })
+      set({ screen: 'movefailed', error: err.message, move: { kind: 'legacy', parts: parts() } })
       await new Promise((r) => { retryMove = r })
       retryMove = null
     }
   }
+}
+
+// Where this vault's sign-ins live (design/sign-ins.md). A vault that has not
+// answered is asked — before the browser opens, nothing chosen for the human —
+// and then whatever the answer asks of the disk is done: the profile moved, or
+// a leftover removed. A step that fails says so, and "Try again" works out
+// afresh what is left to do. Returns the folder the browser's profile is in.
+async function signins(root, { uiDir, icon }) {
+  const name = vaults.nameOf(root)
+  const id = await profile.vaultId(root)
+  const home = app.getPath('userData')
+  let { keep } = await profile.readChoice(root)
+  if (!keep) {
+    // `sizes`: undefined while measuring, null when there is no profile yet
+    set({ screen: 'signins', error: '', signins: { name, path: root, sizes: undefined } })
+    show(uiDir, icon)
+    void profile.sizes(profile.vaultDir(root)).then((sizes) => {
+      if (state.screen === 'signins') set({ signins: { ...state.signins, sizes } })
+    }, () => {})
+    keep = await new Promise((resolve) => { answerSignins = resolve })
+    answerSignins = null
+    await profile.writeChoice(root, keep)
+    set({ screen: 'starting' })
+  }
+  let moved = false
+  for (;;) {
+    const p = await profile.plan({ root, home, id, keep })
+    if (!p) break
+    try {
+      if (p.kind === 'move') {
+        await moveProfile(p, name, { uiDir, icon })
+        moved = true
+      } else {
+        await profile.drop(p)
+        // finishing a move this start began needs no word; anything else does
+        if (!moved) {
+          set({ screen: 'starting', notice: p.where === 'computer'
+            ? `${name} keeps its sign-ins in the vault now, so this computer's own copy for it was removed.`
+            : `${name} keeps its sign-ins on each computer, so the browser profile left in the vault was removed.` })
+          show(uiDir, icon)
+        }
+      }
+    } catch (err) {
+      set({ screen: 'movefailed', error: err.message, move: { kind: p.kind === 'move' ? p.toward : 'drop', name, parts: [] } })
+      show(uiDir, icon)
+      await new Promise((r) => { retryMove = r })
+      retryMove = null
+    }
+  }
+  if (keep === 'computer') await profile.remember(home, id, root)
+  return keep === 'computer' ? profile.localDir(home, id) : profile.vaultDir(root)
+}
+
+// The profile's move, shown with its progress: the copy in bytes, then the old
+// profile's removal — caches and all.
+async function moveProfile(p, name, { uiDir, icon }) {
+  const parts = [
+    { what: 'Sign-ins and site data', done: 0, total: 0 },
+    { what: p.toward === 'computer' ? "Removing the vault's old profile, cache included"
+      : "Removing this computer's old profile, cache included", done: 0, total: 0 },
+  ]
+  const shown = () => ({ kind: p.toward, name, parts: parts.map((x) => ({ ...x })) })
+  show(uiDir, icon)
+  set({ screen: 'moving', error: '', move: shown() })
+  let last = 0
+  await profile.move(p, (step, done, total) => {
+    Object.assign(parts[step === 'copy' ? 0 : 1], { done, total })
+    if (step === 'remove' && !done) Object.assign(parts[0], { done: parts[0].total })
+    if (Date.now() - last < 150 && done < total) return
+    last = Date.now()
+    set({ move: shown() })
+  })
+  set({ screen: 'starting', move: shown() })
 }
 
 function close() {
@@ -279,4 +358,4 @@ function close() {
   win = null
 }
 
-module.exports = { choose, moving, close, window: () => win }
+module.exports = { choose, moving, signins, close, window: () => win }

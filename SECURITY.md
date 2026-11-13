@@ -19,6 +19,9 @@ rather it were not.
   a web page, another local user or another program — is a vulnerability.
 - **The embedded browser.** Pages run in their own browser session, apart from the app's window.
   A page that can reach the app's API, its files or another site's session is a vulnerability.
+  The session's sign-ins are stored unencrypted, in the vault or on each computer as the vault
+  chose (Settings → Browser): whoever can read that folder can use them — that is the choice, not
+  a flaw.
 - **What arrives from outside.** Archives, images, videos and subtitles come from the web and from
   folders you import. A file that writes outside its title's folder or runs code when it is read
   is a vulnerability; one that merely fails to open is a bug — open an issue for that.

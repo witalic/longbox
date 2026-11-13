@@ -3,7 +3,7 @@ export {}
 
 declare global {
   type LauncherScreen = 'first' | 'opening' | 'starting' | 'unreachable' | 'notvault' | 'create' | 'busy'
-    | 'left' | 'moving' | 'movefailed'
+    | 'left' | 'moving' | 'movefailed' | 'signins'
   interface LauncherVault { path: string; name: string; share: string }
   interface LauncherOther { path: string; name: string; state: 'checking' | 'answers' | 'silent' | 'notvault' }
   // `here`: the lock is this computer's — another copy of longbox has the vault
@@ -18,11 +18,19 @@ declare global {
     lock: LauncherLock | null
     create: { parent: string; name: string; check: LauncherCheck | null } | null
     notvault: { path: string; empty: boolean } | null
-    move: { parts: { what: string; done: number; total: number }[] } | null
+    // `kind`: what is moving — this computer's data into the vault (3.0), or a
+    // vault's sign-ins toward 'computer' or 'vault'; 'drop': a leftover removed
+    move: { kind: 'legacy' | 'computer' | 'vault' | 'drop'; name?: string;
+      parts: { what: string; done: number; total: number }[] } | null
+    // the vault being asked where its sign-ins live; `sizes`: undefined while
+    // measured, null when it has no profile yet
+    signins: { name: string; path: string; sizes?: { data: number; cache: number } | null } | null
+    // a line the starting screen says (a leftover profile that was removed)
+    notice: string
     error: string
   }
   type LauncherAct = 'retry' | 'quit' | 'open' | 'choose' | 'anyway' | 'create' | 'create-parent' | 'create-name'
-    | 'create-go' | 'back'
+    | 'create-go' | 'back' | 'signins-vault' | 'signins-computer'
   interface Window {
     launcher?: {
       state: () => Promise<LauncherState | null>

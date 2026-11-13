@@ -48,6 +48,13 @@ declare global {
       // a folder in the system's file manager; false when it is not one
       openFolder: (dir: string) => Promise<boolean>
       clearBrowsing: (what: 'cookies' | 'cache') => Promise<boolean>
+      // where this vault's sign-ins live (design/sign-ins.md): the vault's answer,
+      // where the profile in use is (they differ until the next start moves it),
+      // and its bytes; changing the answer, restarting at once or not; and this
+      // computer's sign-ins for a vault being forgotten (how many profiles went)
+      signins: () => Promise<{ keep: 'vault' | 'computer' | null; here: 'vault' | 'computer'; data: number; cache: number } | null>
+      setSignins: (keep: 'vault' | 'computer', restart: boolean) => Promise<boolean>
+      forgetSignins: (root: string) => Promise<number>
       // ask GitHub once whether a newer longbox is out; a version's release page
       // ('latest': the download) in the system's browser — false for anything else
       checkUpdates: () => Promise<UpdateCheck>
