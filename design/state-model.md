@@ -234,8 +234,9 @@ the chapter owns. It therefore never changes: renumbering edits `num`, not `id`,
 row whose derived id is still held by a renumbered one gets a suffixed id instead.
 
 **The index** is SQLite as a pure cache: updated incrementally after commit; a rebuild
-command scans the disk and reconstructs it from scratch. A corrupt index cannot lose
-content by construction (I7), because it never owned any.
+command re-reads every title from disk and rewrites its row — each only while the row stands
+as the rebuild found it, since the app is in use meanwhile and a newer write must win. A
+corrupt index cannot lose content by construction (I7), because it never owned any.
 It carries everything a listing needs — each title's **chapter media** (the sidecars) and its
 **cover URLs** — plus the mtimes it saw them at, for one reason: **a listing must never touch
 the filesystem**. On a vault that lives on a network share, one stat per title is the

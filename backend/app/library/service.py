@@ -484,12 +484,13 @@ class Library:
         whole app): it is skipped, exactly like the layout migration does.
 
         This runs while the app is in USE (Settings → Rebuild), so it is not a
-        DELETE + INSERT of the whole table: each row is written only while the
-        stamps this pass read still hold, and a title committed meanwhile keeps
-        the newer row."""
+        DELETE + INSERT of the whole table: each row is written only while it
+        stands as it did when this pass began, and a title committed, made or
+        deleted meanwhile keeps what that write left (`LibraryIndex.rebuild`)."""
         started = time.monotonic()
         if progress is not None:
             progress(0, self.index.count())  # the scan below is the slow part
+        held = self.index.revisions()  # before anything is read: a write after it is newer
         scanned = self.vault.scan()
         ids = sorted(scanned)
         docs = {}
@@ -519,7 +520,7 @@ class Library:
                 covers[tid] = self._covers_of(tid, stamps)
             if progress:
                 progress(i + 1, len(ids))
-        self.index.rebuild(docs, touched, media, media_at, covers)
+        self.index.rebuild(held, docs, touched, media, media_at, covers)
         self.health.record("rebuild index", started, f"{len(docs)} title(s) re-read")
 
     def lose(self) -> None:

@@ -340,22 +340,38 @@ class LibraryIndex:
                 self.missed = True
                 raise
 
-    def rebuild(self, docs: dict[str, TitleDoc], touched: dict[str, int] | None = None,
-                media: dict[str, dict[str, dict]] | None = None,
-                media_at: dict[str, int] | None = None,
-                covers: dict[str, str] | None = None) -> None:
+    def revisions(self) -> dict[str, int]:
+        """Every indexed title with its card's rev (0: a row without a card) —
+        where a rebuild starts from (`rebuild`)."""
+        self._side()  # cards for every row first: making one later moves its rev
+        with self._lock:
+            return self._revisions()
+
+    def _revisions(self) -> dict[str, int]:
+        return {r["id"]: r["rev"] for r in self._db.execute(
+            "SELECT t.id AS id, IFNULL(c.rev, 0) AS rev FROM titles t LEFT JOIN title_cards_v1 c ON c.id = t.id")}
+
+    def rebuild(self, held: dict[str, int], docs: dict[str, TitleDoc], touched: dict[str, int],
+                media: dict[str, dict[str, dict]], media_at: dict[str, int], covers: dict[str, str]) -> None:
+        """Every title a rebuild read off the disk, written over its row; the
+        row of one it did not find, removed. It runs while the app is in use, so
+        each only where the row still stands as it did when the rebuild began
+        (`held`, from `revisions`; every write moves a card's rev): a title
+        written meanwhile keeps its newer row, one made meanwhile is not taken
+        for a leftover, one deleted meanwhile does not come back. A card written
+        here moves its rev on too, so a window holding the title sees it changed."""
+        upsert = self._upsert_sql("excluded.touched")  # the stamp read, exactly — as a verification writes it
         with self._writing():
-            self._db.execute("DELETE FROM titles")
-            for table in _SIDE_TABLES:
-                self._db.execute(f"DELETE FROM {table}")
-            self._db.executemany(
-                self._insert_sql,
-                [self._row(tid, doc, (touched or {}).get(tid, 0), (media or {}).get(tid),
-                           (media_at or {}).get(tid, 0), (covers or {}).get(tid, ""))
-                 for tid, doc in docs.items()],
-            )
+            now = self._revisions()
             for tid, doc in docs.items():
-                self._put_side(tid, doc, (media or {}).get(tid) or {}, (covers or {}).get(tid, ""))
+                if now.get(tid) != held.get(tid):
+                    continue
+                self._db.execute(upsert, self._row(tid, doc, touched.get(tid, 0), media.get(tid),
+                                                   media_at.get(tid, 0), covers.get(tid, "")))
+                self._put_side(tid, doc, media.get(tid) or {}, covers.get(tid, ""))
+            for tid in held.keys() - docs.keys():
+                if now.get(tid) == held[tid]:
+                    self._drop(tid)
 
     def _upsert_sql(self, touched: str = "MAX(excluded.touched, titles.touched)") -> str:
         return f"""{self._insert_sql}
@@ -538,9 +554,12 @@ class LibraryIndex:
 
     def remove(self, title_id: str) -> None:
         with self._writing():
-            self._db.execute("DELETE FROM titles WHERE id = ?", (title_id,))
-            for table in _SIDE_TABLES:
-                self._db.execute(f"DELETE FROM {table} WHERE id = ?", (title_id,))
+            self._drop(title_id)
+
+    def _drop(self, title_id: str) -> None:
+        self._db.execute("DELETE FROM titles WHERE id = ?", (title_id,))
+        for table in _SIDE_TABLES:
+            self._db.execute(f"DELETE FROM {table} WHERE id = ?", (title_id,))
 
     def revs(self, ids: list[str]) -> dict[str, int]:
         """Where each of these titles' cards is now — what a window holding

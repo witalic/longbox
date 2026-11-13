@@ -628,6 +628,64 @@ def test_launch_notices_chapter_media_added_on_disk(tmp_path):
     lib.close()
 
 
+# ---- Settings → Rebuild runs while the app is in use ----
+
+def _rebuild_meanwhile(lib, act):
+    """Settings → Rebuild, with `act` done while it reads — after its first title."""
+    acted = []
+
+    def tick(done, _total):
+        if done == 1 and not acted:
+            acted.append(act())
+    lib.rescan(tick)
+    assert acted, "the rebuild never got to its first title"
+    return acted[0]
+
+
+def _titles(lib, *names):
+    return sorted(lib.create(DraftIn(meta=TitleMeta(title=n))).id for n in names)  # read in this order
+
+
+def test_a_title_written_during_a_rebuild_keeps_its_newer_row(tmp_path):
+    lib = Library(tmp_path)
+    first, _ = _titles(lib, "Alpha", "Beta")
+    _rebuild_meanwhile(lib, lambda: lib.commit(first, DraftIn(meta=TitleMeta(title="Renamed"))))
+    assert lib.get(first).title == "Renamed"
+    assert lib.vault.load(first).meta.title == "Renamed"
+    lib.close()
+
+
+def test_a_title_made_during_a_rebuild_is_not_dropped(tmp_path):
+    lib = Library(tmp_path)
+    _titles(lib, "Alpha", "Beta")
+    made = _rebuild_meanwhile(lib, lambda: lib.create(DraftIn(meta=TitleMeta(title="Gamma"))).id)
+    assert lib.get(made).title == "Gamma"
+    lib.close()
+
+
+def test_a_title_deleted_during_a_rebuild_does_not_come_back(tmp_path):
+    lib = Library(tmp_path)
+    first, second = _titles(lib, "Alpha", "Beta")
+    _rebuild_meanwhile(lib, lambda: lib.delete(first))  # after the rebuild read it
+    assert lib.index.ids() == {second}
+    lib.close()
+
+
+def test_a_rebuild_drops_a_title_removed_by_hand_and_moves_every_card_on(tmp_path):
+    """A window holding a title checks it by its card's rev: a rebuild that
+    started the revs over would let one number stand for two cards."""
+    lib = Library(tmp_path)
+    gone, kept = _titles(lib, "Alpha", "Beta")
+    lib.commit(kept, DraftIn(meta=TitleMeta(title="Beta", tags=["x"])))
+    before = lib.index.rev_of(kept)
+    shutil.rmtree(lib.vault.title_dir(gone))
+    lib.rescan()
+    assert lib.index.ids() == {kept}
+    assert lib.index.rev_of(kept) > before
+    assert [t.title for t in listed(lib)] == ["Beta"]
+    lib.close()
+
+
 def test_a_listing_reads_no_chapter_sidecars(tmp_path, monkeypatch):
     """Page counts in a listing come from the index, not from one JSON file per
     chapter — that pass is what made a big library take seconds to appear. Nor

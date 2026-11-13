@@ -22,6 +22,8 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 ### Fixed
 - **Settings → Maintenance → Rebuild** reads a chapter's details off the disk even while the app
   runs: a chapter file edited by hand in place is picked up, not served from what the app held.
+- An edit, a new title or a deletion made while **Rebuild** runs is no longer undone by it in the
+  library's listing — and a window holding a title notices the rebuilt one.
 
 ### Security
 - Vue 3.5.45, and the interface's build tools (vite 6.4.6 and what it carries), past their

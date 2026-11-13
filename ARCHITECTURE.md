@@ -210,8 +210,11 @@ Endpoints run sync on FastAPI's threadpool, so races are real and handled struct
 - The meta layers and the user layer merge in the vault, so a commit can never roll back a star
   or read progress.
 - The SQLite index is one connection shared by the threadpool, so every statement goes through
-  one lock: a reader can't observe a rebuild's half-emptied table, and no other writer can commit
-  it. `sort=updated` reads the document's own mtime, so a rebuilt cache keeps the shelf order.
+  one lock: a reader can't observe a rebuild half-written, and no other writer can commit it. A
+  rebuild runs while the app is in use, so it rewrites a row only while the row stands as it did
+  when the rebuild began (its card's `rev`): a title written, made or deleted meanwhile keeps
+  what that write left. `sort=updated` reads the document's own mtime, so a rebuilt cache keeps
+  the shelf order.
 - App config uses `config_transaction()` (one process-wide lock + atomic save); the armed-download
   slot is consumed atomically; index rebuild and the archive sweep are each single-flight.
 - **One app per vault, one vault per run.** The shell checks a vault answers, is one, and is not
