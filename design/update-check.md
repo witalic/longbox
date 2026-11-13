@@ -24,12 +24,15 @@ it never blocks the window.
 
 ## 3. When a release is out
 
-A quiet chip in the window's title bar — **"3.4.1 is out"** — opens a small panel: the version, how
-old it is, the version running now, and two buttons that open the system's browser (never the
-embedded one): **What's new** (the release page, whose notes are the changelog) and **Download**
-(the latest release). **Not now** hides the chip until a newer version than that one.
+A button in the sidebar's footer — one arrow in the accent colour, beside the activity button and
+the theme switch, its tooltip naming the version — opens a panel above it, as Activity does: the
+version, how old it is, the version running now, and two buttons that open the system's browser
+(never the embedded one): **What's new** (the release page, whose notes are the changelog) and
+**Download** (the latest release). **Not now** takes the button away until a newer version than
+that one; Settings → About still shows it. (A chip in the title bar was tried first, and was too
+loud for news that can wait.)
 
-When the release's notes have a **Security** section, the chip turns to the warning colour and the
+When the release's notes have a **Security** section, the arrow takes the warning colour and the
 panel says so: *"It fixes security issues — in the built-in browser, among others."*
 
 Nothing is downloaded or installed by itself.

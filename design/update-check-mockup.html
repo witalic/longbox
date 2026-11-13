@@ -56,13 +56,13 @@ h2 { font: 600 15px/1.2 system-ui; margin: 34px 0 6px; }
 /* ---- a window, cut down to what the change touches ---- */
 .win { position: relative; width: 1000px; height: 540px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--bg); display: grid; grid-template-rows: 40px 1fr; }
 .chrome { display: flex; align-items: center; gap: 8px; padding: 0 0 0 12px; background: var(--bg2); border-bottom: 1px solid var(--line); }
-.brand { display: flex; align-items: center; gap: 8px; font: 700 13px/1 system-ui; width: 196px; }
+.brand { display: flex; align-items: center; gap: 8px; font: 700 13px/1 system-ui; width: 208px; }
 .logo { width: 22px; height: 22px; flex: none; }
 .tab { height: 30px; align-self: flex-end; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 8px 8px 0 0; font: 500 12px/1 system-ui; color: var(--tx2); }
 .tab.on { background: var(--bg); color: var(--tx); border: 1px solid var(--line); border-bottom-color: var(--bg); }
 .spacer { flex: 1; }
 .wctl { width: 138px; height: 100%; border-left: 1px solid var(--line); display: flex; align-items: center; justify-content: space-around; color: var(--tx3); font-size: 12px; }
-.body { display: grid; grid-template-columns: 196px 1fr; min-height: 0; }
+.body { display: grid; grid-template-columns: 220px 1fr; min-height: 0; }
 .side { background: var(--bg2); border-right: 1px solid var(--line); padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; }
 .nav { height: 34px; display: flex; align-items: center; padding: 0 12px; border-radius: 8px; font: 500 13px/1 system-ui; color: var(--tx2); }
 .nav.on { background: var(--hover); color: var(--tx); }
@@ -84,11 +84,17 @@ html[data-theme="light"] .tile:nth-child(3n), html[data-theme="light"] .tile:nth
 .ask .acts .btn { flex: 1; }
 .ask .foot { margin-top: 10px; font: 400 11px/1.4 system-ui; color: var(--tx3); }
 
-/* ---- 2. a release is out: a chip in the chrome, and its panel ---- */
-.chip { height: 24px; display: inline-flex; align-items: center; gap: 7px; padding: 0 10px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); background: var(--accentSoft); color: var(--accent); font: 600 11.5px/1 system-ui; margin-right: 6px; cursor: pointer; }
-.chip .dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor; }
-.chip.sec { border-color: color-mix(in srgb, var(--warn) 50%, var(--line)); background: color-mix(in srgb, var(--warn) 13%, transparent); color: var(--warn); }
-.pop { position: absolute; top: 46px; right: 150px; width: 330px; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 14px 34px rgba(0, 0, 0, .45); padding: 15px 16px 12px; }
+/* ---- 2. a release is out: a button in the sidebar's footer, beside activity ---- */
+.side.withfoot { padding: 10px 8px 0; }
+.sfoot { margin: auto -8px 0; height: 44px; padding: 0 16px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 9px; font: 500 11px/1.3 system-ui; color: var(--tx3); }
+.sfoot .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); flex: none; }
+.sfoot .lib { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fbtn { border: none; background: transparent; color: var(--tx2); display: inline-flex; align-items: center; gap: 5px; padding: 2px; cursor: pointer; font: 500 11px/1 ui-monospace, monospace; }
+.fbtn:hover { color: var(--tx); }
+.fbtn.upd { color: var(--accent); }
+.fbtn.upd.sec { color: var(--warn); }
+.fbtn.open { background: var(--hover); border-radius: 5px; }
+.pop { position: absolute; bottom: 52px; left: 10px; width: 330px; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 14px 34px rgba(0, 0, 0, .45); padding: 15px 16px 12px; }
 .pop .v { font: 600 15px/1.2 system-ui; }
 .pop .s { margin-top: 5px; font: 400 11.5px/1.4 system-ui; color: var(--tx3); }
 .pop .warn { margin-top: 11px; display: flex; gap: 8px; align-items: flex-start; font: 500 12px/1.45 system-ui; color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); border-radius: 6px; padding: 8px 10px; }
@@ -115,8 +121,8 @@ html[data-theme="light"] .tile:nth-child(3n), html[data-theme="light"] .tile:nth
   <h1>Knowing a release is out</h1>
   <p class="lede">
     The app asks <b>once</b> whether it may check GitHub for new versions — two buttons of equal
-    weight, neither chosen for the user. If yes, a release that is out shows as a quiet chip in the
-    window's title bar; nothing is downloaded by itself. Settings → About changes the answer and
+    weight, neither chosen for the user. If yes, a release that is out shows as a quiet button in the
+    sidebar's footer, beside the activity one; nothing is downloaded by itself. Settings → About changes the answer and
     checks on a click. Design note: <span class="mono">design/update-check.md</span>.
   </p>
   <div class="bar">
@@ -156,21 +162,54 @@ html[data-theme="light"] .tile:nth-child(3n), html[data-theme="light"] .tile:nth
     </div>
   </div>
 
-  <h2>2 · A release is out — the chip, and the panel it opens</h2>
-  <div class="win" style="height:330px">
+  <h2>2 · A release is out — a button in the sidebar's footer</h2>
+  <p class="lede" style="margin-bottom:10px">Beside the activity button and the theme switch, where the app already says
+    what it is doing. Click it, and the panel opens above it — as Activity does.</p>
+  <div class="win" style="height:440px">
     <div class="chrome">
       <span class="brand"><svg class="logo" viewBox="0 0 72 72" aria-hidden="true"><rect width="72" height="72" rx="17" fill="url(#lbg)"/><path d="M27 19h9v25h13v9H27z" fill="#fff"/></svg>longbox</span>
       <span class="tab on">Library</span>
       <span class="spacer"></span>
-      <span class="chip"><span class="dot"></span>3.4.1 is out</span>
-      <span class="chip sec"><span class="dot"></span>3.4.2 is out</span>
       <span class="wctl">—&nbsp;&nbsp;▢&nbsp;&nbsp;✕</span>
     </div>
     <div class="body">
-      <div class="side"><span class="nav on">Library</span><span class="nav">Web</span><span class="nav">Sources</span></div>
-      <div class="main"><div class="vhead"><h3>Library</h3></div></div>
+      <div class="side withfoot">
+        <span class="nav on">Library</span><span class="nav">Web</span><span class="nav">Sources</span>
+        <span class="nav">Metadata</span><span class="nav">Import</span><span class="nav">Settings</span>
+        <div class="sfoot">
+          <span class="dot"></span><span class="lib">Local library</span><span style="flex:1"></span>
+          <button class="fbtn upd" title="3.4.1 is out — what is new, and where to get it"><svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px"><circle cx="12" cy="12" r="9"/><path d="M12 16V8M8.5 11.5 12 8l3.5 3.5"/></svg></button>
+          <button class="fbtn" title="Toggle theme"><svg class="ic" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg></button>
+        </div>
+      </div>
+      <div class="main"><div class="vhead"><h3>Library</h3></div>
+        <div class="grid"><i class="tile"></i><i class="tile"></i><i class="tile"></i><i class="tile"></i><i class="tile"></i></div></div>
     </div>
-    <div class="pop" style="right:500px">
+
+  </div>
+  <h2 style="margin-top:22px;font-size:13px;color:var(--tx2)">Opened — an ordinary release</h2>
+  <div class="win" style="height:440px">
+    <div class="chrome">
+      <span class="brand"><svg class="logo" viewBox="0 0 72 72" aria-hidden="true"><rect width="72" height="72" rx="17" fill="url(#lbg)"/><path d="M27 19h9v25h13v9H27z" fill="#fff"/></svg>longbox</span>
+      <span class="tab on">Library</span>
+      <span class="spacer"></span>
+      <span class="wctl">—&nbsp;&nbsp;▢&nbsp;&nbsp;✕</span>
+    </div>
+    <div class="body">
+      <div class="side withfoot">
+        <span class="nav on">Library</span><span class="nav">Web</span><span class="nav">Sources</span>
+        <span class="nav">Metadata</span><span class="nav">Import</span><span class="nav">Settings</span>
+        <div class="sfoot">
+          <span class="dot"></span><span class="lib">Local library</span><span style="flex:1"></span>
+          <button class="fbtn" title="2 transfers"><svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19h14"/></svg>2</button>
+          <button class="fbtn upd open" title="3.4.1 is out"><svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px"><circle cx="12" cy="12" r="9"/><path d="M12 16V8M8.5 11.5 12 8l3.5 3.5"/></svg></button>
+          <button class="fbtn" title="Toggle theme"><svg class="ic" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg></button>
+        </div>
+      </div>
+      <div class="main"><div class="vhead"><h3>Library</h3></div>
+        <div class="grid"><i class="tile"></i><i class="tile"></i><i class="tile"></i><i class="tile"></i><i class="tile"></i></div></div>
+    </div>
+    <div class="pop">
       <div class="v">longbox 3.4.1 is out</div>
       <div class="s">released 2 days ago · you have 3.4.0</div>
       <div class="acts">
@@ -179,6 +218,28 @@ html[data-theme="light"] .tile:nth-child(3n), html[data-theme="light"] .tile:nth
         <button class="btn ghost later">Not now</button>
       </div>
       <div class="ext">Both open in your browser. Not now hides this until a newer version.</div>
+    </div>
+  </div>
+  <h2 style="margin-top:22px;font-size:13px;color:var(--tx2)">Opened — a release whose notes have a Security section</h2>
+  <div class="win" style="height:440px">
+    <div class="chrome">
+      <span class="brand"><svg class="logo" viewBox="0 0 72 72" aria-hidden="true"><rect width="72" height="72" rx="17" fill="url(#lbg)"/><path d="M27 19h9v25h13v9H27z" fill="#fff"/></svg>longbox</span>
+      <span class="tab on">Library</span>
+      <span class="spacer"></span>
+      <span class="wctl">—&nbsp;&nbsp;▢&nbsp;&nbsp;✕</span>
+    </div>
+    <div class="body">
+      <div class="side withfoot">
+        <span class="nav on">Library</span><span class="nav">Web</span><span class="nav">Sources</span>
+        <span class="nav">Metadata</span><span class="nav">Import</span><span class="nav">Settings</span>
+        <div class="sfoot">
+          <span class="dot"></span><span class="lib">Local library</span><span style="flex:1"></span>
+          <button class="fbtn upd sec open" title="3.4.2 is out — it fixes security issues"><svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px"><circle cx="12" cy="12" r="9"/><path d="M12 16V8M8.5 11.5 12 8l3.5 3.5"/></svg></button>
+          <button class="fbtn" title="Toggle theme"><svg class="ic" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg></button>
+        </div>
+      </div>
+      <div class="main"><div class="vhead"><h3>Library</h3></div>
+        <div class="grid"><i class="tile"></i><i class="tile"></i><i class="tile"></i><i class="tile"></i><i class="tile"></i></div></div>
     </div>
     <div class="pop">
       <div class="v">longbox 3.4.2 is out</div>
@@ -193,10 +254,11 @@ html[data-theme="light"] .tile:nth-child(3n), html[data-theme="light"] .tile:nth
     </div>
   </div>
   <ul class="notes">
-    <li>Left: an ordinary release. Right: one whose notes have a <b>Security</b> section — the chip
-      and the panel take the warning colour. Only one chip is ever shown; both are here to compare.</li>
-    <li>The chip sits at the end of the tab strip, before the window's controls — where Chrome keeps
-      its own "update" button.</li>
+    <li>The button is one arrow in the accent colour — no number, no badge; its tooltip names the
+      version. The warning colour only when the release fixes security issues.</li>
+    <li><b>Not now</b> takes the button away until a version newer than that one is out;
+      Settings → About still shows it.</li>
+    <li>With transfers running (second window) the activity button sits beside it, as it does today.</li>
   </ul>
 
   <h2>3 · Settings → About</h2>
