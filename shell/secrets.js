@@ -360,15 +360,20 @@ class Logins {
     return this.#never.some((o) => siteOf(o) === site)
   }
 
-  nevers() {
+  // the addresses never asked on — of an address's site, when one is named
+  nevers(origin = '') {
     this.#held()
-    return [...this.#never]
+    const site = origin && siteOf(origin)
+    return this.#never.filter((o) => !site || siteOf(o) === site)
   }
 
+  // Never asked on the address's site — or asked again, on all of it: every
+  // address it was said for goes, as each would keep the whole site unasked.
   async setNever(origin, never) {
     const at = originOf(origin)
+    const site = siteOf(at)
     return this.#change((next) => {
-      next.never = next.never.filter((o) => o !== at)
+      next.never = next.never.filter((o) => (never ? o !== at : siteOf(o) !== site))
       if (never) next.never.push(at)
     })
   }

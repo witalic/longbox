@@ -63,7 +63,7 @@ contextBridge.exposeInMainWorld('longbox', {
       { kind: String(shown?.kind ?? ''), origin: String(shown?.origin ?? '') }),
     changeMaster: (current, next) => ipcRenderer.invoke('lb-pw-change-master', String(current ?? ''), String(next ?? '')),
     // the sites where saving a login is never offered, and changing that
-    nevers: () => ipcRenderer.invoke('lb-pw-nevers'),
+    nevers: (origin) => ipcRenderer.invoke('lb-pw-nevers', String(origin ?? '')),
     setNever: (origin, never) => ipcRenderer.invoke('lb-pw-set-never', String(origin ?? ''), !!never),
     onState: (fn) => {
       const h = (_e, s) => fn(s)

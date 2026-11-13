@@ -104,7 +104,8 @@ declare global {
         answerOffer: (guestId: number, what: 'save' | 'never' | 'dismiss', shown: { kind: LoginOffer['kind']; origin: string }) =>
           Promise<LoginsAnswer<'saved' | 'updated' | 'same' | 'never' | 'dropped' | 'gone' | 'changed'>>
         changeMaster: (current: string, next: string) => Promise<LoginsAnswer<void>>
-        nevers: () => Promise<LoginsAnswer<string[]>>
+        // the addresses never asked on: all, or those of an address's site
+        nevers: (origin?: string) => Promise<LoginsAnswer<string[]>>
         setNever: (origin: string, never: boolean) => Promise<LoginsAnswer<void>>
         onState: (fn: (s: LoginsState) => void) => () => void
       }

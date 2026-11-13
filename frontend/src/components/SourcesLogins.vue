@@ -8,8 +8,8 @@
 import { computed, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import LoginEditor from './LoginEditor.vue'
-import { ago, hostOf } from '../data'
-import { askMaster, loginsOf, loginsState, settled } from '../logins'
+import { ago } from '../data'
+import { askMaster, loginsOf, loginsState, neversOf, settled } from '../logins'
 
 const props = defineProps<{ domain: string; homepage: string }>()
 const emit = defineEmits<{ (e: 'count', n: number): void }>()
@@ -27,8 +27,7 @@ async function load() {
   error.value = ''
   try {
     list.value = await loginsOf(props.domain)
-    nevers.value = shell && loginsState.unlocked
-      ? (await settled(shell.nevers())).filter((o) => hostOf(o) === props.domain) : []
+    nevers.value = await neversOf(props.domain)
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   }

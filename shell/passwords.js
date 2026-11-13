@@ -321,7 +321,7 @@ function wire(window, root) {
   handle('lb-pw-offer-answer', (guestId, what, shown) => answer(Number(guestId), String(what),
     { kind: String(shown?.kind ?? ''), origin: String(shown?.origin ?? '') }))
   handle('lb-pw-change-master', (current, next) => held().changeMaster(String(current ?? ''), String(next ?? '')))
-  handle('lb-pw-nevers', () => held().nevers())
+  handle('lb-pw-nevers', (origin) => held().nevers(typeof origin === 'string' ? origin : ''))
   handle('lb-pw-set-never', (origin, never) => held().setNever(String(origin ?? ''), !!never))
   ipcMain.on('lb-pw-submitted', submitted)
   powerMonitor.on('suspend', lockAway)

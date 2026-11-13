@@ -267,8 +267,13 @@ test('the sites where saving is never offered are kept inside the encryption', a
   await logins.lock()
   const again = await secrets.unlock(root, MASTER)
   assert.equal(again.neverAsks(SITE), true)
-  await again.setNever(SITE, false)
+  await again.setNever('https://account.kestrel-reader.example/login', true)   // said again, at another address
+  await again.setNever('http://kestrel-reader.example', true)                  // another site: http
+  assert.deepEqual(again.nevers('https://mail.kestrel-reader.example'), [SITE, 'https://account.kestrel-reader.example'])
+  await again.setNever(SITE, false)                                            // asked again: on all of the site
+  assert.equal(again.neverAsks('https://account.kestrel-reader.example'), false)
   assert.equal(again.neverAsks(SITE), false)
+  assert.deepEqual(again.nevers(), ['http://kestrel-reader.example'])
 })
 
 test('a new master password opens what the old one did, and the old one nothing', async (t) => {

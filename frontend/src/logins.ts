@@ -94,12 +94,24 @@ export function dropMasterAsk() {
   done?.(false)
 }
 
-// A Sources site's logins: every origin of its domain (an http and an https
-// login, a port of its own, are still the one site there).
+// A Sources site's logins, and the addresses saving is never offered on: those
+// of its domain's site over https and http — every address of it — and any of
+// the domain itself on a port of its own.
+async function ofSite<T>(domain: string, all: (origin?: string) => Promise<LoginsAnswer<T[]>>,
+  originOf: (x: T) => string, key: (x: T) => string): Promise<T[]> {
+  const [every, https, http] = await Promise.all([settled(all()), settled(all(`https://${domain}`)), settled(all(`http://${domain}`))])
+  const near = new Set([...https, ...http].map(key))
+  return every.filter((x) => hostOf(originOf(x)) === domain || near.has(key(x)))
+}
 export async function loginsOf(domain: string): Promise<LoginSummary[]> {
   const shell = window.longbox?.logins
   if (!shell || !loginsState.unlocked) return []
-  return (await settled(shell.list())).filter((l) => hostOf(l.origin) === domain)
+  return ofSite(domain, shell.list, (l) => l.origin, (l) => l.id)
+}
+export async function neversOf(domain: string): Promise<string[]> {
+  const shell = window.longbox?.logins
+  if (!shell || !loginsState.unlocked) return []
+  return ofSite(domain, shell.nevers, (o) => o, (o) => o)
 }
 
 // Sources asked to open a site on its Logins tab (from the key's popover);
