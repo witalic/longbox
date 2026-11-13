@@ -54,8 +54,9 @@ of 3.0 (shell/vaults.js): the profile is copied beside its destination, renamed 
 the copy is whole, and only then removed from where it was. A copy that fails stops there; the app
 does not open with half a profile, and **Try again** starts it over. The window shows the progress.
 
-- What moves is the sign-ins and site data; **caches are not moved** — they refill, and the old
-  ones are removed.
+- What moves is the sign-ins and site data. **The caches are deleted, not moved:** once the copy
+  is whole, the old profile is removed entirely, its caches with it, and nothing of it is left
+  where it was. The new place starts with an empty cache, which refills as pages are opened.
 - **vault → computer:** `<vault>/.longbox/browser/` → `<app folder>/browsers/<vault id>/`.
 - **computer → vault:** the reverse. The vault cannot already hold a profile then: moving out
   removed it.
@@ -96,4 +97,5 @@ profile and its place in scope), the changelog.
 
 ## 9. Not in this
 
-Encrypting the profile in any form; moving the browser's caches; a per-site choice.
+Encrypting the profile in any form; carrying the browser's caches across (they are deleted); a
+per-site choice.

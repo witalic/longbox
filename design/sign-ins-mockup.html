@@ -74,7 +74,7 @@ h2 { font: 600 15px/1.2 system-ui; margin: 34px 0 6px; }
 .part .pbar > span { display: block; height: 100%; width: 62%; background: var(--accent); }
 .part.skip .what { color: var(--tx3); }
 .spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent); }
-.dash { width: 12px; height: 2px; background: var(--tx3); border-radius: 2px; justify-self: center; }
+.ring { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line); justify-self: center; }
 .status { display: flex; align-items: center; gap: 9px; font: 400 12px/1.4 system-ui; color: var(--tx2); }
 .which { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); font: 400 12px/1 system-ui; color: var(--tx2); min-width: 0; }
 .which b { color: var(--tx); font-weight: 600; }
@@ -144,7 +144,7 @@ h2 { font: 600 15px/1.2 system-ui; margin: 34px 0 6px; }
             <h3><svg class="ic"><use href="#i-pc"/></svg>On this computer</h3>
             <p>Kept in longbox's folder on this computer; the vault holds none of them. Another computer
               signs in on its own.</p>
-            <span class="size">Moves 14.2 MB now · the cache refills.</span>
+            <span class="size">Moves 14.2 MB · deletes the 612 MB cache, which refills.</span>
             <button class="btn">Keep them on this computer</button>
           </div>
         </div>
@@ -182,8 +182,8 @@ h2 { font: 600 15px/1.2 system-ui; margin: 34px 0 6px; }
   </div>
 
   <h2>2 · The move — on the start after the answer, or after a change in Settings</h2>
-  <p class="cap">Copied beside its destination, renamed into place when whole, and only then removed from where it was —
-    the 3.0 move's own mechanism. Right: what a computer says when the vault took its sign-ins back (D1).</p>
+  <p class="cap">Copied beside its destination, renamed into place when whole, and only then is the old profile removed
+    — all of it, its cache included; nothing is left behind. The 3.0 move's own mechanism. Right: what a computer says when the vault took its sign-ins back (D1).</p>
   <div class="frames">
     <div class="lw">
       <div class="tb"><span class="logo"></span><span class="name">longbox</span><span class="ctl">— ▢ ✕</span></div>
@@ -194,11 +194,11 @@ h2 { font: 600 15px/1.2 system-ui; margin: 34px 0 6px; }
         <div class="parts">
           <div class="part"><span class="spin"></span><span class="what">Sign-ins and site data</span>
             <span class="sz">8.8 of 14.2 MB</span><span class="pbar"><span></span></span></div>
-          <div class="part skip"><span class="dash"></span><span class="what">Browser cache — not moved, it refills</span>
-            <span class="sz">612 MB</span></div>
+          <div class="part skip"><span class="ring"></span><span class="what">Removing the vault's old profile, cache included</span>
+            <span class="sz">626 MB</span></div>
         </div>
       </div>
-      <div class="wfoot"><span class="hint">Copied first, then removed from the vault — stopping now loses nothing.</span>
+      <div class="wfoot"><span class="hint">The old profile goes only once the copy is whole — stopping now loses nothing.</span>
         <span class="sp"></span><button class="btn ghost">Quit</button></div>
     </div>
 
@@ -242,7 +242,7 @@ h2 { font: 600 15px/1.2 system-ui; margin: 34px 0 6px; }
       <h4>Keep Library's sign-ins on this computer?</h4>
       <p>When longbox next starts, the sign-ins and site data move from the vault into longbox's folder
         on <b>this computer</b> (14.2 MB), and the vault keeps none of them. Other computers that open
-        Library sign in on their own. The browser's cache is not moved; it refills.</p>
+        Library sign in on their own. The browser's cache (612 MB) is deleted, not moved — it refills.</p>
       <div class="acts">
         <button class="btn ghost">Cancel</button>
         <button class="btn">On the next start</button>
