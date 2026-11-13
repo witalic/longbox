@@ -105,10 +105,16 @@ Forgetting the master password loses the secrets. Setup says so, plainly, once.
 - The menu is the app's, not the page's: a page cannot draw a fake one or click it for the owner.
 - The fill goes to the top frame only, and only if its origin is still the entry's at the moment of
   filling (a page that navigated meanwhile gets nothing). http pages get only logins saved on http.
-- **Save after sign-in.** When a form with a password is submitted, the preload reports the origin,
-  username and password to the shell; the shell shows a bar in the app: *Save login for x.com?* —
-  Save · Never for this site · Not now. An existing login with another password offers *Update*.
-  Nothing is kept unless saved.
+- **Save after sign-in.** When a form with a password is sent (submitted, Enter in it, its submit
+  button clicked), the preload reports the username and password to the shell — never to the
+  window — with the frame's own origin. The shell holds the password and tells the window what to
+  offer, in a bar of the app's: *Save the login for … on x.com?* — Save · Never for this site · Not
+  now; a saved login's username with another password: *Update* (the old password kept among the
+  previous ones); its saved password: nothing (it was used); a site never asked: nothing. Locked,
+  it cannot tell which: *Save…* asks for the master password first, then saves or updates. The bar
+  stays with its tab until it is answered, replaced by the next sign-in, or the tab is closed —
+  not when the tab leaves the site, since a sign-in through another site (SSO) does just that; one
+  nobody answers goes after ten minutes, its password with it. Nothing is kept unless saved.
 
 ## Ad blocking, from the shield
 

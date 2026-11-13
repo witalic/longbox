@@ -48,6 +48,8 @@ declare global {
     used: string
     previous: { replaced: string }[]
   }
+  // after a page's sign-in: offer to save it ('locked': which, once unlocked), to update the saved one, or nothing
+  interface LoginOffer { guestId: number; kind: 'save' | 'update' | 'locked' | null; origin?: string; username?: string }
   // an editor's Save, in the order it was made: a new password, a previous one used again, one forgotten
   type LoginStep = { password: string } | { use: number } | { forget: number }
   interface Window {
@@ -93,6 +95,9 @@ declare global {
         remove: (id: string) => Promise<LoginsAnswer<void>>
         generate: (opts?: { length?: number; letters?: boolean; digits?: boolean; symbols?: boolean }) => Promise<LoginsAnswer<string>>
         fill: (guestId: number, id: string) => Promise<LoginsAnswer<boolean>>
+        onOffer: (fn: (offer: LoginOffer) => void) => () => void
+        answerOffer: (guestId: number, what: 'save' | 'never' | 'dismiss') =>
+          Promise<LoginsAnswer<'saved' | 'updated' | 'same' | 'never' | 'dropped' | 'gone'>>
         onState: (fn: (s: LoginsState) => void) => () => void
       }
       // one site's share of the embedded browser: its cookie count, and clearing

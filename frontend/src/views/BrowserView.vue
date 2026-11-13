@@ -15,6 +15,7 @@ import LoginsPanel from '../components/LoginsPanel.vue'
 import MenuButton from '../components/MenuButton.vue'
 import ToolbarPopover from '../components/ToolbarPopover.vue'
 import RailSection from '../components/RailSection.vue'
+import SaveLoginBar from '../components/SaveLoginBar.vue'
 import Icon from '../components/Icon.vue'
 import PickInspector, { type ChainNode, type PickUse, type ProbeReq, type ProbeResult } from '../components/PickInspector.vue'
 import {
@@ -107,6 +108,24 @@ watch([pageOrigin, () => loginsState.unlocked], countLogins, { immediate: true }
 const keyTone = computed(() => (keyCount.value ? 'lit' : active.value && pwFields.get(active.value.id) ? '' : 'quiet'))
 const keyTitle = computed(() => (!pageOrigin.value ? 'Logins' : keyCount.value
   ? `${keyCount.value} login${keyCount.value === 1 ? '' : 's'} for this site` : 'Logins for this site'))
+// After a sign-in, the bar that offers to save it — the tab's own, shown while
+// it is in front, until answered or replaced by the next sign-in.
+const offers = reactive(new Map<string, LoginOffer>())
+const activeOffer = computed(() => (active.value ? offers.get(active.value.id) ?? null : null))
+function onOffer(offer: LoginOffer) {
+  const id = tabOfGuest(offer.guestId)
+  if (!id) return
+  if (offer.kind) offers.set(id, offer)
+  else offers.delete(id)
+}
+function offerAnswered() {
+  if (active.value) offers.delete(active.value.id)
+  void countLogins()
+}
+// what a closed tab's page told goes with it
+watch(() => browser.tabs.map((t) => t.id).join(), () => {
+  for (const map of [offers, pwFields]) for (const id of [...map.keys()]) if (!tabById(id)) map.delete(id)
+})
 // the page a login is filled into, named the moment it is: a <webview> names
 // its page only once it is attached
 function guestNow(): number | null {
@@ -282,6 +301,7 @@ let dropPageKeys: (() => void) | null = null
 let dropPageFullscreen: (() => void) | null = null
 let dropAdblock: (() => void) | null = null
 let dropBlocked: (() => void) | null = null
+let dropOffers: (() => void) | null = null
 onMounted(() => {
   document.addEventListener('keydown', onKey)
   // the same shortcuts, arriving from the shell when the PAGE had focus
@@ -293,6 +313,7 @@ onMounted(() => {
     const id = tabOfGuest(guestId)
     if (id) blockedBy.set(id, n)
   }) ?? null
+  dropOffers = window.longbox?.logins?.onOffer(onOffer) ?? null
 })
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onKey)
@@ -300,6 +321,7 @@ onBeforeUnmount(() => {
   dropPageFullscreen?.()
   dropAdblock?.()
   dropBlocked?.()
+  dropOffers?.()
 })
 
 function closeFind() {
@@ -1136,6 +1158,8 @@ function onReady(tabId: string) {
         </template>
       </MenuButton>
     </div>
+    <SaveLoginBar v-if="activeOffer" :key="`${activeOffer.guestId}-${activeOffer.kind}`" :offer="activeOffer"
+                  @answered="offerAnswered" />
 
     <Teleport v-if="store.view === 'browser'" to="#siderail">
       <RailSection v-for="sec in railSections" :key="sec.label" :label="sec.label" collapsible

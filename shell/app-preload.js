@@ -51,6 +51,14 @@ contextBridge.exposeInMainWorld('longbox', {
     remove: (id) => ipcRenderer.invoke('lb-pw-remove', String(id ?? '')),
     generate: (opts) => ipcRenderer.invoke('lb-pw-generate', opts),
     fill: (guestId, id) => ipcRenderer.invoke('lb-pw-fill', Number(guestId), String(id ?? '')),
+    // after a page's sign-in, what to offer ({ guestId, kind, origin, username };
+    // kind null: nothing any more) — and the owner's answer
+    onOffer: (fn) => {
+      const h = (_e, o) => fn(o)
+      ipcRenderer.on('lb-pw-offer', h)
+      return () => ipcRenderer.removeListener('lb-pw-offer', h)
+    },
+    answerOffer: (guestId, what) => ipcRenderer.invoke('lb-pw-offer-answer', Number(guestId), String(what ?? '')),
     onState: (fn) => {
       const h = (_e, s) => fn(s)
       ipcRenderer.on('lb-pw-state', h)

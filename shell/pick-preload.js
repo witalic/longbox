@@ -710,6 +710,35 @@ if (window === window.top) {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watch, { once: true })
   else watch()
 
+  // A sign-in sent: its username and password go to the shell — never to the
+  // window — which offers to save them. A form a page sends with fetch is taken
+  // as it goes: Enter in it, or a click on its submit button (not a button of
+  // its own, like a "show password" eye). A new password is the one the form
+  // says is new, else the last one (a change form's confirmation).
+  let sentWhat = ''
+  let sentAt = 0
+  function signedIn(form) {
+    const filled = passwordFields().filter((el) => el.value && (!form || el.form === form))
+    if (!filled.length) return
+    const password = (filled.find((el) => /new-password/.test(el.autocomplete)) || filled[filled.length - 1]).value
+    const username = usernameFor(filled[0])?.value ?? ''
+    const what = JSON.stringify([username, password])
+    if (what === sentWhat && Date.now() - sentAt < 3000) return // one sign-in, seen twice
+    sentWhat = what
+    sentAt = Date.now()
+    ipcRenderer.send('lb-pw-submitted', { username, password })
+  }
+  document.addEventListener('submit', (e) => signedIn(e.target instanceof HTMLFormElement ? e.target : null), true)
+  document.addEventListener('keydown', (e) => {
+    const el = e.target
+    if (e.key === 'Enter' && el instanceof HTMLInputElement && (el.type === 'password'
+        || el.form?.querySelector('input[type="password"]'))) signedIn(el.form)
+  }, true)
+  document.addEventListener('click', (e) => {
+    const b = e.target instanceof Element ? e.target.closest('button, input[type="submit"]') : null
+    if (b && b.type === 'submit') signedIn(b.form)
+  }, true)
+
   // the shell sends a login only for this page's origin; it is checked again
   // here, as it arrives — a page that went elsewhere meanwhile gets nothing
   ipcRenderer.on('lb-pw-fill', (_e, msg) => {
