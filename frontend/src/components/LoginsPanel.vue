@@ -6,8 +6,9 @@
 import { computed, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import LoginEditor from './LoginEditor.vue'
-import { ago } from '../data'
-import { askMaster, lockLogins, loginsState, settled } from '../logins'
+import { ago, hostOf } from '../data'
+import { askMaster, lockLogins, loginsState, settled, showLoginsIn } from '../logins'
+import { showSources, store } from '../store'
 
 // `guest`: the page a login would be filled into, now
 const props = defineProps<{ origin: string; guest: () => number | null }>()
@@ -56,6 +57,13 @@ async function lock() {
   await lockLogins()
   emit('close')
 }
+// the site's logins, all of them, where Sources keeps the site — when it does
+const sourceSite = computed(() => store.sources.find((s) => s.domain === hostOf(site.value))?.domain ?? '')
+function inSources() {
+  showLoginsIn.domain = sourceSite.value
+  showSources()
+  emit('close')
+}
 </script>
 
 <template>
@@ -94,6 +102,7 @@ async function lock() {
           <div v-if="!list.length" class="say">Nothing saved for this site yet.</div>
           <hr />
           <button class="mi" @click="editing = { login: null, origin: site }"><Icon name="plus" :size="14" :sw="2" />Add a login for this site</button>
+          <button v-if="sourceSite" class="mi" @click="inSources"><Icon name="sources" :size="14" :sw="2" />All of this site's logins — Sources</button>
           <button class="mi" @click="lock"><Icon name="lock" :size="14" :sw="2" />Lock passwords</button>
         </template>
         <div v-if="error" class="err">{{ error }}</div>

@@ -13,6 +13,7 @@ import Dropdown from '../components/Dropdown.vue'
 import Icon from '../components/Icon.vue'
 import RailSection from '../components/RailSection.vue'
 import SearchBox from '../components/SearchBox.vue'
+import SourcesLogins from '../components/SourcesLogins.vue'
 import { sourceGroupNames, sourcesKnown, store } from '../store'
 import { askConfirm } from '../confirm'
 import { newTab } from '../browser'
@@ -20,6 +21,7 @@ import { api } from '../api'
 import { faviconFor, movedBefore, type Bookmark, type Source } from '../data'
 import { vFocus } from '../focus'
 import { readLocalOne, writeLocalOne } from '../local'
+import { loginsOf, loginsState, showLoginsIn } from '../logins'
 
 const mode = ref(readLocalOne('lb.sourcesMode', ['tree', 'links'] as const, 'tree'))
 watch(mode, (m) => writeLocalOne('lb.sourcesMode', m))
@@ -236,13 +238,26 @@ async function dropSite() {
 // ---- one site: the panel ----
 const open = ref<string | null>(null)
 const site = computed(() => store.sources.find((s) => s.domain === open.value) ?? null)
-const ptab = ref<'settings' | 'links'>('settings')
+const ptab = ref<'settings' | 'links' | 'logins'>('settings')
 function openSite(domain: string) {
   if (open.value !== domain) {
     open.value = domain
     resetLinks()
   }
 }
+// the site's saved logins, counted for its tab (known once they are unlocked);
+// the key's popover in the browser asks for a site's Logins tab
+const loginCount = ref(0)
+watch([open, () => loginsState.unlocked], async () => {
+  loginCount.value = open.value ? (await loginsOf(open.value).catch(() => [])).length : 0
+}, { immediate: true })
+watch(() => showLoginsIn.domain, (domain) => {
+  if (!domain) return
+  showLoginsIn.domain = ''
+  if (!store.sources.some((x) => x.domain === domain)) return
+  openSite(domain)
+  ptab.value = 'logins'
+}, { immediate: true })
 
 const home = ref('')
 watch(() => site.value?.homepage, (h) => { home.value = h ?? '' }, { immediate: true })
@@ -663,6 +678,8 @@ async function deleteTicked() {
         <div class="ptabs">
           <button :class="{ on: ptab === 'settings' }" @click="ptab = 'settings'">Settings</button>
           <button :class="{ on: ptab === 'links' }" @click="ptab = 'links'">Links <span class="n mono">{{ site.bookmarks.length }}</span></button>
+          <button :class="{ on: ptab === 'logins' }" @click="ptab = 'logins'">Logins
+            <span v-if="loginCount" class="n mono">{{ loginCount }}</span></button>
         </div>
 
         <template v-if="ptab === 'settings'">
@@ -716,6 +733,8 @@ async function deleteTicked() {
           </div>
         </template>
 
+        <SourcesLogins v-else-if="ptab === 'logins'" :domain="site.domain" :homepage="site.homepage"
+                       @count="loginCount = $event" />
         <template v-else>
           <div v-if="lsel.size" class="pbulk">
             <span class="sel">{{ lsel.size }} selected</span>

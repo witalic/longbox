@@ -59,6 +59,9 @@ contextBridge.exposeInMainWorld('longbox', {
       return () => ipcRenderer.removeListener('lb-pw-offer', h)
     },
     answerOffer: (guestId, what) => ipcRenderer.invoke('lb-pw-offer-answer', Number(guestId), String(what ?? '')),
+    // the sites where saving a login is never offered, and changing that
+    nevers: () => ipcRenderer.invoke('lb-pw-nevers'),
+    setNever: (origin, never) => ipcRenderer.invoke('lb-pw-set-never', String(origin ?? ''), !!never),
     onState: (fn) => {
       const h = (_e, s) => fn(s)
       ipcRenderer.on('lb-pw-state', h)

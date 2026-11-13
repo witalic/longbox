@@ -15,6 +15,7 @@ const props = defineProps<{
   login: LoginSummary | null // null: a new one
   origin: string             // the site it belongs to
   here?: string              // the tab's site now, when it is edited from a tab
+  pickOrigin?: boolean       // a new one's site is typed, starting from `origin` (Sources: no tab to take it from)
 }>()
 const emit = defineEmits<{ (e: 'saved'): void; (e: 'cancel'): void; (e: 'deleted'): void }>()
 
@@ -23,6 +24,7 @@ const shell = window.longbox?.logins
 const username = ref(props.login?.username ?? '')
 const note = ref(props.login?.note ?? '')
 const fresh = ref('') // a new login's password
+const site = ref(props.origin)
 const steps = ref<LoginStep[]>([])
 const shown = reactive<Record<string, string>>({}) // a password shown, by what it is
 const error = ref('')
@@ -115,7 +117,7 @@ async function save() {
       await settled(shell.edit(props.login.id, { username: username.value, note: note.value,
         steps: steps.value.map((step) => ({ ...step })) }))
     } else {
-      await settled(shell.add({ origin: props.origin, username: username.value, password: fresh.value, note: note.value }))
+      await settled(shell.add({ origin: site.value, username: username.value, password: fresh.value, note: note.value }))
     }
     emit('saved')
   } catch (e) {
@@ -150,7 +152,9 @@ async function remove() {
   <div class="led">
     <div class="grid">
       <span class="k">Site</span>
-      <div class="origin mono" :title="origin"><Icon name="lock" :size="11" :sw="2" /><span>{{ origin }}</span>
+      <input v-if="!login && pickOrigin" v-model="site" class="in mono" spellcheck="false" autocomplete="off"
+             title="The exact site: scheme, host and port — an http and an https site are two" />
+      <div v-else class="origin mono" :title="origin"><Icon name="lock" :size="11" :sw="2" /><span>{{ origin }}</span>
         <span v-if="here !== undefined" class="why">this tab</span></div>
       <span class="k">Username</span>
       <input v-model="username" class="in" spellcheck="false" autocomplete="off" />

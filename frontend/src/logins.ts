@@ -4,6 +4,7 @@
 // shell (shell/passwords.js); a password reaches the window only when the
 // owner reveals one.
 import { reactive } from 'vue'
+import { hostOf } from './data'
 
 export const loginsState = reactive<LoginsState>({ exists: false, unlocked: false })
 
@@ -66,6 +67,18 @@ export function dropMasterAsk() {
   Object.assign(masterAsk, { mode: null, error: '', busy: false, resolve: null })
   done?.(false)
 }
+
+// A Sources site's logins: every origin of its domain (an http and an https
+// login, a port of its own, are still the one site there).
+export async function loginsOf(domain: string): Promise<LoginSummary[]> {
+  const shell = window.longbox?.logins
+  if (!shell || !loginsState.unlocked) return []
+  return (await settled(shell.list())).filter((l) => hostOf(l.origin) === domain)
+}
+
+// Sources asked to open a site on its Logins tab (from the key's popover);
+// Sources takes the request and clears it.
+export const showLoginsIn = reactive({ domain: '' })
 
 export async function lockLogins() {
   const shell = window.longbox?.logins

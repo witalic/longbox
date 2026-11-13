@@ -128,6 +128,7 @@ test('the sites where saving is never offered are kept inside the encryption', a
   const logins = await secrets.create(root, MASTER)
   await logins.setNever(`${SITE}/sign-in`, true)
   assert.equal(logins.neverAsks(SITE), true)
+  assert.deepEqual(logins.nevers(), [SITE])
   assert.equal(logins.neverAsks('http://kestrel-reader.example'), false)
   assert.doesNotMatch(fs.readFileSync(file(root), 'utf8'), /kestrel/)
   logins.lock()

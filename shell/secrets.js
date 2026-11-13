@@ -239,11 +239,16 @@ class Logins {
     return this.#change(() => { this.#entry(id).used = now() })
   }
 
-  // Whether saving a login is never offered on this site — and the owner's
-  // answer to that, either way.
+  // Whether saving a login is never offered on this site, the sites where it is
+  // not — and the owner's answer to that, either way.
   neverAsks(origin) {
     this.#held()
     return this.#never.includes(originOf(origin))
+  }
+
+  nevers() {
+    this.#held()
+    return [...this.#never]
   }
 
   setNever(origin, never) {

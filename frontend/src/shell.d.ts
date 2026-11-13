@@ -98,6 +98,8 @@ declare global {
         onOffer: (fn: (offer: LoginOffer) => void) => () => void
         answerOffer: (guestId: number, what: 'save' | 'never' | 'dismiss') =>
           Promise<LoginsAnswer<'saved' | 'updated' | 'same' | 'never' | 'dropped' | 'gone'>>
+        nevers: () => Promise<LoginsAnswer<string[]>>
+        setNever: (origin: string, never: boolean) => Promise<LoginsAnswer<void>>
         onState: (fn: (s: LoginsState) => void) => () => void
       }
       // one site's share of the embedded browser: its cookie count, and clearing
