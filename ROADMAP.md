@@ -4,19 +4,7 @@ Where longbox is going, release by release. Every larger item starts as a design
 anything on screen, a mockup in [design/](design/) that the owner approves first; what has shipped
 moves to the [changelog](CHANGELOG.md). What longbox will not do is at the end.
 
-## 3.6.0 — password manager
-
-Built: the store and the key, the save bar, Sources → Logins, Settings → Passwords, ad blocking from
-the shield, and the quality step (navigation out of `store.ts` into `nav.ts`).
-
-Logins for the sites in the embedded browser, encrypted in the vault under a master password,
-filled on click ([draft](design/password-manager.md), to be checked against 3.5.0). Only the key is
-held while unlocked; each password is decrypted at the moment it is used. With sessions
-kept on each computer, it is what makes signing in again on another one quick. The key is a button
-beside the star and the shield, and ad blocking moves from the ⋯ menu to a popover of the shield's
-in the same format ([mockup](design/password-manager-mockup.html)).
-
-## Then
+## Next
 
 - **OPDS.** The vault served to readers on other devices — KOReader, Panels, Chunky and the rest —
   over the local network.

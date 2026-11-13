@@ -6,6 +6,8 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 
 ## [Unreleased]
 
+## [3.6.0] — 2026-11-13
+
 ### Added
 - **Passwords.** longbox keeps the logins of the sites you capture from, encrypted in the vault
   under a master password and filled on click. A key beside the star and the shield lists a
@@ -273,7 +275,8 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
   recipes, an explicit draft with per-field provenance, armed downloads, a library with linked
   faceted filters, and a reader.
 
-[Unreleased]: https://github.com/witalic/longbox/compare/v3.5.0...HEAD
+[Unreleased]: https://github.com/witalic/longbox/compare/v3.6.0...HEAD
+[3.6.0]: https://github.com/witalic/longbox/compare/v3.5.0...v3.6.0
 [3.5.0]: https://github.com/witalic/longbox/compare/v3.4.0...v3.5.0
 [3.4.0]: https://github.com/witalic/longbox/compare/v3.3.0...v3.4.0
 [3.3.0]: https://github.com/witalic/longbox/compare/v3.2.0...v3.3.0
