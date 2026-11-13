@@ -29,6 +29,7 @@ The mockups open in any browser.
 | [folder-import.md](folder-import.md) | bringing in a folder already on disk | [folder-import](folder-import-mockup.html), [import-structure](import-structure-mockup.html) |
 | [subtitles.md](subtitles.md) | an episode's subtitle tracks, and downloads nobody armed | [subtitles](subtitles-mockup.html) |
 | [playable-copies.md](playable-copies.md) | a copy the window can play, for an episode it cannot | — |
+| [update-check.md](update-check.md) | asking once whether to check for new versions, and saying when one is out | [update-check](update-check-mockup.html) |
 
 ## Other mockups
 
