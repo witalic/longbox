@@ -65,8 +65,26 @@ kept on each computer, it is what makes signing in again on another one quick.
 - **A UI smoke test in CI**: the off-screen Electron run that takes the project page's screenshots
   (`tools/screenshots.py`) already drives the real app through thirteen scenes over a generated
   vault; it becomes a test that fails when a scene does.
-- **Smaller modules**, split by feature when they are being changed anyway: `library/service.py`,
-  `library/vault.py`, `views/TitleView.vue`, `store.ts`.
+- **Unit tests for the window's logic** (Vitest, run in CI with the type-check). First the pure
+  modules where a mistake costs most: `data.ts` (chapter order, title matching, grouping),
+  `normalize.ts`, `tabstrip.ts`, `local.ts` (what a stored preference is accepted as) and
+  `updates.ts`. From then on a change to one of them comes with its test, as the sidecar's do.
+- **The monoliths, split by plan — one cut a release.** A file over 1,500 lines does not grow: new
+  code for it goes into the module it is being split into. The cuts, in order:
+  1. `library/service.py` (2,600 lines): the vault passes and what they report — check,
+     revision, numbering gaps, leftovers — into `library/health.py`;
+  2. `store.ts` (1,650): navigation — places, tabs, Back and Forward, the openers — into `nav.ts`;
+  3. `views/TitleView.vue` (1,700): the contents column — tree, edit mode, adding entries — into
+     `TitleContents.vue`, and the pages pane into `PagesPane.vue`;
+  4. `library/service.py`: chapter media — downloads, page capture, folder entries, the media
+     sidecar's one writer — into `library/chapters.py`, and episodes' subtitles and stills into
+     `library/episodes.py`;
+  5. `library/vault.py` (1,600): the vault's documents (`read_doc`, `doc_transaction`, the
+     library's own files) into `library/docs.py`;
+  6. `store.ts`: the activity pollers (downloads, the vault pass, paused imports) into
+     `activity.ts`, and the user layer's write-through into `userlayer.ts`.
+
+  `views/BrowserView.vue` (1,250) and `shell/main.js` (1,160) are next in line once these land.
 - **Accessibility**: a name for every icon-only button, visible keyboard focus.
 
 ## Later
