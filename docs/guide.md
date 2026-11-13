@@ -129,8 +129,9 @@ Each site decides which metadata fields it offers. Recipes are yours: longbox sh
 **Ad blocking** with Adblock Plus's lists (EasyList, EasyPrivacy) and uBlock Origin's filters,
 fetched from where they are made and refreshed every four days: ads, trackers, badware and miners
 are blocked and ad slots hidden. The toolbar's shield turns green with a count of what it blocked
-on the page; its menu switches it off everywhere, pauses it on one site (subdomains included),
-hides cookie banners and pop-ups too if asked, and says how fresh the lists are.
+on the page; a click opens its popover, which switches it off everywhere, pauses it on this site
+(subdomains included) or lifts a pause, hides cookie banners and pop-ups too if asked, and says how
+fresh the lists are.
 
 ## Sources
 

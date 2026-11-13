@@ -10,6 +10,7 @@ import {
   activateTabAt, activeTab, browser, closeTab as closeBrowserTab, newTab, onTabNavigated, openFromPage,
   reopenClosedTab, searchUrl, setTabAudible, setTabLoading, setTabTitle, tabById, typedAddress,
 } from '../browser'
+import AdblockPanel from '../components/AdblockPanel.vue'
 import CapturePanel from '../components/CapturePanel.vue'
 import LoginsPanel from '../components/LoginsPanel.vue'
 import MenuButton from '../components/MenuButton.vue'
@@ -133,7 +134,7 @@ function guestNow(): number | null {
 }
 
 // ---- ad blocking (shell/adblock.js): the shield says what it does on this page,
-// and the ⋯ menu holds its switches — everywhere, and on this site ----
+// and its popover holds the switches — everywhere, and on this site ----
 const adblock = ref<AdblockState | null>(null)
 const blockedBy = reactive(new Map<string, number>()) // tab id → requests blocked on its page
 watch(() => browser.tabs.map((t) => t.id).join(), () => {
@@ -153,11 +154,6 @@ const shieldTitle = computed(() => {
   if (pausedEntry.value) return `Ad blocking is paused on ${pausedEntry.value}`
   return `Blocking ads and trackers — ${blockedHere.value} on this page`
 })
-function listsAge(at: number): string {
-  const days = Math.floor((Date.now() - at) / 86400000)
-  return days < 1 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`
-}
-const listsDate = (at: number) => new Date(at).toLocaleDateString([], { day: 'numeric', month: 'short' })
 // a page is blocked for as it loads: the one in front loads again when it changes
 async function setAdblock(change: { on?: boolean; annoyances?: boolean; site?: string; paused?: boolean }) {
   const host = domain.value
@@ -1093,58 +1089,19 @@ function onReady(tabId: string) {
             @click="toggleBookmark">
         <Icon name="star" :size="15" :sw="1.9" :fill="bookmarked ? 'currentColor' : 'none'" />
       </span>
-      <!-- what ad blocking does on this page — a sign, not a control: its
-           switches are in the ⋯ menu -->
-      <span v-if="adblock" class="abind" :class="{ on: shieldOn }" :title="shieldTitle">
-        <Icon name="shield" :size="15" :sw="1.9" />
-        <span v-if="shieldOn && blockedHere" class="abn mono">{{ blockedHere > 999 ? '999+' : blockedHere }}</span>
-      </span>
+      <!-- what ad blocking does on this page, and its switches -->
+      <ToolbarPopover v-if="adblock" :tone="shieldOn ? 'good' : 'quiet'" :title="shieldTitle">
+        <template #button><Icon name="shield" :size="15" :sw="1.9" /><span v-if="shieldOn && blockedHere" class="cnt">{{
+          blockedHere > 999 ? '999+' : blockedHere }}</span></template>
+        <AdblockPanel :state="adblock" :domain="domain" :paused="pausedEntry" :blocked="blockedHere"
+                      @set="setAdblock" @update="updateLists" />
+      </ToolbarPopover>
       <span class="bsep"></span>
       <span class="nb" :class="{ act: browser.panelOpen }" title="Toggle capture panel" @click="browser.panelOpen = !browser.panelOpen"><Icon name="panel" :size="14" :sw="1.9" /></span>
       <!-- what is not worth a permanent slot: zoom (three of them), find (it is
            on Ctrl+F anyway) and devtools -->
       <MenuButton class="ovbtn" title="More" :width="260">
         <template #default="{ close }">
-          <template v-if="adblock">
-            <button :title="adblock.on ? 'Stop blocking everywhere' : 'Block ads and trackers on every site'"
-                    @click="setAdblock({ on: !adblock.on })">
-              <Icon name="shield" :size="14" :sw="2" />Block ads and trackers
-              <span class="abstate" :class="{ on: adblock.on }">{{ adblock.on ? 'On' : 'Off' }}</span>
-            </button>
-            <template v-if="adblock.on">
-              <button title="Cookie banners and other pop-ups — a page that waits for a consent it never got may not load"
-                      @click="setAdblock({ annoyances: !adblock.annoyances })">
-                <Icon name="eyeoff" :size="14" :sw="2" /><span class="ablbl">Hide cookie banners, pop-ups</span>
-                <span class="abstate" :class="{ on: adblock.annoyances }">{{ adblock.annoyances ? 'On' : 'Off' }}</span>
-              </button>
-              <button v-if="pausedEntry" @click="setAdblock({ site: pausedEntry, paused: false })">
-                <Icon name="play" :size="13" :sw="2" /><span class="ablbl">Resume on {{ pausedEntry }}</span>
-              </button>
-              <button v-else-if="domain" @click="setAdblock({ site: domain, paused: true })">
-                <Icon name="pause" :size="14" :sw="2" /><span class="ablbl">Pause on {{ domain }}</span>
-                <span v-if="blockedHere" class="abstate">{{ blockedHere }} blocked</span>
-              </button>
-              <div class="abinfo">
-                <template v-if="adblock.updating">Getting the lists…</template>
-                <template v-else>
-                  <span :title="adblock.ready ? `Fetched ${listsAge(adblock.updatedAt)}` : adblock.failed">
-                    {{ !adblock.ready ? 'The lists could not be fetched'
-                      : adblock.listsAt ? `EasyList from ${listsDate(adblock.listsAt)}`
-                      : `Lists from ${listsAge(adblock.updatedAt)}` }}</span>
-                  · <a :title="adblock.failed || 'Fetch the lists again now'" @click="updateLists">
-                    {{ adblock.ready ? 'Update' : 'Try again' }}</a>
-                </template>
-              </div>
-              <template v-if="adblock.paused.length">
-                <div class="ablist">PAUSED ON</div>
-                <button v-for="d in adblock.paused" :key="d" :title="`Block ads on ${d} again`"
-                        @click="setAdblock({ site: d, paused: false })">
-                  <span class="ablbl mono">{{ d }}</span><Icon name="x" :size="11" :sw="2.2" class="abx" />
-                </button>
-              </template>
-            </template>
-            <hr />
-          </template>
           <div class="zrow">
             <span class="zlbl">Zoom</span>
             <div style="flex:1"></div>
@@ -1279,18 +1236,6 @@ function onReady(tabId: string) {
 .zrow { display: flex; align-items: center; gap: 4px; height: 34px; padding: 0 9px; color: var(--tx2); }
 .zlbl { font: 500 12.5px/1 system-ui; }
 .kbd { margin-left: auto; font: 500 10px/1 ui-monospace, monospace; color: var(--tx3); border: 1px solid var(--line); border-radius: 4px; padding: 3px 5px; }
-/* ad blocking: the shield is green while it blocks on this page, with its count */
-.abind { height: 28px; min-width: 28px; padding: 0 5px; flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 3px; color: var(--tx3); }
-.abind.on { color: var(--good); }
-.abn { font-size: 10px; color: var(--tx2); }
-/* …and its rows at the top of the ⋯ menu */
-.abstate { margin-left: auto; font: 600 10px/1 ui-monospace, monospace; color: var(--tx3); }
-.abstate.on { color: var(--good); }
-.ablbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.abinfo { padding: 4px 9px 6px 33px; font: 400 11px/1.4 system-ui; color: var(--tx3); }
-.abinfo a { color: var(--accent); cursor: pointer; }
-.ablist { padding: 8px 9px 4px; font: 600 9px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--tx3); }
-.abx { flex: none; color: var(--tx3); }
 .zlevel { font-size: 10px; color: var(--tx3); width: 38px; text-align: center; cursor: pointer; }
 .zlevel:hover { color: var(--tx); }
 
