@@ -1,75 +1,15 @@
 <script setup lang="ts">
 // The ⋯ action menu that every view band ends with. Dropdown.vue is NOT this:
 // it picks a value and emits `update:modelValue`; this one runs commands. Same
-// outside-click idiom, different job — so they stay two widgets.
-//
-// The panel is TELEPORTED and fixed-positioned on purpose: every band sits in a
-// `.viewcol`, which clips its overflow, so an absolutely-positioned menu came
-// out sliced. Measuring the trigger and drawing over the page is the only way a
-// menu can be wider or taller than the strip that owns it.
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+// outside-click idiom, different job — so they stay two widgets. It hangs from
+// its button as every panel of the app does (popover.ts).
 import Icon from './Icon.vue'
+import { usePopover } from '../popover'
 
 const props = withDefaults(defineProps<{ title?: string; width?: number; icon?: string }>(),
   { title: 'More', width: 230, icon: 'more' })
 
-const open = ref(false)
-const root = ref<HTMLElement | null>(null)
-const panel = ref<HTMLElement | null>(null)
-const pos = ref({ left: 0, top: 0 })
-
-function place() {
-  const el = root.value
-  if (!el) return
-  const r = el.getBoundingClientRect()
-  const h = panel.value?.offsetHeight ?? 0
-  // right-aligned to the trigger, flipped above when the bottom is too close
-  const below = r.bottom + 6
-  pos.value = {
-    left: Math.max(8, Math.min(r.right - props.width, window.innerWidth - props.width - 8)),
-    top: h && below + h > window.innerHeight - 8 ? Math.max(8, r.top - 6 - h) : below,
-  }
-}
-
-async function toggle() {
-  open.value = !open.value
-  if (!open.value) return
-  place()
-  await nextTick()
-  place() // again with the real height, now that it is in the DOM
-}
-
-function onDocDown(e: MouseEvent) {
-  const t = e.target as Node
-  if (root.value?.contains(t) || panel.value?.contains(t)) return
-  open.value = false
-}
-function onLeave() { open.value = false }
-// The panel is fixed-positioned, so it has to FOLLOW the trigger when the page
-// moves under it, and give up only when the trigger is gone from the viewport.
-// Closing on any scroll looked right until a menu whose own click changed the
-// list behind it: removing a row re-flows that list, the container scrolls by a
-// pixel, and the menu shut itself the moment it was used.
-function onScroll(e: Event) {
-  if (panel.value?.contains(e.target as Node)) return // reading a long list
-  const r = root.value?.getBoundingClientRect()
-  if (!r || r.bottom < 0 || r.top > window.innerHeight) {
-    open.value = false // nothing left to hang from
-    return
-  }
-  place()
-}
-
-onMounted(() => {
-  document.addEventListener('mousedown', onDocDown)
-  window.addEventListener('resize', onLeave)
-  window.addEventListener('scroll', onScroll, true)
-})
-onBeforeUnmount(() => {
-  document.removeEventListener('mousedown', onDocDown)
-  window.removeEventListener('resize', onLeave)
-  window.removeEventListener('scroll', onScroll, true)
-})
+const { open, root, panel, pos, toggle, close } = usePopover(() => props.width)
 </script>
 
 <template>
@@ -80,7 +20,7 @@ onBeforeUnmount(() => {
     <Teleport to="body">
       <div v-if="open" ref="panel" class="menu"
            :style="{ width: `${width}px`, left: `${pos.left}px`, top: `${pos.top}px` }">
-        <slot :close="() => (open = false)" />
+        <slot :close="close" />
       </div>
     </Teleport>
   </div>
