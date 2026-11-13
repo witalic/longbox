@@ -386,7 +386,9 @@ shell/
                the one-time move with its progress)
   updates.js (one request to GitHub for the latest release, when the window asks)
   netguard.js (whether an address is on the public internet — what an image fetched for a page
-               may reach); both tested with node:test (*.test.js)
+               may reach)
+  profile.js (where a vault's browser profile lives — in the vault or on each computer — and the
+              move between them: design/sign-ins.md); all three tested with node:test (*.test.js)
   after-pack.js + adhoc-sign.js (build hooks: Electron's fuses off, then the macOS ad-hoc signature)
   vaults.js (config.json, does a vault answer, is it one, its lock, making one, the move of
              what an older build kept on this computer)

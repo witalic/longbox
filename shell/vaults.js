@@ -382,6 +382,6 @@ async function dropLegacy(plan) {
 }
 
 module.exports = {
-  APP_DIR, adoptOldDefault, ask, copyLegacy, createVault, dropLegacy, holdLock, inspectFolder, inspectNew, known,
-  legacyPlan, lockState, nameOf, readLock, register, same, shareOf, sleep, writeAtomic,
+  APP_DIR, CACHES, adoptOldDefault, ask, copyInto, copyLegacy, createVault, dropLegacy, fold, holdLock, inspectFolder,
+  inspectNew, known, legacyPlan, lockState, nameOf, readLock, register, same, shareOf, sizeOf, sleep, writeAtomic,
 }
