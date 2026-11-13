@@ -69,13 +69,21 @@ belongs there with no sidecar round trip.
 
 - **Two keys.** scrypt(master password, salt) → the key-encryption key, which unwraps a random
   256-bit data key (AES-256-GCM). The data key encrypts the entries. Changing the master password
-  re-wraps the data key only. A wrong password fails the wrapped key's authentication tag — no
-  separate "check" value to attack.
+  makes a new data key too and seals every password again under it (an independent review,
+  2026-11-14): a copy of the vault made before, opened with the old master password — leaked, or
+  weak — opens nothing written after. A wrong password fails the wrapped key's authentication tag —
+  no separate "check" value to attack.
 - **scrypt, N = 2^17** (~128 MB, ~0.5 s per guess on a desktop CPU): memory-hard, built into Node,
-  no native dependency. The parameters are stored, so they can be raised later.
+  no native dependency. The parameters are stored, so they can be raised later — within bounds
+  (N 2^14–2^20, r ≤ 32, p ≤ 16), or a file made to hang the app would.
 - A fresh nonce on every write; the schema and kdf block are the GCM additional data, so a file
   whose header was edited does not decrypt.
-- Written atomically (tmp → rename), as every vault write.
+- **The one file with no other copy**, so it is written to survive a crash: a change is made on a
+  copy and written — synced to disk before it is renamed in — and only then is it what the app
+  holds; a write that fails leaves the logins as they were, in memory as on disk. The file it
+  replaces is kept beside it (`secrets.prev.json`); a file that does not read falls back to it,
+  losing only the last change, and the app says so. The first file is linked in, so it never
+  replaces one made meanwhile.
 - The entries, once decrypted: `[{ id, origin, username, secret, previous, note, created, updated,
   used }]`, where `secret` is the password sealed on its own with the data key (`{ nonce, data, tag
   }`) — decrypting the list opens no password — and `previous` the passwords it replaced, newest
@@ -89,8 +97,8 @@ Forgetting the master password loses the secrets. Setup says so, plainly, once.
 - Asked for at the first thing that needs the secrets: a sign-in form's key, the Logins tab, the
   save prompt. One dialog in the app window, over everything; not in a page.
 - First use: set the master password (twice), with the strength estimate and the warning above.
-- **Lock now** in the browser's ⋯ menu and in Settings; the app quitting, or the vault dropping,
-  locks too.
+- **Lock** in the key's popover and in Settings; the app quitting, or the vault dropping, locks
+  too — once what is being written is written. A password still on the clipboard goes with it.
 - Settings → Passwords: change the master password; lock.
 
 ## In the browser
@@ -115,6 +123,10 @@ Forgetting the master password loses the secrets. Setup says so, plainly, once.
   stays with its tab until it is answered, replaced by the next sign-in, or the tab is closed —
   not when the tab leaves the site, since a sign-in through another site (SSO) does just that; one
   nobody answers goes after ten minutes, its password with it. Nothing is kept unless saved.
+  Only a sign-in the owner sent counts — a trusted event while the page holds a fresh gesture of
+  theirs — so a page cannot raise the bar by itself; and the bar lies over the top of the page,
+  never resizing it, so a page cannot learn from its own size whether a password it sent is the
+  saved one. A sign-in in a popup window (OAuth) is not offered.
 
 ## Ad blocking, from the shield
 
@@ -134,8 +146,8 @@ as it is: green with the count of what it blocked on this page, grey where it is
 ## Generator
 
 Length 20 by default (8–64), letters / digits / symbols toggles, look-alike characters left out;
-`crypto.randomInt` over the allowed set, at least one of each chosen kind. Offered in the save bar,
-the key menu of a sign-up form, and the login editor.
+`crypto.randomInt` over the allowed set, at least one of each chosen kind. In the login editor
+(the key's popover, Sources → Logins).
 
 ## Managing logins
 
@@ -161,7 +173,8 @@ Delete — drawn in two places: the key's popover in the browser, and Sources �
 - **Sources → a site → Logins** (the tab the Sources mockup reserves): one card per login —
   username, origin, last used, how many previous; copy on the closed card, the pencil opens the
   same editor in place; **Add login** asks for the origin, prefilled with the site's homepage.
-- A copied password leaves the clipboard after 30 seconds, if the clipboard still holds it.
+- A copied password leaves the clipboard after 30 seconds, if the clipboard still holds it — or at
+  Lock, sooner. Windows' clipboard history (Win+V) keeps its own copy, which the app cannot reach.
 - Settings → Passwords: the lock state, change the master password, how many logins there are.
 
 ## Out of scope (for now)

@@ -14,7 +14,7 @@ const props = withDefaults(defineProps<{
   width?: number
   tone?: '' | 'quiet' | 'lit' | 'good'
 }>(), { title: '', width: 340, tone: '' })
-const emit = defineEmits<{ (e: 'open'): void; (e: 'closed'): void }>()
+const emit = defineEmits<{ (e: 'closed'): void }>()
 
 const { open, root, panel, pos, show, close, place } = usePopover(() => props.width)
 // however it closes — the button, a click outside, the trigger gone — it says so
@@ -26,11 +26,8 @@ watch(panel, (el, was) => {
 })
 onBeforeUnmount(() => resized.disconnect())
 function toggle() {
-  if (open.value) return close()
-  emit('open')
-  return show()
+  return open.value ? close() : show()
 }
-defineExpose({ close, place })
 </script>
 
 <template>

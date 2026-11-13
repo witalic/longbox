@@ -6,7 +6,7 @@
 import { reactive } from 'vue'
 import { hostOf } from './data'
 
-export const loginsState = reactive<LoginsState>({ exists: false, unlocked: false })
+export const loginsState = reactive<LoginsState>({ exists: false, unlocked: false, restored: false })
 
 // The master password asked for: 'setup' the first time, 'unlock' after;
 // `resolve` answers whoever asked, true once given.
@@ -55,8 +55,14 @@ export async function giveMaster(master: string) {
     Object.assign(masterAsk, { mode: null, resolve: null })
     done?.(true)
   } catch (e) {
-    masterAsk.error = e instanceof LoginsError && e.code === 'EPASSWORD' ? 'That is not the master password.'
-      : e instanceof Error ? e.message : String(e)
+    const code = e instanceof LoginsError ? e.code : ''
+    // the vault turned out other than the window thought: set up meanwhile, or never
+    if (code === 'EEXIST') masterAsk.mode = 'unlock'
+    if (code === 'ENOENT') masterAsk.mode = 'setup'
+    masterAsk.error = code === 'EPASSWORD' ? 'That is not the master password.'
+      : code === 'EEXIST' ? 'This vault has a master password already — give it to unlock.'
+        : code === 'ENOENT' ? 'This vault has no master password yet — set one.'
+          : e instanceof Error ? e.message : String(e)
   } finally {
     masterAsk.busy = false
   }
@@ -85,9 +91,11 @@ export async function lockLogins() {
   if (shell) await settled(shell.lock())
 }
 
-// A rough strength for a new master password: what it is made of, and its length.
+// A rough strength for a new master password: what it is made of, and its
+// length — at least MIN_MASTER characters, as the shell asks (secrets.js).
+export const MIN_MASTER = 10
 export function strength(pw: string): 0 | 1 | 2 | 3 | 4 {
-  if (pw.length < 10) return 0
+  if (pw.length < MIN_MASTER) return 0
   const kinds = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^a-zA-Z0-9]/].filter((re) => re.test(pw)).length
   const score = (pw.length >= 14 ? 2 : 1) + (kinds >= 3 ? 2 : kinds === 2 ? 1 : 0) + (pw.length >= 20 ? 1 : 0)
   return Math.min(4, score) as 0 | 1 | 2 | 3 | 4

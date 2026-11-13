@@ -11,12 +11,19 @@ const { clipboard, ipcMain, webContents } = require('electron')
 const secrets = require('./secrets')
 
 const CLIPBOARD_MS = 30 * 1000
-const OFFER_MS = 10 * 60 * 1000 // an offer nobody answered goes, and its password with it
+const OFFER_MS = 10 * 60 * 1000  // an offer nobody answered goes, and its password with it
+const USED_EVERY_MS = 60 * 1000  // a login signed in with again is stamped used once a minute at most
+const MAX_USERNAME = 256
+const MAX_PASSWORD = 1024
 
-let logins = null // the vault's logins, while unlocked
+let logins = null    // the vault's logins, while unlocked
+let locking = null   // a lock still writing what it was writing
+let exists = false   // whether the vault has a master password, as last seen
 let win = null
 let rootOf = () => ''
-const offers = new Map() // a page's id → the sign-in it sent: { origin, username, password: Buffer, timer }
+// a page's id → the sign-in it sent: { origin, username, password: Buffer, timer }
+const offers = new Map()
+const watched = new WeakSet() // pages whose going is listened for
 
 function held() {
   if (!logins?.unlocked) throw new secrets.SecretsError('ELOCKED', 'the logins are locked')
@@ -24,20 +31,40 @@ function held() {
 }
 
 async function state() {
-  return { exists: await secrets.exists(rootOf()), unlocked: !!logins?.unlocked }
+  exists = await secrets.exists(rootOf())
+  return { exists, unlocked: !!logins?.unlocked, restored: !!logins?.restored }
 }
 
-async function push() {
-  if (win && !win.isDestroyed()) win.webContents.send('lb-pw-state', await state())
+function tellState(s) {
+  if (win && !win.isDestroyed()) win.webContents.send('lb-pw-state', s)
 }
 
-// Locked: the data key zeroed, the list dropped — on the owner's word, when the
-// vault drops, and when the app goes. Offers keep their pages' sign-ins until
-// they are answered or go.
+// ---- the clipboard: a copied password for 30 seconds ----
+
+let copied = '' // the digest of the password on the clipboard, while it may be — never the password
+function clearClipboard(digest) {
+  if (digest && crypto.createHash('sha256').update(clipboard.readText()).digest('hex') === digest) clipboard.clear()
+  if (copied === digest) copied = ''
+}
+function copy(text) {
+  clipboard.writeText(text)
+  const digest = crypto.createHash('sha256').update(text).digest('hex')
+  copied = digest
+  setTimeout(() => clearClipboard(digest), CLIPBOARD_MS).unref?.()
+}
+
+// Locked: on the owner's word, when the vault drops, and when the app goes.
+// The window is told at once, without asking the disk (a vault that dropped
+// would not answer); a password still on the clipboard goes; what the store
+// is writing is written, then its key is zeroed. Offers keep their pages'
+// sign-ins until they are answered or go.
 function lock() {
-  if (logins) logins.lock()
+  const was = logins
   logins = null
-  void push().catch(() => {})
+  clearClipboard(copied)
+  tellState({ exists, unlocked: false, restored: false })
+  if (was) locking = was.lock().finally(() => { locking = null })
+  return locking ?? Promise.resolve()
 }
 
 // A password is decrypted for one use and its Buffer zeroed after it.
@@ -50,19 +77,9 @@ function opened(id, previous) {
   }
 }
 
-// On the clipboard for 30 seconds, then cleared — if it still holds it. Only a
-// digest is kept to tell, never the password.
-function copy(text) {
-  clipboard.writeText(text)
-  const digest = crypto.createHash('sha256').update(text).digest('hex')
-  setTimeout(() => {
-    if (crypto.createHash('sha256').update(clipboard.readText()).digest('hex') === digest) clipboard.clear()
-  }, CLIPBOARD_MS).unref?.()
-}
-
 // Into the page a tab shows, if it is still on the login's site: the origin is
 // the frame's own, never one the window names.
-async function fill(guestId, id) {
+function fill(guestId, id) {
   const guest = webContents.fromId(Number(guestId))
   if (!guest || guest.isDestroyed() || guest.getType() !== 'webview' || guest.hostWebContents !== win.webContents) {
     return false
@@ -71,18 +88,24 @@ async function fill(guestId, id) {
   const login = held().list(frame.origin).find((x) => x.id === id)
   if (!login) return false
   frame.send('lb-pw-fill', { origin: frame.origin, username: login.username, password: opened(id) })
-  await held().used(id)
+  void held().used(id).catch(() => {})
   return true
 }
 
 // ---- after a sign-in: save, or update ----
 
-function drop(guestId) {
+// An offer taken out of the map is its taker's: nothing else zeroes it.
+function take(guestId) {
   const offer = offers.get(guestId)
-  if (!offer) return
-  offer.password.fill(0)
-  clearTimeout(offer.timer)
+  if (!offer) return null
   offers.delete(guestId)
+  clearTimeout(offer.timer)
+  return offer
+}
+// gone, its password zeroed — only `offer`, when one is named, never a newer one
+function drop(guestId, offer) {
+  if (offer && offers.get(guestId) !== offer) return
+  take(guestId)?.password.fill(0)
 }
 
 function tell(guestId, kind) {
@@ -108,65 +131,93 @@ function matchOf(offer) {
 // What to offer: 'save', 'update', 'locked' (not known until the master
 // password is given) — or nothing, when the site is never asked or the
 // password is the one saved (then it was used).
-async function judge(guestId) {
-  const offer = offers.get(guestId)
-  if (!offer) return null
-  if (!logins?.unlocked) return 'locked'
-  const match = logins.neverAsks(offer.origin) ? null : matchOf(offer)
-  if (logins.neverAsks(offer.origin) || match?.same) {
-    if (match) await logins.used(match.login.id)
-    drop(guestId)
-    return null
+function judge(offer) {
+  if (!logins?.unlocked) return { kind: 'locked', match: null }
+  if (logins.neverAsks(offer.origin)) return { kind: null, match: null }
+  const match = matchOf(offer)
+  if (match?.same) {
+    if (!(Date.parse(match.login.used) > Date.now() - USED_EVERY_MS)) void logins.used(match.login.id).catch(() => {})
+    return { kind: null, match }
   }
-  return match ? 'update' : 'save'
+  return { kind: match ? 'update' : 'save', match }
 }
 
-// A sign-in a page of this window's sent, from its top frame: its origin is the
-// frame's own, never one the page names.
+function judged(guestId, offer) {
+  if (offers.get(guestId) !== offer) return
+  let kind = null
+  try { kind = judge(offer).kind } catch { /* told as nothing to offer */ }
+  if (!kind) drop(guestId, offer)
+  tell(guestId, kind)
+}
+
+// A sign-in a page of this window's sent, from its top frame — one the owner
+// sent (the preload takes no other): its origin is the frame's own, never one
+// the page names.
 function submitted(e, msg) {
   const guest = e.sender
   if (!win || guest.getType() !== 'webview' || guest.hostWebContents !== win.webContents
       || e.senderFrame !== guest.mainFrame) return
   const origin = e.senderFrame.origin
   const password = typeof msg?.password === 'string' ? msg.password : ''
-  if (!/^https?:\/\//.test(origin) || !password || password.length > 4096) return
+  const username = typeof msg?.username === 'string' ? msg.username : ''
+  if (!/^https?:\/\//.test(origin) || !password || password.length > MAX_PASSWORD || username.length > MAX_USERNAME) return
   drop(guest.id) // the next sign-in replaces the one before
-  offers.set(guest.id, { origin, username: String(msg?.username ?? '').slice(0, 512), password: Buffer.from(password),
-    timer: setTimeout(() => { drop(guest.id); tell(guest.id, null) }, OFFER_MS) })
-  guest.once('destroyed', () => drop(guest.id))
-  void judge(guest.id).then((kind) => tell(guest.id, kind), () => tell(guest.id, null))
+  const offer = { origin, username, password: Buffer.from(password),
+    timer: setTimeout(() => { drop(guest.id, offer); tell(guest.id, null) }, OFFER_MS) }
+  offers.set(guest.id, offer)
+  if (!watched.has(guest)) {
+    watched.add(guest)
+    const id = guest.id
+    guest.once('destroyed', () => drop(id))
+  }
+  judged(guest.id, offer)
 }
 
 // The owner's answer to the bar: 'save' (a new login, or the saved one's new
-// password — whichever the sign-in turns out to be, once unlocked), 'never'
-// for this site, or 'dismiss'.
+// password — whichever the sign-in turns out to be, now that it is unlocked),
+// 'never' for this site, or 'dismiss'. Answered, the offer is taken first, so
+// nothing zeroes its password while it is being saved; and the window is told
+// it is gone, unless the page sent a newer one meanwhile.
 async function answer(guestId, what) {
+  try {
+    return await answered(guestId, what)
+  } finally {
+    if (!offers.has(guestId)) tell(guestId, null)
+  }
+}
+async function answered(guestId, what) {
   if (!offers.has(guestId)) return 'gone'
   if (what !== 'save' && what !== 'never') {
     drop(guestId)
     return 'dropped'
   }
-  const offer = offers.get(guestId)
-  if (what === 'never') {
-    await held().setNever(offer.origin, true)
-    drop(guestId)
-    return 'never'
-  }
   held()
-  if (!(await judge(guestId))) return 'same'
-  const match = matchOf(offer)
-  if (match) await held().edit(match.login.id, { steps: [{ password: offer.password }] })
-  else await held().add({ origin: offer.origin, username: offer.username, password: offer.password })
-  drop(guestId)
-  return match ? 'updated' : 'saved'
+  const offer = take(guestId)
+  try {
+    if (what === 'never') {
+      await held().setNever(offer.origin, true)
+      return 'never'
+    }
+    const { kind, match } = judge(offer)
+    if (!kind) return 'same'
+    if (match) {
+      await held().edit(match.login.id, { steps: [{ password: offer.password }], updated: match.login.updated })
+    } else {
+      await held().add({ origin: offer.origin, username: offer.username, password: offer.password })
+    }
+    return match ? 'updated' : 'saved'
+  } finally {
+    offer.password.fill(0)
+  }
 }
 
 // Every answer is `{ ok, value }`, or `{ ok: false, code, message }` for what
 // the owner can be told (a wrong master password, a locked list, a file that
-// does not read); anything else is a fault and rejects.
+// does not read); anything else is a fault and rejects. Only the app's own
+// window, from its own top frame, is answered.
 function handle(channel, fn) {
   ipcMain.handle(channel, async (e, ...args) => {
-    if (!win || e.sender !== win.webContents) return null
+    if (!win || e.sender !== win.webContents || e.senderFrame !== win.webContents.mainFrame) return null
     try {
       return { ok: true, value: await fn(...args) }
     } catch (err) {
@@ -176,19 +227,26 @@ function handle(channel, fn) {
   })
 }
 
+async function unlocked(got) {
+  logins = got
+  if (got.restored) console.error('secrets.json did not read; the generation before it was opened')
+  tellState(await state())
+  // the bars that could not tell what to offer can now
+  for (const [guestId, offer] of offers) judged(guestId, offer)
+}
+
 function wire(window, root) {
   win = window
   rootOf = root
   handle('lb-pw-state', state)
   handle('lb-pw-setup', async (master) => {
-    logins = await secrets.create(rootOf(), String(master ?? ''))
-    await push()
+    await locking
+    await unlocked(await secrets.create(rootOf(), String(master ?? '')))
   })
   handle('lb-pw-unlock', async (master) => {
-    const got = await secrets.unlock(rootOf(), String(master ?? ''))
-    if (logins) logins.lock()
-    logins = got
-    await push()
+    if (logins?.unlocked) return
+    await locking
+    await unlocked(await secrets.unlock(rootOf(), String(master ?? '')))
   })
   handle('lb-pw-lock', () => lock())
   handle('lb-pw-list', (origin) => held().list(typeof origin === 'string' ? origin : ''))
@@ -199,6 +257,7 @@ function wire(window, root) {
     password: String(login?.password ?? ''), note: login?.note }))
   handle('lb-pw-edit', (id, change) => held().edit(String(id), {
     username: change?.username, note: change?.note,
+    updated: typeof change?.updated === 'string' ? change.updated : undefined,
     steps: (Array.isArray(change?.steps) ? change.steps : []).map((s) => (s && 'password' in s
       ? { password: String(s.password) } : { use: s?.use, forget: s?.forget })),
   }))

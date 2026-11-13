@@ -17,6 +17,7 @@ function vault(t) {
   return root
 }
 const file = (root) => path.join(root, '.longbox', 'secrets.json')
+const prev = (root) => path.join(root, '.longbox', 'secrets.prev.json')
 const text = (buf) => {
   const s = buf.toString('utf8')
   buf.fill(0)
@@ -29,7 +30,7 @@ test('a login is kept under the master password, and only it opens the file', as
   await assert.rejects(secrets.create(root, 'short'), { code: 'ESHORT' })
   const logins = await secrets.create(root, MASTER)
   const id = await logins.add({ origin: `${SITE}/account/sign-in`, username: 'reader@example.com', password: 'hunter2-lantern' })
-  logins.lock()
+  await logins.lock()
   assert.equal(logins.unlocked, false)
   assert.throws(() => logins.reveal(id), { code: 'ELOCKED' })
   await assert.rejects(secrets.unlock(root, 'not the master password'), { code: 'EPASSWORD' })
@@ -50,10 +51,12 @@ test('neither the file nor a list holds a password in the clear', async (t) => {
 test('a file edited by hand opens nothing, one that does not read is never written over', async (t) => {
   const root = vault(t)
   await (await secrets.create(root, MASTER)).add({ origin: SITE, username: 'u', password: 'p' })
-  const good = fs.readFileSync(file(root), 'utf8')
-  const doc = JSON.parse(good)
+  fs.rmSync(prev(root)) // no generation before to fall back to
+  const doc = JSON.parse(fs.readFileSync(file(root), 'utf8'))
   fs.writeFileSync(file(root), JSON.stringify({ ...doc, kdf: { ...doc.kdf, N: doc.kdf.N / 2 } }))
   await assert.rejects(secrets.unlock(root, MASTER), { code: 'EPASSWORD' })        // the header: the key does not unwrap
+  fs.writeFileSync(file(root), JSON.stringify({ ...doc, kdf: { ...doc.kdf, p: 100000 } }))
+  await assert.rejects(secrets.unlock(root, MASTER), { code: 'EBADFILE' })         // a cost made to hang the app
   const data = Buffer.from(doc.data.data, 'base64')
   data[0] ^= 1
   fs.writeFileSync(file(root), JSON.stringify({ ...doc, data: { ...doc.data, data: data.toString('base64') } }))
@@ -64,6 +67,76 @@ test('a file edited by hand opens nothing, one that does not read is never writt
   await assert.rejects(secrets.unlock(root, MASTER), { code: 'EBADFILE' })
   await assert.rejects(secrets.create(root, MASTER), { code: 'EEXIST' })
   assert.equal(fs.readFileSync(file(root), 'utf8'), '{ torn')
+})
+
+test('a file torn by a crash falls back to the generation before it, losing only the last change', async (t) => {
+  const root = vault(t)
+  const logins = await secrets.create(root, MASTER)
+  await logins.add({ origin: SITE, username: 'first', password: 'p1' })
+  await logins.add({ origin: SITE, username: 'second', password: 'p2' })
+  await logins.lock()
+  fs.writeFileSync(file(root), '{ "schema": 1, "kd')
+  const back = await secrets.unlock(root, MASTER)
+  assert.equal(back.restored, true)
+  assert.deepEqual(back.list().map((e) => e.username), ['first'])
+  assert.equal((await secrets.unlock(root, 'not the master password').catch((e) => e)).code, 'EBADFILE')
+})
+
+test('a write that fails changes nothing — on disk or in memory — and the next one does not carry it', async (t) => {
+  const root = vault(t)
+  const logins = await secrets.create(root, MASTER)
+  await logins.add({ origin: SITE, username: 'kept', password: 'p1' })
+  const breakWrites = () => { fs.rmSync(prev(root), { force: true }); fs.mkdirSync(prev(root)) }
+  const mendWrites = () => fs.rmSync(prev(root), { recursive: true })
+  breakWrites()
+  await assert.rejects(logins.add({ origin: SITE, username: 'lost', password: 'p2' }))
+  await assert.rejects(logins.changeMaster(MASTER, 'a brand new master'))
+  assert.deepEqual(logins.list().map((e) => e.username), ['kept'])
+  mendWrites()
+  await logins.add({ origin: SITE, username: 'later', password: 'p3' })
+  await logins.lock()
+  const again = await secrets.unlock(root, MASTER)                                   // the old master: the change failed
+  assert.deepEqual(again.list().map((e) => e.username), ['kept', 'later'])
+  await assert.rejects(secrets.unlock(root, 'a brand new master'), { code: 'EPASSWORD' })
+})
+
+test('a change made against a login as it was is refused once it changed; no password is empty', async (t) => {
+  const root = vault(t)
+  const logins = await secrets.create(root, MASTER)
+  await assert.rejects(logins.add({ origin: SITE, username: 'u', password: '' }), { code: 'EEMPTY' })
+  const id = await logins.add({ origin: SITE, username: 'u', password: 'one' })
+  await logins.edit(id, { steps: [{ password: 'two' }] })
+  const seen = logins.list()[0].updated
+  await logins.edit(id, { steps: [{ password: 'three' }] })                          // a sign-in's Update, meanwhile
+  await assert.rejects(logins.edit(id, { steps: [{ use: 0 }], updated: seen }), { code: 'ESTALE' })
+  await assert.rejects(logins.edit(id, { steps: [{ password: '' }] }), { code: 'EEMPTY' })
+  assert.equal(text(logins.reveal(id)), 'three')
+  await logins.edit(id, { steps: [{ use: 0 }], updated: logins.list()[0].updated })
+  assert.equal(text(logins.reveal(id)), 'two')
+})
+
+test('a password handed over is the store\'s own once the change is asked for', async (t) => {
+  const root = vault(t)
+  const logins = await secrets.create(root, MASTER)
+  const slow = logins.add({ origin: SITE, username: 'first', password: 'x' })        // a write ahead in the queue
+  const mine = Buffer.from('zeroed-by-its-owner')
+  const saved = logins.add({ origin: SITE, username: 'second', password: mine })
+  mine.fill(0)                                                                       // the offer goes meanwhile
+  await slow
+  const id = await saved
+  assert.equal(text(logins.reveal(id)), 'zeroed-by-its-owner')
+})
+
+test('locked, what is being written is written first', async (t) => {
+  const root = vault(t)
+  const logins = await secrets.create(root, MASTER)
+  const pending = logins.add({ origin: SITE, username: 'in flight', password: 'p' })
+  const locking = logins.lock()
+  assert.equal(logins.unlocked, false)
+  await assert.rejects(logins.add({ origin: SITE, username: 'after', password: 'q' }), { code: 'ELOCKED' })
+  await pending
+  await locking
+  assert.deepEqual((await secrets.unlock(root, MASTER)).list().map((e) => e.username), ['in flight'])
 })
 
 test('a new password keeps the ones it replaced — three at most, newest first', async (t) => {
@@ -92,7 +165,7 @@ test('a new password keeps the ones it replaced — three at most, newest first'
   // a name or a note changes no password
   await logins.edit(id, { username: 'reader2', note: 'second email' })
   assert.equal(logins.list()[0].previous.length, 2)
-  logins.lock()
+  await logins.lock()
   const again = await secrets.unlock(root, MASTER)
   assert.deepEqual(again.list().map((e) => [e.username, e.note, e.previous.length]), [['reader2', 'second email', 2]])
   assert.equal(text(again.reveal(id, 1)), 'three')
@@ -105,7 +178,7 @@ test('a deleted login goes with its previous passwords; the others stay', async 
   await logins.edit(gone, { steps: [{ password: 'pa2' }] })
   const kept = await logins.add({ origin: 'http://kestrel-reader.example', username: 'b', password: 'pb' })
   await logins.remove(gone)
-  logins.lock()
+  await logins.lock()
   const again = await secrets.unlock(root, MASTER)
   assert.deepEqual(again.list().map((e) => e.id), [kept])
   assert.throws(() => again.reveal(gone), { code: 'ENOENT' })
@@ -131,7 +204,7 @@ test('the sites where saving is never offered are kept inside the encryption', a
   assert.deepEqual(logins.nevers(), [SITE])
   assert.equal(logins.neverAsks('http://kestrel-reader.example'), false)
   assert.doesNotMatch(fs.readFileSync(file(root), 'utf8'), /kestrel/)
-  logins.lock()
+  await logins.lock()
   const again = await secrets.unlock(root, MASTER)
   assert.equal(again.neverAsks(SITE), true)
   await again.setNever(SITE, false)
@@ -142,13 +215,23 @@ test('a new master password opens what the old one did, and the old one nothing'
   const root = vault(t)
   const logins = await secrets.create(root, MASTER)
   const id = await logins.add({ origin: SITE, username: 'reader', password: 'kept' })
+  await logins.edit(id, { steps: [{ password: 'kept-2' }, { use: 0 }] })
+  const before = JSON.parse(fs.readFileSync(file(root), 'utf8'))
   await assert.rejects(logins.changeMaster('wrong one entirely', 'a brand new master'), { code: 'EPASSWORD' })
   await assert.rejects(logins.changeMaster(MASTER, 'short'), { code: 'ESHORT' })
   await logins.changeMaster(MASTER, 'a brand new master')
   assert.equal(text(logins.reveal(id)), 'kept')                                     // still unlocked
-  logins.lock()
+  assert.equal(text(logins.reveal(id, 0)), 'kept-2')
+  await logins.lock()
   await assert.rejects(secrets.unlock(root, MASTER), { code: 'EPASSWORD' })
-  assert.equal(text((await secrets.unlock(root, 'a brand new master')).reveal(id)), 'kept')
+  const again = await secrets.unlock(root, 'a brand new master')
+  assert.equal(text(again.reveal(id)), 'kept')
+  assert.equal(text(again.reveal(id, 0)), 'kept-2')
+  // a new data key too: a copy made before, opened with the old master, opens nothing written since
+  const after = JSON.parse(fs.readFileSync(file(root), 'utf8'))
+  fs.writeFileSync(file(root), JSON.stringify({ ...before, data: after.data }))
+  fs.rmSync(prev(root))
+  await assert.rejects(secrets.unlock(root, MASTER), { code: 'EBADFILE' })
 })
 
 test('a generated password: its length, every kind asked for, nothing that reads alike', () => {

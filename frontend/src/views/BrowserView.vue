@@ -113,14 +113,19 @@ const keyTitle = computed(() => (!pageOrigin.value ? 'Logins' : keyCount.value
 // it is in front, until answered or replaced by the next sign-in.
 const offers = reactive(new Map<string, LoginOffer>())
 const activeOffer = computed(() => (active.value ? offers.get(active.value.id) ?? null : null))
+// an offer gone — answered, or gone by itself — may have saved a login: the key counts again
 function onOffer(offer: LoginOffer) {
   const id = tabOfGuest(offer.guestId)
   if (!id) return
   if (offer.kind) offers.set(id, offer)
-  else offers.delete(id)
+  else {
+    offers.delete(id)
+    void countLogins()
+  }
 }
-function offerAnswered() {
-  if (active.value) offers.delete(active.value.id)
+function offerAnswered(guestId: number) {
+  const id = tabOfGuest(guestId)
+  if (id) offers.delete(id)
   void countLogins()
 }
 // what a closed tab's page told goes with it
@@ -1115,8 +1120,6 @@ function onReady(tabId: string) {
         </template>
       </MenuButton>
     </div>
-    <SaveLoginBar v-if="activeOffer" :key="`${activeOffer.guestId}-${activeOffer.kind}`" :offer="activeOffer"
-                  @answered="offerAnswered" />
 
     <Teleport v-if="store.view === 'browser'" to="#siderail">
       <RailSection v-for="sec in railSections" :key="sec.label" :label="sec.label" collapsible
@@ -1156,6 +1159,10 @@ function onReady(tabId: string) {
 
     <div v-else class="split">
       <div class="pagearea">
+        <!-- over the page, not above it: the page is never resized by it, so it
+             cannot tell from its own size whether a password it sent is the saved one -->
+        <SaveLoginBar v-if="activeOffer" :key="activeOffer.guestId" :offer="activeOffer"
+                      @answered="offerAnswered" />
         <!-- allowpopups: a page's new-tab link reaches the shell, which makes it a tab
              (or, for a sign-in popup, a window of its own).
              None while the vault is gone: a page writes into the vault's browser profile. -->

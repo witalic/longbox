@@ -35,9 +35,11 @@ export function usePopover(width: () => number) {
   function close() { open.value = false }
   function toggle() { return open.value ? close() : show() }
 
+  // a dialog the panel opened (a confirmation, the master password) is part of it
   function onDocDown(e: MouseEvent) {
     const t = e.target as Node
     if (root.value?.contains(t) || panel.value?.contains(t)) return
+    if (t instanceof Element && t.closest('[data-modal]')) return
     open.value = false
   }
   // Fixed-positioned, it FOLLOWS the trigger when the page moves under it, and

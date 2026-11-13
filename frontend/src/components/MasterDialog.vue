@@ -4,6 +4,7 @@
 // never a page's.
 import { computed, nextTick, ref, watch } from 'vue'
 import Icon from './Icon.vue'
+import StrengthMeter from './StrengthMeter.vue'
 import { dropMasterAsk, giveMaster, masterAsk, strength } from '../logins'
 
 const first = ref('')
@@ -19,9 +20,8 @@ watch(() => masterAsk.mode, async (mode) => {
 })
 
 const setup = computed(() => masterAsk.mode === 'setup')
-const score = computed(() => strength(first.value))
-const SAYS = ['at least 10 characters', 'weak', 'fair', 'good', 'strong']
-const ready = computed(() => (setup.value ? score.value > 0 && first.value === again.value : first.value.length > 0))
+const ready = computed(() => (setup.value ? strength(first.value) > 0 && first.value === again.value
+  : first.value.length > 0))
 
 function submit() {
   if (ready.value) void giveMaster(first.value)
@@ -30,7 +30,7 @@ function submit() {
 
 <template>
   <Transition name="fade">
-    <div v-if="masterAsk.mode" class="overlay" @click.self="dropMasterAsk" @keydown.esc="dropMasterAsk">
+    <div v-if="masterAsk.mode" class="overlay" data-modal @click.self="dropMasterAsk" @keydown.esc="dropMasterAsk">
       <form class="card" role="dialog" aria-modal="true" @submit.prevent="submit">
         <div class="title">{{ setup ? 'Set a master password' : 'Unlock passwords' }}</div>
         <div class="msg">{{ setup
@@ -40,10 +40,7 @@ function submit() {
           <input ref="input" v-model="first" class="in" type="password" autocomplete="off" spellcheck="false"
                  :placeholder="setup ? 'Master password' : ''" :disabled="masterAsk.busy" />
           <template v-if="setup">
-            <div class="meter">
-              <span class="bars"><i v-for="n in 4" :key="n" :class="{ on: n <= score }"></i></span>
-              <span class="says">{{ SAYS[score] }}</span>
-            </div>
+            <StrengthMeter :value="first" />
             <input v-model="again" class="in" type="password" autocomplete="off" spellcheck="false"
                    placeholder="The same again" :disabled="masterAsk.busy" />
             <div v-if="again && again !== first" class="err">The two are not the same.</div>
@@ -68,11 +65,6 @@ function submit() {
 .title { font: 700 15px/1.2 system-ui; color: var(--tx); }
 .msg { margin-top: 10px; font: 400 13px/1.55 system-ui; color: var(--tx2); }
 .fields { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
-.meter { display: flex; align-items: center; gap: 10px; }
-.bars { flex: 1; display: flex; gap: 4px; }
-.bars i { flex: 1; height: 4px; border-radius: 999px; background: var(--line); }
-.bars i.on { background: var(--good); }
-.says { font: 400 11px/1 system-ui; color: var(--tx3); width: 130px; text-align: right; }
 .err { font: 400 12px/1.4 system-ui; color: var(--adult); }
 .warn { margin-top: 12px; display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border-radius: 6px; background: color-mix(in srgb, var(--warn) 12%, transparent); font: 400 12px/1.45 system-ui; color: var(--tx2); }
 .warn :deep(svg) { color: var(--warn); margin-top: 1px; }

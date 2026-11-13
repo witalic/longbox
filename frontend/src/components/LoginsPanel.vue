@@ -92,6 +92,8 @@ function inSources() {
             : 'Logins are kept in the vault, encrypted under a master password of yours.' }}</div>
         </template>
         <template v-else>
+          <div v-if="loginsState.restored" class="say warn">The logins file did not read, so the copy kept before its
+            last change was opened: that change is lost.</div>
           <div v-for="l in list" :key="l.id" class="acct">
             <span class="av">{{ (l.username || '?').slice(0, 1).toUpperCase() }}</span>
             <span class="who"><b>{{ l.username || '(no username)' }}</b><span>{{ l.used ? `used ${ago(l.used)}` : 'not used yet' }}</span></span>
@@ -132,5 +134,6 @@ function inSources() {
 .mi:hover { background: var(--hover); color: var(--tx); }
 hr { height: 1px; border: none; background: var(--line); margin: 5px 4px; }
 .say { padding: 8px 9px; font: 400 12px/1.45 system-ui; color: var(--tx3); }
+.say.warn { color: var(--warn); }
 .err { padding: 6px 9px; font: 400 12px/1.4 system-ui; color: var(--adult); }
 </style>

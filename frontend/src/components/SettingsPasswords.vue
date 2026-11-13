@@ -5,6 +5,7 @@
 // Sources → a site → Logins.
 import { computed, ref, watch } from 'vue'
 import Icon from './Icon.vue'
+import StrengthMeter from './StrengthMeter.vue'
 import { hostOf } from '../data'
 import { askMaster, lockLogins, loginsState, settled, strength } from '../logins'
 
@@ -23,6 +24,9 @@ const stateHint = computed(() => {
   if (!shell) return 'Logins need the desktop app.'
   if (!loginsState.exists) return 'None yet. A master password of yours keeps them encrypted in the vault.'
   if (!loginsState.unlocked) return 'Locked — they open with the master password, once per start.'
+  if (loginsState.restored) {
+    return 'The logins file did not read, so the copy kept before its last change was opened: that change is lost.'
+  }
   const c = count.value
   return c ? `${c.logins} login${c.logins === 1 ? '' : 's'} on ${c.sites} site${c.sites === 1 ? '' : 's'}, open until the app closes or they are locked.`
     : 'Open until the app closes or they are locked.'
@@ -35,16 +39,16 @@ const next = ref('')
 const again = ref('')
 const error = ref('')
 const done = ref(false)
-const score = computed(() => strength(next.value))
-const SAYS = ['at least 10 characters', 'weak', 'fair', 'good', 'strong']
-const ready = computed(() => current.value && score.value > 0 && next.value === again.value)
+const busy = ref(false)
+const ready = computed(() => current.value && strength(next.value) > 0 && next.value === again.value)
 function startChange() {
   changing.value = true
   current.value = next.value = again.value = error.value = ''
   done.value = false
 }
 async function change() {
-  if (!shell || !ready.value) return
+  if (!shell || !ready.value || busy.value) return
+  busy.value = true
   error.value = ''
   try {
     await settled(shell.changeMaster(current.value, next.value))
@@ -55,6 +59,7 @@ async function change() {
       : e instanceof Error ? e.message : String(e)
   } finally {
     current.value = next.value = again.value = ''
+    busy.value = false
   }
 }
 </script>
@@ -84,14 +89,14 @@ async function change() {
       <input v-model="current" class="in" type="password" autocomplete="off" placeholder="The current master password"
              aria-label="The current master password" />
       <input v-model="next" class="in" type="password" autocomplete="off" placeholder="A new one" aria-label="A new master password" />
-      <div class="meter"><span class="bars"><i v-for="n in 4" :key="n" :class="{ on: n <= score }"></i></span>
-        <span class="says">{{ SAYS[score] }}</span></div>
+      <StrengthMeter :value="next" />
       <input v-model="again" class="in" type="password" autocomplete="off" placeholder="The new one again" aria-label="The new master password again" />
       <div v-if="again && again !== next" class="err">The two are not the same.</div>
       <div v-if="error" class="err">{{ error }}</div>
       <div class="acts">
         <button type="button" class="btn ghost" @click="changing = false">Cancel</button>
-        <button type="submit" class="btn accent" :disabled="!ready">Change the master password</button>
+        <button type="submit" class="btn accent" :disabled="!ready || busy">{{ busy ? 'Changing…'
+          : 'Change the master password' }}</button>
       </div>
     </form>
   </section>
@@ -102,11 +107,6 @@ async function change() {
 .label .where.off { background: var(--panel2); color: var(--tx3); }
 .hint.good { color: var(--good); }
 .change { display: flex; flex-direction: column; gap: 8px; max-width: 420px; }
-.meter { display: flex; align-items: center; gap: 10px; }
-.bars { flex: 1; display: flex; gap: 4px; }
-.bars i { flex: 1; height: 4px; border-radius: 999px; background: var(--line); }
-.bars i.on { background: var(--good); }
-.says { font: 400 11px/1 system-ui; color: var(--tx3); width: 130px; text-align: right; }
 .err { font: 400 12px/1.4 system-ui; color: var(--adult); }
 .acts { display: flex; justify-content: flex-end; gap: 8px; }
 </style>

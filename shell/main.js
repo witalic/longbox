@@ -497,7 +497,7 @@ async function stopSidecar() {
 // a vault coming back after a drop both end here (design/vault-home.md).
 async function relaunch(extra = []) {
   app.isQuitting = true
-  passwords.lock()
+  await passwords.lock() // what it is writing, written
   // what the browser holds in memory reaches its profile before the process goes
   if (vaultSession) {
     await vaultSession.cookies.flushStore().catch(() => {})
@@ -1024,7 +1024,9 @@ async function main(root, legacy, prof) {
 
   // Navigation lockdown: keep the window on the app origin; open nothing externally.
   win.webContents.on('will-navigate', (e, url) => {
-    if (!url.startsWith(origin)) e.preventDefault()
+    let to = ''
+    try { to = new URL(url).origin } catch { /* not a URL */ }
+    if (to !== origin) e.preventDefault()
   })
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   // the OS window carries the app name ONCE — page titles never override it
@@ -1242,13 +1244,13 @@ let stopping = false
 let stopped = false
 app.on('before-quit', (e) => {
   app.isQuitting = true
-  passwords.lock()
+  const loginsLocked = passwords.lock() // what it is writing, written
   if (stopped) return
   e.preventDefault()
   if (stopping) return
   stopping = true
   for (const w of BrowserWindow.getAllWindows()) w.hide()
-  void stopSidecar().finally(() => {
+  void Promise.all([loginsLocked, stopSidecar()]).finally(() => {
     stopped = true
     app.quit()
   })

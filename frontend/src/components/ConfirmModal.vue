@@ -16,7 +16,8 @@ watch(() => confirmState.open, async (open) => {
 
 <template>
   <Transition name="fade">
-    <div v-if="confirmState.open" class="overlay" @click.self="resolveConfirm(false)" @keydown.esc="resolveConfirm(false)">
+    <div v-if="confirmState.open" class="overlay" data-modal @click.self="resolveConfirm(false)"
+         @keydown.esc="resolveConfirm(false)">
       <div class="card" role="dialog" aria-modal="true">
         <div class="title">{{ confirmState.req.title || 'Please confirm' }}</div>
         <div class="msg">{{ confirmState.req.message }}</div>

@@ -19,7 +19,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ (e: 'saved'): void; (e: 'cancel'): void; (e: 'deleted'): void }>()
 
-const KEEP = 3
+const KEEP = 3 // as the shell keeps them (secrets.js, KEEP_PREVIOUS)
 const shell = window.longbox?.logins
 const username = ref(props.login?.username ?? '')
 const note = ref(props.login?.note ?? '')
@@ -65,24 +65,31 @@ async function reveal(t: Tok) {
   }
   if (t.k === 'new') shown[k] = (steps.value[t.s] as { password: string }).password
   else if (props.login && shell) {
-    shown[k] = await settled(shell.reveal(props.login.id, t.k === 'prev' ? t.i : undefined)).catch(() => '')
+    try {
+      shown[k] = await settled(shell.reveal(props.login.id, t.k === 'prev' ? t.i : undefined))
+    } catch (e) { fault(e) }
   }
 }
 async function copy(t: Tok) {
   if (!shell) return
-  if (t.k === 'new') await settled(shell.copyText((steps.value[t.s] as { password: string }).password))
-  else if (props.login) await settled(shell.copy(props.login.id, t.k === 'prev' ? t.i : undefined))
+  try {
+    if (t.k === 'new') await settled(shell.copyText((steps.value[t.s] as { password: string }).password))
+    else if (props.login) await settled(shell.copy(props.login.id, t.k === 'prev' ? t.i : undefined))
+  } catch (e) { fault(e) }
+}
+function fault(e: unknown) {
+  error.value = e instanceof Error ? e.message : String(e)
 }
 
 // The password field: a new one is typed over whatever it held; cleared, the
-// new one is taken back.
+// new one is taken back — and every step after it, made against it.
 const cur = computed(() => now.value.cur)
 const curValue = computed(() => (cur.value.k === 'new'
   ? (steps.value[cur.value.s] as { password: string }).password : shown[keyOf(cur.value)] ?? ''))
 function typed(v: string) {
   const c = cur.value
   if (c.k === 'new') {
-    if (v === '' && c.s === steps.value.length - 1) steps.value.pop()
+    if (v === '') steps.value.splice(c.s)
     else steps.value[c.s] = { password: v }
   } else if (v !== '') {
     steps.value.push({ password: v })
@@ -91,7 +98,8 @@ function typed(v: string) {
 }
 async function generate() {
   if (!shell) return
-  const v = await settled(shell.generate())
+  const v = await settled(shell.generate()).catch((e) => { fault(e); return '' })
+  if (!v) return
   if (!props.login) {
     fresh.value = v
     shown.fresh = v
@@ -114,8 +122,9 @@ async function save() {
   try {
     if (props.login) {
       // plain copies: what crosses to the shell is cloned, and a reactive list is not
+      // the steps hold for the login as it was opened: the shell refuses them once it changed
       await settled(shell.edit(props.login.id, { username: username.value, note: note.value,
-        steps: steps.value.map((step) => ({ ...step })) }))
+        steps: steps.value.map((step) => ({ ...step })), updated: props.login.updated }))
     } else {
       await settled(shell.add({ origin: site.value, username: username.value, password: fresh.value, note: note.value }))
     }

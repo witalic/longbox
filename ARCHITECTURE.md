@@ -89,6 +89,8 @@ library/
     adblock/                 the ad blocker's switch, paused sites and compiled lists
     secrets.json             the logins of the password manager: encrypted under the master
                              password (scrypt, AES-256-GCM; design/password-manager.md)
+    secrets.prev.json        the logins file before its last change: what a file that does not
+                             read falls back to
     cache/thumbs/            downscaled previews (a tile's made at every write — library/previews.py)
   <type-shelf>/              one directory per TYPE (manga/, image-set/, …; typeless → other/)
     <title-id>/

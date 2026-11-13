@@ -43,6 +43,10 @@ async function done() {
   open.value = null
   await load()
 }
+async function copy(id: string) {
+  if (!shell) return
+  await settled(shell.copy(id)).catch((e) => { error.value = e instanceof Error ? e.message : String(e) })
+}
 async function offerAgain(origin: string) {
   if (!shell) return
   await settled(shell.setNever(origin, false)).catch((e) => { error.value = String(e) })
@@ -68,7 +72,7 @@ async function offerAgain(origin: string) {
             <span v-if="l.previous.length" class="chip"><Icon name="clock" :size="11" :sw="2" />{{ l.previous.length }} previous</span>
             <template v-if="open !== l.id">
               <button class="iconbtn plain" title="Copy the password — it leaves the clipboard after 30 seconds"
-                      @click="shell && settled(shell.copy(l.id))"><Icon name="copy" :size="13" :sw="2" /></button>
+                      @click="copy(l.id)"><Icon name="copy" :size="13" :sw="2" /></button>
               <button class="iconbtn plain" title="Edit" @click="open = l.id"><Icon name="edit" :size="13" :sw="2" /></button>
             </template>
           </div>

@@ -1,7 +1,7 @@
 'use strict'
 // Injected into the <webview> that hosts a source site (design/state-model.md).
 //
-// Two jobs, all read-only against the page:
+// Two jobs, read-only against the page:
 //  1. Pick mode — highlight the element under the cursor; on click hand the host
 //     the element's DOM chain so the inspector can compose a precise selector,
 //     and live-preview any candidate selector (highlight + count + values).
@@ -14,7 +14,9 @@
 // It runs in every frame of the page (main.js). The host talks to the top one
 // only, so in the others the jobs above never start; what every frame does on
 // its own is the File System Access guard, reporting gestures, and the link
-// and mouse-button shortcuts at the bottom.
+// and mouse-button shortcuts at the bottom. The one thing it writes into a
+// page is a login the owner fills (the password manager, at the end) — into
+// the top frame only.
 
 const { ipcRenderer, webFrame } = require('electron')
 
@@ -711,32 +713,36 @@ if (window === window.top) {
   else watch()
 
   // A sign-in sent: its username and password go to the shell — never to the
-  // window — which offers to save them. A form a page sends with fetch is taken
-  // as it goes: Enter in it, or a click on its submit button (not a button of
-  // its own, like a "show password" eye). A new password is the one the form
-  // says is new, else the last one (a change form's confirmation).
+  // window — which offers to save them. Only one the owner sent: a trusted
+  // event while the page holds a fresh gesture of theirs, so a page cannot
+  // raise the offer by itself. A form is taken as it is submitted, or as Enter
+  // is pressed in it; a page that signs in with fetch and no form, as its
+  // submit button is clicked. A new password is the one the form says is new,
+  // else the last one (a change form's confirmation).
   let sentWhat = ''
   let sentAt = 0
-  function signedIn(form) {
+  function signedIn(e, form) {
+    if (!e.isTrusted || !navigator.userActivation?.isActive) return
     const filled = passwordFields().filter((el) => el.value && (!form || el.form === form))
     if (!filled.length) return
     const password = (filled.find((el) => /new-password/.test(el.autocomplete)) || filled[filled.length - 1]).value
-    const username = usernameFor(filled[0])?.value ?? ''
+    const username = (usernameFor(filled[0])?.value ?? '').slice(0, 256)
+    if (password.length > 1024) return
     const what = JSON.stringify([username, password])
     if (what === sentWhat && Date.now() - sentAt < 3000) return // one sign-in, seen twice
     sentWhat = what
     sentAt = Date.now()
     ipcRenderer.send('lb-pw-submitted', { username, password })
   }
-  document.addEventListener('submit', (e) => signedIn(e.target instanceof HTMLFormElement ? e.target : null), true)
+  document.addEventListener('submit', (e) => signedIn(e, e.target instanceof HTMLFormElement ? e.target : null), true)
   document.addEventListener('keydown', (e) => {
     const el = e.target
     if (e.key === 'Enter' && el instanceof HTMLInputElement && (el.type === 'password'
-        || el.form?.querySelector('input[type="password"]'))) signedIn(el.form)
+        || el.form?.querySelector('input[type="password"]'))) signedIn(e, el.form)
   }, true)
   document.addEventListener('click', (e) => {
     const b = e.target instanceof Element ? e.target.closest('button, input[type="submit"]') : null
-    if (b && b.type === 'submit') signedIn(b.form)
+    if (b && !b.form && b.type === 'submit') signedIn(e, null)
   }, true)
 
   // the shell sends a login only for this page's origin; it is checked again

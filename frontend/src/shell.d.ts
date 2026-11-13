@@ -36,7 +36,8 @@ declare global {
   }
   // the vault's logins (shell/passwords.js): an answer, or what the owner is told
   type LoginsAnswer<T> = { ok: true; value: T } | { ok: false; code: string; message: string }
-  interface LoginsState { exists: boolean; unlocked: boolean }
+  // `restored`: the file did not read, and the generation before it was opened (the last change lost)
+  interface LoginsState { exists: boolean; unlocked: boolean; restored: boolean }
   // a login as a list shows it — never its password; `previous`: the passwords it replaced, newest first
   interface LoginSummary {
     id: string
@@ -91,7 +92,8 @@ declare global {
         copy: (id: string, previous?: number) => Promise<LoginsAnswer<void>>
         copyText: (text: string) => Promise<LoginsAnswer<void>>
         add: (login: { origin: string; username: string; password: string; note: string }) => Promise<LoginsAnswer<string>>
-        edit: (id: string, change: { username?: string; note?: string; steps?: LoginStep[] }) => Promise<LoginsAnswer<void>>
+        edit: (id: string, change: { username?: string; note?: string; steps?: LoginStep[]; updated?: string }) =>
+          Promise<LoginsAnswer<void>>
         remove: (id: string) => Promise<LoginsAnswer<void>>
         generate: (opts?: { length?: number; letters?: boolean; digits?: boolean; symbols?: boolean }) => Promise<LoginsAnswer<string>>
         fill: (guestId: number, id: string) => Promise<LoginsAnswer<boolean>>

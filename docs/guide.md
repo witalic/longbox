@@ -155,12 +155,16 @@ password of yours, and filled when you click, never by themselves.
   alike) — keeps the one it replaces: up to three previous passwords per login, each shown, copied,
   **used again** or forgotten; the editor shows which one would be dropped before you save.
   Changing a password here changes it in longbox only — change it on the site too. **Delete** asks
-  first and has no bin. A copied password leaves the clipboard after 30 seconds.
+  first and has no bin. A copied password leaves the clipboard after 30 seconds, or when the logins
+  are locked — but Windows' clipboard history (Win+V), if it is on, keeps its own copy.
 - **Sources → a site → Logins** lists all of a site's logins, adds one for any of its addresses,
   and lets a site you said **Never** to be offered again.
 
 The logins file (`.longbox/secrets.json`) holds nothing readable: a copy of the vault — a backup, a
 synced folder — protects them only as well as the master password does, so make it a long one.
+Changing the master password re-encrypts every login, so an older copy, opened with the old one,
+opens nothing saved since. Beside it, `secrets.prev.json` keeps the file as it was before the last
+change: if a crash ever leaves the file unreadable, longbox opens that one instead and says so.
 
 ## Sources
 

@@ -432,7 +432,7 @@ function doRestore(i: number) {
 }
 
 void init().then(watchUpdates)
-void watchLogins()
+void watchLogins().catch(() => { /* the logins stay as the shell last said */ })
 initSessions()
 // the app came back into a vault that had dropped: the tabs it had are put back
 // (the last run's session is the newest in the history now)
