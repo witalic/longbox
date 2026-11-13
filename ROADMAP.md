@@ -9,7 +9,9 @@ moves to the [changelog](CHANGELOG.md). What longbox will not do is at the end.
 Logins for the sites in the embedded browser, encrypted in the vault under a master password,
 filled on click ([draft](design/password-manager.md), to be checked against 3.5.0). Only the key is
 held while unlocked; each password is decrypted at the moment it is used. With sessions
-kept on each computer, it is what makes signing in again on another one quick.
+kept on each computer, it is what makes signing in again on another one quick. The key is a button
+beside the star and the shield, and ad blocking moves from the ⋯ menu to a popover of the shield's
+in the same format ([mockup](design/password-manager-mockup.html)).
 
 ## Then
 

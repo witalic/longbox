@@ -24,8 +24,14 @@ when asked for, and saved after a sign-in when the owner says so.
   weighed and left out: that key would sit beside them in the same process, so it would hide
   nothing from anything able to read that memory.
 - **Managing logins** (owner, 2026-11-13): a changed password keeps the previous ones, **up to
-  three**; a login is **edited right in the browser window, bound to the site that is open**; a
-  login can be **deleted**. A mockup first (§ Managing logins).
+  three**, each with all four actions — show, copy, use again, forget; a login is **edited right in
+  the browser window, bound to the site that is open**; a login can be **deleted**, at once, with no
+  bin. A mockup first (§ Managing logins).
+- **The key is a button of the toolbar's** (owner, 2026-11-13), beside the star and the shield and
+  in their format — not an icon in the address bar; its popover **hangs from it**, as every menu of
+  the app does, never floating apart from its button.
+- **Ad blocking in the same format** (owner, 2026-11-13): the shield opens a popover of its own,
+  and the ⋯ menu gives up ad blocking (§ Ad blocking, from the shield).
 
 ## Threat model
 
@@ -89,10 +95,13 @@ Forgetting the master password loses the secrets. Setup says so, plainly, once.
 
 ## In the browser
 
-- **Fill on click.** When the page in front has a password field (the guest preload looks, top
-  frame only) and logins are saved for that exact origin, a key appears in the address bar. Its
-  menu lists the accounts; picking one fills the username and password fields of that form. With
-  no saved login, the menu offers to generate a password (a sign-up form's new-password field).
+- **Fill on click.** The key is one of the page's buttons right of the address, with the star and
+  the shield: always there, quiet when the page has no sign-in form and nothing is saved for it,
+  normal on a page with a password field (the guest preload looks, top frame only), lit with a
+  count when logins are saved for that exact origin (known once unlocked). Its popover hangs from
+  it — right under the toolbar, its right edge on the button's, the button lit while it is open —
+  and lists the accounts: **Fill** puts the username and password into that form. With no saved
+  login, it offers to generate a password (a sign-up form's new-password field).
 - The menu is the app's, not the page's: a page cannot draw a fake one or click it for the owner.
 - The fill goes to the top frame only, and only if its origin is still the entry's at the moment of
   filling (a page that navigated meanwhile gets nothing). http pages get only logins saved on http.
@@ -100,6 +109,21 @@ Forgetting the master password loses the secrets. Setup says so, plainly, once.
   username and password to the shell; the shell shows a bar in the app: *Save login for x.com?* —
   Save · Never for this site · Not now. An existing login with another password offers *Update*.
   Nothing is kept unless saved.
+
+## Ad blocking, from the shield
+
+What the ⋯ menu holds of ad blocking today moves into a popover of the shield's, in the key's
+format and hanging from the shield the same way:
+
+- its head: **Ad blocking** and the switch for every site;
+- **this site**: what was blocked on the page, **Pause here** — or **Resume**, when it is paused;
+- **Hide cookie banners, pop-ups**, with what it can cost (a page waiting for a consent it never
+  got);
+- **Paused on**: the sites it is paused on, × to block there again;
+- its foot: when the lists were fetched, and **Update the lists** (or *Try again*).
+
+The ⋯ menu keeps what has no button of its own: zoom, find in page, DevTools. The shield itself is
+as it is: green with the count of what it blocked on this page, grey where it is paused or off.
 
 ## Generator
 
