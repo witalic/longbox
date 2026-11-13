@@ -132,16 +132,24 @@ function offerAnswered(guestId: number) {
 // what a closed tab's page told goes with it
 watch(() => browser.tabs.map((t) => t.id).join(), () => {
   for (const map of [offers, pwFields]) for (const id of [...map.keys()]) if (!tabById(id)) map.delete(id)
+  for (const id of [...quiet]) if (!tabById(id)) quiet.delete(id)
 })
 // The sign-in field the owner clicked on the page in front, and when it was
-// first told of: the site's logins are drawn under it (InlineFill). Gone as the
-// page says, or the tab changes or navigates.
+// last told of where it stands: the site's logins are drawn under it
+// (InlineFill), and a click on them waits half a second from any move. Gone as
+// the page says, or the tab changes or navigates. `quiet`: the tabs whose list
+// was closed for the page (its ×), until they navigate.
 const fieldAt = ref<(FieldAt & { tabId: string }) | null>(null)
+const quiet = reactive(new Set<string>())
 watch(() => browser.activeId, () => { fieldAt.value = null })
 const keyPop = ref<InstanceType<typeof ToolbarPopover> | null>(null)
 function manageLogins() {
   fieldAt.value = null
   keyPop.value?.show()
+}
+function dismissFill() {
+  if (fieldAt.value) quiet.add(fieldAt.value.tabId)
+  fieldAt.value = null
 }
 // the page a login is filled into, named the moment it is: a <webview> names
 // its page only once it is attached
@@ -1036,19 +1044,25 @@ function onIpc(e: any, tabId: string) {
       break
     case 'pw-field': {
       const was = fieldAt.value
-      if (!msg || tabId !== browser.activeId) {
+      const box = msg ? [msg.n, msg.x, msg.y, msg.w, msg.h].map(Number) : []
+      if (!msg || !box.every(Number.isFinite) || tabId !== browser.activeId || quiet.has(tabId)) {
         if (was?.tabId === tabId) fieldAt.value = null
         break
       }
-      const n = Number(msg.n)
-      fieldAt.value = { tabId, n, x: Number(msg.x), y: Number(msg.y), w: Number(msg.w), h: Number(msg.h),
-        at: was?.tabId === tabId && was.n === n ? was.at : Date.now() }
+      const [n, x, y, w, h] = box
+      const same = was?.tabId === tabId && was.n === n ? was : null
+      // only the owner's own click or Tab opens a list; a move follows one that is open
+      if (!msg.fresh && !same) break
+      const moved = !same || Math.max(Math.abs(same.x - x), Math.abs(same.y - y), Math.abs(same.w - w),
+        Math.abs(same.h - h)) > 2
+      fieldAt.value = { tabId, n, x, y, w, h, at: moved ? Date.now() : same.at }
       break
     }
   }
 }
 function onNav(e: any, tabId: string) {
   if (fieldAt.value?.tabId === tabId) fieldAt.value = null
+  quiet.delete(tabId)
   if (e?.url) onTabNavigated(tabId, e.url)
   // flipping to the next page IS the capture trigger — in the armed tab only
   if (pageCapture.active && tabId === pageCapture.tabId) {
@@ -1192,8 +1206,8 @@ function onReady(tabId: string) {
              cannot tell from its own size whether a password it sent is the saved one -->
         <SaveLoginBar v-if="activeOffer" :key="activeOffer.guestId" :offer="activeOffer"
                       @answered="offerAnswered" />
-        <InlineFill v-if="fieldAt && suggestInForms && isElectron" :field="fieldAt" :origin="pageOrigin"
-                    :guest="guestNow" @close="fieldAt = null" @manage="manageLogins" />
+        <InlineFill v-if="fieldAt && suggestInForms" :field="fieldAt" :origin="pageOrigin" :guest="guestNow"
+                    @close="fieldAt = null" @dismiss="dismissFill" @manage="manageLogins" />
         <!-- allowpopups: a page's new-tab link reaches the shell, which makes it a tab
              (or, for a sign-in popup, a window of its own).
              None while the vault is gone: a page writes into the vault's browser profile. -->
@@ -1292,7 +1306,7 @@ function onReady(tabId: string) {
 .ns { font: 400 12.5px/1.5 system-ui; color: var(--tx3); }
 
 .split { flex: 1; min-height: 0; display: flex; }
-.pagearea { flex: 1; min-width: 0; position: relative; display: flex; }
+.pagearea { flex: 1; min-width: 0; position: relative; display: flex; overflow: hidden; }
 .wv { flex: 1; min-width: 0; border: none; }
 .wv.full { position: fixed; left: 0; top: 0; z-index: 1000; }
 .pickhint { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: var(--accent); color: var(--accent-ink); font: 600 12px/1 system-ui; padding: 9px 14px; border-radius: 9px; box-shadow: 0 8px 24px rgba(0,0,0,.4); pointer-events: none; }

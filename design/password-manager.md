@@ -147,11 +147,15 @@ Forgetting the master password loses the secrets. Setup says so, plainly, once.
   typing, Esc, the page leaving; focus that leaves the page goes to the list itself, which the
   window closes on a press elsewhere in the app, Esc, a tab change or navigation. A click on a
   login fills the sign-in (one in steps gets its password as its step shows); one of another
-  address of the site asks first, as the key's popover does. A click in its first half second is
-  not taken, so a page cannot move its field under the pointer as the owner clicks. A field the
-  page focuses by itself shows nothing; nor does anything while the logins are locked (which
-  logins a site has is itself encrypted) or when the site has none. Settings → Passwords →
-  *Suggest in sign-in forms* turns it off.
+  address of the site asks first, as the key's popover does. Only the owner's own click or Tab
+  opens it — the page moving its field afterwards only moves a list that is open, never brings
+  back one that was closed — and a click on it is taken only half a second after it last moved
+  (the field moving, the list growing), so a page cannot bring it under the pointer as the owner
+  clicks (an independent review, 2026-11-13). It stays inside the page, and goes when the field
+  leaves sight; its × closes it for the page, until the page navigates. A field the page focuses
+  by itself shows nothing; nor does anything while the logins are locked (which logins a site has
+  is itself encrypted) or when the site has none. Settings → Passwords → *Suggest in sign-in
+  forms* turns it off.
 - The menu is the app's, not the page's: a page cannot draw a fake one or click it for the owner.
 - The fill goes to the top frame only, and only if its origin is still of the entry's site at the
   moment of filling (a page that navigated meanwhile gets nothing). http pages get only logins saved

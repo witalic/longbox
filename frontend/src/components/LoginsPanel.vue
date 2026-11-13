@@ -8,6 +8,7 @@
 import { computed, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import LoginEditor from './LoginEditor.vue'
+import CrossFillAsk from './CrossFillAsk.vue'
 import { addressOf, ago, hostOf } from '../data'
 import { askMaster, fillInto, lockLogins, loginsState, settled, showLoginsIn } from '../logins'
 import { store } from '../store'
@@ -127,12 +128,7 @@ function inSources() {
               <button class="iconbtn plain" title="Edit" @click="editing = { login: l, origin: l.origin, bound: l.origin === site }">
                 <Icon name="edit" :size="13" :sw="2" /></button>
             </div>
-            <div v-if="asking === l.id" class="ask">
-              <span>Fill the login saved for <b class="mono">{{ addressOf(l.origin) }}</b> into this page, on
-                <b class="mono">{{ addressOf(site) }}</b>? Asked once for each address, until the logins lock.</span>
-              <button class="btn small accent" @click="fill(l, true)">Fill here</button>
-              <button class="btn small ghost" @click="asking = null">Cancel</button>
-            </div>
+            <CrossFillAsk v-if="asking === l.id" :from="l.origin" :here="site" @yes="fill(l, true)" @no="asking = null" />
           </template>
           <div v-if="!list.length" class="say">Nothing saved for this site yet.</div>
           <hr />
@@ -164,9 +160,6 @@ function inSources() {
 .who b { display: block; font: 500 12.5px/1.2 system-ui; color: var(--tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .who > span { display: block; font: 400 11px/1.3 system-ui; color: var(--tx3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acct .iconbtn { width: 28px; height: 28px; }
-.ask { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 2px 9px 10px; font: 400 12px/1.45 system-ui; color: var(--tx2); }
-.ask span { flex: 1 1 100%; }
-.ask b { font-weight: 600; color: var(--tx); }
 .mi { width: 100%; display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 9px; border: none; background: transparent; border-radius: 6px; color: var(--tx2); font: 500 12.5px/1 system-ui; cursor: pointer; text-align: left; }
 .mi:hover { background: var(--hover); color: var(--tx); }
 hr { height: 1px; border: none; background: var(--line); margin: 5px 4px; }

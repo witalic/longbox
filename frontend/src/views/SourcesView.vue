@@ -143,6 +143,9 @@ const FILTERS = [
   { v: 'hidden', l: 'Hidden' },
 ] as const
 const filter = ref<(typeof FILTERS)[number]['v']>('all')
+// what the band says the list does, cut short where it has no room (its title says it whole)
+const TREE_HINT = "Drag to reorder — the browser's rail follows · Ctrl/Shift-click picks several"
+const LINKS_HINT = 'Double-click a name or an address to edit it'
 function passes(s: Source): boolean {
   if (filter.value === 'recipe' && !s.hasRecipe) return false
   if (filter.value === 'norecipe' && s.hasRecipe) return false
@@ -588,8 +591,7 @@ async function deleteTicked() {
         <div class="seg">
           <button v-for="f in FILTERS" :key="f.v" class="opt" :class="{ on: filter === f.v }" @click="filter = f.v">{{ f.l }}</button>
         </div>
-        <span class="hint" title="Drag to reorder — the browser's rail follows · Ctrl/Shift-click picks several">Drag to
-          reorder — the browser's rail follows · Ctrl/Shift-click picks several</span>
+        <span class="hint" :title="TREE_HINT">{{ TREE_HINT }}</span>
       </template>
       <template v-else>
         <div class="seg">
@@ -601,8 +603,7 @@ async function deleteTicked() {
           <button class="opt" :class="{ on: tsort === 'site' }" @click="tsort = 'site'">Site</button>
           <button class="opt" :class="{ on: tsort === 'saved' }" @click="tsort = 'saved'">Saved</button>
         </div>
-        <span class="hint" title="Double-click a name or an address to edit it">Double-click a name or an address to
-          edit it</span>
+        <span class="hint" :title="LINKS_HINT">{{ LINKS_HINT }}</span>
       </template>
       <template v-if="!picking">
         <div class="seg">

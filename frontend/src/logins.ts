@@ -13,7 +13,7 @@ export const loginsState = reactive<LoginsState>({ exists: false, unlocked: fals
 // `${login id} ${address}` — until the logins lock. The Public Suffix List
 // misses some names that many people own (nip.io and the like), so the first
 // such fill asks, naming both addresses.
-export const crossFills = new Set<string>()
+const crossFills = new Set<string>()
 watch(() => loginsState.unlocked, (open) => { if (!open) crossFills.clear() })
 
 // A login filled into the page a tab shows, on the address `here`: 'ask' when

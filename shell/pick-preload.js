@@ -748,7 +748,7 @@ if (window === window.top) {
   const soon = () => { if (!pending) pending = setTimeout(() => { pending = 0; tell() }, 300) }
   const watch = () => {
     tell()
-    new MutationObserver(soon).observe(document.documentElement, { subtree: true, childList: true,
+    new MutationObserver(() => { soon(); follow() }).observe(document.documentElement, { subtree: true, childList: true,
       attributes: true, attributeFilter: ['type', 'style', 'class', 'hidden', 'disabled'] })
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watch, { once: true })
@@ -838,31 +838,41 @@ if (window === window.top) {
 
   // The sign-in field the owner clicked, or tabbed into, is told to the window —
   // where it is, in the window's pixels — which draws the site's logins under
-  // it, over the page; and that it is gone as the focus moves elsewhere in the
-  // page, it is typed in, Esc is pressed, or the page leaves. Focus that leaves
-  // the page altogether goes to the list itself (a press on it), and the window
-  // says when that goes. Where the field moves as the page scrolls or the view
-  // is resized, it is told again. A field the page focuses by itself tells
-  // nothing.
+  // it, over the page (`fresh`: the owner's own act, the one thing that opens
+  // the list). It is told again wherever it moves — a scroll, a resize, the
+  // page laying itself out anew — and gone as it leaves sight, the focus moves
+  // elsewhere in the page, it is typed in, Esc is pressed, or the page leaves.
+  // Focus that leaves the page altogether goes to the list itself (a press on
+  // it), and the window says when that goes. A field the page focuses by
+  // itself, or one clicked while an element is being picked, tells nothing.
   const signInField = (el) => el instanceof HTMLInputElement && shown(el) && (el.type === 'password'
     || el === identifierField()
     || (/^(|text|email|tel)$/.test(el.type) && passwordFields().some((pw) => usernameFor(pw) === el)))
   let field = null
-  let fields = 0 // each field told of anew: the window times a click from it
-  const where = (el) => {
+  let fields = 0 // each field told of anew
+  const where = (el, fresh) => {
     const r = el.getBoundingClientRect()
     const z = webFrame.getZoomFactor()
-    return { n: fields, x: r.left * z, y: r.top * z, w: r.width * z, h: r.height * z,
-      kind: el.type === 'password' ? 'password' : 'username' }
+    return { n: fields, fresh, x: r.left * z, y: r.top * z, w: r.width * z, h: r.height * z }
   }
+  const inSight = (el) => {
+    const r = el.getBoundingClientRect()
+    return r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth
+  }
+  const sized = new ResizeObserver(() => follow())
   function offer(el) {
+    if (picking || !inSight(el)) return
     field = el
     fields++
-    ipcRenderer.sendToHost('pw-field', where(el))
+    sized.disconnect()
+    sized.observe(el)
+    sized.observe(document.documentElement)
+    ipcRenderer.sendToHost('pw-field', where(el, true))
   }
   function withdraw() {
     if (!field) return
     field = null
+    sized.disconnect()
     ipcRenderer.sendToHost('pw-field', null)
   }
   let tabbed = 0
@@ -876,7 +886,8 @@ if (window === window.top) {
     if (Date.now() - tabbed < 300 && signInField(e.target)) offer(e.target)
   }, true)
   document.addEventListener('focusout', (e) => {
-    if (e.target === field) setTimeout(() => { if (document.hasFocus()) withdraw() }, 0)
+    const left = e.target // a Tab on to the next field offers that one meanwhile: it stays
+    if (left === field) setTimeout(() => { if (field === left && document.hasFocus()) withdraw() }, 0)
   }, true)
   document.addEventListener('mousedown', (e) => { if (field && e.target !== field) withdraw() }, true)
   document.addEventListener('input', (e) => { if (e.isTrusted && e.target === field) withdraw() }, true)
@@ -886,8 +897,8 @@ if (window === window.top) {
     moving = requestAnimationFrame(() => {
       moving = 0
       if (!field) return
-      if (!field.isConnected || !shown(field)) withdraw()
-      else ipcRenderer.sendToHost('pw-field', where(field))
+      if (!field.isConnected || !shown(field) || !inSight(field)) withdraw()
+      else ipcRenderer.sendToHost('pw-field', where(field, false))
     })
   }
   window.addEventListener('scroll', follow, true)
