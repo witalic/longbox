@@ -13,12 +13,14 @@ import SettingsMaintenance from '../components/SettingsMaintenance.vue'
 import SettingsStorage from '../components/SettingsStorage.vue'
 import SettingsAppearance from '../components/SettingsAppearance.vue'
 import SettingsBrowser from '../components/SettingsBrowser.vue'
+import SettingsPasswords from '../components/SettingsPasswords.vue'
 import SettingsKeyboard from '../components/SettingsKeyboard.vue'
 import {
   pollVaultPass, runVaultPass, stopVaultPass, store, vaultPass, watchVaultPass,
 } from '../store'
 import { api, type CheckReport } from '../api'
 import { readLocalOne, writeLocalOne } from '../local'
+import { loginsState } from '../logins'
 import { keyOverrides } from '../keys'
 
 // ---- the sections, and the rail that navigates them ----
@@ -33,7 +35,7 @@ import { keyOverrides } from '../keys'
 // The VIEW owns the data and the state (RailSection's own rule); the section
 // components own the markup.
 type SectionId = 'storage' | 'health' | 'maintenance' | 'fields'
-  | 'browser' | 'appearance' | 'keyboard' | 'about'
+  | 'browser' | 'passwords' | 'appearance' | 'keyboard' | 'about'
 
 const SECTIONS: { group: string; items: { id: SectionId; label: string }[] }[] = [
   { group: 'Library', items: [
@@ -44,6 +46,7 @@ const SECTIONS: { group: string; items: { id: SectionId; label: string }[] }[] =
   ] },
   { group: 'App', items: [
     { id: 'browser', label: 'Browser' },
+    { id: 'passwords', label: 'Passwords' },
     { id: 'appearance', label: 'Appearance' },
     { id: 'keyboard', label: 'Keyboard' },
     { id: 'about', label: 'About' },
@@ -65,6 +68,7 @@ function railTag(id: SectionId): string {
   if (id === 'appearance') return store.theme
   if (id === 'keyboard') return Object.keys(keyOverrides).length ? 'custom' : ''
   if (id === 'about') return appMeta.value.version || ''
+  if (id === 'passwords') return loginsState.unlocked ? 'unlocked' : loginsState.exists ? 'locked' : ''
   if (id === 'health') {
     if (!health.value) return ''
     const bad = health.value.broken.total
@@ -145,6 +149,7 @@ const health = ref<CheckReport | null>(null)
 
     <!-- 3 · BROWSER -->
     <SettingsBrowser v-if="sec === 'browser'" v-model:homepage="homepage" />
+    <SettingsPasswords v-if="sec === 'passwords'" />
 
     <!-- 4 · KEYBOARD -->
     <SettingsKeyboard v-if="sec === 'keyboard'" />

@@ -98,6 +98,7 @@ declare global {
         onOffer: (fn: (offer: LoginOffer) => void) => () => void
         answerOffer: (guestId: number, what: 'save' | 'never' | 'dismiss') =>
           Promise<LoginsAnswer<'saved' | 'updated' | 'same' | 'never' | 'dropped' | 'gone'>>
+        changeMaster: (current: string, next: string) => Promise<LoginsAnswer<void>>
         nevers: () => Promise<LoginsAnswer<string[]>>
         setNever: (origin: string, never: boolean) => Promise<LoginsAnswer<void>>
         onState: (fn: (s: LoginsState) => void) => () => void

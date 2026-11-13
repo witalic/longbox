@@ -206,6 +206,7 @@ function wire(window, root) {
   handle('lb-pw-generate', (opts) => secrets.generate(opts && typeof opts === 'object' ? opts : {}))
   handle('lb-pw-fill', (guestId, id) => fill(guestId, String(id)))
   handle('lb-pw-offer-answer', (guestId, what) => answer(Number(guestId), String(what)))
+  handle('lb-pw-change-master', (current, next) => held().changeMaster(String(current ?? ''), String(next ?? '')))
   handle('lb-pw-nevers', () => held().nevers())
   handle('lb-pw-set-never', (origin, never) => held().setNever(String(origin ?? ''), !!never))
   ipcMain.on('lb-pw-submitted', submitted)
