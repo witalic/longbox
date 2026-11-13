@@ -14,7 +14,8 @@
 // It runs in every frame of the page (main.js). The host talks to the top one
 // only, so in the others the jobs above never start; what every frame does on
 // its own is the File System Access guard, reporting gestures, and the link
-// and mouse-button shortcuts at the bottom. The one thing it writes into a
+// and mouse-button shortcuts at the bottom, and holding back the media of a
+// tab opened behind another until it is shown. The one thing it writes into a
 // page is a login the owner fills (the password manager, at the end) — into
 // the top frame only.
 
@@ -669,6 +670,29 @@ window.addEventListener('mouseup', (e) => {
   if (e.button === 3) { e.preventDefault(); ipcRenderer.sendToHost('history', 'back') }
   else if (e.button === 4) { e.preventDefault(); ipcRenderer.sendToHost('history', 'forward') }
 }, true)
+
+// ---- a tab opened behind another: its media waits until it is first shown ----
+// Chrome holds back the media of a tab never shown; Electron's pages do not, so
+// a video opened in a background tab (a middle click) played unseen. Here, in
+// every frame: what starts playing before the page was ever visible is paused
+// and started again as it first shows. Once seen, nothing is held — what the
+// owner leaves playing in a tab behind is theirs.
+{
+  let seen = document.visibilityState === 'visible'
+  const held = new Set()
+  document.addEventListener('play', (e) => {
+    const media = e.target
+    if (seen || !(media instanceof HTMLMediaElement)) return
+    held.add(media)
+    media.pause()
+  }, true)
+  document.addEventListener('visibilitychange', () => {
+    if (seen || document.visibilityState !== 'visible') return
+    seen = true
+    for (const media of held) if (media.isConnected) media.play().catch(() => {})
+    held.clear()
+  })
+}
 
 // ---- the password manager (design/password-manager.md) ----
 // The top frame only: its sign-in form is what the key in the toolbar tells

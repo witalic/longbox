@@ -6,6 +6,11 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 
 ## [Unreleased]
 
+### Fixed
+- **A video opened in a tab behind (a middle click) no longer plays unseen.** What a page starts
+  playing before its tab was ever shown waits, and plays as you switch to it. Once you have seen a
+  tab, what you leave playing there keeps playing.
+
 ### Changed
 - **One Fill for a sign-in in steps.** Fill on the username step fills the username, and the
   password follows by itself as soon as its step shows, on the same address within a minute — no
