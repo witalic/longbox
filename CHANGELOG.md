@@ -6,6 +6,8 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 
 ## [Unreleased]
 
+## [3.6.1] — 2026-11-13
+
 ### Added
 - **Passwords lock by themselves** when the computer sleeps or its screen is locked, and after 15
   minutes with no use of it — Settings → Passwords → *Lock when idle* sets how long, or never.
@@ -285,7 +287,8 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
   recipes, an explicit draft with per-field provenance, armed downloads, a library with linked
   faceted filters, and a reader.
 
-[Unreleased]: https://github.com/witalic/longbox/compare/v3.6.0...HEAD
+[Unreleased]: https://github.com/witalic/longbox/compare/v3.6.1...HEAD
+[3.6.1]: https://github.com/witalic/longbox/compare/v3.6.0...v3.6.1
 [3.6.0]: https://github.com/witalic/longbox/compare/v3.5.0...v3.6.0
 [3.5.0]: https://github.com/witalic/longbox/compare/v3.4.0...v3.5.0
 [3.4.0]: https://github.com/witalic/longbox/compare/v3.3.0...v3.4.0
