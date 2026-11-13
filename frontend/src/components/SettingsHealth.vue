@@ -14,6 +14,7 @@ import PassButton from './PassButton.vue'
 import { api, type CheckReport, type HistoryEntry } from '../api'
 import { askConfirm, openTitle, store } from '../store'
 import { isBoolMap, readLocal, writeLocal } from '../local'
+import { ago } from '../data'
 
 const props = defineProps<{
   activeOp: string; done: number; total: number
@@ -134,16 +135,6 @@ const gapLine = computed(() => {
 })
 const hidden = (shown: number, total: number) => Math.max(0, total - shown)
 
-// "two hours ago" answers the question a timestamp only implies.
-function ago(iso: string): string {
-  const then = Date.parse(iso)
-  if (!then) return ''
-  const s = Math.max(0, (Date.now() - then) / 1000)
-  if (s < 90) return 'just now'
-  if (s < 5400) return `${Math.round(s / 60)} min ago`
-  if (s < 172800) return `${Math.round(s / 3600)} h ago`
-  return `${Math.round(s / 86400)} days ago`
-}
 function took(seconds: number): string {
   if (seconds < 1) return ''
   return seconds < 90 ? `${Math.round(seconds)}s` : `${Math.round(seconds / 60)} min`

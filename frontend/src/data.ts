@@ -731,6 +731,18 @@ export function sameChapter(a: ChapterIdentity, b: ChapterIdentity): boolean {
   return norm(a.num) === norm(b.num) && norm(a.lang) === norm(b.lang) && norm(a.group) === norm(b.group)
 }
 
+// "two hours ago" answers the question a timestamp only implies. An ISO string
+// or epoch milliseconds; '' when there is no time.
+export function ago(when: string | number): string {
+  const then = typeof when === 'number' ? when : Date.parse(when)
+  if (!then) return ''
+  const s = Math.max(0, (Date.now() - then) / 1000)
+  if (s < 90) return 'just now'
+  if (s < 5400) return `${Math.round(s / 60)} min ago`
+  if (s < 172800) return `${Math.round(s / 3600)} h ago`
+  return `${Math.round(s / 86400)} days ago`
+}
+
 // Running time, as a human reads it.
 export function formatDuration(seconds: number): string {
   if (!seconds || !Number.isFinite(seconds)) return ''

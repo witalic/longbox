@@ -10,6 +10,7 @@ import { onMounted, ref } from 'vue'
 import PassButton from './PassButton.vue'
 import { api, type HistoryEntry } from '../api'
 import { askConfirm } from '../store'
+import { ago } from '../data'
 
 const props = defineProps<{
   activeOp: string; done: number; total: number
@@ -30,14 +31,7 @@ onMounted(loadHistory)
 function lastRun(op: string): string {
   const h = history.value.find((e) => e.op === op)
   if (!h) return 'never run'
-  const then = Date.parse(h.at)
-  const s = then ? Math.max(0, (Date.now() - then) / 1000) : 0
-  const when = !then ? ''
-    : s < 90 ? 'just now'
-      : s < 5400 ? `${Math.round(s / 60)} min ago`
-        : s < 172800 ? `${Math.round(s / 3600)} h ago`
-          : `${Math.round(s / 86400)} days ago`
-  return `${when} · ${h.outcome}`
+  return `${ago(h.at)} · ${h.outcome}`
 }
 
 async function run(fn: () => Promise<unknown>, confirm: Parameters<typeof askConfirm>[0]) {
