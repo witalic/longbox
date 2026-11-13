@@ -37,7 +37,7 @@
       { "from": "../packaging/licenses", "to": "licenses" },
       { "from": "../LICENSE", "to": "licenses/GPL-3.0.txt" }
     ],
-    "afterPack": "./adhoc-sign.js",
+    "afterPack": "./after-pack.js",
     "publish": [{
       "provider": "github",
       "owner": "witalic",

@@ -4,6 +4,9 @@ name: build
 # or push a v* tag to publish a GitHub release, its notes taken from the
 # version's section of CHANGELOG.md.
 #
+# Every build has Electron's run-as-Node, NODE_OPTIONS and --inspect fuses off
+# (shell/after-pack.js, which fails the build if one stays on).
+#
 # macOS builds are AD-HOC signed (shell/adhoc-sign.js): there is no Apple
 # certificate, so the app is reported as coming from an unidentified developer —
 # not as damaged, which is what an unsigned bundle looks like.

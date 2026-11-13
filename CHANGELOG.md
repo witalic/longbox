@@ -16,6 +16,8 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
   time — a large one no longer has to fit in memory whole.
 
 ### Security
+- The released app can no longer be started as plain Node (`ELECTRON_RUN_AS_NODE`), take
+  `NODE_OPTIONS`, or open a debugging port (`--inspect`): those switches are off in every build.
 - A released build no longer opens DevTools on F12; started with `LONGBOX_DEVTOOLS=1`, it does.
 - A cover fetched by its address never reaches this computer or its network — not by the address,
   not by a redirect.

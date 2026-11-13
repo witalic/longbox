@@ -104,6 +104,10 @@ pyinstaller packaging/sidecar.spec --noconfirm --distpath dist-sidecar --workpat
 cd shell && npm run pack                                       # installers into dist-app/
 ```
 
+Every build turns off Electron's run-as-Node, `NODE_OPTIONS` and `--inspect` fuses and fails if
+one stays on (`shell/after-pack.js`); macOS builds are signed ad hoc after that
+(`shell/adhoc-sign.js`), since flipping a fuse breaks a signature.
+
 A packaged app carries the sidecar as a frozen binary (with the built UI inside it), so it needs
 neither Python nor a checkout. The ffmpeg that makes playable copies rides inside the sidecar, from
 the pinned `imageio-ffmpeg` wheel; its license and where its source is ship in the app's

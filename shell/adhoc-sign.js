@@ -1,5 +1,6 @@
 'use strict'
-// electron-builder afterPack hook: give macOS builds an AD-HOC signature.
+// Give macOS builds an AD-HOC signature — called by the afterPack hook
+// (after-pack.js) once the fuses are flipped, since flipping breaks a signature.
 //
 // There is no Apple Developer certificate here, and that is a deliberate
 // choice — but shipping an UNSIGNED bundle is not the same thing. On Apple
