@@ -380,4 +380,4 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 [1.2.1]: https://github.com/witalic/longbox/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/witalic/longbox/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/witalic/longbox/compare/v1.0.0...v1.1.0
-[1.0.0]: https://github.com/witalic/longbox/releases/tag/v1.0.0
+[1.0.0]: https://github.com/witalic/longbox/tree/v1.0.0
