@@ -14,6 +14,12 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
   `(1080p)`, `【4K】` — with `*` for any text, and the common brackets a click away. It takes over
   "drop [tags]": a profile that dropped them now cuts `[*]`.
 
+### Changed
+- **Import: a move onto the library's own drive reads nothing.** A file linked in place is no
+  longer read whole for its checksum — Health stamps it when it checks — and the report says how
+  many files moved in place, how many were copied after all (and why), and how many episodes were
+  written whole so they play at once.
+
 ## [3.6.4] — 2026-11-13
 
 ### Added

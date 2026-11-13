@@ -753,6 +753,13 @@ onMounted(async () => {
                 <span><b>{{ f.path }}</b> — {{ f.reason }}</span></div>
               <div v-if="report.kept" class="rpl"><span class="dot w"></span>
                 <span>{{ report.kept }} original{{ report.kept === 1 ? '' : 's' }} could not be deleted after the move — the copies are stored.</span></div>
+              <div v-if="report.inPlace" class="rpl"><span class="dot"></span>
+                <span>{{ report.inPlace }} moved in place — on the library's own drive, nothing of {{ report.inPlace === 1 ? 'it' : 'them' }} copied.</span></div>
+              <div v-if="report.copied" class="rpl"><span class="dot w"></span>
+                <span>{{ report.copied }} copied after all — {{ report.copiedWhy }}.</span></div>
+              <div v-if="report.rewritten" class="rpl"><span class="dot"></span>
+                <span>{{ report.rewritten }} episode{{ report.rewritten === 1 ? '' : 's' }} written whole — the index was at the end
+                  of the file, and moved to the front so playback starts at once.</span></div>
               <div class="rpfoot"><button class="btn small" @click="openLibrary">Open the library</button>
                 <span class="hint">{{ report.files === 'copy' ? 'Copy — the originals are where they were.' : 'Move — stored entries left the folder.' }}</span></div>
             </div>

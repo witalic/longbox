@@ -1085,6 +1085,11 @@ export interface ImportReport {
   failed: { path: string; reason: string }[]
   works: { titleId: string; title: string; created: boolean; added: number }[]
   kept: number
+  // how a move's files came in: linked in place, or copied after all (the first reason why)
+  inPlace: number
+  copied: number
+  copiedWhy: string
+  rewritten: number // episodes written whole, their index moved to the front
   stopped: boolean
   paused: boolean // stopped to be carried on — it waits in Activity
 }

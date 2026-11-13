@@ -858,3 +858,44 @@ def test_a_profile_that_dropped_tags_now_cuts_them(lib):
     assert fi.Profile.model_validate({"dropTags": False}).remove == []
     with pytest.raises(fi.InvalidProfile):
         fi.check(fi.Profile(remove=[" * "]))
+
+
+# ---- a move onto the vault's own volume ----------------------------------------
+
+def _sides(lib, title):
+    t = titles(lib)[title]
+    return [lib.vault.chapter_sidecar(t.id, c.id) for c in t.chapters]
+
+
+def test_a_move_onto_the_vaults_volume_links_and_reads_nothing(lib, tmp_path):
+    src = clips_tree(tmp_path / "src")
+    report = go(lib, src, clips_profile(files="move"))
+
+    assert (report.imported, report.inPlace, report.copied, report.copiedWhy) == (3, 3, 0, "")
+    # none of a linked file was read: its digest is left to Health
+    assert all("sha256" not in side for side in _sides(lib, "beach day"))
+    assert not (src / "Clips" / "beach day.mp4").exists()
+
+
+def test_a_copy_reads_what_it_writes_and_a_move_says_why_it_copied(lib, tmp_path, monkeypatch):
+    src = clips_tree(tmp_path / "src")
+    report = go(lib, src, clips_profile())
+    assert (report.inPlace, report.copied) == (0, 0)  # a copy was asked for
+    assert all(side.get("sha256") for side in _sides(lib, "beach day"))
+
+    def refused(a, b):
+        raise OSError(1, "the drive refuses links")
+    monkeypatch.setattr("app.library.service.os.link", refused)
+    other = clips_tree(tmp_path / "src2")
+    for f in (other / "Clips").iterdir():
+        f.rename(f.with_name("again " + f.name))
+    report = go(lib, other, clips_profile(files="move"))
+    assert (report.inPlace, report.copied) == (0, 3)
+    assert report.copiedWhy == "no hard link: the drive refuses links"
+    assert all(side.get("sha256") for side in _sides(lib, "again beach day"))
+
+
+def test_an_episode_rewritten_so_it_plays_at_once_is_counted(lib, tmp_path, monkeypatch):
+    monkeypatch.setattr("app.library.media.remux_faststart", lambda path: True)
+    report = go(lib, clips_tree(tmp_path / "src"), clips_profile())
+    assert report.rewritten == 2  # the two clips; the archive has no index to move

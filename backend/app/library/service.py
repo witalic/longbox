@@ -93,21 +93,27 @@ def _retyped(value: object, to_type: str, sep: str) -> str | list[str] | None:
     return None
 
 
-def _place_copy(src: Path, dst: Path, link: bool) -> None:
+def _place_copy(src: Path, dst: Path, link: bool) -> str:
     """A copy of `src` at `dst`. With `link`, a hard link wherever the volume
     allows one: the same bytes under a second name, so a file moved onto the
     vault's own drive is never copied — and the original still exists until
-    whoever asked for the move deletes it.
+    whoever asked for the move deletes it. Returns why it was copied after
+    all — "" when it was linked.
 
     Never a link to a read-only file: a link shares its attributes, and a
     read-only file in the vault is one no atomic rewrite can replace."""
-    if link and os.access(src, os.W_OK):
+    if not link:
+        why = "a copy was asked for"
+    elif not os.access(src, os.W_OK):
+        why = "the file is read-only"
+    else:
         try:
             os.link(src, dst)
-            return
-        except OSError:
-            pass
+            return ""
+        except OSError as err:
+            why = f"no hard link: {err.strerror or err}"
     shutil.copyfile(src, dst)
+    return why
 
 
 def _free_id(cid: str, taken: set[str]) -> str:
@@ -1337,16 +1343,20 @@ class Library:
 
     def import_entry(self, title_id: str, sources: list[Path], *, num: str, lang: str,
                      group: str, title: str, section: str, date: str, sidecar: dict,
-                     filename: str, link: bool, replace: bool) -> tuple[str, str]:
+                     filename: str, link: bool, replace: bool) -> tuple[str, str, dict]:
         """Store one entry of a folder in a title: a video or an archive as the
         file it is, a folder of images (`sources` are its pages) packed into a
         zip. The originals are only ever read — copied, or hard-linked with
-        `link` — so a move deletes them after this returns, never before.
+        `link` — so a move deletes them after this returns, never before. A
+        file linked in is not read whole for its digest: none of it was read
+        to store it, and Health stamps the digest when it checks.
 
         The identity is taken as given: the plan already ran it through the
         rules, and named a stored entry by the spelling it is stored under.
         Returns the outcome — "added", "replaced", or "exists" when the entry
-        turned up meanwhile and `replace` is off — and the entry's id."""
+        turned up meanwhile and `replace` is off — the entry's id, and how it
+        came in: `linked`, `why` it was copied otherwise, `rewritten` for an
+        episode whose index was moved to its front."""
         root = self.vault.root.resolve()
         for folder in {s.parent for s in sources}:
             if folder.resolve().is_relative_to(root):
@@ -1361,26 +1371,29 @@ class Library:
             held = next((c for c in doc.chapters
                          if n(c.num) == n(num) and n(c.lang) == n(lang) and n(c.group) == n(group)), None)
             if held is not None and not replace:
-                return "exists", held.id
+                return "exists", held.id, {}
             pack = len(sources) != 1 or sources[0].suffix.lower() in media.IMAGE_EXTS
             incoming = self.vault.incoming_path(title_id, ".zip" if pack else sources[0].suffix.lower())
+            how: dict = {"linked": False, "why": "", "rewritten": False}
             try:
                 if pack:
                     media.pack_images(sources, incoming)
+                    how["why"] = "its pages are packed into one zip"
                 else:
-                    _place_copy(sources[0], incoming, link)
+                    how["why"] = _place_copy(sources[0], incoming, link)
+                    how["linked"] = not how["why"]
                 row, _ = self._row_for(doc, num=num, lang=lang, group=group)
                 for f, v in (("title", title), ("section", section), ("date", date)):
                     if v and not getattr(row, f):
                         setattr(row, f, v)
                 stored = self.vault.ingest_chapter_media(title_id, row.id, incoming, sidecar,
-                                                         filename=filename)
+                                                         filename=filename, digest=not how["linked"], told=how)
             except BaseException:
                 incoming.unlink(missing_ok=True)
                 raise
             self._mirror_comicinfo(title_id, doc, row, stored)
             self._recommit(title_id, doc)
-            return ("added" if held is None else "replaced"), row.id
+            return ("added" if held is None else "replaced"), row.id, how
 
     def flush_stored(self, title_id: str, chapter_id: str = "") -> None:
         """Put what a move stored on the disk itself — a chapter's media, or with

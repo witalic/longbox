@@ -232,7 +232,10 @@ of the same name beside it. **Cut from names** takes text out of every title it 
 `[tags]`, `(1080p)` — with `*` standing for any text, and the common brackets a click away.
 
 The preview shows exactly what will be created before anything is written; the run copies or
-moves, keeps what you typed by hand, and skips what an earlier run already stored. Profiles keep
+moves, keeps what you typed by hand, and skips what an earlier run already stored. A move onto the
+library's own drive copies nothing: a file comes in where it is, and its checksum is left to
+Health. The report says how many came in that way, how many had to be copied and why, and how many
+episodes were written whole so they play at once. Profiles keep
 the answer and travel with the library.
 
 ## Titles and their contents

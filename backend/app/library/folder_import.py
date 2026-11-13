@@ -926,6 +926,12 @@ class Report(BaseModel):
     failed: list[Failure] = []
     works: list[WorkDone] = []
     kept: int = 0                 # originals a move could not delete
+    # how a move's files came in: linked in place (none of their bytes read or
+    # written), or copied after all — the first reason why
+    inPlace: int = 0
+    copied: int = 0
+    copiedWhy: str = ""
+    rewritten: int = 0            # episodes whose index was moved to the front: written whole
     stopped: bool = False
     paused: bool = False          # stopped to be carried on (routers/imports.py)
 
@@ -1046,10 +1052,10 @@ def _store(lib: Library, s: Scan, tid: str, wp: WorkPlan, ep: EntryPlan, e: _Ent
     sidecar = {"importedFrom": IMPORTED_FROM, "origDir": wp.where, "origPath": e.rel, "origSize": e.size,
                "downloadedAt": report.at}
     try:
-        outcome, cid = lib.import_entry(tid, sources, num=ep.num, lang=ep.lang, group=ep.group,
-                                        title=ep.title, section=ep.section, date=ep.date,
-                                        sidecar=sidecar, filename=filename, link=move,
-                                        replace=ep.state == "replace")
+        outcome, cid, how = lib.import_entry(tid, sources, num=ep.num, lang=ep.lang, group=ep.group,
+                                             title=ep.title, section=ep.section, date=ep.date,
+                                             sidecar=sidecar, filename=filename, link=move,
+                                             replace=ep.state == "replace")
     except Exception as err:  # noqa: BLE001 — a file that fails is reported, and the run goes on
         report.failed.append(Failure(path=ep.path, reason=str(err) or type(err).__name__))
         return
@@ -1057,6 +1063,12 @@ def _store(lib: Library, s: Scan, tid: str, wp: WorkPlan, ep: EntryPlan, e: _Ent
         report.skipped += 1
         return
     wd.added += 1
+    report.rewritten += bool(how.get("rewritten"))
+    if move and how.get("linked"):
+        report.inPlace += 1
+    elif move:
+        report.copied += 1
+        report.copiedWhy = report.copiedWhy or how.get("why", "")
     if outcome == "replaced":
         report.replaced += 1
     else:

@@ -1044,7 +1044,7 @@ class Vault:
                           json.dumps(sidecar, indent=2, ensure_ascii=False).encode("utf-8"))
 
     def ingest_chapter_media(self, title_id: str, chapter_id: str, src: Path, sidecar: dict,
-                             *, filename: str = "") -> Path:
+                             *, filename: str = "", digest: bool = True, told: dict | None = None) -> Path:
         """Move a downloaded/imported file into the vault and write its sidecar.
 
         PAGE media becomes `<stem>.zip`: zip content (incl. cbz) moves as-is,
@@ -1053,7 +1053,9 @@ class Vault:
         media is stored as the file itself under the extension its bytes give
         it (`media.video_ext_of`) — an episode gains nothing from a zip and
         would pay a full rewrite for every edit; one that is no video raises.
-        The sidecar always describes the file actually stored.
+        The sidecar always describes the file actually stored. `digest`: off
+        for a file that arrived without being read (a hard link) — Health
+        stamps it later; `told` gets `rewritten` when an index was moved.
         """
         arrived_as = Path(filename or src.name).name
         named = Path(arrived_as).suffix.lower()
@@ -1108,6 +1110,8 @@ class Vault:
             if as_video and video_ext in media.FASTSTART_EXTS and not facts["faststart"]:
                 if media.remux_faststart(final):
                     facts = media.probe_video(final)
+                    if told is not None:
+                        told["rewritten"] = True
             sidecar = {**sidecar,
                        # The vault renames every file to the chapter's id, so
                        # this is the only record of what the episode or chapter
@@ -1120,8 +1124,9 @@ class Vault:
                        "size": final.stat().st_size,
                        # taken HERE, while the file is still warm from being
                        # written — the same read after the fact costs a full
-                       # pass over a network vault
-                       "sha256": media.digest_of(final),
+                       # pass over a network vault; a file linked in was never
+                       # read, and is left to Health
+                       **({"sha256": media.digest_of(final)} if digest else {}),
                        # what the chapter SHOWS, for finding the same content
                        # stored twice — see media.content_digest
                        "content": media.content_digest(final),
