@@ -15,7 +15,7 @@ import { api, type CheckReport, type HistoryEntry } from '../api'
 import { openTitle, store } from '../store'
 import { askConfirm } from '../confirm'
 import { isBoolMap, readLocal, writeLocal } from '../local'
-import { ago, bytes as mb } from '../data'
+import { ago, bytes } from '../data'
 
 const props = defineProps<{
   activeOp: string; done: number; total: number
@@ -91,7 +91,7 @@ async function sweep() {
   if (!left?.files) return
   const ok = await askConfirm({
     title: `Delete ${left.files} leftover files`, danger: true, okLabel: 'Delete',
-    message: `These ${left.files} files (${mb(left.bytes)}) belong to no entry — nothing in the `
+    message: `These ${left.files} files (${bytes(left.bytes)}) belong to no entry — nothing in the `
       + 'app can open or reach them. Deleting them frees the space and changes nothing you can '
       + 'see. Chapters, records and covers are never touched.',
   })
@@ -123,7 +123,7 @@ const brokenLine = computed(() => {
 const wasteBytes = computed(() =>
   (report.value?.leftovers.bytes ?? 0) + (report.value?.duplicates.bytes ?? 0))
 const wasteLine = computed(() =>
-  (wasteBytes.value ? `${mb(wasteBytes.value)} is being wasted` : 'Nothing is being wasted'))
+  (wasteBytes.value ? `${bytes(wasteBytes.value)} is being wasted` : 'Nothing is being wasted'))
 const gapLine = computed(() => {
   const g = report.value?.gaps
   if (!g?.titles) return 'No title has a gap in its numbering'
@@ -211,7 +211,7 @@ function took(seconds: number): string {
       <template v-if="wasteBytes && isOpen('waste')">
         <div v-if="report.leftovers.files" class="srow">
           <span class="sname">Leftovers</span>
-          <span class="ssize">{{ n(report.leftovers.files) }} files · {{ mb(report.leftovers.bytes) }}
+          <span class="ssize">{{ n(report.leftovers.files) }} files · {{ bytes(report.leftovers.bytes) }}
             · in {{ n(report.leftovers.titles) }} titles</span>
           <div class="sacts">
             <button class="btn ghost small" @click="showFiles = !showFiles">
@@ -225,7 +225,7 @@ function took(seconds: number): string {
         </div>
         <div v-if="showFiles && report.leftovers.files" class="files">
           <div v-for="(f, i) in report.leftovers.rows" :key="`${f.titleId}-${i}`">
-            {{ f.title }} / {{ f.name }}<span>{{ mb(f.bytes) }}</span>
+            {{ f.title }} / {{ f.name }}<span>{{ bytes(f.bytes) }}</span>
           </div>
           <div v-if="hidden(report.leftovers.rows.length, report.leftovers.files)" class="dim">
             …and {{ n(hidden(report.leftovers.rows.length, report.leftovers.files)) }} more
@@ -233,7 +233,7 @@ function took(seconds: number): string {
         </div>
         <div v-if="report.duplicates.sets" class="srow">
           <span class="sname">Stored twice</span>
-          <span class="ssize">{{ n(report.duplicates.sets) }} sets · {{ mb(report.duplicates.bytes) }}</span>
+          <span class="ssize">{{ n(report.duplicates.sets) }} sets · {{ bytes(report.duplicates.bytes) }}</span>
         </div>
         <div v-if="report.duplicates.sets" class="list">
           <template v-for="g in report.duplicates.groups" :key="g.sha256">
@@ -241,7 +241,7 @@ function took(seconds: number): string {
                     @click="go(c.titleId)">
               <span class="aname">{{ c.title }}</span>
               <span class="aentry">{{ entryOf(c) }}</span>
-              <span class="awhat">{{ mb(g.size) }}</span>
+              <span class="awhat">{{ bytes(g.size) }}</span>
               <Icon name="chevron" :size="10" :sw="2.4" class="ago" />
             </button>
           </template>

@@ -120,8 +120,9 @@ library/
   the vault open now (`PARTIAL_DIR` records in `routers/downloads.py`), so a moved vault, or one
   opened under another drive letter, works as it is. The app's folder on this computer keeps `config.json` —
   the registered vaults and the one opened last — and, for a vault that keeps its sign-ins on each
-  computer, that vault's browser profile (`browsers/<vault id>/`, design/sign-ins.md): the one
-  exception, and the user's choice. Chromium's own default profile
+  computer, that vault's browser profile (`browsers/<vault id>/`, design/sign-ins.md) and its marker
+  (`browsers/<vault id>.json`: the vault it was last used for, and a change of place this computer
+  owes it until it next opens the vault): the one exception, and the user's choice. Chromium's own default profile
   and crash dumps are pointed at the system's temporary folder. What an older build kept in the
   app's folder moves once into the first vault this build opens: the shell copies the browser
   profile, the ad blocker and partial transfers (`vaults.legacyPlan`), hands the window's old

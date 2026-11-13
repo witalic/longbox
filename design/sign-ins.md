@@ -1,7 +1,8 @@
 # longbox — where sign-ins live
 
 Status: **built** (3.5.0) — mockup `design/sign-ins-mockup.html`, approved by the owner with D1
-and D2 as proposed.
+and D2 as proposed. §4 was made exact after an independent review: the vault's answer names only a
+profile that is in place, and a change waits on the computer that asked for it.
 
 ## 1. Why
 
@@ -27,14 +28,28 @@ choice is **where the profile lives**, and that covers site storage too, not onl
 
 Each vault on a computer has a profile of its own: the folder is named by the vault's **id** (the
 random one in its `vault.json`), never by its path — a vault opened from another drive letter or a
-share keeps its sign-ins, and two vaults never share a profile. (A vault folder copied to start a
-second vault carries the same id, so on one computer the two would share their sign-ins; a vault
-restored from a backup is the same vault, and that is right for it.)
+share keeps its sign-ins.
+
+**A copy.** A vault folder copied to start a second vault carries the same id. A computer's profile
+for an id is the vault's whose folder its marker (`<app folder>/browsers/<vault id>.json`, §4)
+names: that folder by any path (a probe file written here shows up there — a drive letter and its
+share are one folder), or one the vault is no longer in (what it was on answers, the vault is not
+there: it moved, or was restored from a backup). Otherwise — the other folder answers with the
+same id, or cannot be asked now — the profile may be the other folder's, and nothing of it is ever
+taken, replaced or removed:
+
+- a vault that does not keep its sign-ins on each computer takes an id of its own — no computer
+  keeps sign-ins for it by the old one, so none loses them by it;
+- one that does shares this computer's profile with the other folder, as two copies would, and
+  Settings → Browser says so and does not move it (a new id would cost every other computer its
+  sign-ins for the vault).
 
 The choice belongs to the vault, so every computer that opens it does the same: it is kept in
-`.longbox/browser.json` (`{ "schema": 1, "keep": "vault" | "computer" }`), the shell's own file,
-read before the browser opens. **The app never chooses for the user:** both answers are offered
-with equal weight, and nothing is preselected.
+`.longbox/browser.json` (`{ "schema": 1, "keep": "vault" | "computer", "rev": "<new each write>" }`),
+the shell's own file, read before the browser opens. It only ever names a profile that is in place
+(§4). Lost (the file gone while a computer keeps the sign-ins for the vault), it is that computer's
+answer again, not a question. **The app never chooses for the user:** both answers are offered with
+equal weight, and nothing is preselected.
 
 ## 3. When it is asked
 
@@ -51,16 +66,43 @@ with equal weight, and nothing is preselected.
 ## 4. The move
 
 At start, in the launch window, before the browser opens — the same mechanism as the one-time move
-of 3.0 (shell/vaults.js): the profile is copied beside its destination, renamed into place when
-the copy is whole, and only then removed from where it was. A copy that fails stops there; the app
-does not open with half a profile, and **Try again** starts it over. The window shows the progress.
+of 3.0 (shell/vaults.js), in this order:
+
+1. the profile is copied beside its destination and renamed into place when the copy is whole;
+2. only then is the vault's answer written;
+3. then the old profile is removed.
+
+**A change is the computer's that asked for it** until it is made. The answer to the question at
+start is held in memory; a change in Settings waits in this computer's marker
+(`browsers/<vault id>.json`, `{ path, owe, against }`) for the next time this computer opens the
+vault. Another computer that opens the vault meanwhile — the lock lets one at a time — acts on the
+answer as it was. A change is made only against the answer it was asked of (`against`, the
+answer's `rev`): written again since on another computer, the latest answer stands, nothing moves,
+and the launch window says so. Cut short anywhere, the next start finds the same change owed and
+carries it on: before step 2 it copies again (the profile in use was never touched); after it,
+only the removal is left. A step that fails stops there; the app does not open with half a
+profile. **Try again** works out what is left; **Keep them where they are** lets a change go (the
+vault opens as it was), and a removal that fails can be left for the next start. The window shows
+the progress.
+
+A vault opened with **Open anyway** — in use on another computer, its profile perhaps open there —
+moves and removes nothing: the start uses what the answer names, and what is owed waits.
+
+What an older build kept on this computer (the one-time move of 3.0) goes where the answer says,
+once it is settled: a vault that keeps its sign-ins on each computer never holds them, even for a
+moment.
+
+With nothing owed, a profile where the answer says none belongs is removed: one in a vault that
+keeps its sign-ins on each computer (an older build left it, or a move stopped after step 2) is
+never adopted, whatever computer finds it; one on a computer whose vault keeps them in the vault is
+D1.
 
 - What moves is the sign-ins and site data. **The caches are deleted, not moved:** once the copy
   is whole, the old profile is removed entirely, its caches with it, and nothing of it is left
   where it was. The new place starts with an empty cache, which refills as pages are opened.
 - **vault → computer:** `<vault>/.longbox/browser/` → `<app folder>/browsers/<vault id>/`.
-- **computer → vault:** the reverse. The vault cannot already hold a profile then: moving out
-  removed it.
+- **computer → vault:** the reverse. Whatever the vault holds then is no one's (an older build
+  made it) and the copy replaces it.
 - A computer that opens a vault keeping sign-ins **on each computer**, with no profile of its own
   for it yet, starts with an empty one — the sites ask to sign in.
 
@@ -84,8 +126,10 @@ the vaults that keep their sign-ins on each computer.
 
 The first tests of the shell beyond the update check (`node:test`, run in CI):
 
-- the move: planned, copied, renamed into place; a copy that fails leaves the source whole; caches
-  skipped;
+- the move: planned, copied, renamed into place, answered, the old one removed; a copy that fails
+  leaves the source whole; caches skipped; a move cut short before or after the answer; two
+  computers' app folders against one vault, the other opening first; a copied vault told apart
+  from the same vault by another path;
 - `browser.json`: absent means asked; a newer schema is read, never written;
 - the vault's checks and its lock (`shell/vaults.js`): what answers, what is a vault, a lock left
   by this computer, a lock held by another.

@@ -24,10 +24,14 @@ contextBridge.exposeInMainWorld('longbox', {
   // global embedded-browser hygiene: 'cookies' (site cookies; the app's own
   // auth cookie survives) or 'cache' (HTTP cache)
   clearBrowsing: (what) => ipcRenderer.invoke('lb-clear-browsing', String(what || '')),
-  // where this vault's sign-ins live ({ keep, here: 'vault' | 'computer', data,
-  // cache } — the answer, where the profile in use is, its bytes); changing it (restart: at once, else on the next start);
-  // and this computer's sign-ins for a vault being forgotten (how many profiles went)
+  // where this vault's sign-ins live ({ here: 'vault' | 'computer', owe, writable,
+  // shared } — where the profile in use is, the move this computer owes, whether
+  // this build may change it, the other folder that may use it too) and what the
+  // profile holds ({ data, cache } in bytes);
+  // changing it (restart: at once, else on the next start); and this computer's
+  // sign-ins for a vault being forgotten (how many profiles went)
   signins: () => ipcRenderer.invoke('lb-signins'),
+  signinsSizes: () => ipcRenderer.invoke('lb-signins-sizes'),
   setSignins: (keep, restart) => ipcRenderer.invoke('lb-signins-set', { keep: String(keep || ''), restart: !!restart }),
   forgetSignins: (root) => ipcRenderer.invoke('lb-signins-forget', String(root || '')),
   // a release of longbox newer than this one? ({ ok, latest, newer, published,

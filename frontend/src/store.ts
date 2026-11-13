@@ -15,7 +15,7 @@ import {
   type ReaderPrefs, type ReadState, type Source, type Title, type TitleCard,
 } from './data'
 import {
-  flushPrefs, isBoolMap, isRecord, localKeys, readLocal, readLocalOne, removeLocal, writeLocal, writeLocalOne,
+  isBoolMap, isRecord, localKeys, readLocal, readLocalOne, removeLocal, writeLocal, writeLocalOne,
 } from './local'
 import { stopCaptureFor } from './pagecapture'
 import { adoptChildren, forgetOpeners, inStripOrder, insertionIndex, nextAfterClose, type Opening } from './tabstrip'
@@ -1592,8 +1592,8 @@ export async function refreshTotal() {
 
 // ---- the vault (design/vault-home.md) ----------------------------------------
 //
-// Everything the app keeps lives in the vault it serves, the browser's profile
-// included — so opening another vault is a restart into it, made by the shell.
+// Everything the app keeps lives in the vault it serves — so opening another
+// vault is a restart into it, made by the shell (restart.ts).
 // While the vault does not answer the window is covered (VaultLost.vue): the
 // sidecar refuses every request, and the shell restarts the app into the vault
 // the moment it answers again. Lost is the sidecar's watch to say (two answers
@@ -1604,31 +1604,6 @@ export function watchVault() {
   window.longbox?.onVault((v) => {
     if (v.state === 'lost') Object.assign(vault, { lost: true, since: v.since, path: v.path, name: v.name, share: v.share })
   })
-}
-
-// Opening another vault: asked first, refused while a pass writes into this one
-// (the restart would cut it off mid-way), and the window's last preferences
-// reach this vault before it goes.
-export async function switchVault(path: string): Promise<boolean> {
-  if (!window.longbox) return false
-  if (vaultPass.running) {
-    store.error = `${vaultPass.op || 'a vault pass'} is running — let it finish first`
-    return false
-  }
-  const name = vaultName(path)
-  const here = vaultName(vault.path || store.libraryPath)
-  const held = store.tabs.find((t) => t.hold)
-  const moving = runningDownloads().length
-  const ok = await askConfirm({
-    title: `Switch to ${name}?`, okLabel: `Restart into ${name}`, danger: !!held,
-    message: `longbox restarts into ${path}. Its titles, recipes, settings and the browser's sign-ins `
-      + `come with it; ${here}'s stay in ${here}.`
-      + (moving ? ` ${moving} download${moving === 1 ? '' : 's'} in progress stop, to be picked up when ${here} is open again.` : '')
-      + (held ? ` ${held.hold}` : ''),
-  })
-  if (!ok) return false
-  await flushPrefs()
-  return window.longbox.switchVault(path)
 }
 
 export const vaultName = (path: string): string => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path

@@ -19,18 +19,22 @@ declare global {
     create: { parent: string; name: string; check: LauncherCheck | null } | null
     notvault: { path: string; empty: boolean } | null
     // `kind`: what is moving — this computer's data into the vault (3.0), or a
-    // vault's sign-ins toward 'computer' or 'vault'; 'drop': a leftover removed
-    move: { kind: 'legacy' | 'computer' | 'vault' | 'drop'; name?: string;
+    // vault's sign-ins toward 'computer' or 'vault'; what failed, on
+    // 'movefailed': 'drop' (an old profile's removal), 'save' (where they live),
+    // 'look' (finding them). `skip`: the way past a failed sign-ins step —
+    // 'keep' lets the change go, 'later' leaves what is left for the next start
+    move: { kind: 'legacy' | 'computer' | 'vault' | 'drop' | 'save' | 'look'; name?: string; skip?: 'keep' | 'later';
       parts: { what: string; done: number; total: number }[] } | null
     // the vault being asked where its sign-ins live; `sizes`: undefined while
     // measured, null when it has no profile yet
     signins: { name: string; path: string; sizes?: { data: number; cache: number } | null } | null
-    // a line the starting screen says (a leftover profile that was removed)
+    // a line the starting screen says (a leftover profile that was removed, a
+    // copied vault given sign-ins of its own)
     notice: string
     error: string
   }
   type LauncherAct = 'retry' | 'quit' | 'open' | 'choose' | 'anyway' | 'create' | 'create-parent' | 'create-name'
-    | 'create-go' | 'back' | 'signins-vault' | 'signins-computer'
+    | 'create-go' | 'back' | 'signins-vault' | 'signins-computer' | 'skip'
   interface Window {
     launcher?: {
       state: () => Promise<LauncherState | null>

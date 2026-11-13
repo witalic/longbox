@@ -6,6 +6,7 @@ import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
 import { store } from '../store'
 import { askChoice, askConfirm } from '../confirm'
+import { restart, restartRefused, restartStops } from '../restart'
 import { bytes } from '../data'
 
 const homepage = defineModel<string>('homepage', { default: '' })
@@ -23,18 +24,33 @@ async function saveHomepage() {
   } catch { /* the field keeps what was typed */ }
 }
 
-// Where this vault's sign-ins live (design/sign-ins.md). The answer changes now;
-// the profile moves on the next start, before the browser opens it.
+// Where this vault's sign-ins live (design/sign-ins.md). A change is this
+// computer's own until it next opens the vault: the profile moves before the
+// browser opens it, and only then does the vault's answer change.
 type Place = 'vault' | 'computer'
-const signins = ref<{ keep: Place | null; here: Place; data: number; cache: number } | null>(null)
-onMounted(async () => { signins.value = (await window.longbox?.signins?.()) ?? null })
+const signins = ref<{ here: Place; owe: Place | null; writable: boolean; shared: string } | null>(null)
+const signinsError = ref('')
+const signinsBusy = ref(false)
+onMounted(async () => {
+  try {
+    signins.value = (await window.longbox?.signins?.()) ?? null
+  } catch (e) {
+    signinsError.value = `Where the sign-ins live could not be read: ${e instanceof Error ? e.message : String(e)}`
+  }
+})
 const PLACE = { vault: 'In the vault', computer: 'On this computer' } as const
+const NEWER = 'A newer longbox chose this for the vault; this one cannot change it.'
 const signinsHint = computed(() => {
   const s = signins.value
   if (!s) return ''
-  if (s.keep && s.keep !== s.here) {
-    return s.keep === 'computer' ? 'They move to this computer when longbox next starts.'
-      : 'They move into the vault when longbox next starts.'
+  if (s.owe) {
+    return s.owe === 'computer' ? 'They move to this computer the next time longbox opens this vault here.'
+      : 'They move into the vault the next time longbox opens this vault here.'
+  }
+  if (!s.writable) return NEWER
+  if (s.shared) {
+    return `This computer keeps them for ${s.shared} too — a copy of this vault, or this one by a path that does `
+      + 'not answer now — so they are not moved from here.'
   }
   return s.here === 'vault'
     ? 'They travel with the vault to every computer that opens it, and whoever can read its folder can use them.'
@@ -42,28 +58,51 @@ const signinsHint = computed(() => {
 })
 async function changeSignins() {
   const s = signins.value
-  if (!s || !window.longbox) return
-  const keep = s.keep ?? s.here
-  // a move that waits for the next start is taken back without one
-  if (keep !== s.here) {
-    if (await window.longbox.setSignins(s.here, false)) signins.value = { ...s, keep: s.here }
-    return
+  const shell = window.longbox
+  if (!s || !shell || signinsBusy.value) return
+  signinsError.value = ''
+  signinsBusy.value = true
+  try {
+    // a move still owed is taken back without one
+    if (s.owe) {
+      if (await shell.setSignins(s.here, false)) signins.value = { ...s, owe: null }
+      return
+    }
+    const to: Place = s.here === 'vault' ? 'computer' : 'vault'
+    const size = await shell.signinsSizes()
+    const moves = size ? ` (${bytes(size.data)})` : ''
+    const cache = size ? ` (${bytes(size.cache)})` : ''
+    // a pass running in the vault: the move waits for the next start, which does not cut it off
+    const refused = restartRefused()
+    const stops = restartStops('after the restart')
+    const answer = await askChoice({
+      title: to === 'computer' ? "Keep this vault's sign-ins on this computer?" : "Keep this vault's sign-ins in the vault?",
+      message: (to === 'computer'
+        ? 'The next time longbox opens this vault here, the sign-ins and site data move from the vault into '
+          + `longbox's folder on this computer${moves}, and the vault keeps none of them. Other computers that open `
+          + 'it sign in on their own. Copies made before — backups, snapshots, a synced folder\'s history — still '
+          + 'hold them; signing out of a site ends those sessions.'
+        : 'The next time longbox opens this vault here, the sign-ins and site data move from this computer into the '
+          + `vault${moves}, and every computer that opens it uses them — whoever can read the vault can use them too. `
+          + 'Another computer that kept its own sign-ins for this vault removes them the next time it opens it.')
+        + ` The browser's cache${cache} is deleted, not moved — it refills.`
+        + (refused ? ` ${refused[0].toUpperCase()}${refused.slice(1)}: the move waits for the next start.`
+          : stops.text ? ` Restart now:${stops.text}` : ''),
+      ...(refused ? { okLabel: 'On the next start' }
+        : { altLabel: 'On the next start', okLabel: 'Restart now', danger: stops.danger }),
+    })
+    if (!answer) return
+    const now = answer === 'ok' && !refused
+    if (await (now ? restart(() => shell.setSignins(to, true)) : shell.setSignins(to, false))) {
+      signins.value = { ...s, owe: to }
+    } else {
+      signinsError.value = NEWER
+    }
+  } catch (e) {
+    signinsError.value = `The change was not saved: ${e instanceof Error ? e.message : String(e)}`
+  } finally {
+    signinsBusy.value = false
   }
-  const to: Place = keep === 'vault' ? 'computer' : 'vault'
-  const answer = await askChoice({
-    title: to === 'computer' ? "Keep this vault's sign-ins on this computer?" : "Keep this vault's sign-ins in the vault?",
-    message: (to === 'computer'
-      ? "When longbox next starts, the sign-ins and site data move from the vault into longbox's folder on this "
-        + `computer (${bytes(s.data)}), and the vault keeps none of them. Other computers that open it sign in `
-        + 'on their own.'
-      : 'When longbox next starts, the sign-ins and site data move from this computer into the vault '
-        + `(${bytes(s.data)}), and every computer that opens it uses them — whoever can read the vault can use `
-        + 'them too.')
-      + ` The browser's cache (${bytes(s.cache)}) is deleted, not moved — it refills.`,
-    altLabel: 'On the next start', okLabel: 'Restart now',
-  })
-  if (!answer) return
-  if (await window.longbox.setSignins(to, answer === 'ok')) signins.value = { ...s, keep: to }
 }
 
 async function clearBrowsing(what: 'cookies' | 'cache') {
@@ -86,12 +125,14 @@ async function clearBrowsing(what: 'cookies' | 'cache') {
 
 <template>
   <section class="card">
-    <div v-if="signins" class="row">
+    <div v-if="signins || signinsError" class="row">
       <div class="text">
-        <div class="label">Sign-ins and site data <span class="where">{{ PLACE[signins.here] }}</span></div>
+        <div class="label">Sign-ins and site data <span v-if="signins" class="where">{{ PLACE[signins.here] }}</span></div>
         <div class="hint">{{ signinsHint }}</div>
+        <div v-if="signinsError" class="hint err">{{ signinsError }}</div>
       </div>
-      <button class="btn" @click="changeSignins">{{ signins.keep && signins.keep !== signins.here ? 'Keep them where they are' : 'Change…' }}</button>
+      <button v-if="signins" class="btn" :disabled="signinsBusy || (!signins.owe && (!signins.writable || !!signins.shared))"
+              @click="changeSignins">{{ signins.owe ? 'Keep them where they are' : 'Change…' }}</button>
     </div>
     <div class="row">
       <div class="text">
@@ -124,5 +165,6 @@ async function clearBrowsing(what: 'cookies' | 'cache') {
 </template>
 
 <style scoped>
+.hint.err { color: var(--warn); }
 .label .where { margin-left: 8px; font: 600 11px/1 system-ui; padding: 4px 8px; border-radius: 999px; background: var(--accentSoft); color: var(--accent); vertical-align: 1px; }
 </style>

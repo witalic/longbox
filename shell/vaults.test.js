@@ -69,6 +69,20 @@ test('a vault is made with an id of its own', async (t) => {
   assert.notEqual(other.id, doc.id)
 })
 
+test('a vault keeps its id; one without is given one, and a copy is given a new one — the rest of vault.json kept', async (t) => {
+  const v = path.join(base(t), 'v')
+  fs.mkdirSync(v)
+  const file = path.join(v, 'vault.json')
+  fs.writeFileSync(file, JSON.stringify({ id: 'kept-as-it-is', zipNormalized: 2 }))
+  assert.equal(await vaults.ensureIdentity(v), 'kept-as-it-is')
+  fs.writeFileSync(file, JSON.stringify({ id: '', zipNormalized: 2 }))
+  const given = await vaults.ensureIdentity(v)
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { id: given, zipNormalized: 2 })
+  const renewed = await vaults.renewIdentity(v)
+  assert.notEqual(renewed, given)
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { id: renewed, zipNormalized: 2 })
+})
+
 test('whose lock it is', () => {
   const host = os.hostname()
   const now = new Date().toISOString()

@@ -6,6 +6,7 @@
 // window — a page of the frontend build, loaded from disk (there is no sidecar
 // to serve it yet), talking to the shell over launcher-preload.js.
 const { BrowserWindow, app, dialog, ipcMain, nativeTheme } = require('electron')
+const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const profile = require('./profile')
@@ -22,6 +23,7 @@ let token = 0          // the attempt in flight; a newer one makes the older sta
 let anyway = false     // the human said to open a vault that is in use
 let settle = null      // resolves `choose` with the vault that opened (and what lets it go)
 let retryMove = null   // the failed move's "Try again"
+let skipMove = null    // and the way past it, when a sign-ins step has one
 let answerSignins = null // the sign-ins question's answer, while it is asked
 
 function push() {
@@ -172,6 +174,10 @@ function wire() {
       retryMove()
       return state
     }
+    if (act === 'skip' && skipMove) {
+      skipMove()
+      return state
+    }
     if ((act === 'signins-vault' || act === 'signins-computer') && answerSignins) {
       answerSignins(act === 'signins-vault' ? 'vault' : 'computer')
       return state
@@ -279,60 +285,137 @@ async function moving(plan, { uiDir, icon }) {
   }
 }
 
-// Where this vault's sign-ins live (design/sign-ins.md). A vault that has not
-// answered is asked — before the browser opens, nothing chosen for the human —
-// and then whatever the answer asks of the disk is done: the profile moved, or
-// a leftover removed. A step that fails says so, and "Try again" works out
-// afresh what is left to do. Returns the folder the browser's profile is in.
+// Where this vault's sign-ins live (design/sign-ins.md), settled before the
+// browser opens. A vault that has not answered is asked — nothing chosen for the
+// human — and a change this computer owes it (Settings → Browser) is made: the
+// profile moved, then the vault's answer written, then the old one removed; a
+// leftover profile is removed too. A step that fails says so: "Try again" works
+// out afresh what is left, and the change can be let go instead, or a removal
+// left for the next start. Returns the profile's folder, the id that names it
+// here, and — when it may be another folder's too — that folder (`shared`).
 async function signins(root, { uiDir, icon }) {
   const name = vaults.nameOf(root)
-  const id = await profile.vaultId(root)
   const home = app.getPath('userData')
-  let { keep } = await profile.readChoice(root)
-  if (!keep) {
-    // `sizes`: undefined while measuring, null when there is no profile yet
-    set({ screen: 'signins', error: '', signins: { name, path: root, sizes: undefined } })
-    show(uiDir, icon)
-    void profile.sizes(profile.vaultDir(root)).then((sizes) => {
-      if (state.screen === 'signins') set({ signins: { ...state.signins, sizes } })
-    }, () => {})
-    keep = await new Promise((resolve) => { answerSignins = resolve })
-    answerSignins = null
-    await profile.writeChoice(root, keep)
-    set({ screen: 'starting' })
+  const ui = { uiDir, icon }
+  await profile.sweepProbes(root)
+  let id = await profile.vaultId(root)
+  const choice = await profile.readChoice(root)
+  let { keep } = choice
+  const here = () => profile.localDir(home, id)
+  const dirOf = () => (keep === 'computer' ? here() : profile.vaultDir(root))
+  // opened anyway, the vault is in use elsewhere and its profile may be open
+  // there: nothing is moved, removed or asked — the start uses what the answer
+  // names, and what is owed waits for a start of its own
+  if (anyway) return { dir: dirOf(), id, shared: '' }
+  let mark = await profile.readMarker(home, id)
+  // whether this computer's profile for the id is this vault's, not another
+  // folder's with the same id (a copy): never taken, replaced or removed if not
+  let ours = await profile.mine(root, mark, id)
+  if (!ours && keep !== 'computer') {
+    // a vault that does not keep its sign-ins on each computer takes an id of
+    // its own: no computer keeps sign-ins for it by the old one, so none loses
+    // them by it. One that does shares this computer's, as two copies would.
+    await vaults.renewIdentity(root)
+    id = await profile.vaultId(root)
+    mark = null
+    ours = true
   }
-  let moved = false
-  for (;;) {
-    const p = await profile.plan({ root, home, id, keep })
-    if (!p) break
-    try {
-      if (p.kind === 'move') {
-        await moveProfile(p, name, { uiDir, icon })
-        moved = true
-      } else {
-        await profile.drop(p)
-        // finishing a move this start began needs no word; anything else does
-        if (!moved) {
-          set({ screen: 'starting', notice: p.where === 'computer'
-            ? `${name} keeps its sign-ins in the vault now, so this computer's own copy for it was removed.`
-            : `${name} keeps its sign-ins on each computer, so the browser profile left in the vault was removed.` })
-          show(uiDir, icon)
-        }
-      }
-    } catch (err) {
-      set({ screen: 'movefailed', error: err.message, move: { kind: p.kind === 'move' ? p.toward : 'drop', name, parts: [] } })
+  let { owe, stale } = ours ? profile.owed(mark, choice) : { owe: null, stale: false }
+  if (stale) {
+    say(`${name}'s sign-ins were not moved: the vault's answer was changed on another computer since this one `
+      + 'asked.')
+  }
+  if (!keep && !owe) {
+    if (!choice.writable) {
+      throw new Error(`${name} says where its sign-ins live in a way only a newer longbox reads — update longbox to `
+        + 'open it')
+    }
+    if (ours && fs.existsSync(here())) {
+      // the vault's answer was lost (its browser.json), and this computer keeps
+      // its sign-ins: so it keeps them on each computer
+      while (await once(name, ui, 'later', async () => { keep = await profile.take({ kind: 'answer', keep: 'computer' },
+        { root, keep }) }, () => ({ kind: 'answer' })) === 'retry') { /* again */ }
+    } else {
+      // `sizes`: undefined while measuring, null when there is no profile yet
+      set({ screen: 'signins', error: '', signins: { name, path: root, sizes: undefined } })
       show(uiDir, icon)
-      await new Promise((r) => { retryMove = r })
-      retryMove = null
+      void profile.sizes(profile.vaultDir(root)).then((sizes) => {
+        if (state.screen === 'signins') set({ signins: { ...state.signins, sizes } })
+      }, () => {})
+      owe = await new Promise((resolve) => { answerSignins = resolve })
+      answerSignins = null
+      set({ screen: 'starting' })
     }
   }
-  if (keep === 'computer') await profile.remember(home, id, root)
-  return keep === 'computer' ? profile.localDir(home, id) : profile.vaultDir(root)
+  // the steps of this computer's own change need no word; a leftover's removal does
+  const own = !!owe
+  let shown = null // the move's progress, once this start moves the profile
+  for (;;) {
+    let step = null
+    const owing = !!owe && owe !== keep
+    // failing, a change owed can be let go — the profile in use is untouched
+    // until its answer is written — and a removal left for the next start
+    const how = await once(name, ui, owing ? 'keep' : 'later', async () => {
+      step = await profile.next({ root, home, id, keep, owe, mine: ours })
+      if (!step) return
+      if (step.kind === 'move') shown = moving(step, name, ui)
+      const old = step.kind === 'drop' && !step.staged
+      if (old && shown) shown.removing()
+      keep = await profile.take(step, { root, keep }, shown?.progress)
+      if (step.kind === 'move') shown.copied()
+      if (old && shown) shown.removed()
+      if (old && !own) {
+        say(step.where === 'computer'
+          ? `${name} keeps its sign-ins in the vault, so this computer's own copy for it was removed.`
+          : `${name} keeps its sign-ins on each computer, so the browser profile left in the vault was removed.`)
+      }
+    }, () => step)
+    if (how === 'skip' && owing) owe = null
+    else if (how === 'skip' || (how === 'done' && !step)) break
+  }
+  // the marker: what lets Forget find this computer's sign-ins, and the change
+  // owed — cleared now, so it is never made again. Another folder's is left be.
+  if (ours) {
+    while (await once(name, ui, 'later', () => (keep === 'computer'
+      ? profile.writeMarker(home, id, { path: root }) : profile.dropMarker(home, id)),
+    () => ({ kind: 'marker' })) === 'retry') { /* again */ }
+  }
+  return { dir: dirOf(), id, shared: ours ? '' : mark.path }
 }
 
-// The profile's move, shown with its progress: the copy in bytes, then the old
-// profile's removal — caches and all.
-async function moveProfile(p, name, { uiDir, icon }) {
+// A notice on the starting screen, after any said before it: the window is
+// shown for it, and kept up long enough to be read before the app covers it.
+let noticeUntil = 0
+function say(notice) {
+  set({ screen: 'starting', notice: state.notice ? `${state.notice} ${notice}` : notice })
+  show(attempt.uiDir, attempt.icon)
+  noticeUntil = Date.now() + 3500
+}
+
+// One step of the sign-ins: 'done', or — once it failed and the window said so,
+// named by what failed — 'retry' or 'skip', as the human answered. `skip`: what
+// the way past it does ('keep': the change is let go; 'later': what is left
+// waits for the next start). `stepOf`: the step it was at, when it failed.
+async function once(name, { uiDir, icon }, skip, run, stepOf) {
+  try {
+    await run()
+    return 'done'
+  } catch (err) {
+    const step = stepOf()
+    const kind = !step ? 'look' : err.step === 'answer' || step.kind === 'answer' || step.kind === 'marker' ? 'save'
+      : step.kind === 'move' ? step.toward : 'drop'
+    set({ screen: 'movefailed', error: err.message, move: { kind, name, skip, parts: [] } })
+    show(uiDir, icon)
+    const how = await new Promise((r) => { retryMove = () => r('retry'); skipMove = () => r('skip') })
+    retryMove = skipMove = null
+    set({ screen: 'starting' })
+    return how
+  }
+}
+
+// The move, as the window shows it: the copy's progress in bytes, then the old
+// profile's removal, caches and all.
+function moving(p, name, { uiDir, icon }) {
   const parts = [
     { what: 'Sign-ins and site data', done: 0, total: 0 },
     { what: p.toward === 'computer' ? "Removing the vault's old profile, cache included"
@@ -342,18 +425,27 @@ async function moveProfile(p, name, { uiDir, icon }) {
   show(uiDir, icon)
   set({ screen: 'moving', error: '', move: shown() })
   let last = 0
-  await profile.move(p, (step, done, total) => {
-    Object.assign(parts[step === 'copy' ? 0 : 1], { done, total })
-    if (step === 'remove' && !done) Object.assign(parts[0], { done: parts[0].total })
-    if (Date.now() - last < 150 && done < total) return
-    last = Date.now()
-    set({ move: shown() })
-  })
-  set({ screen: 'starting', move: shown() })
+  let old = 0 // the old profile, caches and all
+  return {
+    progress: (done, total, cache) => {
+      Object.assign(parts[0], { done, total })
+      old = total + cache
+      if (Date.now() - last < 150 && done < total) return
+      last = Date.now()
+      set({ move: shown() })
+    },
+    copied: () => { parts[0].done = parts[0].total; set({ screen: 'starting', move: shown() }) },
+    // a total marks the step under way, even for a profile with nothing in it
+    removing: () => { Object.assign(parts[1], { done: 0, total: old || 1 }); set({ screen: 'moving', move: shown() }) },
+    removed: () => { parts[1].done = parts[1].total; set({ screen: 'starting', move: shown() }) },
+  }
 }
 
-function close() {
+// Closed once the app's window is ready — after a notice on it has been read.
+async function close() {
   settle = null
+  const wait = noticeUntil - Date.now()
+  if (wait > 0) await vaults.sleep(wait)
   if (win && !win.isDestroyed()) win.close()
   win = null
 }

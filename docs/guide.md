@@ -51,10 +51,21 @@ has not answered — a new one, or one from before 3.5.0:
 - **On this computer** — they live in longbox's folder on the computer that opened the vault; the
   vault holds none of them, and another computer signs in on its own.
 
-Settings → Browser changes it either way. The move happens on the next start, before the browser
-opens: the sign-ins and site data are copied to the new place, and only then is the old profile
-removed — all of it; the cache is deleted, not moved, and refills. Forgetting a vault in Settings →
+Settings → Browser changes it either way. The move happens the next time this computer opens the
+vault, before the browser opens: the sign-ins and site data are copied to the new place, the
+vault's answer changes only once they are there, and then the old profile is removed — all of it;
+the cache is deleted, not moved, and refills. Until then a computer that opens the vault keeps to
+its answer as it was, and if one changes the answer meanwhile, the latest answer stands. Choosing
+**In the vault** brings this computer's sign-ins into the vault, and another computer that kept its
+own for the vault removes them the next time it opens it. Choosing **On this computer** takes them
+out of the vault from then on; copies made before — backups, snapshots, a synced folder's history —
+still hold them, and signing out of a site ends those sessions. Forgetting a vault in Settings →
 Storage removes this computer's sign-ins for it too.
+
+A vault folder copied to start a second vault carries the first one's identity. A computer never
+lets one of the two take or remove the other's sign-ins: a copy that keeps them in the vault is
+given an identity of its own, and two that both keep them on each computer share this computer's
+(Settings → Browser says so).
 
 **Opening a vault is quick.** The app is served from the index at once and checks behind the
 window only what the index cannot know: title folders added or removed by hand. The whole vault

@@ -1,13 +1,15 @@
 <script setup lang="ts">
 // Where the library lives: its vault (design/vault-home.md). Everything the app
-// keeps is in it — the titles, the recipes, the window's settings, the
-// browser's sign-ins — so opening another one is a restart into it, made by the
-// shell, with every check of a launch. Forgetting one removes the entry, never
-// the files.
+// keeps is in it — the titles, the recipes, the window's settings, and the
+// browser's sign-ins unless it keeps them on each computer — so opening another
+// one is a restart into it, made by the shell, with every check of a launch.
+// Forgetting one removes the entry and this computer's sign-ins for it, never
+// the vault's files.
 import { ref } from 'vue'
 import Icon from './Icon.vue'
 import { api } from '../api'
-import { store, switchVault } from '../store'
+import { store } from '../store'
+import { switchVault } from '../restart'
 import { askConfirm } from '../confirm'
 
 const props = defineProps<{ path: string; titleCount: number; libraries: string[] }>()
@@ -72,8 +74,9 @@ async function forget(p: string) {
       </div>
       <div v-if="error" class="note" style="color:var(--warn)">{{ error }}</div>
       <div class="note">Each vault is a folder of its own: its titles, recipes and settings, and the
-        browser's sign-ins and cache. Opening another restarts the app into it; forgetting one only
-        removes it from this list — files are never touched.
+        browser's sign-ins and cache — unless it keeps those on each computer. Opening another restarts
+        the app into it; forgetting one removes it from this list, with any sign-ins it kept on this
+        computer — the vault's own files are never touched.
         <template v-if="!canOpen">Opening another vault needs the desktop app.</template></div>
     </div>
   </section>

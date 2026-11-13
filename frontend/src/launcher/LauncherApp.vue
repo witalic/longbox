@@ -5,6 +5,7 @@
 // folders are picked through the native dialog, in the shell.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Icon from '../components/Icon.vue'
+import { bytes } from '../data'
 
 const s = ref<LauncherState | null>(null)
 let off: (() => void) | undefined
@@ -52,7 +53,6 @@ function ago(iso?: string): string {
   if (h < 48) return `${h} hour${h === 1 ? '' : 's'} ago`
   return `${Math.round(h / 24)} days ago`
 }
-const mb = (n: number) => `${Math.max(0, Math.round(n / (1024 * 1024)))} MB`
 </script>
 
 <template>
@@ -232,7 +232,6 @@ const mb = (n: number) => `${Math.max(0, Math.round(n / (1024 * 1024)))} MB`
         </div>
       </template>
 
-      <!-- the one-time move of this computer's data -->
       <!-- where this vault's sign-ins live (design/sign-ins.md): nothing chosen for the human -->
       <template v-else-if="s.screen === 'signins' && s.signins">
         <div class="wbody">
@@ -241,7 +240,7 @@ const mb = (n: number) => `${Math.max(0, Math.round(n / (1024 * 1024)))} MB`
           <div class="path"><Icon name="folder" :size="14" /><b class="vname">{{ s.signins.name }}</b><span class="vpath mono">{{ s.signins.path }}</span></div>
           <p>The built-in browser keeps your <b>sign-ins to sites</b>, and what sites store, in a profile.
             Settings → Browser changes where it lives later, either way.</p>
-          <div class="cards">
+          <div class="cards ask">
             <div class="card">
               <h3>In the vault</h3>
               <p>They travel with the vault to every computer that opens it. Whoever can read the vault's folder can use
@@ -254,8 +253,8 @@ const mb = (n: number) => `${Math.max(0, Math.round(n / (1024 * 1024)))} MB`
               <p>Kept in longbox's folder on this computer; the vault holds none of them. Another computer signs in on its
                 own.</p>
               <span v-if="s.signins.sizes === undefined" class="size mono">Measuring what would move…</span>
-              <span v-else-if="s.signins.sizes" class="size mono">Moves {{ mb(s.signins.sizes.data) }} · deletes the
-                {{ mb(s.signins.sizes.cache) }} cache, which refills.</span>
+              <span v-else-if="s.signins.sizes" class="size mono">Moves {{ bytes(s.signins.sizes.data) }} · deletes the
+                {{ bytes(s.signins.sizes.cache) }} cache, which refills.</span>
               <button class="btn" @click="act('signins-computer')">Keep them on this computer</button>
             </div>
           </div>
@@ -267,14 +266,23 @@ const mb = (n: number) => `${Math.max(0, Math.round(n / (1024 * 1024)))} MB`
       <template v-else-if="s.screen === 'movefailed' && s.move && s.move.kind !== 'legacy'">
         <div class="wbody">
           <div class="head"><span class="badge bad"><Icon name="x" :size="18" /></span>
-            <h1>{{ s.move.kind === 'drop' ? 'Removing the old profile did not finish' : `Moving ${s.move.name}'s sign-ins did not finish` }}</h1></div>
-          <p v-if="s.move.kind === 'drop'">The browser does not open until it is gone. Trying again picks up where it stopped.</p>
-          <p v-else>The sign-ins are where they were until the copy is whole, and the browser does not open half-moved.
+            <h1>{{ s.move.kind === 'drop' ? 'Removing the old profile did not finish'
+              : s.move.kind === 'save' ? `Saving where ${s.move.name}'s sign-ins live did not finish`
+              : s.move.kind === 'look' ? `Finding ${s.move.name}'s sign-ins did not finish`
+              : `Moving ${s.move.name}'s sign-ins did not finish` }}</h1></div>
+          <p v-if="s.move.kind === 'drop'">Trying again picks up where it stopped.</p>
+          <p v-else-if="s.move.kind === 'save' || s.move.kind === 'look'">The browser does not open until it is done.
             Trying again picks up where it stopped.</p>
+          <p v-else>The sign-ins stay in use where they were until the copy is whole and in place, and the browser does
+            not open half-moved. Trying again picks up where it stopped.</p>
+          <p v-if="s.move.skip === 'keep'">Or keep them where they are: the vault opens as it was, and the change is
+            not made.</p>
+          <p v-else-if="s.move.skip === 'later'">Or open the vault now, and leave this for its next start.</p>
           <p v-if="s.error" class="err mono">{{ s.error }}</p>
         </div>
         <div class="wfoot">
           <button class="btn accent" @click="act('retry')">Try again</button>
+          <button v-if="s.move.skip" class="btn" @click="act('skip')">{{ s.move.skip === 'keep' ? 'Keep them where they are' : 'Open now' }}</button>
           <span class="sp" /><button class="btn ghost" @click="act('quit')">Quit</button>
         </div>
       </template>
@@ -290,7 +298,7 @@ const mb = (n: number) => `${Math.max(0, Math.round(n / (1024 * 1024)))} MB`
               <span v-else-if="p.total" class="spin" />
               <span v-else class="ring" />
               <span class="what">{{ p.what }}</span>
-              <span class="size mono">{{ i === 0 && p.done && p.done < p.total ? `${mb(p.done)} of ${mb(p.total)}` : mb(p.total) }}</span>
+              <span class="size mono">{{ i === 0 && p.done && p.done < p.total ? `${bytes(p.done)} of ${bytes(p.total)}` : bytes(p.total) }}</span>
               <span v-if="i === 0 && p.done && p.done < p.total" class="pbar"><span :style="{ width: `${(p.done / p.total) * 100}%` }" /></span>
             </div>
           </div>
@@ -299,6 +307,7 @@ const mb = (n: number) => `${Math.max(0, Math.round(n / (1024 * 1024)))} MB`
           <span class="sp" /><button class="btn ghost" @click="act('quit')">Quit</button></div>
       </template>
 
+      <!-- the one-time move of this computer's data (3.0) -->
       <template v-else-if="s.screen === 'movefailed'">
         <div class="wbody">
           <div class="head"><span class="badge bad"><Icon name="x" :size="18" /></span><h1>Moving this computer's data did not finish</h1></div>
@@ -314,14 +323,15 @@ const mb = (n: number) => `${Math.max(0, Math.round(n / (1024 * 1024)))} MB`
       <template v-else-if="s.screen === 'moving' && s.move">
         <div class="wbody">
           <div class="head"><span class="badge acc"><Icon name="download" :size="18" /></span><h1>Moving this computer's data into {{ name }}</h1></div>
-          <p>From now on everything lives in the vault. This happens once; this computer keeps only where your vaults are.</p>
+          <p>From now on everything lives in the vault — the browser's sign-ins where the vault keeps them. This happens
+            once.</p>
           <div class="parts">
             <div v-for="p in s.move.parts" :key="p.what" class="part" :class="{ wait: !p.done && p.total }">
               <Icon v-if="p.done >= p.total" name="check" :size="14" class="ok" />
               <span v-else-if="p.done" class="spin" />
               <span v-else class="ring" />
               <span class="what">{{ p.what }}</span>
-              <span class="size mono">{{ p.done && p.done < p.total ? `${mb(p.done)} of ${mb(p.total)}` : mb(p.total) }}</span>
+              <span class="size mono">{{ p.done && p.done < p.total ? `${bytes(p.done)} of ${bytes(p.total)}` : bytes(p.total) }}</span>
               <span v-if="p.done && p.done < p.total" class="pbar"><span :style="{ width: `${(p.done / p.total) * 100}%` }" /></span>
             </div>
           </div>
@@ -404,7 +414,7 @@ const mb = (n: number) => `${Math.max(0, Math.round(n / (1024 * 1024)))} MB`
 .part.wait .what { color: var(--tx3); }
 .part .spin { width: 12px; height: 12px; }
 .card .size { font-size: 11px; color: var(--tx3); }
-.card .btn { align-self: stretch; }
+.cards.ask .card .btn { align-self: stretch; }
 .path .vname { color: var(--tx); font: 600 12px/1 system-ui; flex: none; }
 .path .vpath { margin-left: auto; color: var(--tx3); font-size: 11px; }
 .notice { border-left: 2px solid var(--accent); padding: 2px 0 2px 10px; font-size: 12px; }

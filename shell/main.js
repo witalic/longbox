@@ -5,7 +5,9 @@
 // as an HttpOnly SameSite=Strict cookie), confirms it reached its own sidecar via
 // the /health identity echo, and loads the UI the sidecar serves at /app/. Locks
 // down navigation, window-open, and permissions. Everything the app keeps lives
-// in the vault (design/vault-home.md): this computer keeps only config.json.
+// in the vault (design/vault-home.md): this computer keeps config.json, and the
+// browser profiles of the vaults that keep their sign-ins on each computer
+// (design/sign-ins.md).
 
 const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, net: electronNet, session, shell } =
   require('electron')
@@ -42,10 +44,11 @@ if (!DEVTOOLS && ['remote-debugging-port', 'remote-debugging-pipe'].some((s) => 
 let APP_META = { name: 'longbox', version: '0.0.0' }
 try { APP_META = { ...APP_META, ...JSON.parse(fs.readFileSync(path.join(ASSETS, 'app-meta.json'), 'utf-8')) } } catch { /* defaults */ }
 
-// The browser's data lives in the vault the app opens (its profile is a session at
-// a path there); Chromium's own default profile, which nothing uses, and its crash
-// dumps go to the system's temporary folder — so the app's folder on this
-// computer holds config.json and nothing else.
+// The browser's data lives where the vault the app opens says (its profile is a
+// session at a path in it, or in the app's folder); Chromium's own default
+// profile, which nothing uses, and its crash dumps go to the system's temporary
+// folder — so the app's folder on this computer holds config.json, and those
+// profiles only.
 app.setPath('sessionData', path.join(app.getPath('temp'), `${app.getName()}-chromium`))
 app.setPath('crashDumps', path.join(app.getPath('temp'), `${app.getName()}-crashes`))
 // The browser says it is the Chrome it is — its pages and every window they open.
@@ -73,6 +76,8 @@ let sidecar = null
 let vaultRoot = ''        // the vault this run serves
 let vaultSession = null   // the embedded browser's profile — in the vault, or on this computer
 let profileDir = ''       // where that profile is (design/sign-ins.md)
+let profileId = ''        // the vault's id, which names its profile on this computer
+let profileShared = ''    // the other folder that profile may be the profile of too (a copy)
 let letGoOfVault = () => {} // drops the vault's lock
 let closeLibrary = async () => {} // asks the sidecar to close its library, once it serves one
 let vaultLost = false     // the vault stopped answering: nothing more is asked of its drive
@@ -491,6 +496,11 @@ async function stopSidecar() {
 // a vault coming back after a drop both end here (design/vault-home.md).
 async function relaunch(extra = []) {
   app.isQuitting = true
+  // what the browser holds in memory reaches its profile before the process goes
+  if (vaultSession) {
+    await vaultSession.cookies.flushStore().catch(() => {})
+    vaultSession.flushStorageData()
+  }
   await stopSidecar()
   const own = (a) => a === '--launcher' || a === '--restore' || a.startsWith('--why=')
   app.relaunch({ args: [...process.argv.slice(1).filter((a) => !own(a)), ...extra] })
@@ -526,9 +536,11 @@ function watchVault(origin, win) {
   }, 3000)
 }
 
-async function main(root, legacy, profileAt) {
+async function main(root, legacy, prof) {
   vaultRoot = root
-  profileDir = profileAt
+  profileDir = prof.dir
+  profileId = prof.id
+  profileShared = prof.shared
   partialHome = path.join(root, vaults.APP_DIR, 'partial-downloads')
   await fs.promises.mkdir(partialHome, { recursive: true })
   // the embedded browser's profile is where the vault says (in it, or on this
@@ -949,28 +961,46 @@ async function main(root, legacy, profileAt) {
   })
 
   // Where this vault's sign-ins live (design/sign-ins.md): Settings → Browser
-  // shows it and changes it; the profile moves on the next start, before the
-  // browser opens it — so a change can restart at once.
+  // shows it and changes it. A change is this computer's own until the next
+  // start makes it — the profile moved, before the browser opens it — so the
+  // vault's answer never names a profile that is not in place.
+  const here = () => (path.resolve(profileDir) === path.resolve(profile.vaultDir(vaultRoot)) ? 'vault' : 'computer')
   ipcMain.handle('lb-signins', async (e) => {
     if (e.sender !== win.webContents) return null
-    const { keep } = await profile.readChoice(vaultRoot)
-    // `here`: where the profile in use is; it differs from `keep` until the next start moves it
-    const here = path.resolve(profileDir) === path.resolve(profile.vaultDir(vaultRoot)) ? 'vault' : 'computer'
-    return { keep, here, ...((await profile.sizes(profileDir).catch(() => null)) || { data: 0, cache: 0 }) }
+    const { writable } = await profile.readChoice(vaultRoot)
+    const owe = profileShared ? null : (await profile.readMarker(app.getPath('userData'), profileId))?.owe ?? null
+    return { here: here(), owe: owe && owe !== here() ? owe : null, writable, shared: profileShared }
+  })
+  // measured only when asked: the walk reads every file of the profile, the
+  // cache's included, and a vault's may be on a network drive
+  ipcMain.handle('lb-signins-sizes', async (e) => {
+    if (e.sender !== win.webContents) return null
+    return vaults.within(15000, profile.sizes(profileDir), profileDir).catch(() => null)
   })
   ipcMain.handle('lb-signins-set', async (e, req) => {
     if (e.sender !== win.webContents || (req?.keep !== 'vault' && req?.keep !== 'computer')) return false
-    await profile.writeChoice(vaultRoot, req.keep)
+    // a profile another folder may use too is not this vault's alone to move, nor its marker to write
+    const choice = await profile.readChoice(vaultRoot)
+    if (!choice.writable || profileShared) return false
+    const home = app.getPath('userData')
+    // taken back, a change owed is no more; the next start clears what is left of it
+    if (req.keep === here()) {
+      if (here() === 'computer') await profile.writeMarker(home, profileId, { path: vaultRoot })
+      else await profile.dropMarker(home, profileId)
+      return true
+    }
+    await profile.writeMarker(home, profileId, { path: vaultRoot, owe: req.keep, against: choice.rev })
     if (req.restart) {
       await interruptAll('the app restarted to move its sign-ins')
       void relaunch()
     }
     return true
   })
-  // forgetting a vault (Settings → Storage) takes this computer's sign-ins for it too
+  // forgetting a vault (Settings → Storage) takes this computer's sign-ins for
+  // it too — never the profile in use, whichever path its marker names
   ipcMain.handle('lb-signins-forget', async (e, root) => {
-    if (e.sender !== win.webContents || typeof root !== 'string' || !root) return 0
-    return profile.forget(app.getPath('userData'), root)
+    if (e.sender !== win.webContents || typeof root !== 'string' || !root || vaults.same(root, vaultRoot)) return 0
+    return profile.forget(app.getPath('userData'), root, profileDir)
   })
 
   // Knowing a release is out (design/update-check.md): one request to GitHub,
@@ -996,10 +1026,10 @@ async function main(root, legacy, profileAt) {
   // the OS window carries the app name ONCE — page titles never override it
   win.webContents.on('page-title-updated', (e) => e.preventDefault())
 
-  win.once('ready-to-show', () => {
+  win.once('ready-to-show', async () => {
+    await launcher.close() // after a notice on it has been read
     win.show()
     windowShown = true
-    launcher.close()
     void adblock.load() // a stale list is fetched and read here, not before the window is up
   })
   watchVault(origin, win)
@@ -1016,10 +1046,11 @@ async function boot() {
     why: why ? decodeURIComponent(why.slice(6)) : '' })
   letGoOfVault = letGo
   try {
-    const legacy = await vaults.legacyPlan(root)
+    // where the sign-ins live is settled first: what an older build kept here goes there
+    const prof = await launcher.signins(root, opts)
+    const legacy = await vaults.legacyPlan(root, prof.dir)
     if (legacy) await launcher.moving(legacy, opts)
-    const profileAt = await launcher.signins(root, opts)
-    await main(root, legacy, profileAt)
+    await main(root, legacy, prof)
   } catch (err) {
     // the vault could not be opened after all: back to the launch window, which
     // says why — never a quiet exit the next launch would repeat

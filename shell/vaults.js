@@ -1,9 +1,9 @@
 'use strict'
 // Where the vaults are, and what the shell asks of one before the app opens it
 // (design/vault-home.md). This computer keeps config.json — the registered
-// vaults and the one opened last — and nothing else; everything the app keeps
-// lives in the vault it serves.
-const { app } = require('electron')
+// vaults and the one opened last — and the browser profiles of the vaults that
+// keep their sign-ins on each computer (profile.js); everything else the app
+// keeps lives in the vault it serves.
 const { execFile } = require('node:child_process')
 const crypto = require('node:crypto')
 const fs = require('node:fs')
@@ -17,6 +17,9 @@ const LOCK_FRESH_MS = 2 * 60 * 1000
 const HEARTBEAT_MS = 30 * 1000
 const WIN = process.platform === 'win32'
 
+// Electron's app, asked for where it is used: the vault's checks run under
+// plain Node in the shell's tests
+const app = () => require('electron').app
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const nameOf = (root) => path.basename(path.resolve(root)) || path.resolve(root)
 const fold = (s) => (WIN ? s.toLowerCase() : s) // file names, as this system compares them
@@ -41,7 +44,7 @@ async function writeAtomic(file, data) {
 
 // ---- config.json ----------------------------------------------------------------
 
-const configFile = () => path.join(app.getPath('userData'), 'config.json')
+const configFile = () => path.join(app().getPath('userData'), 'config.json')
 
 // A file that is there but does not parse is the only record of where the vaults
 // were: it is set aside, never written over, and the app starts as if new.
@@ -90,7 +93,7 @@ function register(root, { last = false } = {}) {
 // (and opened, when nothing else is). One that holds nothing but the files the
 // old build made for itself was never asked for, and goes.
 async function adoptOldDefault() {
-  const old = path.join(app.getPath('userData'), 'library')
+  const old = path.join(app().getPath('userData'), 'library')
   let names
   try { names = await fs.promises.readdir(old) } catch { return }
   const own = new Set(['index.db', 'index.db-wal', 'index.db-shm', 'index.db-journal', 'vault.json', 'health.json'])
@@ -201,19 +204,46 @@ async function createVault(target) {
     JSON.stringify({ id: newId(), created: new Date().toISOString() }, null, 2))
 }
 
-// A vault an older build left with its index and no vault.json (that file came
-// with the one-time passes, and a pass cut short never wrote it) is a vault all
-// the same: it is given its identity before anything is written beside it.
-async function ensureIdentity(root) {
-  const file = path.join(root, VAULT_FILE)
+// vault.json as it reads: `{}` when it is not there or does not parse — a torn
+// file holds nothing worth keeping, markers that make a pass run once more
+// (vault.py, `_meta_to_change`). A read that failed otherwise raises: the write
+// that follows would drop what the file says.
+async function readMeta(root) {
+  let text
   try {
-    await within(8000, fs.promises.stat(file), root)
-    return
+    text = await within(8000, fs.promises.readFile(path.join(root, VAULT_FILE), 'utf8'), root)
   } catch (e) {
-    if (e.code !== 'ENOENT') throw e
+    if (e.code === 'ENOENT') return { meta: {}, missing: true }
+    throw e
   }
-  await within(8000, fs.promises.stat(path.join(root, 'index.db')), root) // not a vault: refused
-  await within(8000, writeAtomic(file, JSON.stringify({ id: newId() }, null, 2)), root)
+  try {
+    const raw = JSON.parse(text)
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) return { meta: raw, missing: false }
+  } catch { /* nothing worth keeping */ }
+  return { meta: {}, missing: false }
+}
+
+async function writeId(root, meta) {
+  const id = newId()
+  await within(8000, writeAtomic(path.join(root, VAULT_FILE), JSON.stringify({ ...meta, id }, null, 2)), root)
+  return id
+}
+
+// The vault's id, which names its sign-ins on a computer (profile.js), is there
+// before anything is written beside it. A vault an older build left with only
+// its index, or a vault.json from before vaults had an id (the one-time passes'
+// markers alone), is a vault all the same: it is given one, its other keys kept.
+async function ensureIdentity(root) {
+  const { meta, missing } = await readMeta(root)
+  if (typeof meta.id === 'string' && meta.id) return meta.id
+  if (missing) await within(8000, fs.promises.stat(path.join(root, 'index.db')), root) // not a vault: refused
+  return writeId(root, meta)
+}
+
+// A copy of a vault, found to be one (profile.js, `copyOf`), is given an id of
+// its own: the two never share sign-ins on a computer.
+async function renewIdentity(root) {
+  return writeId(root, (await readMeta(root)).meta)
 }
 
 // ---- the lock: one app per vault ---------------------------------------------------
@@ -249,7 +279,7 @@ function lockState(lock) {
   return Number.isFinite(seen) && Date.now() - seen < LOCK_FRESH_MS ? 'held' : 'left'
 }
 
-const lockOf = (since) => ({ computer: os.hostname(), pid: process.pid, app: app.getVersion(), since,
+const lockOf = (since) => ({ computer: os.hostname(), pid: process.pid, app: app().getVersion(), since,
   seen: new Date().toISOString() })
 
 // Takes the vault and keeps saying so; returns what lets it go. A lock taken
@@ -319,16 +349,16 @@ async function copyInto(src, dst, onBytes, skip) {
 
 // What moves from this computer into the vault, part by part — or null when
 // there is nothing. The browser's data goes into the FIRST vault this build
-// opens; one that already has a profile of its own keeps it, and the old one is
-// dropped.
-async function legacyPlan(root) {
-  const home = app.getPath('userData')
+// opens — to `browser`, its profile where the vault keeps its sign-ins (in it,
+// or on each computer: profile.js); one that already has a profile of its own
+// keeps it, and the old one is dropped.
+async function legacyPlan(root, browser) {
+  const home = app().getPath('userData')
   let names
   try { names = await fs.promises.readdir(home) } catch { return null }
   const left = names.filter((n) => LEGACY.has(fold(n)))
   if (!left.length) return null
   const has = (n) => left.find((x) => fold(x) === fold(n))
-  const browser = path.join(root, APP_DIR, 'browser')
   const staged = `${browser}.moving`
   const hasOwn = await within(8000, fs.promises.stat(browser).then(() => true, (e) => {
     if (e.code === 'ENOENT') return false
@@ -382,6 +412,7 @@ async function dropLegacy(plan) {
 }
 
 module.exports = {
-  APP_DIR, CACHES, adoptOldDefault, ask, copyInto, copyLegacy, createVault, dropLegacy, fold, holdLock, inspectFolder,
-  inspectNew, known, legacyPlan, lockState, nameOf, readLock, register, same, shareOf, sizeOf, sleep, writeAtomic,
+  APP_DIR, CACHES, adoptOldDefault, ask, copyInto, copyLegacy, createVault, dropLegacy, ensureIdentity, fold, holdLock,
+  inspectFolder, inspectNew, known, legacyPlan, lockState, nameOf, readLock, register, renewIdentity, same, shareOf,
+  sizeOf, sleep, within, writeAtomic,
 }

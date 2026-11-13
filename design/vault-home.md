@@ -94,7 +94,8 @@ computer brings its theme, keys and reader settings along.
 Only the embedded browser's pages use it; the app window runs on an in-memory session, since
 nothing of its own is kept in the browser any more. Chromium's own default profile, which nothing
 uses, is pointed at a temporary folder before the app starts, and so are crash dumps — so the
-app's folder holds `config.json` and nothing else.
+app's folder holds `config.json` and nothing else (since 3.5.0, also the profiles of the vaults
+that keep their sign-ins on each computer: design/sign-ins.md).
 
 ## The launch
 
