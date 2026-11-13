@@ -481,12 +481,9 @@ class Library:
         """Re-read every title from disk and refresh the index. `progress(done,
         total)` ticks per title file read — reading the files IS the slow part.
         ONE unreadable document must never abort the scan (or, at startup, the
-        whole app): it is skipped, exactly like the layout migration does.
-
-        This runs while the app is in USE (Settings → Rebuild), so it is not a
-        DELETE + INSERT of the whole table: each row is written only while it
-        stands as it did when this pass began, and a title committed, made or
-        deleted meanwhile keeps what that write left (`LibraryIndex.rebuild`)."""
+        whole app): it is skipped, exactly like the layout migration does. It runs
+        while the app is in USE (Settings → Rebuild): a row is written only while
+        it stands as it did when this pass began (`LibraryIndex.rebuild`)."""
         started = time.monotonic()
         if progress is not None:
             progress(0, self.index.count())  # the scan below is the slow part
@@ -511,10 +508,7 @@ class Library:
                 docs[tid] = doc
                 doc_at, ch_at, stamps = scanned[tid]
                 touched[tid] = doc_at
-                # off the disk, not the cache: a sidecar edited in place moves no
-                # stamp the cache is keyed by, and a change made by hand is what
-                # a rebuild is for
-                self._sidecar_cache.pop(tid, None)
+                self._sidecar_cache.pop(tid, None)  # off the disk: an edit in place moves no stamp
                 media[tid] = self._sidecars(tid)
                 media_at[tid] = ch_at
                 covers[tid] = self._covers_of(tid, stamps)
