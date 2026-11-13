@@ -18,6 +18,7 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
@@ -34,7 +35,8 @@ from .vault import Vault, safe_id
 
 DOC = "import-profiles.json"
 # the shape this build writes (Vault.doc_transaction); 2: a profile keeps the fields it hides;
-# 3: a profile may make every entry a work of its own (`entryWorks`)
+# 3: a profile may make every entry a work of its own (`entryWorks`), and cuts what it names out of
+# titles (`remove`, which took `dropTags` in)
 SCHEMA = 3
 
 # an image under one of these names, in a work's own folder, is its cover
@@ -74,7 +76,10 @@ class Profile(BaseModel):
     entryWorks: bool = False
     workTitle: str = "{folder}"
     entryTitle: str = "{file}"
-    dropTags: bool = False       # `[1080p] [Group]` out of entry names
+    # text cut out of the titles of works and entries, each fragment wherever it
+    # occurs, case aside, `*` standing for any text: `[*]` drops `[1080p] [Group]`,
+    # `(*p)` a `(1080p)`, `Kumo Works - ` a prefix
+    remove: list[str] = []
     underscores: bool = False    # `_` read as a space in entry names
     # `none`: no number at all — the entry's name IS its label, the way an entry
     # typed by hand carries its whole name, and the work keeps the found order
@@ -104,6 +109,10 @@ class Profile(BaseModel):
         if not isinstance(raw, dict):
             return raw
         raw = dict(raw)
+        # `[tags]` dropped from names, before any text could be: one fragment of many now
+        if raw.pop("dropTags", False) is True:
+            remove = raw.get("remove") if isinstance(raw.get("remove"), list) else []
+            raw["remove"] = [*remove, *([] if "[*]" in remove else ["[*]"])]
         meta = raw.get("meta") if isinstance(raw.get("meta"), dict) else {}
         to = raw.get("creatorTo") if isinstance(raw.get("creatorTo"), list) else []
         filled = {f for f in [*to, *meta] if isinstance(f, str) and folded(f) != f}
@@ -202,6 +211,9 @@ def check(p: Profile) -> Profile:
         raise InvalidProfile("the work is the folder holding the entries — no level is")
     for lv in levels:
         name_pattern(lv.pattern)
+    for frag in p.remove:
+        if not frag.replace("*", "").strip():
+            raise InvalidProfile(f"{frag!r} would cut out a whole name — give it some text besides *")
     if p.numbering == "name":
         number_pattern(p.numPattern)
     for fid in p.creatorTo:
@@ -501,11 +513,30 @@ def _date(mtime: float) -> str:
 
 
 def _clean(name: str, p: Profile) -> str:
-    if p.dropTags:
-        name = re.sub(r"\[[^\]]*\]", " ", name)
     if p.underscores:
         name = name.replace("_", " ")
-    return " ".join(name.split()) or name
+    return _cut(" ".join(name.split()) or name, p.remove)
+
+
+@lru_cache(maxsize=256)
+def _fragment(frag: str) -> re.Pattern:
+    return re.compile("".join(".*?" if bit == "*" else re.escape(bit) for bit in re.split(r"(\*)", frag)),
+                      re.IGNORECASE)
+
+
+_EDGES = re.compile(r"^[\s\-–—·|:,_]+|[\s\-–—·|:,_]+$")
+
+
+def _cut(name: str, fragments: list[str]) -> str:
+    """`name` with every fragment cut out (`*` the shortest run of any text),
+    and the separators it leaves hanging at either end — or as it was, when
+    nothing would be left of it."""
+    out = name
+    for frag in fragments:
+        out = _fragment(frag).sub(" ", out)
+    if out == name:
+        return name
+    return _EDGES.sub("", " ".join(out.split())) or name
 
 
 def _is_cover(f: FileItem) -> bool:
@@ -711,7 +742,7 @@ def _plan(lib: Library, s: Scan, p: Profile, o: Overrides | None) -> tuple[Plan,
         warnings: list[str] = []
         tok, creators = _tokens(w, p, warnings)
         typed = (o.titles.get(key) or "").strip()
-        title = typed or fill(p.workTitle, tok) or (w.one.base if w.one else w.node.name)
+        title = typed or _cut(fill(p.workTitle, tok), p.remove) or (w.one.base if w.one else w.node.name)
         wp = WorkPlan(key=key, folder=Path(w.one.path).name if w.one else w.node.name, title=title,
                       warnings=warnings, tokens=tok, where=_where(s, w.node.rel or "."),
                       own=bool(o.meta.get(key)), cover=w.cover.rel if w.cover else "", typed=bool(typed))

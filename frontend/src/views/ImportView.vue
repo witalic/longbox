@@ -311,6 +311,20 @@ const titleParts = computed(() => {
 })
 const patternLevels = computed(() => (scan.value?.levels ?? []).filter((l) => !byLevel.value || l.depth <= workAt.value))
 
+// ---- what is cut out of names: brackets a click away, any text typed ----
+const BRACKETS = ['[*]', '(*)', '{*}', '【*】', '「*」']
+const ownCuts = computed(() => profile.remove.filter((f) => !BRACKETS.includes(f)))
+const cutDraft = ref('')
+function toggleCut(f: string) {
+  profile.remove = profile.remove.includes(f) ? profile.remove.filter((x) => x !== f) : [...profile.remove, f]
+}
+function addCut() {
+  const f = cutDraft.value
+  if (!f.replace(/\*/g, '').trim()) return // a star alone would cut a whole name
+  if (!profile.remove.includes(f)) profile.remove = [...profile.remove, f]
+  cutDraft.value = ''
+}
+
 const numberHint = computed(() => {
   const missed = plan.value?.works.flatMap((w) => w.warnings).find((w) => w.includes('do not read as'))
   if (missed) return missed
@@ -547,14 +561,27 @@ onMounted(async () => {
               </div>
 
               <div class="rsec">
+                <div class="lbl">CUT FROM NAMES<span>the titles of works and entries</span></div>
+                <div class="cuts">
+                  <button v-for="f in BRACKETS" :key="f" class="chip tog mono" :class="{ on: profile.remove.includes(f) }"
+                          :title="`Cut out ${f.replace('*', 'anything')}`" @click="toggleCut(f)">{{ f.replace('*', '…') }}</button>
+                  <span v-for="f in ownCuts" :key="f" class="chip mono own">{{ f }}<button class="x" title="Cut it no more"
+                                                                                         @click="toggleCut(f)">×</button></span>
+                  <input v-model="cutDraft" class="in mono cutin" placeholder="text to cut, then Enter" spellcheck="false"
+                         @keydown.enter="addCut" />
+                </div>
+                <div class="hint">Wherever it is in a name, in any case — <span class="mono">*</span> is any text:
+                  <span class="mono">Kumo Works</span> cuts a prefix (and the <span class="mono">-</span> left after it),
+                  <span class="mono">(*p)</span> a <span class="mono">(1080p)</span>. A name it would empty is kept whole.</div>
+              </div>
+
+              <div class="rsec">
                 <div class="lbl">ENTRIES</div>
                 <div class="row2">
                   <span class="k">Name</span>
                   <div class="line">
                     <span v-if="profile.entryTitle === '{file}'" class="out">the file's name</span>
                     <span v-else class="out mono" title="A template — change it under Advanced">{{ profile.entryTitle }}</span>
-                    <button class="check" @click="profile.dropTags = !profile.dropTags">
-                      <span class="fbox" :class="{ on: profile.dropTags }"><Icon v-if="profile.dropTags" name="check" :size="9" :sw="3.2" /></span>drop [tags]</button>
                     <button class="check" @click="profile.underscores = !profile.underscores">
                       <span class="fbox" :class="{ on: profile.underscores }"><Icon v-if="profile.underscores" name="check" :size="9" :sw="3.2" /></span>_ → space</button>
                   </div>
@@ -852,6 +879,11 @@ onMounted(async () => {
 .rdot.on { border-color: var(--accent); }
 .rdot.on::after { content: ''; width: 6px; height: 6px; border-radius: 999px; background: var(--accent); }
 .goes { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cuts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cuts .own { white-space: pre; }
+.cuts .x { border: none; background: transparent; color: var(--tx3); cursor: pointer; padding: 0 0 0 6px; font: inherit; }
+.cuts .x:hover { color: var(--tx); }
+.cuts .cutin { flex: 1; min-width: 170px; height: 26px; }
 .goes .k { font: 600 11px/1 system-ui; color: var(--tx3); margin-right: 2px; }
 .result { display: flex; align-items: center; flex-wrap: wrap; min-height: 30px; min-width: 0; padding: 4px 10px; border-radius: 6px; background: var(--panel); border: 1px dashed var(--line); font: 600 12.5px/1.4 system-ui; }
 .result .p { color: var(--good); }

@@ -1008,7 +1008,7 @@ export interface ImportProfile {
   entryWorks: boolean            // every entry of a work's folder is a work of its own
   workTitle: string
   entryTitle: string
-  dropTags: boolean
+  remove: string[]               // cut out of work and entry titles; `*` is any text
   underscores: boolean
   numbering: 'order' | 'name' | 'none'
   orderBy: 'name' | 'date'
@@ -1104,7 +1104,7 @@ export interface PausedImport {
 export function blankImportProfile(): ImportProfile {
   return {
     id: '', name: '', levels: [{ role: 'work', pattern: '' }], anchor: 'level', entryWorks: false,
-    workTitle: '{folder}', entryTitle: '{file}', dropTags: false, underscores: false,
+    workTitle: '{folder}', entryTitle: '{file}', remove: [], underscores: false,
     numbering: 'order', orderBy: 'name', numPattern: '', creatorTo: ['authors'], meta: {}, hidden: [],
     language: '', group: '', entryDate: true,
     files: 'copy', workExists: 'add', entryExists: 'skip', cover: true,

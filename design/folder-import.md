@@ -88,8 +88,15 @@ while it is typed.
 
 **Templates.** A work's title is a template over tokens: `{creator} {folder}` gives
 `Kumo Works 2025.1`, `{folder}` alone gives `2025.1`. An entry's name defaults to `{file}`, with
-optional clean-ups: drop `[bracketed tags]`, underscores to spaces. Parentheses are left alone —
-`桜の舞(春)` carries meaning.
+underscores to spaces as an option.
+
+**Cut from names** (owner, 2026-11-14; it took in the "drop [tags]" switch): fragments of text cut
+out of the titles of works and entries, wherever they are, case aside, `*` standing for the
+shortest run of any text — `[*]` drops `[1080p] [Group]`, `(*p)` a `(1080p)`, `Kumo Works` a
+prefix; the separators a cut leaves at either end of a name go with it, and a name a cut would
+empty is kept whole. The common brackets are a click away, each its own: parentheses are not cut
+unless asked — `桜の舞(春)` carries meaning. A title typed by hand is never cut. A profile that
+dropped tags reads as one that cuts `[*]`.
 
 **Numbers.** Either **in order** — 1, 2, 3 through the work, parts in their order, files in natural
 order (`2` before `10`; `step` before `step ロングver`) or oldest file first — or

@@ -180,7 +180,7 @@ def manga_tree(src: Path) -> Path:
 
 def manga_profile(**kw) -> fi.Profile:
     return fi.Profile(levels=[fi.Level(role="collection"), fi.Level(role="work")],
-                      numbering="name", numPattern="Ch. {n}", dropTags=True,
+                      numbering="name", numPattern="Ch. {n}", remove=["[*]"],
                       language="en", meta={"type": "manga"}, **kw)
 
 
@@ -829,3 +829,32 @@ def test_a_profile_that_cuts_every_entry_into_a_work_travels_with_the_library(li
     saved = fi.ProfileStore(lib.vault).save([clips_profile(name="Clips")])
     assert fi.ProfileStore(lib.vault).profiles()[0].entryWorks is True
     assert saved[0].entryWorks is True
+
+
+# ---- what is cut out of names ------------------------------------------------
+
+def test_fragments_are_cut_out_of_names_with_any_text_for_a_star(lib, tmp_path):
+    src = tmp_path / "src"
+    mp4(src / "Clips" / "Kumo Works - beach day (1080p) [HEVC].mp4")
+    mp4(src / "Clips" / "KUMO WORKS - night_drive 【4K】.mp4")
+    mp4(src / "Clips" / "(720p).mp4")  # nothing would be left: kept whole
+    pl = fi.plan(lib, fi.scan(src), clips_profile(remove=["Kumo Works", "(*p)", "[*]", "【*】"]))
+    # the prefix's own separator goes with it; case does not matter
+    assert [w.title for w in pl.works] == ["(720p)", "beach day", "night drive"]
+    assert [w.entries[0].title for w in pl.works] == ["(720p)", "beach day", "night drive"]
+
+
+def test_a_work_titled_from_its_folder_is_cut_as_well(lib, tmp_path):
+    src = tmp_path / "src"
+    mp4(src / "[Erai] Lantern Witch" / "05.mp4")
+    pl = fi.plan(lib, fi.scan(src), fi.Profile(levels=[fi.Level(role="collection"), fi.Level(role="work")],
+                                               remove=["[*]"]))
+    assert pl.works[0].title == "Lantern Witch"
+
+
+def test_a_profile_that_dropped_tags_now_cuts_them(lib):
+    old = fi.Profile.model_validate({"name": "old", "dropTags": True, "remove": ["(*)"]})
+    assert old.remove == ["(*)", "[*]"]
+    assert fi.Profile.model_validate({"dropTags": False}).remove == []
+    with pytest.raises(fi.InvalidProfile):
+        fi.check(fi.Profile(remove=[" * "]))
