@@ -1,53 +1,69 @@
 # Roadmap
 
-Where longbox is going, in the order it is being done. Every larger item starts as a design note
-and, for anything on screen, a mockup in [design/](design/) that the owner approves first; what has
-shipped moves to the [changelog](CHANGELOG.md). What longbox will not do is at the end.
+Where longbox is going, release by release. Every larger item starts as a design note and, for
+anything on screen, a mockup in [design/](design/) that the owner approves first; what has shipped
+moves to the [changelog](CHANGELOG.md). What longbox will not do is at the end.
 
-## Now: hardening
+The first two releases answer an independent review of the code (2026-11-13).
 
-From an independent review of the code (2026-11-13). Small, and nothing here waits on a decision.
+## 3.4.0 — hardening, and knowing a release is out
 
-- **DevTools only in a development run.** F12 opens them in a released build today.
-- **A cover fetched by its address never reaches the local network.** The sidecar follows
-  redirects with no check, and the address can come from a page; a loopback, private or
-  link-local address is to be refused at every hop.
+- **DevTools only in a development run** — done: a released build opens them only when started
+  with `LONGBOX_DEVTOOLS=1`.
+- **A cover fetched by its address never reaches the local network** — done: every redirect is
+  checked, and loopback, private and link-local addresses are refused.
 - **Archives are converted entry by entry.** A rar, 7z or zip is read into memory whole on its way
   in; a large one should stream.
+- **The runtime's back doors closed.** Electron's build-time switches that let the app run as plain
+  Node (`ELECTRON_RUN_AS_NODE`), take `NODE_OPTIONS` or open an `--inspect` port are turned off.
+  Cookie encryption, another such switch, stays off on purpose: it cannot be undone once on, and
+  where sign-ins live is the user's choice (3.5.0).
+- **Knowing a release is out.** The app asks once — on the first launch, and once after updating
+  to 3.4.0 — whether it may check for new versions. If yes, it asks GitHub for the latest release
+  at most once a day (GitHub sees the address and nothing else) and says when one is out, with
+  what is new and where to get it, and whether it fixes the built-in browser's security; nothing
+  is downloaded by itself. If no, it never asks. Settings → About changes the answer and checks on
+  a click. The project page's "no update check" is rewritten in the same release.
 - **Dependencies are watched.** Dependabot for Electron (each Chromium security fix becomes a
-  pull request, then a release), the Python and npm dependencies, and the workflows' actions.
+  pull request, then a release), the Python and npm dependencies and the workflows' actions.
 
-## Next
+## 3.5.0 — where sign-ins live
 
-- **Sign-ins encrypted at rest, by default.** The embedded browser keeps its cookies in the vault
-  unencrypted today, so anyone who can read the vault — a share, a removable disk, a backup, a
-  synced folder — can take the sessions. Electron's cookie encryption (a switch set when the app
-  is built, using the system's keys: DPAPI, Keychain, libsecret) becomes the default, with the
-  other hardening switches of the same kind (no `ELECTRON_RUN_AS_NODE`, no `NODE_OPTIONS`, no
-  `--inspect`). Encrypted sign-ins stay with the computer and its user account; whoever wants
-  them to travel with the vault chooses that in Settings, and the app keeps a copy that opens on
-  any computer — said plainly as the trade-off it is, and sealed by the password manager's master
-  password once that exists. Design first: how an existing vault's sign-ins carry over.
-- **Password manager.** Logins for the sites in the embedded browser, encrypted in the vault under
-  a master password, filled on click ([draft](design/password-manager.md)).
-- **Knowing a release is out.** On first launch the app asks whether to check for new versions;
-  if yes, it says when one is out and links to it — nothing is downloaded by itself. (Updating
-  itself waits for signed builds, below.)
+The embedded browser keeps its profile — sign-ins, site storage, caches — in the vault, where
+anyone who can read the vault can read the sessions too: a share, a removable disk, a backup, a
+synced folder. Where it lives becomes the user's choice, per vault:
+
+- **in the vault** — sign-ins travel with it to every computer that opens it, and are as safe as
+  the vault is;
+- **on each computer** — the profile stays in the app's folder on the computer that opened the
+  vault; another computer signs in again.
+
+The choice is asked when a vault is made, asked once of every existing vault when this version
+first opens it (nothing moves until it is answered), and can be changed in Settings either way at
+any time: the profile moves on the next start, before the browser opens it. Caches are not moved —
+they refill. This is the one exception to "the vault is home"
+([design/vault-home.md](design/vault-home.md) records it). The first tests for the shell come
+with it: the move, the lock, the vault checks (`node:test`).
+
+## 3.6.0 — password manager
+
+Logins for the sites in the embedded browser, encrypted in the vault under a master password,
+filled on click ([draft](design/password-manager.md), to be checked against 3.5.0). With sessions
+kept on each computer, it is what makes signing in again on another one quick.
+
+## Then
+
 - **OPDS.** The vault served to readers on other devices — KOReader, Panels, Chunky and the rest —
   over the local network.
 - **Saved filter sets.** A combination of filters kept under a name, a click away.
 
-## Ongoing: quality
-
-Done a step at a time, alongside the work above.
+## Alongside, a step per release
 
 - **Linters in CI**: ruff for the sidecar, eslint for the UI and the shell — first a rule set the
   code already passes, then tightened.
 - **A UI smoke test in CI**: the off-screen Electron run that takes the project page's screenshots
   (`tools/screenshots.py`) already drives the real app through thirteen scenes over a generated
   vault; it becomes a test that fails when a scene does.
-- **Tests for the shell**: the vault checks, the lock and the move (`shell/vaults.js`) with
-  `node:test`.
 - **Smaller modules**, split by feature when they are being changed anyway: `library/service.py`,
   `library/vault.py`, `views/TitleView.vue`, `store.ts`.
 - **Accessibility**: a name for every icon-only button, visible keyboard focus.
