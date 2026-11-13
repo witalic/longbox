@@ -6,6 +6,11 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 
 ## [Unreleased]
 
+### Added
+- **Copy the username or the password** straight from the key's popover in the browser, and from
+  Sources → a site → Logins — for a form Fill cannot reach. A copied password still leaves the
+  clipboard after 30 seconds.
+
 ### Fixed
 - **Copying a password no longer brings the app down** 30 seconds later, when longbox clears it
   from the clipboard ("A JavaScript error occurred in the main process").

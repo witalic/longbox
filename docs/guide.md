@@ -146,11 +146,11 @@ password of yours, and filled when you click, never by themselves.
   lost with it. Settings → **Passwords** changes it.
 - **The key.** Beside the star and the shield in the browser's toolbar: quiet on a page with no
   sign-in form, there on one, lit with a count when logins are saved for the site. Its popover
-  lists the site's logins — **Fill** puts the username and password into the page's form — and its
-  pencil edits a login right there. A sign-in that asks for the username first, and the password
-  after, is filled a step at a time: **Fill** on each step. A login belongs to an exact site: an http and an https address,
-  or another port, are other sites, and the page is filled only while it is still on the login's
-  site.
+  lists the site's logins — **Fill** puts the username and password into the page's form, the two
+  buttons beside it copy the username or the password — and its pencil edits a login right there.
+  A sign-in that asks for the username first, and the password after, is filled a step at a time:
+  **Fill** on each step. A login belongs to an exact site: an http and an https address, or another
+  port, are other sites, and the page is filled only while it is still on the login's site.
 - **After a sign-in**, a bar under the toolbar offers to **Save** the login — or to **Update** the
   saved one, when you signed in with another password. **Never for this site** stops it asking
   there. The bar waits with its tab until you answer it.

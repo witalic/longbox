@@ -1,10 +1,10 @@
 <script setup lang="ts">
 // Sources → a site → Logins (design/password-manager.md): every login saved for
 // the site, one card each — username, origin, last used, how many previous
-// passwords; copy on the closed card, the pencil opens it into the login
-// editor, in place. A new one's site is typed, starting from the site's
-// homepage. And the site's origins where saving a login is never offered,
-// each to be offered again.
+// passwords; copy the username or the password on the closed card, the pencil
+// opens it into the login editor, in place. A new one's site is typed,
+// starting from the site's homepage. And the site's origins where saving a
+// login is never offered, each to be offered again.
 import { computed, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import LoginEditor from './LoginEditor.vue'
@@ -43,9 +43,10 @@ async function done() {
   open.value = null
   await load()
 }
-async function copy(id: string) {
+async function copy(l: LoginSummary, what: 'username' | 'password') {
   if (!shell) return
-  await settled(shell.copy(id)).catch((e) => { error.value = e instanceof Error ? e.message : String(e) })
+  await settled(what === 'password' ? shell.copy(l.id) : shell.copyText(l.username))
+    .catch((e) => { error.value = e instanceof Error ? e.message : String(e) })
 }
 async function offerAgain(origin: string) {
   if (!shell) return
@@ -71,8 +72,10 @@ async function offerAgain(origin: string) {
               <span class="mono">{{ l.origin }}</span><span> · {{ l.used ? `used ${ago(l.used)}` : 'not used yet' }}</span></span>
             <span v-if="l.previous.length" class="chip"><Icon name="clock" :size="11" :sw="2" />{{ l.previous.length }} previous</span>
             <template v-if="open !== l.id">
+              <button class="iconbtn plain" title="Copy the username" :disabled="!l.username"
+                      @click="copy(l, 'username')"><Icon name="authors" :size="13" :sw="2" /></button>
               <button class="iconbtn plain" title="Copy the password — it leaves the clipboard after 30 seconds"
-                      @click="copy(l.id)"><Icon name="copy" :size="13" :sw="2" /></button>
+                      @click="copy(l, 'password')"><Icon name="key" :size="13" :sw="2" /></button>
               <button class="iconbtn plain" title="Edit" @click="open = l.id"><Icon name="edit" :size="13" :sw="2" /></button>
             </template>
           </div>

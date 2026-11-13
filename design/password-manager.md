@@ -116,12 +116,12 @@ Forgetting the master password loses the secrets. Setup says so, plainly, once.
 
 - **Fill on click.** The key is one of the page's buttons right of the address, with the star and
   the shield: always there, quiet when the page has no sign-in form and nothing is saved for it,
-  normal on a page with a password field, or a sign-in's username step (a field marked
-  `autocomplete="username"` with no password field; the guest preload looks, top frame only), lit with a
-  count when logins are saved for that exact origin (known once unlocked). Its popover hangs from
+  normal on a page with a password field, or on a sign-in's username step (a field marked
+  `autocomplete="username"`, no password field; the guest preload looks, top frame only), lit with
+  a count when logins are saved for that exact origin (known once unlocked). Its popover hangs from
   it — right under the toolbar, its right edge on the button's, the button lit while it is open —
-  and lists the accounts: **Fill** puts the username and password into that form — on a sign-in in
-  steps, the username on its step and the password on its own, a click each. With no saved
+  and lists the accounts: **Fill** puts the username and password into that form — on a sign-in
+  in steps, the username on its step and the password on its own, a click each. With no saved
   login, it offers to generate a password (a sign-up form's new-password field).
 - The menu is the app's, not the page's: a page cannot draw a fake one or click it for the owner.
 - The fill goes to the top frame only, and only if its origin is still the entry's at the moment of
@@ -169,8 +169,10 @@ Length 20 by default (8–64), letters / digits / symbols toggles, look-alike ch
 One **login editor** — site, username, password (show, copy, generate), note, previous passwords,
 Delete — drawn in two places: the key's popover in the browser, and Sources → a site → Logins.
 
-- **The key's popover** lists the logins of the page's exact origin: **Fill**, and a pencil that
-  turns the popover into the editor, in place. **Add a login for this site** opens it empty.
+- **The key's popover** lists the logins of the page's exact origin: **Fill**, copy the username,
+  copy the password (owner, 2026-11-13: a login whose form Fill cannot reach is still a click
+  away), and a pencil that turns the popover into the editor, in place. **Add a login for this
+  site** opens it empty. Sources → Logins has the same two copies on a closed card.
 - **Bound to the open site.** The editor's site is the origin the tab was on when it opened —
   shown at its head, never typed. A tab that goes to another site meanwhile leaves the editor
   with its own site (it says so; what was typed is kept): a login never moves to another site by
