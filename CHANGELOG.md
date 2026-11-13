@@ -6,6 +6,8 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 
 ## [Unreleased]
 
+## [3.6.3] — 2026-11-13
+
 ### Added
 - **Copy the username or the password** straight from the key's popover in the browser, and from
   Sources → a site → Logins — for a form Fill cannot reach. A copied password still leaves the
@@ -324,7 +326,8 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
   recipes, an explicit draft with per-field provenance, armed downloads, a library with linked
   faceted filters, and a reader.
 
-[Unreleased]: https://github.com/witalic/longbox/compare/v3.6.2...HEAD
+[Unreleased]: https://github.com/witalic/longbox/compare/v3.6.3...HEAD
+[3.6.3]: https://github.com/witalic/longbox/compare/v3.6.2...v3.6.3
 [3.6.2]: https://github.com/witalic/longbox/compare/v3.6.1...v3.6.2
 [3.6.1]: https://github.com/witalic/longbox/compare/v3.6.0...v3.6.1
 [3.6.0]: https://github.com/witalic/longbox/compare/v3.5.0...v3.6.0
