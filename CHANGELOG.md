@@ -12,6 +12,8 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
   tab, what you leave playing there keeps playing.
 
 ### Changed
+- **Sources:** the view switch (Tree, Links), the search and **+ Group** sit in the band with the
+  quick filters, under the title — one row for what narrows the list, its controls of one height.
 - **One Fill for a sign-in in steps.** Fill on the username step fills the username, and the
   password follows by itself as soon as its step shows, on the same address within a minute — no
   second trip to the key.

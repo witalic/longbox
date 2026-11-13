@@ -489,6 +489,8 @@ async function onLinkDrop(to: number) {
 const tsort = ref<'name' | 'site' | 'saved'>('site')
 const tdups = ref(false)
 const tsel = reactive(new Set<string>()) // "<domain>#<index>"
+// some sites or links picked: the band above the list holds what to do with them
+const picking = computed(() => (mode.value === 'tree' ? selected.size : tsel.size) > 0)
 const allLinks = computed(() => {
   const rows = store.sources.flatMap((s) => s.bookmarks.map((b, i) => ({ s, b, i, key: `${s.domain}#${i}` })))
     .filter(({ s, b }) => (!needle.value || `${b.name} ${b.url} ${s.domain}`.toLowerCase().includes(needle.value))
@@ -540,13 +542,6 @@ async function deleteTicked() {
     <div class="head">
       <h1 class="h1">Sources</h1>
       <span class="count mono">{{ store.sources.length }} site{{ store.sources.length === 1 ? '' : 's' }} · {{ linkCount }} link{{ linkCount === 1 ? '' : 's' }}</span>
-      <div style="flex:1"></div>
-      <div class="seg">
-        <button class="opt" :class="{ on: mode === 'tree' }" @click="mode = 'tree'">Tree</button>
-        <button class="opt" :class="{ on: mode === 'links' }" @click="mode = 'links'">Links</button>
-      </div>
-      <SearchBox v-model="q" :width="280" placeholder="Find a site or a link…" />
-      <button class="btn" @click="addingGroup = true"><Icon name="plus" :size="13" :sw="2.2" />Group</button>
     </div>
 
     <Teleport to="#siderail">
@@ -570,42 +565,53 @@ async function deleteTicked() {
       </RailSection>
     </Teleport>
 
-    <!-- the band above the list: what narrows it, or what to do with the picked -->
-    <div v-if="mode === 'tree' && selected.size" class="tool bulk">
-      <span class="sel">{{ selected.size }} site{{ selected.size === 1 ? '' : 's' }} selected</span>
-      <Dropdown :model-value="MOVE" :options="moveOptions" @update:model-value="moveSelected(String($event))" />
-      <button class="btn small" :disabled="busy" @click="hideSelected">
-        <Icon name="eyeoff" :size="12" :sw="1.9" />{{ allHidden ? 'Show in browser' : 'Hide from browser' }}</button>
-      <button v-if="hasShell" class="btn small" :disabled="busy" @click="clearData([...selected])">Clear browser data…</button>
-      <button class="btn small danger" :disabled="busy" @click="removeSites([...selected])">Remove…</button>
-      <div style="flex:1"></div>
-      <button class="btn ghost small" @click="selected.clear()"><Icon name="x" :size="12" :sw="2.2" />Clear selection</button>
-    </div>
-    <div v-else-if="mode === 'tree'" class="tool">
-      <div class="seg text">
-        <button v-for="f in FILTERS" :key="f.v" class="opt" :class="{ on: filter === f.v }" @click="filter = f.v">{{ f.l }}</button>
-      </div>
-      <div style="flex:1"></div>
-      <span class="hint">Drag to reorder — the browser's rail follows · Ctrl/Shift-click picks several</span>
-    </div>
-    <div v-else-if="tsel.size" class="tool bulk">
-      <span class="sel">{{ tsel.size }} link{{ tsel.size === 1 ? '' : 's' }} selected</span>
-      <button class="btn small danger" :disabled="busy" @click="deleteTicked"><Icon name="x" :size="12" :sw="2.2" />Delete</button>
-      <div style="flex:1"></div>
-      <button class="btn ghost small" @click="tsel.clear()">Clear selection</button>
-    </div>
-    <div v-else class="tool">
-      <div class="seg text">
-        <button class="opt" :class="{ on: !tdups }" @click="tdups = false">All</button>
-        <button class="opt" :class="{ on: tdups }" @click="tdups = true">Duplicates <span class="mono dim">{{ allDups }}</span></button>
-      </div>
-      <div class="seg text">
-        <button class="opt" :class="{ on: tsort === 'name' }" @click="tsort = 'name'">Name</button>
-        <button class="opt" :class="{ on: tsort === 'site' }" @click="tsort = 'site'">Site</button>
-        <button class="opt" :class="{ on: tsort === 'saved' }" @click="tsort = 'saved'">Saved</button>
-      </div>
-      <div style="flex:1"></div>
-      <span class="hint">Double-click a name or an address to edit it</span>
+    <!-- the band above the list: what narrows it — the filters, the view, the
+         search — or, with some picked, what to do with them -->
+    <div class="tool" :class="{ bulk: picking }">
+      <template v-if="mode === 'tree' && selected.size">
+        <span class="sel">{{ selected.size }} site{{ selected.size === 1 ? '' : 's' }} selected</span>
+        <Dropdown :model-value="MOVE" :options="moveOptions" @update:model-value="moveSelected(String($event))" />
+        <button class="btn small" :disabled="busy" @click="hideSelected">
+          <Icon name="eyeoff" :size="12" :sw="1.9" />{{ allHidden ? 'Show in browser' : 'Hide from browser' }}</button>
+        <button v-if="hasShell" class="btn small" :disabled="busy" @click="clearData([...selected])">Clear browser data…</button>
+        <button class="btn small danger" :disabled="busy" @click="removeSites([...selected])">Remove…</button>
+        <div style="flex:1"></div>
+        <button class="btn ghost small" @click="selected.clear()"><Icon name="x" :size="12" :sw="2.2" />Clear selection</button>
+      </template>
+      <template v-else-if="mode === 'links' && tsel.size">
+        <span class="sel">{{ tsel.size }} link{{ tsel.size === 1 ? '' : 's' }} selected</span>
+        <button class="btn small danger" :disabled="busy" @click="deleteTicked"><Icon name="x" :size="12" :sw="2.2" />Delete</button>
+        <div style="flex:1"></div>
+        <button class="btn ghost small" @click="tsel.clear()">Clear selection</button>
+      </template>
+      <template v-else-if="mode === 'tree'">
+        <div class="seg">
+          <button v-for="f in FILTERS" :key="f.v" class="opt" :class="{ on: filter === f.v }" @click="filter = f.v">{{ f.l }}</button>
+        </div>
+        <span class="hint" title="Drag to reorder — the browser's rail follows · Ctrl/Shift-click picks several">Drag to
+          reorder — the browser's rail follows · Ctrl/Shift-click picks several</span>
+      </template>
+      <template v-else>
+        <div class="seg">
+          <button class="opt" :class="{ on: !tdups }" @click="tdups = false">All</button>
+          <button class="opt" :class="{ on: tdups }" @click="tdups = true">Duplicates <span class="mono dim">{{ allDups }}</span></button>
+        </div>
+        <div class="seg">
+          <button class="opt" :class="{ on: tsort === 'name' }" @click="tsort = 'name'">Name</button>
+          <button class="opt" :class="{ on: tsort === 'site' }" @click="tsort = 'site'">Site</button>
+          <button class="opt" :class="{ on: tsort === 'saved' }" @click="tsort = 'saved'">Saved</button>
+        </div>
+        <span class="hint" title="Double-click a name or an address to edit it">Double-click a name or an address to
+          edit it</span>
+      </template>
+      <template v-if="!picking">
+        <div class="seg">
+          <button class="opt" :class="{ on: mode === 'tree' }" @click="mode = 'tree'">Tree</button>
+          <button class="opt" :class="{ on: mode === 'links' }" @click="mode = 'links'">Links</button>
+        </div>
+        <SearchBox v-model="q" :width="240" placeholder="Find a site or a link…" />
+        <button class="btn" @click="addingGroup = true"><Icon name="plus" :size="13" :sw="2.2" />Group</button>
+      </template>
     </div>
 
     <div v-if="!store.sources.length" class="emptyv">
@@ -847,6 +853,7 @@ async function deleteTicked() {
 .tool { height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px 0 24px; border-bottom: 1px solid var(--line); min-width: 0; }
 .tool.bulk { background: var(--accentSoft); }
 .sel { font: 600 12px/1 system-ui; color: var(--accent); margin-right: 4px; white-space: nowrap; }
+.tool .hint { flex: 1; min-width: 0; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hint { font: 400 11px/1.4 system-ui; color: var(--tx3); }
 .dim { color: var(--tx3); }
 .emptyv { padding: 66px 30px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
