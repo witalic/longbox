@@ -71,7 +71,7 @@ def test_the_mirror_never_disturbs_what_describes_the_file(lib, tmp_path):
     out = lib.create(DraftIn(meta=TitleMeta(title="Work")))
     lib.attach_chapter_media(out.id, num="1", lang="", group="",
                              src=_zip(tmp_path / "dl.zip"), sidecar={})
-    assert lib.verify(deep=True)["findings"] == []
+    assert lib.health.verify(deep=True)["findings"] == []
 
     cid = lib.get(out.id).chapters[0].id
     side = lib.vault.chapter_sidecars(out.id)[safe_id(cid)]
@@ -106,7 +106,7 @@ def test_a_page_edit_carries_the_mirror_forward(lib, tmp_path):
                                chapters=[ChapterRow(id=cid, num="1")]))
     lib.add_chapter_pages(out.id, cid, [(b"another-page", ".jpg")])
     assert _stored_xml(lib, out.id, cid)["title"] == "Renamed"
-    assert lib.verify(deep=True)["findings"] == []
+    assert lib.health.verify(deep=True)["findings"] == []
 
 
 def test_an_archive_that_describes_itself_names_its_own_entry(lib, tmp_path):
@@ -176,7 +176,7 @@ def test_duplicates_are_found_by_content_now_that_the_mirror_differs(lib, tmp_pa
     cb = lib.vault.chapter_media_path(b.id, lib.get(b.id).chapters[0].id)
     assert media.digest_of(ca) != media.digest_of(cb)            # the files differ
     assert media.content_digest(ca) == media.content_digest(cb)  # the pages do not
-    assert len(lib.duplicates()["groups"]) == 1
+    assert len(lib.health.duplicates()["groups"]) == 1
 
 
 def test_an_unchanged_chapter_is_not_rewritten_or_even_opened(lib, tmp_path, monkeypatch):

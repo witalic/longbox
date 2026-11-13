@@ -139,7 +139,7 @@ def test_tracks_survive_a_new_video_and_go_with_the_episode(episode, tmp_path):
     assert lib.vault.chapter_media_path(tid, cid).suffix == ".mp4"  # a .vtt is never taken for the media
     assert lib.subtitle_file(tid, cid, "1") is not None
     # nor is it a stray for the vault check
-    assert not lib._strays(tid, lib.vault.load(tid), {p.stem for p in lib.vault._chapters_dir(tid).glob("*.json")})
+    assert not lib.health._strays(tid, lib.vault.load(tid), {p.stem for p in lib.vault._chapters_dir(tid).glob("*.json")})
 
     c.delete(f"/api/titles/{tid}/chapters/{cid}/media")
     assert not list(lib.vault._chapters_dir(tid).glob("*.sub-*"))

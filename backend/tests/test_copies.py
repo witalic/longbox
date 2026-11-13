@@ -116,7 +116,7 @@ def test_a_copy_is_never_taken_for_the_episode_and_goes_with_it(tmp_path, ffmpeg
     tid, cid = _episode(lib, _mov(tmp_path / "ep.mov"))
     _run_all(lib)
 
-    report = lib.verify()
+    report = lib.health.verify()
     assert not [f for f in report["findings"] if f["kind"] in ("stray", "orphan")]
     assert lib.vault.chapter_files(tid)[cid].suffix == ".mov"
 
@@ -549,9 +549,9 @@ def test_the_copy_being_written_is_not_reported_as_a_leftover(tmp_path, ffmpeg):
     tid, cid = _episode(lib, _mov(tmp_path / "ep.mov"))
     writing = media.tmp_path(lib.vault.chapter_copy_path(tid, cid))
     writing.write_bytes(b"half")
-    assert [f["name"] for f in lib.verify()["findings"] if f["kind"] == "stray"] == [writing.name]
+    assert [f["name"] for f in lib.health.verify()["findings"] if f["kind"] == "stray"] == [writing.name]
     lib.copies._writing = writing
-    assert not [f for f in lib.verify()["findings"] if f["kind"] == "stray"]
+    assert not [f for f in lib.health.verify()["findings"] if f["kind"] == "stray"]
     lib.close()
 
 

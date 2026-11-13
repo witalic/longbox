@@ -580,7 +580,7 @@ def run(lib: Library, docs: list[tuple[str, TitleDoc]], actions: list[Action], *
         outcome = f"{out.changed} title(s) changed" if out.changed else "nothing changed"
         if out.failed:
             outcome += f", {out.failed} left as they were (unreadable, newer, or in use)"
-        lib.record_op(summary, started, outcome, stopped=out.stopped)
+        lib.health.record(summary, started, outcome, stopped=out.stopped)
     return {"run": run_id, "changed": out.changed, "failed": out.failed, "stopped": out.stopped,
             "seconds": round(seconds, 2)}
 
@@ -661,7 +661,7 @@ def revert(lib: Library, run_id: int, *, progress: Progress = None,
             outcome += f", {out.failed} left as they were"
         if pages_left:
             outcome += f", {pages_left} value page(s) not put back"
-        lib.record_op(f"revert run {run_id}", started, outcome, stopped=out.stopped)
+        lib.health.record(f"revert run {run_id}", started, outcome, stopped=out.stopped)
     return {"reverted": out.changed, "kept": len(kept), "failed": out.failed, "stopped": out.stopped}
 
 

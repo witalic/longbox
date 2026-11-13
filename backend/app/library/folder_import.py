@@ -28,7 +28,8 @@ from . import operations as ops
 from . import rules as R
 from .migrations import fold_values, folded
 from .models import DraftIn, FieldProvenance, TitleDoc
-from .service import Library, chapter_num_key
+from .models import chapter_num_key
+from .service import Library
 from .vault import Vault, safe_id
 
 DOC = "import-profiles.json"

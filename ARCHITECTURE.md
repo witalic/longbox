@@ -314,6 +314,8 @@ backend/app/
   passes.py (the one vault pass at a time: progress, stop, who is running)
   vault_watch.py (does the vault still answer: lost / back, and what stops when it is lost)
   library/  operations.py (bulk metadata: apply, preview from the index, run, revert) ·
+            health.py (the vault's health: the record of what was done, the check and its
+            three answers, sweeping leftovers — `Library.health`) ·
             rules.py (what a value becomes on its way in; rules.json) ·
             pages.py (value pages: what is written about a person, a tag…, worked out
             alongside the library's own answer; follows a rename) ·

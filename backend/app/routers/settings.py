@@ -287,7 +287,7 @@ def vault_health(request: Request) -> HealthOut:
     """The stored record. Read when the panel opens, so the last answer is
     there without re-earning it — and so "has this library ever been checked"
     has an answer at all."""
-    return HealthOut(**_lib(request).health())
+    return HealthOut(**_lib(request).health.read())
 
 
 @router.post("/settings/check", response_model=CheckOut)
@@ -301,7 +301,7 @@ def check_vault(request: Request, deep: bool = False, backfill: bool = False) ->
     # mid-run must not change what the RUNNING pass says it is doing
     what = "full check + record" if backfill else ("full check" if deep else "quick check")
     with _pass(what, "check") as (progress, stop):
-        return CheckOut(**_lib(request).check(deep=deep, backfill=backfill, name=what,
+        return CheckOut(**_lib(request).health.check(deep=deep, backfill=backfill, name=what,
                                               progress=progress, stop=stop))
 
 
@@ -320,7 +320,7 @@ def delete_leftovers(request: Request) -> SweptOut:
     leftovers are worked out again from the entries the title has, so this
     cannot be handed a path to delete."""
     lib = _lib(request)
-    last = lib.health().get("lastCheck") or {}
+    last = lib.health.read().get("lastCheck") or {}
     scope = (last.get("leftovers") or {}).get("titleIds")
     if scope is None:
         # The service can sweep the whole library, and says so — but that is a
@@ -334,7 +334,7 @@ def delete_leftovers(request: Request) -> SweptOut:
     if not scope:
         return SweptOut(deleted=0, failed=0, bytes=0)
     with _pass("deleting leftovers", "sweep") as (progress, stop):
-        return SweptOut(**lib.delete_leftovers(scope, progress=progress, stop=stop))
+        return SweptOut(**lib.health.delete_leftovers(scope, progress=progress, stop=stop))
 
 
 class MirrorOut(BaseModel):
@@ -364,7 +364,7 @@ def numbering_gaps(request: Request, title_id: str) -> list[Gap]:
     """What one title is missing — the quiet line on its own page. Index-only
     and immediate, so it is outside the pass slot: it must not be refused
     because a check happens to be running."""
-    return [Gap(**g) for g in _lib(request).gaps(title_id)]
+    return [Gap(**g) for g in _lib(request).health.gaps(title_id)]
 
 
 @router.post("/settings/rebuild", response_model=SettingsOut)

@@ -72,8 +72,8 @@ kept on each computer, it is what makes signing in again on another one quick.
   `updates.ts`. From then on a change to one of them comes with its test, as the sidecar's do.
 - **The monoliths, split by plan — one cut a release.** A file over 1,500 lines does not grow: new
   code for it goes into the module it is being split into. The cuts, in order:
-  1. `library/service.py` (2,600 lines): the vault passes and what they report — check,
-     revision, numbering gaps, leftovers — into `library/health.py`;
+  1. ~~`library/service.py` (2,600 lines): the vault passes and what they report — check,
+     revision, numbering gaps, leftovers — into `library/health.py`~~ — done (3.4.0);
   2. `store.ts` (1,650): navigation — places, tabs, Back and Forward, the openers — into `nav.ts`;
   3. `views/TitleView.vue` (1,700): the contents column — tree, edit mode, adding entries — into
      `TitleContents.vue`, and the pages pane into `PagesPane.vue`;

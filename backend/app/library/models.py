@@ -8,6 +8,7 @@ frontend consumes, composed from those layers.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -85,6 +86,15 @@ class FieldProvenance(BaseModel):
     origin: Origin = "manual"
     url: str = ""           # page the auto value came from
     recipeVersion: int = 0  # recipe version that extracted it
+
+
+def chapter_num_key(num: str) -> tuple:
+    """Smart chapter order: numeric ascending ("2" < "10", 5.5 between 5 and 6),
+    non-numeric ("Extra") after, alphabetically."""
+    m = re.match(r"\s*(\d+(?:[.,]\d+)?)", num)
+    if m:
+        return (0, float(m.group(1).replace(",", ".")))
+    return (1, num.strip().casefold())
 
 
 class ChapterRow(BaseModel):
