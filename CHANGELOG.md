@@ -6,6 +6,13 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 
 ## [Unreleased]
 
+### Added
+- **Knowing a release is out.** The app asks once whether it may check GitHub for new versions —
+  at most once a day, nothing sent but the request. A newer release shows as an arrow in the
+  sidebar's footer, in the warning colour when it fixes security issues; What's new and Download
+  open it in your browser, and nothing is downloaded by itself. Settings → About changes the
+  answer and has Check now.
+
 ### Changed
 - longbox is free software under the GPL-3.0-or-later.
 - A short README; installing and the first-launch steps on the project page; a user guide

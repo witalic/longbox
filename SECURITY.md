@@ -28,4 +28,6 @@ code for any particular site and no content (see the README).
 
 ## Supported versions
 
-Only the latest release is fixed; updating to it is the remedy for an older one.
+Only the latest release is fixed; updating to it is the remedy for an older one. The app tells you
+when a release is out — and says so when it fixes security issues — if you let it check for new
+versions (asked on the first launch; Settings → About).

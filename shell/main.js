@@ -16,6 +16,7 @@ const net = require('node:net')
 const path = require('node:path')
 const adblock = require('./adblock')
 const launcher = require('./launcher')
+const updates = require('./updates')
 const vaults = require('./vaults')
 
 const ROOT = path.join(__dirname, '..')
@@ -911,6 +912,20 @@ async function main(root, legacy) {
       const hosts = new Set([host, `www.${host}`, ...cookies.map((c) => siteHost(c.domain))])
       await sess.clearData({ dataTypes, origins: [...hosts].flatMap((h) => [`https://${h}`, `http://${h}`]) })
     }
+    return true
+  })
+
+  // Knowing a release is out (design/update-check.md): one request to GitHub,
+  // made only when the window asks — whether and how often is the user's answer.
+  // Its pages open in the system's browser, never the embedded one, and only a
+  // release page of longbox is ever opened from here.
+  ipcMain.handle('lb-updates-check', (e) => {
+    if (e.sender !== win.webContents) return { ok: false, error: 'refused' }
+    return updates.check((url, opts) => electronNet.fetch(url, opts), APP_META.version)
+  })
+  ipcMain.handle('lb-updates-open', async (e, url) => {
+    if (e.sender !== win.webContents || !updates.isReleasePage(url)) return false
+    await shell.openExternal(url)
     return true
   })
 

@@ -287,3 +287,15 @@ one, add one, forget one), **Health** (above), **Maintenance** (rebuild the inde
 archives, write metadata into them), **Fields**, **Browser**, **Appearance**, **Keyboard**,
 **About**. Everything that walks the library — a check, a conversion, a rebuild — takes the same
 single slot, shows the same progress and can be stopped from where it was started.
+
+### New versions
+
+On the first launch — and once after updating to 3.4.0 — a card over the foot of the sidebar asks
+whether longbox may check for new versions. If you say yes, it asks GitHub for the latest release
+at most once a day; GitHub sees your computer's address and nothing else. When a newer release is
+out, an arrow appears in the sidebar's footer — in the warning colour when the release fixes
+security issues — and opens what it is: **What's new** and **Download** open the release in your
+own browser, **Not now** hides the arrow until a newer one. Nothing is downloaded or installed by
+itself. If you say no, longbox never asks GitHub anything. **Settings → About** changes the
+answer, shows the last check and what it found, and has **Check now**, which asks once on a click
+whatever the answer is. The answer is kept in the vault, with the window's other preferences.

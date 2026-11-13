@@ -441,6 +441,9 @@ def build_vault(root: Path, tmp: Path) -> None:
         lib.amend(tid, lambda d, domain=domain, tid=tid: setattr(
             d.meta, "source", SourceRef(domain=domain, url=f"https://{domain}/title/{tid}")) or True)
         time.sleep(0.05)  # a file time ticks coarsely: two writes in one tick would tie
+    # the demo has answered the update question: its card would sit in every shot
+    lib.settings.change_window({"lb.updates": json.dumps(
+        {"check": False, "last": 0, "found": None, "error": "", "dismissed": ""})}, [])
     lib.source_prefs.set_groups(["Reading", "Archives"])
     for domain, group, links in SITES:
         lib.source_prefs.put(domain, group=group, bookmarks=[

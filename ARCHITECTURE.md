@@ -346,6 +346,7 @@ frontend/src/
   pagecapture.ts (the page-capture activity) · frames.ts (episode stills, cut in the window) ·
   moment.ts (a state that lapses: "Saved" on the button that saved) ·
   focus.ts (v-focus: a field that appears on a click gets the focus)
+  updates.ts (whether a newer release is out: the user's answer, the daily check — design/update-check.md)
   tabstrip.ts (Chrome's tab strip, for both strips: where a new tab opens, which tab comes to
   the front when one closes, how wide tabs are — design/tab-strip-mockup.html)
   views/      LibraryView · AuthorsView (browse by any axis) · TitleView · ReaderView ·
@@ -366,7 +367,8 @@ frontend/src/
               CoverArt (covers, rotating on hover) · EntryPreview (an entry card's 16:9 picture:
               poster, a wide first page, or three seeded pages) · EntryFields · FilterBlock · FieldVisibility ·
               MenuButton · RailSection · SearchBox · Pager · Combo · ConfirmModal · Dropdown ·
-              Stars · Icon · VaultLost (the cover while the vault does not answer)
+              Stars · Icon · VaultLost (the cover while the vault does not answer) ·
+              UpdateAsk + UpdatePanel (the question asked once, and a release that is out)
   launcher/   LauncherApp (the launch window: a second page of the build, loaded from disk)
 shell/
   main.js (boot: the vault, the one-time move, then the sidecar on a free port + /health
@@ -380,6 +382,9 @@ shell/
               .longbox/adblock/)
   launcher.js (the launch window: which vault opens, what to say when it cannot, creating one,
                the one-time move with its progress)
+  updates.js (one request to GitHub for the latest release, when the window asks; tested with
+              node:test in updates.test.js)
+  after-pack.js + adhoc-sign.js (build hooks: Electron's fuses off, then the macOS ad-hoc signature)
   vaults.js (config.json, does a vault answer, is it one, its lock, making one, the move of
              what an older build kept on this computer)
   app-preload.js (folder picker, vaults, titlebar, browsing data, download control, close guard,

@@ -1,6 +1,7 @@
 # longbox — knowing a release is out
 
-Status: **proposal for approval** — mockup `design/update-check-mockup.html`. ROADMAP.md, 3.4.0.
+Status: **built** (3.4.0) — mockup `design/update-check-mockup.html`, approved by the owner with
+D1 (the answer lives in the vault) and D2 (daily) as proposed.
 
 ## 1. Why
 
@@ -19,13 +20,14 @@ asks: **"Check for new versions?"**, with two buttons of equal weight and neithe
   sent: no vault, no identifier, no version beyond what any request to a public page carries.
 - **Don't check.** The app never makes the request.
 
-The card says where the answer can be changed (Settings → About) and stays until it is answered;
-it never blocks the window.
+The card sits over the foot of the sidebar — where the notice of a release appears later — says
+where the answer can be changed (Settings → About), and stays until it is answered; it never
+blocks the window.
 
 ## 3. When a release is out
 
 A button in the sidebar's footer — one arrow in the accent colour, beside the activity button and
-the theme switch, its tooltip naming the version — opens a panel above it, as Activity does: the
+the theme switch, its tooltip naming the version — opens a panel above it: the
 version, how old it is, the version running now, and two buttons that open the system's browser
 (never the embedded one): **What's new** (the release page, whose notes are the changelog) and
 **Download** (the latest release). **Not now** takes the button away until a newer version than

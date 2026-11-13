@@ -1,7 +1,7 @@
 'use strict'
-// Preload for the APP window only (not the <webview> guests). Exposes exactly
-// one capability: asking the OS for a folder via the native dialog — the
-// renderer never sees the filesystem, only the path the user chose.
+// Preload for the APP window only (not the <webview> guests). Each capability
+// is one narrow request the main process answers only for this window — the
+// renderer never sees the filesystem, only the paths the user chose.
 const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('longbox', {
@@ -24,6 +24,11 @@ contextBridge.exposeInMainWorld('longbox', {
   // global embedded-browser hygiene: 'cookies' (site cookies; the app's own
   // auth cookie survives) or 'cache' (HTTP cache)
   clearBrowsing: (what) => ipcRenderer.invoke('lb-clear-browsing', String(what || '')),
+  // a release of longbox newer than this one? ({ ok, latest, newer, published,
+  // security, notes } or { ok: false, error }) — and a release page, opened in
+  // the system's browser
+  checkUpdates: () => ipcRenderer.invoke('lb-updates-check'),
+  openRelease: (url) => ipcRenderer.invoke('lb-updates-open', String(url || '')),
   // one site's share of the embedded browser (Sources): how many cookies it
   // holds ({ cookies }), and clearing them — or its storage and cached pages too
   siteData: (domain) => ipcRenderer.invoke('lb-site-data', String(domain || '')),

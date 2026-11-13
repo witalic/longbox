@@ -53,5 +53,7 @@ jobs:
         working-directory: frontend
         run: npm ci && npm run build
 
-      - name: The shell's scripts parse
-        run: for f in shell/*.js; do node --check "$f"; done
+      - name: The shell's scripts parse, and its tests pass
+        run: |
+          for f in shell/*.js; do node --check "$f"; done
+          node --test "shell/*.test.js"

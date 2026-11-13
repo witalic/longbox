@@ -19,7 +19,7 @@ The first two releases answer an independent review of the code (2026-11-13).
   in every build, and the build fails if one stays on.
   Cookie encryption, another such switch, stays off on purpose: it cannot be undone once on, and
   where sign-ins live is the user's choice (3.5.0).
-- **Knowing a release is out.** The app asks once — on the first launch, and once after updating
+- **Knowing a release is out** — done. The app asks once — on the first launch, and once after updating
   to 3.4.0 — whether it may check for new versions. If yes, it asks GitHub for the latest release
   at most once a day (GitHub sees the address and nothing else) and says when one is out, with
   what is new and where to get it, and whether it fixes the built-in browser's security; nothing

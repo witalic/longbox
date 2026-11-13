@@ -22,6 +22,9 @@ import { initSessions, restoreSession, sessionHistory, sessionLabel } from './se
 import { hueFor } from './data'
 import TabFace from './components/TabFace.vue'
 import ActivityPanel from './components/ActivityPanel.vue'
+import UpdateAsk from './components/UpdateAsk.vue'
+import UpdatePanel from './components/UpdatePanel.vue'
+import { available, canCheck, noticed, updates, watchUpdates } from './updates'
 import TabHost from './components/TabHost.vue'
 import TitleView from './views/TitleView.vue'
 import ReaderView from './views/ReaderView.vue'
@@ -133,6 +136,7 @@ watch(() => store.tabs.map((t) => t.id), (open) => {
 // footer, the panel over everything, and the one case where the WINDOW asks
 // first: closing with transfers still running.
 const actOpen = ref(false)
+const updOpen = ref(false) // the panel of a release that is out
 const closeWarning = ref('')
 const unfinished = computed(() => unfinishedDownloads())
 const runningCount = computed(() => runningDownloads().length)
@@ -425,7 +429,7 @@ function doRestore(i: number) {
   restoreSession(i)
 }
 
-init()
+void init().then(watchUpdates)
 initSessions()
 // the app came back into a vault that had dropped: the tabs it had are put back
 // (the last run's session is the newest in the history now)
@@ -618,11 +622,20 @@ if (new URLSearchParams(window.location.search).has('restore') && sessionHistory
             <span class="actnum mono">{{ store.loose }}</span>
           </template>
         </button>
+        <!-- a release is out (design/update-check.md): one quiet arrow, the warning
+             colour only when it fixes security issues -->
+        <button v-if="noticed && available" class="themebtn updbtn" :class="{ sec: available.security, on: updOpen }"
+                :title="`${available.latest} is out${available.security ? ' — it fixes security issues' : ''}`"
+                @click="updOpen = !updOpen">
+          <Icon name="update" :size="15" :sw="2" />
+        </button>
         <button class="themebtn" title="Toggle theme" @click="toggleTheme">
           <Icon name="moon" :size="16" />
         </button>
       </div>
     </aside>
+    <UpdatePanel v-if="updOpen && noticed" @close="updOpen = false" />
+    <UpdateAsk v-if="canCheck && updates.check === null" />
 
     <!-- over everything, because it is about what the whole app is doing -->
     <ActivityPanel v-if="actOpen" :warning="closeWarning"
@@ -696,6 +709,9 @@ if (new URLSearchParams(window.location.search).has('restore') && sessionHistory
 .ring .track { stroke: var(--line); }
 .ring .arc { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset .3s ease; }
 .themebtn:hover { color: var(--tx); }
+.updbtn { color: var(--accent); border-radius: 5px; }
+.updbtn.sec { color: var(--warn); }
+.updbtn.on { background: var(--hover); }
 
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
 
