@@ -4,35 +4,6 @@ Where longbox is going, release by release. Every larger item starts as a design
 anything on screen, a mockup in [design/](design/) that the owner approves first; what has shipped
 moves to the [changelog](CHANGELOG.md). What longbox will not do is at the end.
 
-The next release finishes answering an independent review of the code (2026-11-13); 3.4.0
-answered the rest.
-
-## 3.5.0 — where sign-ins live
-
-Built: the choice, the question, the move and Settings → Browser ([design](design/sign-ins.md));
-the shell's tests (the profile, the vault's checks and its lock); the ffmpeg update below.
-
-The embedded browser keeps its profile — sign-ins, site storage, caches — in the vault, where
-anyone who can read the vault can read the sessions too: a share, a removable disk, a backup, a
-synced folder. Where it lives becomes the user's choice, per vault:
-
-- **in the vault** — sign-ins travel with it to every computer that opens it, and are as safe as
-  the vault is;
-- **on each computer** — the profile stays in the app's folder on the computer that opened the
-  vault; another computer signs in again.
-
-The choice is asked when a vault is made, asked once of every existing vault when this version
-first opens it (nothing moves until it is answered), and can be changed in Settings either way at
-any time: the profile moves on the next start, before the browser opens it. Caches are not moved —
-they refill. This is the one exception to "the vault is home"
-([design/vault-home.md](design/vault-home.md) records it). The first tests for the shell come
-with it: the move, the lock, the vault checks (`node:test`).
-
-Also in 3.5.0: **the bundled ffmpeg updated** (imageio-ffmpeg 0.6 → 0.8, Dependabot #9) — newer
-decoders, with their security fixes. The FFmpeg notice (`packaging/licenses/FFmpeg.txt`) names the
-exact builds shipped for each platform, as the GPL asks, so it is rewritten with them; playable
-copies are checked on the real binaries.
-
 ## 3.6.0 — password manager
 
 Logins for the sites in the embedded browser, encrypted in the vault under a master password,
@@ -59,8 +30,11 @@ kept on each computer, it is what makes signing in again on another one quick.
   `updates.ts`. From then on a change to one of them comes with its test, as the sidecar's do.
 - **The monoliths, split by plan — one cut a release.** A file over 1,500 lines does not grow: new
   code for it goes into the module it is being split into. The first cut — the vault's health out
-  of `library/service.py` into `library/health.py` — landed in 3.4.0. The rest, in order:
-  1. `store.ts` (1,650): navigation — places, tabs, Back and Forward, the openers — into `nav.ts`;
+  of `library/service.py` into `library/health.py` — landed in 3.4.0. 3.5.0 took smaller ones out
+  of `store.ts` (the confirmation dialog into `confirm.ts`, a restart's guards into `restart.ts`)
+  and gave the shell its first tests, run in CI. The rest, in order:
+  1. `store.ts` (1,610): navigation — places, tabs, Back and Forward, the openers — into `nav.ts`,
+     in 3.6.0;
   2. `views/TitleView.vue` (1,700): the contents column — tree, edit mode, adding entries — into
      `TitleContents.vue`, and the pages pane into `PagesPane.vue`;
   3. `library/service.py` (2,060): chapter media — downloads, page capture, folder entries, the
@@ -71,7 +45,7 @@ kept on each computer, it is what makes signing in again on another one quick.
   5. `store.ts`: the activity pollers (downloads, the vault pass, paused imports) into
      `activity.ts`, and the user layer's write-through into `userlayer.ts`.
 
-  `views/BrowserView.vue` (1,250) and `shell/main.js` (1,160) are next in line once these land.
+  `views/BrowserView.vue` (1,250) and `shell/main.js` (1,250) are next in line once these land.
 - **Accessibility**: a name for every icon-only button, visible keyboard focus.
 
 ## Later

@@ -6,6 +6,8 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 
 ## [Unreleased]
 
+## [3.5.0] — 2026-11-13
+
 ### Added
 - **Where sign-ins live.** Each vault chooses where the built-in browser keeps its sign-ins and
   site data: in the vault (they travel with it, and whoever can read the vault can use them) or on
@@ -18,6 +20,8 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 ### Changed
 - The bundled ffmpeg, which makes playable copies of episodes, is FFmpeg 9.0 (was 7.1) — newer
   decoders, with their fixes.
+- For contributors: the desktop shell has tests of its own (`node --test`), run in CI on every
+  push.
 
 ### Fixed
 - **Settings → Maintenance → Rebuild** reads a chapter's details off the disk even while the app
@@ -254,7 +258,8 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
   recipes, an explicit draft with per-field provenance, armed downloads, a library with linked
   faceted filters, and a reader.
 
-[Unreleased]: https://github.com/witalic/longbox/compare/v3.4.0...HEAD
+[Unreleased]: https://github.com/witalic/longbox/compare/v3.5.0...HEAD
+[3.5.0]: https://github.com/witalic/longbox/compare/v3.4.0...v3.5.0
 [3.4.0]: https://github.com/witalic/longbox/compare/v3.3.0...v3.4.0
 [3.3.0]: https://github.com/witalic/longbox/compare/v3.2.0...v3.3.0
 [3.2.0]: https://github.com/witalic/longbox/compare/v3.1.0...v3.2.0
