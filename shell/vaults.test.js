@@ -4,6 +4,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
+const Module = require('node:module')
 const os = require('node:os')
 const path = require('node:path')
 const vaults = require('./vaults')
@@ -108,12 +109,19 @@ test('a lock that does not read is no lock', async (t) => {
   assert.deepEqual(await vaults.readLock(dir), { computer: 'pc', pid: 1 })
 })
 
-// legacyPlan asks Electron where the app's folder is: here, one of the test's
+// legacyPlan asks Electron where the app's folder is: here, one of the test's.
+// Electron itself need not be installed (CI's shell job does not install it).
 function appFolder(t, home) {
-  const id = require.resolve('electron')
-  const was = require.cache[id]
+  const resolve = Module._resolveFilename
+  const id = path.join(__dirname, 'electron.stub')
+  Module._resolveFilename = function (request, ...rest) {
+    return request === 'electron' ? id : resolve.call(this, request, ...rest)
+  }
   require.cache[id] = { id, filename: id, loaded: true, exports: { app: { getPath: () => home } } }
-  t.after(() => { if (was) require.cache[id] = was; else delete require.cache[id] })
+  t.after(() => {
+    Module._resolveFilename = resolve
+    delete require.cache[id]
+  })
 }
 
 test('the app\'s folder as this build keeps it is no older build\'s; what an older one left is moved or dropped', async (t) => {
