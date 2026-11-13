@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Where sign-ins live — mockup</title>
+<style>
+/* ---- the app's own tokens (frontend/src/styles.css), verbatim ---- */
+:root {
+  --bg: #0a0b0d; --bg2: #0f1115; --panel: #15171b; --panel2: #1b1e24;
+  --line: #262a31; --hover: #2a2e36;
+  --tx: #e8eaef; --tx2: #9aa1ad; --tx3: #697080;
+  --accent: #7089e6; --accent-ink: #0d0e11; --accentSoft: rgba(112, 137, 230, .14);
+  --fav: #e0687a; --good: #5fb88a; --warn: #d6a44f; --adult: #e0687a; color-scheme: dark;
+}
+html[data-theme="light"] {
+  --bg: #f0eeea; --bg2: #e6e3dd; --panel: #faf9f6; --panel2: #edeae4;
+  --line: #d2cdc2; --hover: #e2ded6;
+  --tx: #2a2c31; --tx2: #575d67; --tx3: #8d95a1;
+  --accent: #5f77d4; --accent-ink: #ffffff; --accentSoft: rgba(95, 119, 212, .15);
+  --fav: #d6516a; --good: #3f9e6f; --warn: #b07d2a; --adult: #d6516a; color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--tx); font: 400 13px/1.45 system-ui; -webkit-font-smoothing: antialiased; }
+.mono { font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace; }
+.page { max-width: 1240px; margin: 0 auto; padding: 26px 24px 60px; }
+.page > h1 { font: 700 22px/1.1 system-ui; margin: 0 0 4px; letter-spacing: -.3px; }
+.lede { color: var(--tx2); max-width: 100ch; margin: 0 0 18px; }
+.lede b { color: var(--tx); font-weight: 600; }
+.bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.mseg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.mseg button { height: 28px; border: none; background: transparent; color: var(--tx2); padding: 0 12px; font: 600 12px/1 system-ui; cursor: pointer; }
+.mseg button + button { border-left: 1px solid var(--line); }
+.mseg button.on { background: var(--accentSoft); color: var(--accent); }
+h2 { font: 600 15px/1.2 system-ui; margin: 34px 0 6px; }
+.cap { font: 400 12px/1.4 system-ui; color: var(--tx2); margin: 0 0 10px; max-width: 100ch; }
+.frames { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+.notes { color: var(--tx2); max-width: 100ch; padding-left: 18px; margin: 10px 0 0; }
+.notes li { margin: 4px 0; }
+.notes b { color: var(--tx); font-weight: 600; }
+.ic { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--tx); border-radius: 6px; height: 30px; padding: 0 13px; cursor: pointer; font: 600 12px/1 system-ui; white-space: nowrap; }
+.btn.accent { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.ghost { background: transparent; color: var(--tx2); border-color: transparent; }
+
+/* ---- the launch window, at its real size (shell/launcher.js: 560 × 480) ---- */
+.lw { width: 560px; height: 480px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; background: var(--bg); }
+.tb { height: 40px; flex: none; display: flex; align-items: center; gap: 9px; padding: 0 14px; background: var(--bg2); border-bottom: 1px solid var(--line); }
+.tb .logo { width: 16px; height: 16px; border-radius: 4px; background: var(--accent); }
+.tb .name { font: 600 12px/1 system-ui; color: var(--tx2); }
+.tb .ctl { margin-left: auto; color: var(--tx3); font-size: 12px; letter-spacing: 8px; }
+.wbody { flex: 1; min-height: 0; padding: 24px 28px 16px; display: flex; flex-direction: column; gap: 12px; overflow: auto; }
+.wbody h1 { font: 700 22px/1.15 system-ui; margin: 0; letter-spacing: -.3px; }
+.wbody p { margin: 0; color: var(--tx2); }
+.wbody p b { color: var(--tx); font-weight: 600; }
+.wfoot { height: 44px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px; background: var(--bg2); border-top: 1px solid var(--line); }
+.wfoot .sp { flex: 1; }
+.wfoot .hint { font: 400 11px/1.3 system-ui; color: var(--tx3); }
+.head { display: flex; gap: 12px; align-items: center; }
+.badge { width: 36px; height: 36px; border-radius: 999px; display: flex; align-items: center; justify-content: center; flex: none; background: var(--accentSoft); color: var(--accent); }
+.cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 2px; }
+.card { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+.card h3 { font: 600 15px/1.2 system-ui; margin: 0; display: flex; align-items: center; gap: 8px; }
+.card h3 .ic { width: 16px; height: 16px; color: var(--tx2); }
+.card p { font: 400 12px/1.5 system-ui; }
+.card .size { font: 400 11px/1.3 ui-monospace, monospace; color: var(--tx3); }
+.card .btn { margin-top: auto; align-self: stretch; }
+.parts { display: flex; flex-direction: column; gap: 12px; margin-top: 4px; }
+.part { display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 4px 10px; }
+.part .ok { color: var(--good); width: 14px; height: 14px; }
+.part .what { font: 500 13px/1.2 system-ui; }
+.part .sz { font: 400 11px/1 ui-monospace, monospace; color: var(--tx3); }
+.part .pbar { grid-column: 2 / 4; display: block; height: 4px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.part .pbar > span { display: block; height: 100%; width: 62%; background: var(--accent); }
+.part.skip .what { color: var(--tx3); }
+.spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent); }
+.dash { width: 12px; height: 2px; background: var(--tx3); border-radius: 2px; justify-self: center; }
+.status { display: flex; align-items: center; gap: 9px; font: 400 12px/1.4 system-ui; color: var(--tx2); }
+.notice { display: flex; gap: 8px; align-items: flex-start; font: 400 12px/1.45 system-ui; color: var(--tx2); border-left: 2px solid var(--accent); padding: 2px 0 2px 10px; }
+
+/* ---- Settings → Browser, and the confirmation ---- */
+.settings { width: 760px; }
+.shead { height: 44px; display: flex; align-items: center; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+.shead h3 { margin: 0; font: 700 22px/1 system-ui; letter-spacing: -.3px; }
+.scard { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.row { padding: 16px 18px; display: flex; align-items: center; gap: 16px; }
+.row + .row { border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+.text { flex: 1; }
+.label { font: 500 13px/1 system-ui; color: var(--tx); display: flex; align-items: center; gap: 8px; }
+.hint { margin-top: 5px; font: 400 12px/1.4 system-ui; color: var(--tx3); }
+.where { font: 600 11px/1 system-ui; padding: 4px 8px; border-radius: 999px; background: var(--accentSoft); color: var(--accent); }
+.hpin { width: 260px; font: 500 12px/1 ui-monospace, monospace; color: var(--tx); background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; height: 30px; padding: 0 9px; display: flex; align-items: center; }
+.modal { width: 440px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel2); box-shadow: 0 14px 34px rgba(0,0,0,.45); padding: 18px 18px 14px; }
+.modal h4 { margin: 0; font: 600 15px/1.2 system-ui; }
+.modal p { margin: 10px 0 0; font: 400 12px/1.5 system-ui; color: var(--tx2); }
+.modal p b { color: var(--tx); font-weight: 600; }
+.modal .acts { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute"><defs>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/></symbol>
+  <symbol id="i-vault" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-pc" viewBox="0 0 24 24"><path d="M3 5h18v11H3zM8 20h8M12 16v4"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></symbol>
+  <symbol id="i-move" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+</defs></svg>
+<div class="page">
+  <h1>Where sign-ins live</h1>
+  <p class="lede">
+    Each vault says where the embedded browser keeps its <b>sign-ins and site data</b>: in the vault
+    (they travel with it) or on each computer (the vault holds none). The launch window asks once —
+    for every existing vault, and for a new one right after it is made — with two answers of equal
+    weight and nothing preselected. Settings → Browser changes it either way; the profile moves on
+    the next start. Design note: <span class="mono">design/sign-ins.md</span>.
+  </p>
+  <div class="bar"><span class="mseg"><button class="on" data-t="dark">Dark</button><button data-t="light">Light</button></span></div>
+
+  <h2>1 · The question — a vault that has not answered, before the browser opens</h2>
+  <p class="cap">Left: an existing vault, the first time this version opens it — the "on this computer" card says
+    what would move. Right: a vault just made, straight after Create vault — nothing to move.</p>
+  <div class="frames">
+    <div class="lw">
+      <div class="tb"><span class="logo"></span><span class="name">longbox</span><span class="ctl">— ▢ ✕</span></div>
+      <div class="wbody">
+        <div class="head"><span class="badge"><svg class="ic"><use href="#i-key"/></svg></span>
+          <h1>Where should Library keep its sign-ins?</h1></div>
+        <p>The built-in browser keeps your <b>sign-ins to sites</b>, and what sites store, in a profile.
+          Choose where this vault's lives — Settings → Browser changes it later, either way.</p>
+        <div class="cards">
+          <div class="card">
+            <h3><svg class="ic"><use href="#i-vault"/></svg>In the vault</h3>
+            <p>They travel with the vault to every computer that opens it. Whoever can read the vault's
+              folder can use them — on a network share, a backup or a synced copy too.</p>
+            <span class="size">Stays where it is.</span>
+            <button class="btn">Keep them in the vault</button>
+          </div>
+          <div class="card">
+            <h3><svg class="ic"><use href="#i-pc"/></svg>On this computer</h3>
+            <p>Kept in longbox's folder on this computer; the vault holds none of them. Another computer
+              signs in on its own.</p>
+            <span class="size">Moves 14.2 MB now · the cache refills.</span>
+            <button class="btn">Keep them on this computer</button>
+          </div>
+        </div>
+      </div>
+      <div class="wfoot"><span class="hint">Nothing moves until you choose.</span><span class="sp"></span>
+        <button class="btn ghost">Quit</button></div>
+    </div>
+
+    <div class="lw">
+      <div class="tb"><span class="logo"></span><span class="name">longbox</span><span class="ctl">— ▢ ✕</span></div>
+      <div class="wbody">
+        <div class="head"><span class="badge"><svg class="ic"><use href="#i-key"/></svg></span>
+          <h1>Where should Comics keep its sign-ins?</h1></div>
+        <p>The built-in browser keeps your <b>sign-ins to sites</b>, and what sites store, in a profile.
+          Choose where this vault's lives — Settings → Browser changes it later, either way.</p>
+        <div class="cards">
+          <div class="card">
+            <h3><svg class="ic"><use href="#i-vault"/></svg>In the vault</h3>
+            <p>They travel with the vault to every computer that opens it. Whoever can read the vault's
+              folder can use them — on a network share, a backup or a synced copy too.</p>
+            <button class="btn">Keep them in the vault</button>
+          </div>
+          <div class="card">
+            <h3><svg class="ic"><use href="#i-pc"/></svg>On this computer</h3>
+            <p>Kept in longbox's folder on this computer; the vault holds none of them. Another computer
+              signs in on its own.</p>
+            <button class="btn">Keep them on this computer</button>
+          </div>
+        </div>
+      </div>
+      <div class="wfoot"><span class="hint">A new vault has no sign-ins yet.</span><span class="sp"></span>
+        <button class="btn ghost">Quit</button></div>
+    </div>
+  </div>
+
+  <h2>2 · The move — on the start after the answer, or after a change in Settings</h2>
+  <p class="cap">Copied beside its destination, renamed into place when whole, and only then removed from where it was —
+    the 3.0 move's own mechanism. Right: what a computer says when the vault took its sign-ins back (D1).</p>
+  <div class="frames">
+    <div class="lw">
+      <div class="tb"><span class="logo"></span><span class="name">longbox</span><span class="ctl">— ▢ ✕</span></div>
+      <div class="wbody">
+        <div class="head"><span class="badge"><svg class="ic"><use href="#i-move"/></svg></span>
+          <h1>Moving Library's sign-ins to this computer</h1></div>
+        <p>From now on they live in longbox's folder here, and the vault keeps none of them.</p>
+        <div class="parts">
+          <div class="part"><span class="spin"></span><span class="what">Sign-ins and site data</span>
+            <span class="sz">8.8 of 14.2 MB</span><span class="pbar"><span></span></span></div>
+          <div class="part skip"><span class="dash"></span><span class="what">Browser cache — not moved, it refills</span>
+            <span class="sz">612 MB</span></div>
+        </div>
+      </div>
+      <div class="wfoot"><span class="hint">Copied first, then removed from the vault — stopping now loses nothing.</span>
+        <span class="sp"></span><button class="btn ghost">Quit</button></div>
+    </div>
+
+    <div class="lw">
+      <div class="tb"><span class="logo"></span><span class="name">longbox</span><span class="ctl">— ▢ ✕</span></div>
+      <div class="wbody">
+        <h1>Opening Library</h1>
+        <div class="status"><span class="spin"></span>Starting…</div>
+        <div class="notice">Library keeps its sign-ins in the vault now, so this computer's own copy for it was
+          removed. Sign-ins made on the computer that changed it are the ones in use.</div>
+      </div>
+      <div class="wfoot"><span class="sp"></span><button class="btn ghost">Choose another vault…</button></div>
+    </div>
+  </div>
+
+  <h2>3 · Settings → Browser — changed any time, either way</h2>
+  <div class="frames">
+    <div class="settings">
+      <div class="shead"><h3>Browser</h3></div>
+      <section class="scard">
+        <div class="row">
+          <div class="text">
+            <div class="label">Sign-ins and site data <span class="where">In the vault</span></div>
+            <div class="hint">They travel with the vault to every computer that opens it, and whoever can read
+              its folder can use them.</div>
+          </div>
+          <button class="btn">Change…</button>
+        </div>
+        <div class="row">
+          <div class="text"><div class="label">Homepage</div><div class="hint">The page a fresh Browse tab opens.</div></div>
+          <span class="hpin">https://www.google.com</span>
+        </div>
+        <div class="row">
+          <div class="text"><div class="label">Site cookies</div>
+            <div class="hint">Every site in the embedded browser — signs you out of the sources.</div></div>
+          <button class="btn">Clear cookies</button>
+        </div>
+      </section>
+    </div>
+    <div class="modal">
+      <h4>Keep Library's sign-ins on this computer?</h4>
+      <p>When longbox next starts, the sign-ins and site data move from the vault into longbox's folder
+        on <b>this computer</b> (14.2 MB), and the vault keeps none of them. Other computers that open
+        Library sign in on their own. The browser's cache is not moved; it refills.</p>
+      <div class="acts">
+        <button class="btn ghost">Cancel</button>
+        <button class="btn">On the next start</button>
+        <button class="btn accent">Restart now</button>
+      </div>
+    </div>
+  </div>
+  <ul class="notes">
+    <li>The row's pill says where they are now; <b>Change…</b> offers the other place — the confirmation is the
+      choice, and says what it costs.</li>
+    <li>The other way round reads: <i>"Keep Library's sign-ins in the vault? … they move from this computer into
+      the vault, and every computer that opens it uses them; whoever can read the vault can use them too."</i></li>
+    <li><b>D2:</b> Settings → Storage's <b>Forget</b> also removes this computer's sign-ins for that vault, and its
+      confirmation says so.</li>
+  </ul>
+</div>
+<script>
+for (const b of document.querySelectorAll('.mseg button')) {
+  b.onclick = () => {
+    document.documentElement.dataset.theme = b.dataset.t
+    for (const x of document.querySelectorAll('.mseg button')) x.classList.toggle('on', x === b)
+  }
+}
+</script>
+</body>
+</html>
