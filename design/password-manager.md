@@ -1,7 +1,7 @@
 # Password manager — design
 
-Status: **technical design approved** by the owner (2026-11-13) — the crypto, the file, where it
-runs. **Managing logins: proposal for approval** — mockup `design/password-manager-mockup.html`.
+Status: **approved** by the owner (2026-11-13) — the technical design as written, and managing
+logins as the mockup `design/password-manager-mockup.html` draws it. ROADMAP.md, 3.6.0.
 
 The embedded browser signs in to the sites the library is filled from. Their logins are kept by
 longbox itself: encrypted in the vault, unlocked with a master password, offered on a sign-in form
