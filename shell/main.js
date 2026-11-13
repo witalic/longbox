@@ -16,6 +16,7 @@ const net = require('node:net')
 const path = require('node:path')
 const adblock = require('./adblock')
 const launcher = require('./launcher')
+const netguard = require('./netguard')
 const updates = require('./updates')
 const vaults = require('./vaults')
 
@@ -25,6 +26,16 @@ const IS_WIN = process.platform === 'win32'
 // directory (the app itself lives inside an asar); a source checkout reads the
 // repo it sits in.
 const ASSETS = app.isPackaged ? process.resourcesPath : ROOT
+
+// Debugging the app itself: in a development run, or a released build started
+// with LONGBOX_DEVTOOLS=1 — never otherwise. A released build that opened
+// DevTools on a key, or ran with Chromium's remote debugging (the DevTools
+// protocol on a port or a pipe), would hand whoever reached it the app window,
+// the vault's API and every session's cookies.
+const DEVTOOLS = !app.isPackaged || process.env.LONGBOX_DEVTOOLS === '1'
+if (!DEVTOOLS && ['remote-debugging-port', 'remote-debugging-pipe'].some((s) => app.commandLine.hasSwitch(s))) {
+  app.exit(1)
+}
 
 // ONE source of app identity (window title, taskbar) — see <repo>/app-meta.json
 let APP_META = { name: 'longbox', version: '0.0.0' }
@@ -581,14 +592,11 @@ async function main(root, legacy) {
   adblock.wire(sess, win.webContents, path.join(root, vaults.APP_DIR, 'adblock'))
   presentAsChrome(sess, win.webContents)
 
-  // DevTools, on the app window only: in a development run, or a released build
-  // started with LONGBOX_DEVTOOLS=1. The one class of problem that cannot be
-  // diagnosed from outside — playback stalls, a decode fallback, request timing
-  // — is visible nowhere else; but a released build that opens them on a key is
-  // one "press F12 and paste this" away from handing a stranger the vault's API.
-  const devtools = !app.isPackaged || process.env.LONGBOX_DEVTOOLS === '1'
+  // DevTools on the app window, when debugging is allowed at all (DEVTOOLS): the
+  // one class of problem that cannot be diagnosed from outside — playback
+  // stalls, a decode fallback, request timing — is visible nowhere else.
   win.webContents.on('before-input-event', (_e, input) => {
-    if (!devtools || input.type !== 'keyDown') return
+    if (!DEVTOOLS || input.type !== 'keyDown') return
     if (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')) {
       win.webContents.toggleDevTools()
     }
@@ -799,7 +807,8 @@ async function main(root, legacy) {
       const { options, referer } = asThePageAsks(url, page)
       let request
       try {
-        request = electronNet.request({ url, session: sess, useSessionCookies: true, ...options })
+        // redirects come back to fetchImage, which checks where they lead first
+        request = electronNet.request({ url, session: sess, useSessionCookies: true, redirect: 'manual', ...options })
       } catch (err) {
         resolve({ error: `bad request: ${err.message}` })
         return
@@ -817,6 +826,11 @@ async function main(root, legacy) {
       const timer = setTimeout(() => finish({ error: 'timed out' }), IMAGE_TIMEOUT)
       request.setHeader('Accept', IMAGE_ACCEPT)
       if (withReferer && referer) request.setHeader('Referer', referer)
+      request.on('redirect', (_status, _method, to) => {
+        let next = ''
+        try { next = new URL(to, url).href } catch { /* no usable address */ }
+        finish(next ? { redirect: next } : { error: 'bad redirect' })
+      })
       request.on('response', (res) => {
         if (res.statusCode >= 400) {
           res.resume()
@@ -845,18 +859,33 @@ async function main(root, legacy) {
     })
   }
 
+  // An image, following its redirects by hand: each address is checked before it
+  // is asked (netguard.js) — a page may name an image on this computer or its
+  // network, which the page itself could not reach. A page served from such an
+  // address (a source on the same network) may show images from it.
+  const IMAGE_REDIRECTS = 5
+  async function fetchImage(url, page, withReferer, localPage) {
+    for (let hop = 0; hop <= IMAGE_REDIRECTS; hop++) {
+      if (!localPage && !(await netguard.isPublicUrl(url))) return { error: 'not on the public internet' }
+      const got = await fetchImageOnce(url, page, withReferer)
+      if (!got.redirect) return got
+      url = got.redirect
+    }
+    return { error: 'too many redirects' }
+  }
   ipcMain.handle('lb-fetch-image', async (e, req) => {
     if (e.sender !== win.webContents) return { error: 'denied' }
     const url = String(req?.url || '')
     if (!/^https?:\/\//i.test(url)) return { error: 'not an http url' }
     const page = req?.referer ? String(req.referer) : ''
-    const first = await fetchImageOnce(url, page, true)
+    const localPage = !!page && !(await netguard.isPublicUrl(page))
+    const first = await fetchImage(url, page, true, localPage)
     // A refusal is tried once more as a page whose policy sends no Referer would
     // ask (one site's hotlink check is another's reason to refuse); a definite
     // answer from the server is not worth repeating.
     const refused = !/^http (4|5)\d\d$/.test(first.error || '') || /^http 40[13]$/.test(first.error)
     if (first.data || !refused || !asThePageAsks(url, page).referer) return first
-    return fetchImageOnce(url, page, false)
+    return fetchImage(url, page, false, localPage)
   })
 
   // Native window-controls overlay recolor (theme switch)
@@ -917,14 +946,15 @@ async function main(root, legacy) {
 
   // Knowing a release is out (design/update-check.md): one request to GitHub,
   // made only when the window asks — whether and how often is the user's answer.
-  // Its pages open in the system's browser, never the embedded one, and only a
-  // release page of longbox is ever opened from here.
+  // Its pages open in the system's browser, never the embedded one: the window
+  // names a version (or 'latest'), and the address is made here.
   ipcMain.handle('lb-updates-check', (e) => {
     if (e.sender !== win.webContents) return { ok: false, error: 'refused' }
     return updates.check((url, opts) => electronNet.fetch(url, opts), APP_META.version)
   })
-  ipcMain.handle('lb-updates-open', async (e, url) => {
-    if (e.sender !== win.webContents || !updates.isReleasePage(url)) return false
+  ipcMain.handle('lb-updates-open', async (e, which) => {
+    const url = updates.releasePage(which)
+    if (e.sender !== win.webContents || !url) return false
     await shell.openExternal(url)
     return true
   })

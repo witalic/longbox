@@ -10,8 +10,6 @@ export interface Release {
   latest: string
   published: string
   security: boolean
-  // the release page: the changelog's section for it
-  notes: string
   // the version running when it was found: once that changes, it is old news
   over: string
 }
@@ -19,6 +17,7 @@ export interface Release {
 interface Kept {
   check: boolean | null // null: not asked yet
   last: number          // when the last check was made (ms); 0: never
+  ran: string           // the version that made it
   found: Release | null // the newer release the last good check found
   error: string         // why the last check failed; '' when it did not
   dismissed: string     // the version "Not now" was said to
@@ -26,23 +25,22 @@ interface Kept {
 
 const KEY = 'lb.updates'
 const DAY = 24 * 3600 * 1000
-export const DOWNLOAD = 'https://github.com/witalic/longbox/releases/latest'
 
 const isRelease = (v: unknown): v is Release => isRecord(v)
   && typeof v.latest === 'string' && typeof v.published === 'string' && typeof v.security === 'boolean'
-  && typeof v.notes === 'string' && typeof v.over === 'string'
+  && typeof v.over === 'string'
 const isKept = (v: unknown): v is Kept => isRecord(v)
-  && (v.check === null || typeof v.check === 'boolean') && typeof v.last === 'number'
+  && (v.check === null || typeof v.check === 'boolean') && typeof v.last === 'number' && typeof v.ran === 'string'
   && (v.found === null || isRelease(v.found)) && typeof v.error === 'string' && typeof v.dismissed === 'string'
 
 export const updates = reactive({
-  ...readLocal<Kept>(KEY, isKept, { check: null, last: 0, found: null, error: '', dismissed: '' }),
+  ...readLocal<Kept>(KEY, isKept, { check: null, last: 0, ran: '', found: null, error: '', dismissed: '' }),
   checking: false,
 })
 
 function keep(): void {
-  const { check, last, found, error, dismissed } = updates
-  writeLocal(KEY, { check, last, found, error, dismissed })
+  const { check, last, ran, found, error, dismissed } = updates
+  writeLocal(KEY, { check, last, ran, found, error, dismissed })
 }
 
 // the shell asks; a plain browser (the sidecar alone, in development) never does
@@ -62,12 +60,13 @@ export async function checkNow(): Promise<void> {
   updates.checking = true
   try {
     const got = await shell.checkUpdates().catch((e: unknown): UpdateCheck => ({ ok: false, error: String(e) }))
+    const version = store.appMeta.version || ''
     updates.last = Date.now()
+    updates.ran = version
     updates.error = got.ok ? '' : got.error || 'the check failed'
     if (got.ok) {
       updates.found = got.newer && got.latest
-        ? { latest: got.latest, published: got.published || '', security: !!got.security,
-            notes: got.notes || DOWNLOAD, over: store.appMeta.version || '' }
+        ? { latest: got.latest, published: got.published || '', security: !!got.security, over: version }
         : null
     }
     keep()
@@ -76,7 +75,14 @@ export async function checkNow(): Promise<void> {
   }
 }
 
-const due = () => updates.check === true && Date.now() - updates.last >= DAY
+// A day since the last check — or a check this version did not make: the vault
+// is shared, and another computer's install (older or newer) may have made it.
+// A last check dated in the future (a clock put back) is no reason to wait.
+function due(): boolean {
+  if (updates.check !== true) return false
+  const since = Date.now() - updates.last
+  return updates.ran !== (store.appMeta.version || '') || since < 0 || since >= DAY
+}
 
 export function answer(yes: boolean): void {
   updates.check = yes
@@ -90,8 +96,9 @@ export function dismiss(): void {
   keep()
 }
 
-export function openRelease(url: string): void {
-  void window.longbox?.openRelease(url)
+// a version's release page, or 'latest' for the download — the shell makes the address
+export function openRelease(which: string): void {
+  void window.longbox?.openRelease(which)
 }
 
 // at launch, then hourly — a day is counted from the last check, and an hour's

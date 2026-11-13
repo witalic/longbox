@@ -5,7 +5,7 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import Icon from './Icon.vue'
 import { ago } from '../data'
 import { store } from '../store'
-import { available, dismiss, DOWNLOAD, openRelease } from '../updates'
+import { available, dismiss, openRelease } from '../updates'
 
 const emit = defineEmits<{ close: [] }>()
 const root = ref<HTMLElement | null>(null)
@@ -43,8 +43,8 @@ function later() {
       <span>It fixes security issues — in the built-in browser, among others.</span>
     </div>
     <div class="acts">
-      <button class="btn" @click="openRelease(available.notes)">What's new</button>
-      <button class="btn" @click="openRelease(DOWNLOAD)">Download</button>
+      <button class="btn" @click="openRelease(available.latest)">What's new</button>
+      <button class="btn" @click="openRelease('latest')">Download</button>
       <button class="btn ghost later" @click="later">Not now</button>
     </div>
     <div class="ext">Both open in your browser. Not now hides this until a newer version.</div>
@@ -58,7 +58,7 @@ function later() {
   box-shadow: 0 14px 34px rgba(0, 0, 0, .45); padding: 15px 16px 12px;
 }
 .v { font: 600 15px/1.2 system-ui; color: var(--tx); }
-.s { margin-top: 5px; font: 400 11.5px/1.4 system-ui; color: var(--tx3); }
+.s { margin-top: 5px; font: 400 12px/1.4 system-ui; color: var(--tx3); }
 .warn {
   margin-top: 11px; display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border-radius: 6px;
   font: 500 12px/1.45 system-ui; color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent);
@@ -66,5 +66,5 @@ function later() {
 .warn :deep(svg) { margin-top: 1px; }
 .acts { display: flex; gap: 8px; margin-top: 13px; align-items: center; }
 .later { margin-left: auto; border-color: transparent; }
-.ext { margin-top: 9px; font: 400 10.5px/1.4 system-ui; color: var(--tx3); }
+.ext { margin-top: 9px; font: 400 11px/1.4 system-ui; color: var(--tx3); }
 </style>

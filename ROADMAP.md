@@ -8,10 +8,11 @@ The first two releases answer an independent review of the code (2026-11-13).
 
 ## 3.4.0 — hardening, and knowing a release is out
 
-- **DevTools only in a development run** — done: a released build opens them only when started
-  with `LONGBOX_DEVTOOLS=1`.
-- **A cover fetched by its address never reaches the local network** — done: every redirect is
-  checked, and loopback, private and link-local addresses are refused.
+- **DevTools only in a development run** — done: a released build opens them, or starts with
+  Chromium's remote debugging, only when started with `LONGBOX_DEVTOOLS=1`.
+- **An image fetched for a page never reaches the local network** — done, in the shell (covers,
+  page capture) and in the sidecar alike: every redirect is checked, and loopback, private and
+  link-local addresses are refused, unless the page itself is served from that network.
 - **Archives are converted entry by entry** — done: converting an archive, and reordering or
   moving a chapter's pages, holds one page in memory, not the archive.
 - **The runtime's back doors closed** — done: Electron's build-time switches that let the app run

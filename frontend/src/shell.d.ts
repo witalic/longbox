@@ -25,8 +25,7 @@ declare global {
     name: string
     share: string
   }
-  // what a check for a newer longbox found (shell/updates.js); `notes`: the
-  // release's page
+  // what a check for a newer longbox found (shell/updates.js)
   interface UpdateCheck {
     ok: boolean
     error?: string
@@ -34,7 +33,6 @@ declare global {
     newer?: boolean
     published?: string
     security?: boolean
-    notes?: string
   }
   interface Window {
     longbox?: {
@@ -50,10 +48,10 @@ declare global {
       // a folder in the system's file manager; false when it is not one
       openFolder: (dir: string) => Promise<boolean>
       clearBrowsing: (what: 'cookies' | 'cache') => Promise<boolean>
-      // ask GitHub once whether a newer longbox is out; a release page of longbox,
-      // opened in the system's browser (false for any other address)
+      // ask GitHub once whether a newer longbox is out; a version's release page
+      // ('latest': the download) in the system's browser — false for anything else
       checkUpdates: () => Promise<UpdateCheck>
-      openRelease: (url: string) => Promise<boolean>
+      openRelease: (which: string) => Promise<boolean>
       // one site's share of the embedded browser: its cookie count, and clearing
       // them — or its storage and cached pages too; null/false when refused
       siteData: (domain: string) => Promise<{ cookies: number } | null>

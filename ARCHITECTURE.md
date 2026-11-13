@@ -382,8 +382,9 @@ shell/
               .longbox/adblock/)
   launcher.js (the launch window: which vault opens, what to say when it cannot, creating one,
                the one-time move with its progress)
-  updates.js (one request to GitHub for the latest release, when the window asks; tested with
-              node:test in updates.test.js)
+  updates.js (one request to GitHub for the latest release, when the window asks)
+  netguard.js (whether an address is on the public internet — what an image fetched for a page
+               may reach); both tested with node:test (*.test.js)
   after-pack.js + adhoc-sign.js (build hooks: Electron's fuses off, then the macOS ad-hoc signature)
   vaults.js (config.json, does a vault answer, is it one, its lock, making one, the move of
              what an older build kept on this computer)

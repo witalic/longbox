@@ -25,10 +25,10 @@ contextBridge.exposeInMainWorld('longbox', {
   // auth cookie survives) or 'cache' (HTTP cache)
   clearBrowsing: (what) => ipcRenderer.invoke('lb-clear-browsing', String(what || '')),
   // a release of longbox newer than this one? ({ ok, latest, newer, published,
-  // security, notes } or { ok: false, error }) — and a release page, opened in
-  // the system's browser
+  // security } or { ok: false, error }) — and a version's release page
+  // ('latest': the download), opened in the system's browser
   checkUpdates: () => ipcRenderer.invoke('lb-updates-check'),
-  openRelease: (url) => ipcRenderer.invoke('lb-updates-open', String(url || '')),
+  openRelease: (which) => ipcRenderer.invoke('lb-updates-open', String(which || '')),
   // one site's share of the embedded browser (Sources): how many cookies it
   // holds ({ cookies }), and clearing them — or its storage and cached pages too
   siteData: (domain) => ipcRenderer.invoke('lb-site-data', String(domain || '')),

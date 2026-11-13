@@ -2,7 +2,9 @@
 // node --test "shell/*.test.js" — the update check's reading of GitHub's answer.
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { check, describe, newer, isReleasePage, RELEASES } = require('./updates')
+const { check, describe, newer, releasePage } = require('./updates')
+
+const RELEASES = 'https://github.com/witalic/longbox/releases/'
 
 const RELEASE = {
   tag_name: 'v3.4.1', draft: false, prerelease: false, published_at: '2026-11-20T10:00:00Z',
@@ -21,7 +23,6 @@ test('a version is newer only by its numbers', () => {
 test('a newer release is described with its page and date', () => {
   assert.deepEqual(describe(RELEASE, '3.4.0'), {
     latest: '3.4.1', newer: true, published: '2026-11-20T10:00:00Z', security: false,
-    notes: `${RELEASES}tag/v3.4.1`,
   })
   assert.equal(describe(RELEASE, '3.4.1').newer, false)
 })
@@ -39,12 +40,14 @@ test('drafts, pre-releases and odd tags are no news', () => {
   }
 })
 
-test('a page outside the project releases is never handed on', () => {
-  const odd = describe({ ...RELEASE, html_url: 'https://example.com/v3.4.1' }, '3.4.0')
-  assert.equal(odd.notes, `${RELEASES}tag/v3.4.1`)
-  assert.equal(isReleasePage(`${RELEASES}latest`), true)
-  assert.equal(isReleasePage('https://github.com/someone/else/releases/'), false)
-  assert.equal(isReleasePage('file:///C:/x'), false)
+test('the window names a version, and only a release page of longbox is made of it', () => {
+  assert.equal(releasePage('3.4.1'), `${RELEASES}tag/v3.4.1`)
+  assert.equal(releasePage('v3.4.1'), `${RELEASES}tag/v3.4.1`)
+  assert.equal(releasePage('latest'), `${RELEASES}latest`)
+  for (const odd of ['', '3.4', '3.4.1/../../../attacker/repo', `${RELEASES}../../../x`,
+    'https://example.com/', '3.4.1?x=1', null, undefined, 3]) {
+    assert.equal(releasePage(odd), '', String(odd))
+  }
 })
 
 test('a check reports GitHub refusing, or not answering, as an error', async () => {

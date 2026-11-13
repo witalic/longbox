@@ -17,6 +17,7 @@
     "@ghostery/adblocker-electron": "^2.20.3"
   },
   "devDependencies": {
+    "@electron/fuses": "1.8.0",
     "electron": "^45.3.1",
     "electron-builder": "^26.18.0"
   },
@@ -28,8 +29,8 @@
       "output": "../dist-app",
       "buildResources": "."
     },
-    "files": ["main.js", "adblock.js", "launcher.js", "updates.js", "vaults.js", "app-preload.js",
-              "launcher-preload.js", "pick-preload.js", "icon.*", "package.json"],
+    "files": ["main.js", "adblock.js", "launcher.js", "netguard.js", "updates.js", "vaults.js",
+              "app-preload.js", "launcher-preload.js", "pick-preload.js", "icon.*", "package.json"],
     "extraResources": [
       { "from": "../dist-sidecar/longbox-sidecar", "to": "sidecar" },
       { "from": "../app-meta.json", "to": "app-meta.json" },

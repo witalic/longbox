@@ -4,7 +4,7 @@
 // and whether a newer one is out (design/update-check.md).
 import { computed } from 'vue'
 import { ago } from '../data'
-import { answer, available, canCheck, checkNow, DOWNLOAD, openRelease, updates } from '../updates'
+import { answer, available, canCheck, checkNow, openRelease, updates } from '../updates'
 
 defineProps<{
   meta: { name?: string; version?: string; updated?: string; description?: string }
@@ -64,11 +64,11 @@ const status = computed<{ tone: '' | 'good' | 'out' | 'bad'; line: string; hint:
         <div class="label status" :class="status.tone"><span class="d"></span>{{ status.line }}</div>
         <div class="hint">{{ status.hint }}</div>
       </div>
-      <template v-if="available && !updates.checking">
-        <button class="btn" @click="openRelease(available.notes)">What's new</button>
-        <button class="btn" @click="openRelease(DOWNLOAD)">Download</button>
+      <template v-if="available">
+        <button class="btn" @click="openRelease(available.latest)">What's new</button>
+        <button class="btn" @click="openRelease('latest')">Download</button>
       </template>
-      <button v-else class="btn" :disabled="updates.checking" @click="checkNow">Check now</button>
+      <button class="btn" :disabled="updates.checking" @click="checkNow">Check now</button>
     </div>
   </section>
 </template>

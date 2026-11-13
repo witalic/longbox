@@ -5,7 +5,6 @@
 // user's answer, kept with the window's preferences in the vault.
 
 const LATEST = 'https://api.github.com/repos/witalic/longbox/releases/latest'
-// every page a check may send the user to lies under this one
 const RELEASES = 'https://github.com/witalic/longbox/releases/'
 
 // "v3.4.1" or "3.4.1" → [3, 4, 1]; null for anything else (a pre-release tag too)
@@ -26,16 +25,14 @@ function newer(a, b) {
 function describe(release, current) {
   const latest = String(release?.tag_name ?? '').replace(/^v/, '')
   if (!release || release.draft || release.prerelease || !parse(latest)) {
-    return { latest: '', newer: false, published: '', security: false, notes: '' }
+    return { latest: '', newer: false, published: '', security: false }
   }
-  const page = String(release.html_url ?? '')
   return {
     latest,
     newer: newer(latest, current),
     published: String(release.published_at ?? ''),
     // the notes are the changelog's section: Keep a Changelog names this one
     security: /^###\s+Security\b/m.test(String(release.body ?? '')),
-    notes: page.startsWith(RELEASES) ? page : `${RELEASES}tag/v${latest}`,
   }
 }
 
@@ -55,9 +52,13 @@ async function check(fetch, current, timeoutMs = 15000) {
   }
 }
 
-// a page the window may open in the system's browser: a release of longbox
-function isReleasePage(url) {
-  return typeof url === 'string' && url.startsWith(RELEASES) && !/[\s"'<>]/.test(url)
+// The page the window may open in the system's browser: a version's release
+// page, or 'latest' for the download. The window names a version, never an
+// address — what it holds comes from the vault, and a vault is a shared folder.
+function releasePage(which) {
+  if (which === 'latest') return `${RELEASES}latest`
+  const v = parse(which)
+  return v ? `${RELEASES}tag/v${v.join('.')}` : ''
 }
 
-module.exports = { check, describe, newer, isReleasePage, RELEASES }
+module.exports = { check, describe, newer, releasePage }

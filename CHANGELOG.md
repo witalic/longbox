@@ -25,9 +25,11 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 ### Security
 - The released app can no longer be started as plain Node (`ELECTRON_RUN_AS_NODE`), take
   `NODE_OPTIONS`, or open a debugging port (`--inspect`): those switches are off in every build.
-- A released build no longer opens DevTools on F12; started with `LONGBOX_DEVTOOLS=1`, it does.
-- A cover fetched by its address never reaches this computer or its network — not by the address,
-  not by a redirect.
+- A released build no longer opens DevTools on F12, and will not start with Chromium's remote
+  debugging (`--remote-debugging-port`); started with `LONGBOX_DEVTOOLS=1`, it does both.
+- An image fetched for a page — a cover, a captured page — is refused when its address, or any
+  redirect on the way, points at this computer or its network; a source served from that network
+  may still show its own.
 
 ## [3.3.0] — 2026-11-12
 

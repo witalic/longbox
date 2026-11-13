@@ -64,8 +64,13 @@ request when clicked, whatever the switch says.
   `published_at`, `html_url` and whether `body` has a `### Security` heading, and compares the tag
   with `app-meta.json`'s version. A draft, a pre-release or a version not newer is no news. A
   failure is reported in About and otherwise ignored; the next attempt is the next day.
-- The window asks through the preload (`updates.check()`), and keeps the answer, the last check,
-  what it found and the version dismissed with **Not now** in `settings.json` (`lb.updates`).
+- The window asks through the preload (`window.longbox.checkUpdates()`), and keeps the answer, the
+  last check and the version that made it, what it found and the version dismissed with **Not
+  now** in `settings.json` (`lb.updates`). A check is due a day after the last one — or at once
+  when the last was made by another version (the vault is shared between computers) or is dated
+  in the future (a clock put back).
+- The window opens a release by naming its version (`openRelease('3.4.1')`, or `'latest'` for the
+  download); the shell makes the address. Nothing from the vault is ever handed on as a URL.
 - **Docs, in the same release:** the project page's "What it sends" note, the user guide
   (Settings), SECURITY.md (supported versions: how a user learns of a fix).
 

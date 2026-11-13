@@ -709,7 +709,7 @@ if (new URLSearchParams(window.location.search).has('restore') && sessionHistory
 .ring .track { stroke: var(--line); }
 .ring .arc { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset .3s ease; }
 .themebtn:hover { color: var(--tx); }
-.updbtn { color: var(--accent); border-radius: 5px; }
+.updbtn { color: var(--accent); border-radius: 6px; }
 .updbtn.sec { color: var(--warn); }
 .updbtn.on { background: var(--hover); }
 

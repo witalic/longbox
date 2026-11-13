@@ -37,7 +37,8 @@ by git for exactly this: when the first launch asks where to make a vault, make 
 creates a vault by opening a path.
 
 F12 (or Ctrl+Shift+I) opens DevTools on the app's window in a development run; a released build
-does that only when started with `LONGBOX_DEVTOOLS=1` in its environment.
+does that only when started with `LONGBOX_DEVTOOLS=1` in its environment — and without it, refuses
+to start at all with Chromium's remote debugging (`--remote-debugging-port` or `-pipe`).
 
 ## Checks
 
