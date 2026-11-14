@@ -1048,11 +1048,10 @@ class Vault:
         """
         arrived_as = Path(filename or src.name).name
         named = Path(arrived_as).suffix.lower()
-        as_video = named in media.VIDEO_EXTS
-        video_ext = media.video_ext_of(src, named) if as_video else ""
-        if video_ext is None:
-            raise media.UnsupportedArchiveError(
-                f"unsupported video file: {named} content is not a video")
+        video_ext = media.video_ext_of(src, named)  # the bytes decide, whatever the name says
+        as_video = named in media.VIDEO_EXTS or video_ext is not None
+        if as_video and video_ext is None:
+            raise media.UnsupportedArchiveError(f"not a video — the file is {media.what_is(src)}")
         with self._lock(title_id):
             self.let_go(title_id, chapter_id)
             d = self._chapters_dir(title_id)

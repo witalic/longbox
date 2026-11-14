@@ -406,7 +406,7 @@ def test_download_of_unsupported_file_fails_cleanly(client, tmp_path):
     r = _complete_download(client, tmp_path, num="5", filename="video.mp4", data=b"not-media")
     assert r.status_code == 422
     items = client.get("/api/downloads").json()["items"]
-    assert items[0]["state"] == "failed" and "unsupported" in items[0]["error"]
+    assert items[0]["state"] == "failed" and "not a video — the file is a text file (it begins “not-media”)" in items[0]["error"]
     assert not list(_chapters_dir(tmp_path).glob("*")) if _chapters_dir(tmp_path).exists() else True
 
 

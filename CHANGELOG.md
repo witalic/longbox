@@ -24,6 +24,11 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
   stops the rewrite at once; the next launch carries on.
 
 ### Fixed
+- **A download the library will not take is kept.** An armed download of a kind nothing here
+  stores — a PDF, a damaged zip, a web page a site sent instead of the file — waited only to be
+  deleted; it now lands in the library's downloads, and the panel says what the file is instead of
+  only what it is not. A video a site serves under another name (`download.php`) is stored as the
+  video it is.
 - **An episode's checksum stays true after its index is moved.** The one-time pass over older
   episodes rewrote the file but kept the checksum of the bytes before, which Health would report as
   damage; it now records the checksum of what it wrote.

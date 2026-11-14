@@ -670,6 +670,48 @@ def sniff_ext(data: bytes) -> str:
     return ""
 
 
+# What a file's first bytes say it is, where nothing here can store it — the
+# refusal has to say what the file IS, or it cannot be converted by hand.
+_KINDS: tuple[tuple[int, bytes, str], ...] = (
+    (0, b"%PDF", "a PDF document"), (0, b"Rar!", "a RAR archive nothing here can open"),
+    (0, b"7z\xbc\xaf\x27\x1c", "a 7z archive nothing here can open"), (257, b"ustar", "a TAR archive"),
+    (0, b"\x1f\x8b", "a gzip-compressed file"), (0, b"BZh", "a bzip2-compressed file"),
+    (0, b"\xfd7zXZ\x00", "an xz-compressed file"), (0, b"\x28\xb5\x2f\xfd", "a zstd-compressed file"),
+    (0, b"AT&TFORM", "a DjVu document"), (0, b"\xd0\xcf\x11\xe0", "an old Office document"),
+    (0, b"MZ", "a Windows program"), (0, b"PK\x03\x04", "a zip archive cut short or damaged"),
+)
+
+
+def what_is(path: Path) -> str:
+    """What a file holds, by its first bytes, in words: "a PDF document",
+    "a web page (the site sent a page instead of the file)"."""
+    try:
+        with path.open("rb") as fh:
+            head = fh.read(512)
+    except OSError as exc:
+        return f"a file that cannot be read ({exc.strerror or exc})"
+    if not head:
+        return "an empty file"
+    image = sniff_ext(head)
+    if image:
+        return f"a {image.upper()} image"
+    video = video_ext_of(path, ".bin")
+    if video:
+        return f"a video ({video.lstrip('.')})"
+    for at, magic, kind in _KINDS:
+        if head[at:at + len(magic)] == magic:
+            return kind
+    text = head.lstrip(b"\xef\xbb\xbf \t\r\n").lower()
+    if text.startswith((b"<!doctype html", b"<html", b"<head", b"<body")):
+        return "a web page (the site sent a page instead of the file)"
+    if text[:1] in (b"{", b"["):
+        return "a JSON reply (the site sent an answer instead of the file)"
+    words = head[:160].decode("utf-8", "replace").rstrip("�")  # the cut may split a character
+    if "�" not in words and all(c.isprintable() or c in "\t\r\n" for c in words):
+        return f"a text file (it begins “{' '.join(words.split())[:60]}”)"
+    return f"a file of no format longbox knows (its first bytes: {head[:8].hex(' ')})"
+
+
 def _entries(src: Path) -> Iterator[tuple[str, bytes]]:
     """Every FILE entry (name, bytes) of a zip/cbz, 7z or rar archive, ONE AT A
     TIME: a large archive is never held in memory whole, only the entry being
@@ -711,7 +753,7 @@ def _entries(src: Path) -> Iterator[tuple[str, bytes]]:
         raise UnsupportedArchiveError(
             f"cannot read the RAR archive ({exc}) — install unrar, or convert the file to zip")
     raise UnsupportedArchiveError(
-        "unsupported file — expected a zip/cbz/7z/rar archive or a single image")
+        f"not an archive longbox reads (zip, cbz, 7z, rar), an image or a video — the file is {what_is(src)}")
 
 
 def repack_to_zip(src: Path, dst: Path) -> int:

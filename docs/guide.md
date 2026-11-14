@@ -200,7 +200,10 @@ A site you are done with can be hidden from the browser: it keeps its recipe and
 **Armed downloads.** Arm the next download for a chapter, then download the file in the built-in
 browser as you would anywhere: longbox intercepts it and files it into that chapter. Archives
 (zip, cbz, 7z, rar) are normalized to zip, single images accumulate into the chapter page by page,
-a video is stored as itself, and a subtitle file for a downloaded episode becomes its subtitles.
+a video is stored as itself (by what its bytes hold, whatever the site called it), and a subtitle
+file for a downloaded episode becomes its subtitles. A file the library cannot store — a PDF, a web
+page a site answered with — is not thrown away: it waits in the library's downloads, and the panel
+says what the file is, so it can be converted and filed by hand.
 Tick **Name after the downloaded file** to let the file name the entry — beside the number you
 typed (**With a number**), or as its whole label.
 

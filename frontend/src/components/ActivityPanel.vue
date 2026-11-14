@@ -67,8 +67,9 @@ async function loadLoose() {
   store.loose = loose.value.length
 }
 onMounted(loadLoose)
-// a download landing there shows up while the panel is open
-watch(() => downloads.items.filter((i) => i.loose && i.state === 'done').length, loadLoose)
+// a download landing there shows up while the panel is open — one nobody armed,
+// or one the library would not take
+watch(() => downloads.items.filter((i) => i.state === 'failed' || (i.loose && i.state === 'done')).length, loadLoose)
 const canOpenFolder = !!window.longbox?.openFolder
 async function showFolder() {
   try {

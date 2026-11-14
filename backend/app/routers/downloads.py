@@ -9,6 +9,7 @@ lands in the library's downloads folder (library/loose.py).
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 import threading
@@ -16,6 +17,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import NoReturn
 from urllib.parse import unquote
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -28,6 +30,7 @@ from ..library.service import Library
 from ..library.vault import PARTIAL_DIR
 
 router = APIRouter(prefix="/api/downloads")
+log = logging.getLogger("longbox")
 
 ARM_TTL_SECONDS = 15 * 60
 KEEP_ITEMS = 20  # recent downloads shown in the panel
@@ -377,23 +380,35 @@ def complete(request: Request, download_id: str, body: CompleteIn) -> TitleOut |
             src=src, sidecar=sidecar,
         )
     except media.UnsupportedArchiveError as exc:
-        item.state = "failed"
-        item.error = str(exc)
-        raise HTTPException(status_code=422, detail=item.error)
+        _refused(request, item, src, str(exc), 422)
     except media.MediaInUseError as exc:
         # re-downloading the episode that is playing: the old file is still held
-        item.state = "failed"
-        item.error = (f"“{exc}” is open right now — close the player on this "
-                      f"entry and download it again")
-        raise HTTPException(status_code=409, detail=item.error)
+        _refused(request, item, src, f"“{exc}” is open right now — close the player on this "
+                                     f"entry and download it again", 409)
+    except Exception as exc:  # noqa: BLE001 — whatever went wrong, the bytes are not lost to it
+        log.exception("an armed download could not be stored")
+        _refused(request, item, src, f"it could not be stored: {exc}", 500)
     if result is None:
-        item.state = "failed"
-        item.error = "title no longer exists"
-        raise HTTPException(status_code=404, detail=item.error)
+        _refused(request, item, src, "its title is no longer in the library", 404)
     item.state = "done"
     item.received = size
     item.total = size
     return result
+
+
+def _refused(request: Request, item: DownloadItem, src: Path, why: str, status: int) -> NoReturn:
+    """A download that came whole and was not stored is not thrown away: it
+    waits in the library's downloads folder, to be converted or filed by hand.
+    (The shell drops the file it handed over; a file moved out is not there.)"""
+    item.state = "failed"
+    item.error = why
+    if src.is_file():
+        try:
+            kept = _lib(request).loose.take(src, item.filename or src.name, item.fileUrl, item.pageUrl)
+            item.error = f"{why}. Kept in the library's downloads as “{kept.name}”"
+        except Exception:  # noqa: BLE001 — the reason still stands, the file is the shell's again
+            log.exception("a refused download could not be kept")
+    raise HTTPException(status_code=status, detail=item.error)
 
 
 class FailedIn(BaseModel):

@@ -497,3 +497,70 @@ def test_only_a_download_named_after_its_file_may_come_without_a_number(client):
     assert client.post("/api/downloads/arm", json={"titleId": "berserk", "num": ""}).status_code == 422
     assert client.post("/api/downloads/arm", json={"titleId": "berserk", "num": "",
                                                    "fileName": True}).status_code == 200
+
+
+# ---- a download the library will not take ----
+
+def _arm_and_start(c, filename):
+    assert c.post("/api/downloads/arm", json={"titleId": "berserk", "num": "7", "lang": "EN",
+                                              "group": "dex"}).status_code == 200
+    return c.post("/api/downloads/start", json={"filename": filename, "fileUrl": "https://cdn.site/f",
+                                                "pageUrl": "https://site/title/berserk"}).json()
+
+
+def test_a_file_the_library_refuses_is_kept_and_says_what_it_is(client, tmp_path):
+    """A 1 GB download is not thrown away for being the wrong kind: it waits in
+    the library's downloads folder, and the refusal says what the file IS, so it
+    can be converted by hand."""
+    src = tmp_path / "volume 3.cbz"
+    src.write_bytes(b"%PDF-1.7\n" + b"\x00" * 4096)
+    item = _arm_and_start(client, "volume 3.cbz")
+
+    r = client.post(f"/api/downloads/{item['id']}/complete", json={"path": str(src)})
+    assert r.status_code == 422
+    assert "the file is a PDF document" in r.json()["detail"]
+    assert r.json()["detail"].endswith(". Kept in the library's downloads as “volume 3.cbz”")
+    assert not src.exists()
+    [kept] = client.get("/api/downloads/files").json()
+    assert (kept["name"], kept["size"], kept["pageUrl"]) == ("volume 3.cbz", 4105, "https://site/title/berserk")
+    [row] = [i for i in client.get("/api/downloads").json()["items"] if i["id"] == item["id"]]
+    assert row["state"] == "failed" and row["error"] == r.json()["detail"]
+    # and no entry was made out of it
+    assert "7" not in [ch["num"] for ch in client.get("/api/titles/berserk").json()["chapters"]]
+
+
+def test_a_refusal_names_what_the_file_holds(tmp_path):
+    from app.library import media
+
+    def holding(data: bytes) -> str:
+        p = tmp_path / "f.zip"
+        p.write_bytes(data)
+        return media.what_is(p)
+    assert holding(b"<!DOCTYPE html><html>403</html>") == "a web page (the site sent a page instead of the file)"
+    assert holding(b"PK\x03\x04" + b"\x00" * 40) == "a zip archive cut short or damaged"
+    assert holding(b"\x1a\x45\xdf\xa3" + b"\x00" * 40).startswith("a video")
+    assert holding(b"") == "an empty file"
+    assert holding(b"\x01\x02\x03\x04\x05\x06\x07\x08\x09") == \
+        "a file of no format longbox knows (its first bytes: 01 02 03 04 05 06 07 08)"
+
+
+def test_a_download_whose_title_went_meanwhile_is_kept(client, tmp_path):
+    src = make_zip(tmp_path)
+    item = _arm_and_start(client, "dl.zip")
+    assert client.delete("/api/titles/berserk").status_code in (200, 204)
+
+    r = client.post(f"/api/downloads/{item['id']}/complete", json={"path": str(src)})
+    assert r.status_code == 404 and "Kept in the library's downloads" in r.json()["detail"]
+    assert [f["name"] for f in client.get("/api/downloads/files").json()] == ["dl.zip"]
+
+
+def test_a_video_under_another_name_is_stored_as_a_video(client, tmp_path):
+    """The bytes decide: an episode a site serves as `download.php` is still one."""
+    src = tmp_path / "download.php"
+    src.write_bytes(b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2" + b"\x00" * 4096)
+    item = _arm_and_start(client, "download.php")
+
+    r = client.post(f"/api/downloads/{item['id']}/complete", json={"path": str(src)})
+    assert r.status_code == 200
+    [ch] = [c for c in r.json()["chapters"] if c["num"] == "7"]
+    assert ch["kind"] == "video"

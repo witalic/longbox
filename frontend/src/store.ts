@@ -655,6 +655,8 @@ export async function pollDownloads(force = false): Promise<void> {
         seenDone.add(it.id)
         // a file nobody armed that never arrived: no entry shows it, so this says so
         if (it.loose && it.state === 'failed') store.error = `${it.filename || 'A download'} was ${it.error}`
+        // one the library would not take waits in its downloads folder
+        else if (it.state === 'failed') void refreshLoose()
       }
     }
     downloads.armed = s.armed
