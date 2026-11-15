@@ -393,6 +393,7 @@ def complete(request: Request, download_id: str, body: CompleteIn) -> TitleOut |
     item.state = "done"
     item.received = size
     item.total = size
+    log.info("download %s stored in %s (%.1f MB)", item.filename or src.name, item.titleId, size / 1e6)
     return result
 
 
@@ -402,6 +403,7 @@ def _refused(request: Request, item: DownloadItem, src: Path, why: str, status: 
     (The shell drops the file it handed over; a file moved out is not there.)"""
     item.state = "failed"
     item.error = why
+    log.warning("download %s refused: %s", item.filename or src.name, why)
     if src.is_file():
         try:
             kept = _lib(request).loose.take(src, item.filename or src.name, item.fileUrl, item.pageUrl)

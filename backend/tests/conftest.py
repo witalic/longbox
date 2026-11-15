@@ -31,10 +31,12 @@ way — unless the test is about a folder that is not there:
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
 
+from app import logs
 from app.library.copies import CopyQueue
 from app.library.faststart import Faststart
 from app.library.previews import Previews
@@ -48,6 +50,22 @@ def pytest_configure(config):
         "markers", "previews: let the once-per-vault tile preview pass run for this test")
     config.addinivalue_line(
         "markers", "bare_root: a Library opened on a path nobody created")
+
+
+@pytest.fixture(autouse=True)
+def _log_file_goes_with_the_test():
+    """A test that starts the app the way the shell does puts the vault's log
+    file on the root logger; it goes with that test, not into the next one's."""
+    root, err = logging.getLogger(), logging.getLogger("uvicorn.error")
+    kept, kept_err, level = list(root.handlers), list(err.handlers), root.level
+    yield
+    for logger, before in ((root, kept), (err, kept_err)):
+        for h in logger.handlers[:]:
+            if h not in before:
+                logger.removeHandler(h)
+                h.close()
+    root.setLevel(level)
+    logs._handler = None
 
 
 @pytest.fixture(autouse=True)

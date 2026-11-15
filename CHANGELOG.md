@@ -13,6 +13,13 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 - **Import: cut from names.** Text cut out of the titles an import makes — a prefix, `[tags]`,
   `(1080p)`, `【4K】` — with `*` for any text, and the common brackets a click away. It takes over
   "drop [tags]": a profile that dropped them now cuts `[*]`.
+- **A log that says what the app did.** `.longbox/longbox.log` in the vault — written however
+  the app was started — holds each step of a launch with its time, why a launch checked the
+  whole vault and why a close left the session open, every background job (the vault check,
+  playable copies, moving an episode's index, tile previews, a check or conversion from
+  Settings, an import, a download) with how long it took and what it did, requests that kept the
+  window waiting, the browser's pages loaded right after a start, and the errors of the shell
+  and the window.
 
 ### Changed
 - **Import: a move onto the library's own drive reads nothing.** A file linked in place is no

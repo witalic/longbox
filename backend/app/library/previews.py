@@ -24,6 +24,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Literal
 
+from .. import logs
+
 if TYPE_CHECKING:
     from .service import Library
 
@@ -96,15 +98,19 @@ class Previews:
                 self._thread.start()
 
     def _loop(self) -> None:
+        made, started = 0, time.perf_counter()
         while True:
             # the worker leaves under the same lock `offer` starts one under, so
             # nothing offered as it goes is left without one
             with self._lock:
                 if not self._queue or self._closing.is_set():
                     self._thread = None
+                    if made > 1:
+                        log.info("tile previews: %d made in %.1fs", made, time.perf_counter() - started)
                     return
                 title_id, source = self._queue.popitem(last=False)
             self._made(title_id, source)
+            made += 1
 
     def _made(self, title_id: str, source: Source, made: set[str] | None = None) -> None:
         with self._background():
@@ -118,13 +124,15 @@ class Previews:
         writes made them. What is made already costs nothing — the cache is
         listed once and each tile's key comes from the index — so only the
         missing ones touch the disk. Marked done only when it went through."""
-        made = self._lib.thumb_names()
-        for title_id, source in self._lib.tile_sources():
-            if self._closing.is_set():
-                return
-            self._made(title_id, source, made)
-        if not self._closing.is_set():
-            self._lib.vault.mark_previews()
+        with logs.step("one-time pass: tile previews", log) as said:
+            made = self._lib.thumb_names()
+            for title_id, source in self._lib.tile_sources():
+                if self._closing.is_set():
+                    said.append("stopped")
+                    return
+                self._made(title_id, source, made)
+            if not self._closing.is_set():
+                self._lib.vault.mark_previews()
 
     def close(self) -> None:
         thread = self._thread

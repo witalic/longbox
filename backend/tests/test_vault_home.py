@@ -256,27 +256,21 @@ def test_a_moved_vault_finds_its_transfers_where_they_are(tmp_path):
     moved.close()
 
 
-def test_the_packaged_sidecar_logs_into_the_vault_never_into_the_apps_folder(tmp_path, monkeypatch):
+def test_the_sidecar_logs_into_the_vault_never_into_the_apps_folder(tmp_path, monkeypatch):
     # the shell takes anything in the app's folder besides config.json for an
-    # older build's: a log there sent every launch into the move of one
+    # older build's: a log there sent every launch into the move of one. And a
+    # sidecar started from source logs exactly as the packaged one does.
     import logging
-
-    import sidecar
 
     Library(tmp_path / "v").close()
     (tmp_path / "v" / ".longbox").mkdir(exist_ok=True)  # the shell's, with its lock, before the sidecar starts
     (tmp_path / "cfg").mkdir()
     monkeypatch.setenv("LONGBOX_LIBRARY_PATH", str(tmp_path / "v"))
-    root = logging.getLogger()
-    level, before = root.level, list(root.handlers)
-    try:
-        sidecar._log_to_file()
-        added = [h for h in root.handlers if h not in before]
+    get_settings.cache_clear()
+    before = list(logging.getLogger().handlers)
+    with TestClient(create_app()):
+        added = [h for h in logging.getLogger().handlers if h not in before]
         assert [h.baseFilename for h in added] == [str(tmp_path / "v" / ".longbox" / "longbox.log")]
-    finally:
-        for h in root.handlers[:]:
-            if h not in before:
-                root.removeHandler(h)
-                h.close()
-        root.setLevel(level)
+    said = (tmp_path / "v" / ".longbox" / "longbox.log").read_text(encoding="utf-8")
+    assert "sidecar starting (from source" in said and "library ready at" in said
     assert list((tmp_path / "cfg").iterdir()) == []

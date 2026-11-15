@@ -76,8 +76,11 @@ library/
                              preferences (every `lb.*` key local.ts keeps)
   .longbox/                  the app's own working files (design/vault-home.md):
     lock.json                who has the vault open — one app per vault
-    longbox.log              the packaged sidecar's log (it has no console): the start, the
-                             vault's opening, what failed
+    longbox.log              the app's log (app/logs.py), however it was started: the
+                             sidecar's, the shell's (sent to the sidecar, or appended once
+                             there is none) and the window's errors — each launch step, why
+                             a launch checked the whole vault and why a close left the session
+                             open, every background job with its time, slow requests
     session.json             whether the last session settled (closed through `POST /api/close`
                              before the shell stops the sidecar); one that did not makes the
                              next launch verify the whole vault
@@ -329,6 +332,8 @@ backend/app/
   config_store.py (this computer's config: where the vaults are, and nothing else)
   legacy_config.py (moves what an older build kept in the app's folder into the vault, once)
   passes.py (the one vault pass at a time: progress, stop, who is running)
+  logs.py (the app's one log, in the vault: a step's start and end, the shell's and the
+           window's lines, slow requests)
   vault_watch.py (does the vault still answer: lost / back, and what stops when it is lost)
   library/  operations.py (bulk metadata: apply, preview from the index, run, revert) ·
             health.py (the vault's health: the record of what was done, the check and its
@@ -404,6 +409,8 @@ shell/
               .longbox/adblock/)
   launcher.js (the launch window: which vault opens, what to say when it cannot, creating one,
                the one-time move with its progress)
+  log.js (the shell's lines in the app's log: held until the sidecar answers, appended to the
+          file once there is none; the launch's steps, its pages for a while, transfers)
   updates.js (one request to GitHub for the latest release, when the window asks)
   netguard.js (whether an address is on the public internet — what an image fetched for a page
                may reach)

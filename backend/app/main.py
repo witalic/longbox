@@ -8,6 +8,7 @@ import hashlib
 import logging
 import sys
 import threading
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -15,10 +16,11 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import logs
 from .config_store import UnreadableConfig
 from .legacy_config import move_site_data_into
 from .library.service import Library
-from .library.vault import UnreadableDocument, VaultGone, is_vault
+from .library.vault import APP_DIR, UnreadableDocument, VaultGone, is_vault
 from .passes import stop_event
 from .routers import downloads as downloads_router
 from .routers import imports as imports_router
@@ -116,10 +118,16 @@ async def lifespan(app: FastAPI):
                                "run on its own, the sidecar needs LONGBOX_LIBRARY_PATH")
         if not is_vault(root):
             raise RuntimeError(f"{root} is not a vault — longbox creates vaults from its launch window")
+        logs.to_file(root / APP_DIR)
+        log.info("sidecar starting (%s, Python %s)", "packaged" if _BUNDLE else "from source",
+                 sys.version.split()[0])
         # Serve from the index immediately; the vault is verified right after, so
         # a big (or networked) library never stands between launch and a window.
+        opening = time.perf_counter()
         lib = Library(root, defer_sync=True)
-        log.info("library ready at %s (%d titles indexed)", root, lib.count())
+        index = root / "index.db"
+        log.info("library ready at %s (%d titles indexed, index %.1f MB, %.1fs)", root, lib.count(),
+                 index.stat().st_size / 1e6 if index.is_file() else 0, time.perf_counter() - opening)
         move_site_data_into(lib)
         lib.sync_in_background()
         watch = VaultWatch(lib)
@@ -165,6 +173,17 @@ def create_app(library: Library | None = None) -> FastAPI:
         return JSONResponse(status_code=500, content={"detail": str(exc)})
 
     @app.middleware("http")
+    async def timed(request: Request, call_next):
+        """A request that keeps the window waiting is worth a line of its own."""
+        started = time.perf_counter()
+        try:
+            return await call_next(request)
+        finally:
+            took = time.perf_counter() - started
+            if took >= logs.SLOW_S:
+                log.info("slow request: %s %s took %.1fs", request.method, request.url.path, took)
+
+    @app.middleware("http")
     async def vault_gate(request: Request, call_next):
         """While the vault does not answer, nothing waits on it and nothing is
         written anywhere: every API request is refused at once. So is every one
@@ -202,6 +221,12 @@ def create_app(library: Library | None = None) -> FastAPI:
             watch.close()
         lib.close(settled=settled)
         return {"settled": settled}
+
+    @app.post("/api/log", status_code=204)
+    def log_lines(body: logs.Said) -> None:
+        """What the shell and the window say, into the one log: the shell's held
+        from before the sidecar answered, the window's errors."""
+        logs.write("window" if body.source == "window" else "shell", body.lines)
 
     @app.get("/health")
     def health() -> dict:

@@ -14,6 +14,7 @@ const crypto = require('node:crypto')
 const fs = require('node:fs')
 const path = require('node:path')
 const { getDomain } = require('tldts-experimental')
+const log = require('./log')
 const vaults = require('./vaults')
 
 const FILE = 'secrets.json'
@@ -145,9 +146,9 @@ async function mirror(root, text) {
   try {
     await vaults.within(WRITE_MS, replaceSynced(copyOf(root), text), root)
   } catch (e) {
-    console.error(`${COPY_FILE} was not written: ${e.message}`)
+    log.error(`${COPY_FILE} was not written: ${e.message}`)
     await vaults.within(WRITE_MS, fs.promises.rm(copyOf(root), { force: true }), root)
-      .catch((err) => console.error(`${COPY_FILE} was not removed: ${err.message}`))
+      .catch((err) => log.error(`${COPY_FILE} was not removed: ${err.message}`))
   }
 }
 

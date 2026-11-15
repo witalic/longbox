@@ -16,6 +16,8 @@ from contextlib import contextmanager
 
 from fastapi import HTTPException
 
+from . import logs
+
 # The vault passes — one at a time, whichever it is: they all walk the whole
 # library, and on a network share two of them only get in each other's way.
 #
@@ -50,7 +52,11 @@ def _pass(op: str, key: str = ""):
         PASS.update(done=done, total=total, detail=detail, doneBytes=done_bytes, totalBytes=total_bytes)
 
     try:
-        yield progress, _PASS_STOP
+        with logs.step(op) as said:
+            try:
+                yield progress, _PASS_STOP
+            finally:
+                said.append(f"{PASS['done']} of {PASS['total']}" + (", stopped" if _PASS_STOP.is_set() else ""))
     finally:
         PASS.update(running=False, op="", key="", detail="", doneBytes=0, totalBytes=0)
         _LOCK.release()

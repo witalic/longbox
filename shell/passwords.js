@@ -8,6 +8,7 @@
 // that offers to save it.
 const crypto = require('node:crypto')
 const { clipboard, ipcMain, powerMonitor, webContents } = require('electron')
+const log = require('./log')
 const secrets = require('./secrets')
 
 const CLIPBOARD_MS = 30 * 1000
@@ -77,7 +78,7 @@ async function clearClipboard(digest) {
     const now = await clipboard.readText() // '' for a clipboard with no text: an image, say — never ours
     if (now && crypto.createHash('sha256').update(now).digest('hex') === digest) clipboard.clear()
   } catch (err) {
-    console.error('the clipboard was not cleared:', err)
+    log.error('the clipboard was not cleared:', err)
   }
 }
 async function copy(text) {
@@ -319,7 +320,7 @@ function handle(channel, fn) {
 async function unlocked(got) {
   logins = got
   watchIdle()
-  if (got.restored) console.error('secrets.json did not read; its second copy was opened')
+  if (got.restored) log.error('secrets.json did not read; its second copy was opened')
   tellState(await state())
   // the bars that could not tell what to offer can now
   for (const [guestId, offer] of offers) judged(guestId, offer)

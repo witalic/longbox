@@ -7,6 +7,7 @@ it was chosen — takes the one vault-pass slot, and reports through the same
 status the other passes do."""
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import uuid
@@ -19,6 +20,8 @@ from pydantic import BaseModel
 from ..library import folder_import as fi
 from ..library.service import Library
 from ..passes import PASS, _pass, stop_event
+
+log = logging.getLogger("longbox")
 
 router = APIRouter(prefix="/api/import")
 
@@ -167,6 +170,10 @@ def _run(request: Request, root: Path, profile: fi.Profile, overrides: fi.Overri
             progress(n0 + done, n0 + total, detail, b0 + done_bytes, b0 + total_bytes)
 
         report = fi.run(lib, s, profile, overrides, progress=counted, stop=stop)
+        log.info("import of %s: %d stored, %d replaced, %d skipped, %d failed; %d moved in place, "
+                 "%d copied%s; %d episode(s) left to move their index", root, report.imported,
+                 report.replaced, report.skipped, len(report.failed), report.inPlace, report.copied,
+                 f" ({report.copiedWhy})" if report.copiedWhy else "", report.later)
         if report.stopped and _PAUSE.is_set():
             report.paused = True
             held = PausedImport(

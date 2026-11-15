@@ -14,7 +14,9 @@ from fastapi.testclient import TestClient
 from app import main as main_mod
 from app.library.index import LibraryIndex
 from app.library.models import DraftIn, TitleMeta, UserPatch
-from app.library.service import SESSION_DOC, SESSION_SCHEMA, Library
+from app.library.service import Library
+from app.library.session import DOC as SESSION_DOC
+from app.library.session import SCHEMA as SESSION_SCHEMA
 from app.library.vault import Vault
 from app.main import create_app
 

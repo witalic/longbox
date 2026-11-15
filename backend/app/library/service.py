@@ -21,9 +21,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from .. import logs
 from ..scraper.recipes import RecipeStore
 from ..scraper.sources import SourcePrefs
-from . import cards, comicinfo, copies, faststart, fields, media, previews, subtitles
+from . import cards, comicinfo, copies, faststart, fields, media, previews, session, subtitles
 from .app_docs import AppSettings, AppState
 from .health import Health, Progress, cut_short
 from .loose import LooseStore
@@ -41,24 +42,6 @@ from .versions import cache_key, chapter_version, cover_version, page_image_vers
 
 
 log = logging.getLogger("longbox.library")
-
-
-# Whether the last session ended settled: written open at launch, closed on
-# the way out — only when the launch's check finished, every index write landed
-# and no write was still on its way — with the index file as it was left. Still
-# open at the next launch, or the index changed since (an older build, which
-# keeps no marker, opened the vault), the index may be missing a write: only
-# then is the whole vault verified.
-SESSION_DOC = f"{APP_DIR}/session.json"
-SESSION_SCHEMA = 1
-
-
-def _stamp_of(path: Path) -> str:
-    try:
-        st = path.stat()
-    except OSError:
-        return ""
-    return f"{st.st_mtime_ns}.{st.st_size}"
 
 
 # What a preview URL's `v=` may be — the versions this sidecar hands out: a
@@ -148,7 +131,7 @@ class Library:
         self.settings = AppSettings(self.vault)
         self.state = AppState(self.vault)
         # the index file as this session found it — the session marker's check
-        self._index_found = _stamp_of(root / "index.db")
+        self._index_found = session.stamp_of(root / "index.db")
         self.index = LibraryIndex(root / "index.db")
         # two concurrent creates may derive the same fresh id — serialize the
         # pick-unique-id → first-commit step
@@ -203,9 +186,15 @@ class Library:
         changed = 0
         try:
             if self.vault.needs_normalize():
-                changed += max(0, self.normalize_archives())
+                with logs.step("one-time pass: archives to zip", log) as said:
+                    n = max(0, self.normalize_archives())
+                    said.append(f"{n} changed")
+                changed += n
             if self.vault.needs_faststart():
-                changed += self.faststart.refresh()
+                with logs.step("one-time pass: stored episodes", log) as said:
+                    n = self.faststart.refresh()
+                    said.append(f"{n} changed")
+                changed += n
         except Exception:  # noqa: BLE001 — a failed pass must never take the app down
             log.exception("one-time vault pass failed")
         finally:
@@ -341,7 +330,10 @@ class Library:
 
         def run() -> None:
             try:
-                if self._session_open() or self.index.count() == 0:
+                self._session_marked, why = session.begin(self.vault, self._index_found)
+                why = why or ("" if self.index.count() else "the index is empty")
+                if why:
+                    log.info("checking the whole vault: %s", why)
                     self.sync(lambda done, total: self.sync_state.update(done=done, total=total))
                     settled = True
                 else:
@@ -364,33 +356,6 @@ class Library:
 
         self._sync_thread = threading.Thread(target=run, name="lb-sync", daemon=True)
         self._sync_thread.start()
-
-    def _session_open(self) -> bool:
-        """Mark this session open; say whether the index may be missing a write:
-        the last session never settled, left no marker (an older build), or the
-        index file changed after it was left."""
-        try:
-            last = self.vault.read_doc(SESSION_DOC)
-            settled = (last.get("open") is False and bool(self._index_found)
-                       and last.get("index") == self._index_found)
-            with self.vault.doc_transaction(SESSION_DOC, schema=SESSION_SCHEMA) as doc:
-                doc["open"] = True
-                doc.pop("index", None)
-            self._session_marked = True
-            return not settled
-        except Exception:  # noqa: BLE001 — a marker that cannot be read or written: verify
-            return True
-
-    def _session_close(self, settled: bool) -> None:
-        """After the index is closed: the session settled, and the file it left."""
-        if not (settled and self._session_marked and self._settled) or self.index.missed:
-            return  # left open: the next launch verifies the whole vault
-        try:
-            with self.vault.doc_transaction(SESSION_DOC, schema=SESSION_SCHEMA) as doc:
-                doc["open"] = False
-                doc["index"] = _stamp_of(self.vault.root / "index.db")
-        except Exception:  # noqa: BLE001 — the next launch then verifies, which is the safe side
-            log.warning("the session could not be marked closed")
 
     def quick_sync(self) -> bool:
         """Titles added or removed by hand while the app was closed: the shelves
@@ -535,14 +500,16 @@ class Library:
     def _stop_work(self) -> bool:
         """Stop the background work; say whether its writers have stopped."""
         self._closing.set()
-        stopped = self.copies.close()
-        stopped = self.faststart.close() and stopped
+        late = [name for name, done in (("playable copies", self.copies.close()),
+                                        ("moving indexes", self.faststart.close())) if not done]
         self.previews.close()  # it writes previews only, never the index
         for thread in (self._normalize_thread, self._sync_thread):
             if thread is not None and thread.is_alive():
                 thread.join(timeout=10)
-                stopped = stopped and not thread.is_alive()
-        return stopped
+                late += [thread.name] if thread.is_alive() else []
+        if late:
+            log.warning("still running after the wait: %s", ", ".join(late))
+        return not late
 
     def close(self, *, settled: bool = True) -> None:
         """Stop the background work, close the index, and mark the session
@@ -553,7 +520,21 @@ class Library:
         self._closed = True
         stopped = self._stop_work()
         self.index.close()
-        self._session_close(settled and stopped)
+        # the session is marked closed only when the index holds every write
+        why = next((said for left, said in (
+            (not settled, "a write was still on its way"),
+            (not stopped, "background work did not stop in time"),
+            (not self._settled, "the launch's check of the vault did not finish"),
+            (not self._session_marked, "the session was never marked open, or the vault stopped answering"),
+            (self.index.missed, "a write did not reach the index")) if left), "")
+        if why:
+            log.warning("closed; the session is left open, so the next launch checks the whole vault: %s", why)
+            return
+        try:
+            session.end(self.vault)
+            log.info("closed; the session is marked closed")
+        except Exception as exc:  # noqa: BLE001 — the next launch then verifies, which is the safe side
+            log.warning("closed; the session could not be marked closed: %s", exc)
 
     # ---- DTO composition ----
 

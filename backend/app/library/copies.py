@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 import uuid
 from collections import deque
 from dataclasses import dataclass
@@ -251,21 +252,27 @@ class CopyQueue:
                     self._running = job
                     job.state = "running"
                     self._stop.clear()
+                log.info("playable copy of %s/%s — started", job.title_id, job.chapter_id)
+                started, ended = time.perf_counter(), "failed"
                 try:
-                    self.work(job)
+                    ended = self.work(job)
                 except Exception as e:  # noqa: BLE001 — one bad episode must not stop the queue
                     log.exception("playable copy of %s/%s failed", job.title_id, job.chapter_id)
                     job.state, job.error = "failed", str(e)[:400] or type(e).__name__
                 finally:
                     with self._lock:
                         self._running = None
+                    log.info("playable copy of %s/%s — %s after %.1fs", job.title_id, job.chapter_id,
+                             f"failed: {job.error}" if job.state == "failed" else ended,
+                             time.perf_counter() - started)
         finally:
             with self._lock:
                 self._thread = None  # the next job starts a new worker
 
-    def work(self, job: CopyJob) -> None:
+    def work(self, job: CopyJob) -> str:
         """Make one copy. The conversion runs with no lock held — it takes
-        minutes — and lands only if the episode is still the bytes it read."""
+        minutes — and lands only if the episode is still the bytes it read.
+        Says how it ended, for the log."""
         lib = self._lib
         side = lib.vault.chapter_sidecar(job.title_id, job.chapter_id) or {}
         src = lib.vault.chapter_media_path(job.title_id, job.chapter_id)
@@ -273,7 +280,7 @@ class CopyQueue:
         # a pass has since corrected, or a copy may have landed meanwhile
         if src is None or side.get("kind") != "video" or not (needs_copy(side) or job.requested):
             self._forget(job)
-            return
+            return "not needed any more"
         of = original_of(side)
         final = lib.vault.chapter_copy_path(job.title_id, job.chapter_id)
         tmp = media.tmp_path(final)
@@ -295,16 +302,16 @@ class CopyQueue:
         except transcode.Cancelled:
             tmp.unlink(missing_ok=True)
             self._forget(job)
-            return
+            return "stopped"
         except transcode.ConvertError as e:
             tmp.unlink(missing_ok=True)
             job.state, job.error = "failed", str(e)[:400] or "ffmpeg failed"
             lib.record_copy_failed(job.title_id, job.chapter_id, of, job.error)
-            return
+            return "failed"
         except OSError as e:  # the vault, not the file: nothing to remember against it
             tmp.unlink(missing_ok=True)
             job.state, job.error = "failed", str(e)[:400] or type(e).__name__
-            return
+            return "failed"
         finally:
             self._writing = None
             self._idle.set()
@@ -313,19 +320,20 @@ class CopyQueue:
         except OSError as e:  # a copy held open by a player, a vault gone away
             tmp.unlink(missing_ok=True)
             job.state, job.error = "failed", str(e)[:400] or type(e).__name__
-            return
+            return "failed"
         self._forget(job)
         if landed:
             with self._lock:
                 self._seq += 1
                 self._landed.append((self._seq, job.title_id))
-            return
+            return "made"
         # the episode changed under the conversion: the copy is of bytes that are
         # gone, and what replaced them was offered while this job stood in its place
         tmp.unlink(missing_ok=True)
         got = lib.index.get(job.title_id)
         if got is not None:
             self.offer(job.title_id, got[0], got[1])
+        return "dropped: the episode changed meanwhile"
 
     def _forget(self, job: CopyJob) -> None:
         with self._lock:

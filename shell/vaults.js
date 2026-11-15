@@ -10,6 +10,8 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 
+const log = require('./log')
+
 const VAULT_FILE = 'vault.json'
 const APP_DIR = '.longbox'
 // a lock not refreshed for this long was left behind by an app that is gone
@@ -57,7 +59,7 @@ function readConfig() {
   } catch { /* set aside below */ }
   const aside = `${configFile()}.unreadable-${Date.now()}`
   try { fs.renameSync(configFile(), aside) } catch { /* left where it is */ }
-  console.error(`config.json could not be read; kept as ${aside}`)
+  log.error(`config.json could not be read; kept as ${aside}`)
   return {}
 }
 
@@ -296,7 +298,7 @@ async function holdLock(root) {
       const held = await readLock(root)
       if (held && lockState(held) !== 'mine') {
         clearInterval(timer)
-        console.error(`the vault's lock was taken over by ${held.computer}`)
+        log.error(`the vault's lock was taken over by ${held.computer}`)
         return
       }
       await writeAtomic(lockFile(root), JSON.stringify(lockOf(since), null, 2))

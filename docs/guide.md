@@ -358,6 +358,13 @@ five entries, almost all numbered, densely covering their span, and never a hand
 **What has been done** is recorded with the library: every operation over the vault leaves when it
 ran, how long it took and what came of it, and the last report is kept in full.
 
+**The log** (`.longbox/longbox.log` in the vault) says what the app did, step by step: how long a
+launch took and why it checked the whole vault, when it did; every job it ran in the background,
+what it did and for how long; why a close left the next launch a full check; a request that kept
+the window waiting; and what went wrong. It is the file to send with a report of something slow
+or broken — read it first: it names the vault's path, the sites the browser opened right after a
+start and the files you downloaded.
+
 **ComicInfo.xml** is a mirror, not a second source of truth: it is written where an archive is being
 rewritten anyway — at ingest and on every page edit — and Settings brings the rest in line on
 demand, rewriting only what differs.

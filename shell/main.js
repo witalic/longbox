@@ -18,6 +18,7 @@ const net = require('node:net')
 const path = require('node:path')
 const adblock = require('./adblock')
 const launcher = require('./launcher')
+const log = require('./log')
 const netguard = require('./netguard')
 const passwords = require('./passwords')
 const tabsSeen = require('./tabs-seen')
@@ -45,6 +46,11 @@ if (!DEVTOOLS && ['remote-debugging-port', 'remote-debugging-pipe'].some((s) => 
 // ONE source of app identity (window title, taskbar) — see <repo>/app-meta.json
 let APP_META = { name: 'longbox', version: '0.0.0' }
 try { APP_META = { ...APP_META, ...JSON.parse(fs.readFileSync(path.join(ASSETS, 'app-meta.json'), 'utf-8')) } } catch { /* defaults */ }
+// when this run began: a launch's steps in the log are timed from it, and the
+// pages it opens are logged for a while after it (STARTUP_PAGES_MS) — a disk
+// busy right after a start is often the browser's profile, read for them
+const STARTED = Date.now()
+const STARTUP_PAGES_MS = 3 * 60 * 1000
 
 // The browser's data lives where the vault the app opens says (its profile is a
 // session at a path in it, or in the app's folder); Chromium's own default
@@ -138,7 +144,9 @@ function spawnSidecar(port, token, root) {
   })
   child.on('exit', (code) => {
     if (app.isQuitting) return
-    console.error(`sidecar exited (${code})`)
+    log.alone(path.join(root, vaults.APP_DIR, 'longbox.log'))
+    const tail = said.trim().split(/\r?\n/).slice(-3).join(' | ')
+    log.error(`the sidecar exited (${code})${tail ? `; it last said: ${tail}` : ''}`)
     // before the window is up it was the vault that could not be opened: the
     // launch window says why, instead of the next launch trying it again blind
     if (!windowShown) {
@@ -212,7 +220,7 @@ function presentAsChrome(sess, appContents) {
           'sec-ch-ua-platform': `"${platform}"`,
         }
       })
-      .catch((err) => console.error('reading the Client Hints failed:', err))
+      .catch((err) => log.error('reading the Client Hints failed:', err))
   })
   sess.webRequest.onBeforeSendHeaders({ urls: ['https://*/*'] }, (details, cb) => {
     if (!hints) return cb({})
@@ -365,6 +373,8 @@ function wireDownloads(sess, origin, token) {
       item.setSavePath(path.join(partialDir(), `${Date.now()}-${item.getFilename() || 'chapter.zip'}`))
     }
     const tempFile = item.getSavePath()
+    const named = item.getFilename() || 'a file'
+    log.info(`download ${resumed ? 'picked up' : 'started'}: ${named} (${item.getTotalBytes() || '?'} bytes)`)
     const carried = resumed ? resuming.get(path.resolve(tempFile)) : undefined
     resuming.delete(path.resolve(tempFile))
 
@@ -389,7 +399,7 @@ function wireDownloads(sess, origin, token) {
       }
       return (await res.json()).id
     }).catch((err) => {
-      console.error('download claim failed:', err)
+      log.error('download claim failed:', err)
       try { item.cancel() } catch { /* already done */ }
       return null
     })
@@ -431,16 +441,17 @@ function wireDownloads(sess, origin, token) {
         if (state === 'completed') {
           const res = await api(`/${id}/complete`, { path: tempFile })
           if (!res.ok) {
-            console.error(`download ingest failed: ${res.status}`)
+            log.warn(`download ${named} was not stored (${res.status})`)
             drop()
           }
           // on success the sidecar MOVED the file into the vault
         } else {
+          log.info(`download ${named} ${state}`)
           await api(`/${id}/failed`, { reason: state })
           drop()
         }
       } catch (err) {
-        console.error('download ingest failed:', err)
+        log.error('download ingest failed:', err)
         drop()
       }
       downloadsChanged()
@@ -471,7 +482,7 @@ async function readLegacyPrefs(sess, port) {
       return out
     })()`)
   } catch (err) {
-    console.error('reading the old window preferences failed:', err)
+    log.error('reading the old window preferences failed:', err)
     return null
   } finally {
     page.destroy()
@@ -487,8 +498,12 @@ async function readLegacyPrefs(sess, port) {
 async function stopSidecar() {
   const running = sidecar && sidecar.exitCode === null && !sidecar.killed
   if (!vaultLost) {
-    if (running) await closeLibrary()
+    if (running) {
+      await log.flush() // a closed library takes no more lines
+      await closeLibrary()
+    }
     letGoOfVault()
+    if (vaultRoot) log.alone(path.join(vaultRoot, vaults.APP_DIR, 'longbox.log'))
   }
   if (running) sidecar.kill()
 }
@@ -498,6 +513,7 @@ async function stopSidecar() {
 // a vault coming back after a drop both end here (design/vault-home.md).
 async function relaunch(extra = []) {
   app.isQuitting = true
+  log.info(`restarting${extra.includes('--launcher') ? ' into the launch window' : ''}`)
   await passwords.lock() // what it is writing, written
   // what the browser holds in memory reaches its profile before the process goes
   if (vaultSession) {
@@ -558,15 +574,23 @@ async function main(root, legacy, prof) {
       await vaults.writeAtomic(path.join(root, vaults.APP_DIR, 'legacy-window.json'), JSON.stringify(prefs, null, 2))
     }
     // everything this computer kept is in the vault now: its old folder goes
-    await vaults.dropLegacy(legacy).catch((err) => console.error('dropping the old app data failed:', err))
+    await vaults.dropLegacy(legacy).catch((err) => log.error('dropping the old app data failed:', err))
   }
 
   const port = await freePort()
   const token = crypto.randomBytes(32).toString('hex')
   const origin = `http://127.0.0.1:${port}`
 
+  const asked = Date.now()
   sidecar = spawnSidecar(port, token, root)
   await waitForHealth(port, token)
+  log.to(async (lines) => (await fetch(`${origin}/api/log`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ source: 'shell', lines }),
+    signal: AbortSignal.timeout(5000),
+  })).ok)
+  log.info(`the sidecar answered in ${Date.now() - asked} ms`)
   closeLibrary = async () => {
     try {
       await fetch(`${origin}/api/close`, {
@@ -708,7 +732,7 @@ async function main(root, legacy, prof) {
       return true
     } catch (err) {
       resuming.delete(path.resolve(r.path))
-      console.error('resume failed:', err)
+      log.error('resume failed:', err)
       return false
     }
   })
@@ -1039,6 +1063,7 @@ async function main(root, legacy, prof) {
     await launcher.close() // after a notice on it has been read
     win.show()
     windowShown = true
+    log.info(`the window is up, ${Date.now() - STARTED} ms after the start`)
     void adblock.load() // a stale list is fetched and read here, not before the window is up
   })
   watchVault(origin, win)
@@ -1051,19 +1076,28 @@ async function boot() {
   Menu.setApplicationMenu(null) // no native File/Edit/View menu bar
   const opts = { uiDir: UI_DIR, icon: ICON }
   const why = process.argv.find((a) => a.startsWith('--why='))
+  log.info(`longbox ${APP_META.version} starting (${app.isPackaged ? 'packaged' : 'from source'}, ` +
+    `Electron ${process.versions.electron}, ${process.platform} ${process.arch})`)
   const { root, letGo } = await launcher.choose({ ...opts, forced: process.argv.includes('--launcher'),
     why: why ? decodeURIComponent(why.slice(6)) : '' })
   letGoOfVault = letGo
+  log.info(`the vault: ${root}`)
   try {
     // where the sign-ins live is settled first: what an older build kept here goes there
     const prof = await launcher.signins(root, opts)
+    const inVault = path.resolve(prof.dir) === path.resolve(profile.vaultDir(root))
+    log.info(`the browser's profile is ${inVault ? 'in the vault' : 'on this computer'}: ${prof.dir}`)
     const legacy = await vaults.legacyPlan(root, prof.dir)
-    if (legacy) await launcher.moving(legacy, opts)
+    if (legacy) {
+      log.info('moving what an older build kept on this computer into the vault')
+      await launcher.moving(legacy, opts)
+    }
     await main(root, legacy, prof)
   } catch (err) {
     // the vault could not be opened after all: back to the launch window, which
     // says why — never a quiet exit the next launch would repeat
-    console.error(err)
+    log.alone(path.join(root, vaults.APP_DIR, 'longbox.log'))
+    log.error('the vault could not be opened:', err)
     if (!windowShown) {
       void relaunch(['--launcher', `--why=${encodeURIComponent(`The library could not be opened: ${err.message || err}`)}`])
       return
@@ -1084,7 +1118,7 @@ if (!app.requestSingleInstanceLock()) {
     w.focus()
   })
   app.whenReady().then(boot).catch((err) => {
-    console.error(err)
+    log.error('the app could not start:', err)
     dialog.showErrorBox('longbox could not start', String((err && err.message) || err))
     app.quit()
   })
@@ -1108,7 +1142,7 @@ const EXIT_FULLSCREEN_WORLD = 1001
 const GESTURE_MS = 5000
 // The page menu's copies: Electron's clipboard answers with a promise, and one
 // that fails must not go unhandled in the main process.
-const copyText = (text) => { clipboard.writeText(String(text ?? '')).catch((err) => console.error('copy failed:', err)) }
+const copyText = (text) => { clipboard.writeText(String(text ?? '')).catch((err) => log.error('copy failed:', err)) }
 
 app.on('web-contents-created', (_e, contents) => {
   contents.on('will-attach-webview', (_evt, webPreferences) => {
@@ -1122,6 +1156,15 @@ app.on('web-contents-created', (_e, contents) => {
     webPreferences.contextIsolation = true
   })
   if (contents.getType() === 'webview') {
+    let began = 0
+    contents.on('did-start-loading', () => { began = Date.now() })
+    contents.on('did-stop-loading', () => {
+      if (!began || Date.now() - STARTED > STARTUP_PAGES_MS) return
+      let host = ''
+      try { host = new URL(contents.getURL()).host } catch { /* not a URL */ }
+      log.info(`a page of ${host || 'the browser'} loaded in ${Date.now() - began} ms`)
+      began = 0
+    })
     // Every link this page opens as a tab goes through here, so a download the
     // new tab lands on straight away still knows the page it came from.
     const openTab = (url, background) => {
@@ -1213,7 +1256,7 @@ app.on('web-contents-created', (_e, contents) => {
         )
         Menu.buildFromTemplate(items).popup({ window: appWindow })
       } catch (err) {
-        console.error('context menu failed:', err)
+        log.error('context menu failed:', err)
       }
     })
 
@@ -1255,6 +1298,7 @@ app.on('before-quit', (e) => {
   e.preventDefault()
   if (stopping) return
   stopping = true
+  log.info('quitting')
   for (const w of BrowserWindow.getAllWindows()) w.hide()
   void Promise.all([loginsLocked, stopSidecar()]).finally(() => {
     stopped = true

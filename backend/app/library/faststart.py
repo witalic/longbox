@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -131,6 +132,8 @@ class Faststart:
                 self._again = False
             marked = [(title_id, stem) for title_id, sides in self._lib.index.episodes().items()
                       for stem, side in sides.items() if side.get(LATER)]
+            if marked:
+                log.info("moving the index to the front: %d episode(s)", len(marked))
             for title_id, stem in marked:
                 if self._closing.is_set():
                     break
@@ -149,10 +152,13 @@ class Faststart:
             self._copying, self._stop = (title_id, stem), threading.Event()
             self._idle.clear()
         was = None
+        started = time.perf_counter()
         try:
             was = path.stat()
             made = media.faststart_copy(path, self._stop)
         except InterruptedError:
+            log.info("the index of %s/%s — stopped after %.1fs; it stays marked", title_id, stem,
+                     time.perf_counter() - started)
             return  # closing, or the file is wanted: the mark stays
         except OSError as err:
             log.warning("the index of %s/%s was not moved: %s", title_id, stem, err)
@@ -162,10 +168,13 @@ class Faststart:
                 self._copying = None
                 self._idle.set()
         if was is not None:
-            self._land(title_id, stem, path, was, made)
+            ended = self._land(title_id, stem, path, was, made)
+            log.info("the index of %s/%s (%.0f MB) — %s after %.1fs", title_id, stem, was.st_size / 1e6,
+                     ended, time.perf_counter() - started)
 
     def _land(self, title_id: str, stem: str, path: Path, was: os.stat_result,
-              made: tuple[Path, str] | None) -> None:
+              made: tuple[Path, str] | None) -> str:
+        """Says how it ended, for the log."""
         vault = self._lib.vault
         with vault.title_lock(title_id):
             side = vault.chapter_sidecar(title_id, stem)
@@ -176,12 +185,12 @@ class Faststart:
             if not same:  # replaced, removed or rewritten meanwhile: what was copied is not it
                 if made is not None:
                     made[0].unlink(missing_ok=True)
-                return
+                return "dropped: the episode changed meanwhile"
             if made is not None:
                 try:
                     media.replace_atomically(made[0], path)
                 except media.MediaInUseError:
-                    return  # the player holds it: the mark stays for the next pass
+                    return "left: the player holds it"  # the mark stays for the next pass
                 # new bytes: a new revision (a repeated one serves a stale range
                 # back), and the digest they were written under
                 side = {**side, **media.probe_video(path), "sha256": made[1], "content": made[1],
@@ -189,3 +198,4 @@ class Faststart:
             side.pop(LATER, None)
             vault.write_chapter_sidecar(title_id, stem, side)
             self._lib.reindex([title_id])
+        return "moved" if made is not None else "left as it is: it cannot be moved"

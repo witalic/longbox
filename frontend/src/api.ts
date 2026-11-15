@@ -38,6 +38,18 @@ async function reqVoid(path: string, init: RequestInit): Promise<void> {
   if (!res.ok) throw await failure(res, init.method ?? 'GET', path)
 }
 
+// What goes wrong in the window, into the app's log (backend/app/logs.py): an
+// error that leaves the window blank is otherwise seen by nobody. A window that
+// throws in a loop is worth its first lines, not a flood on the vault's drive.
+let told = 0
+export function logError(text: string): void {
+  if (++told > 20) return
+  void fetch('/api/log', {
+    method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source: 'window', lines: [{ at: Date.now(), level: 'error', text }] }),
+  }).catch(() => { /* the sidecar is gone: so is its log */ })
+}
+
 function jsonBody(method: string, data: unknown): RequestInit {
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }
 }
