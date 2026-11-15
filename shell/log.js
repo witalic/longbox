@@ -1,13 +1,19 @@
 'use strict'
 // The shell's lines in the app's one log (backend/app/logs.py). The sidecar
 // writes the vault's `.longbox/longbox.log`, so the shell hands its lines to
-// it — holding a launch's first ones until it answers — and, with no sidecar to
-// take them (it died, or is closed), appends them to that file itself. Every
-// line is on the console too.
+// it: the ones said before it existed go with it as it starts (`handOver`), to
+// be written first; the rest as they come, once it answers. With no sidecar to
+// take them (it died, or is closed), the shell appends them to that file
+// itself. Every line is on the console too, and every line of a launch carries
+// its run's id (`run`), whoever writes it.
+const crypto = require('node:crypto')
 const fs = require('node:fs')
 
 const HELD = 500 // lines kept while nothing takes them
+const FIRST = 50 // lines handed to the sidecar as it starts
+const run = crypto.randomBytes(2).toString('hex')
 const held = []
+let handed = [] // went with the sidecar as it started: written by it, once it answers
 let send = null // the sidecar's /api/log, while it answers
 let file = '' // the log file, once there is no sidecar to write it
 let timer = null
@@ -31,7 +37,7 @@ function say(level, text) {
 // Everything held, to the sidecar or the file. Lines nothing took are held
 // again: the next taker gets them.
 async function flush() {
-  if (!held.length) return
+  if (!held.length && !(file && handed.length)) return
   const lines = held.splice(0, held.length)
   if (send) {
     try { if (await send(lines)) return } catch { /* the sidecar is gone */ }
@@ -40,17 +46,25 @@ async function flush() {
     held.unshift(...lines.slice(-(HELD - held.length)))
     return
   }
+  const all = [...handed, ...lines]
+  handed = [] // a sidecar that never answered may not have written them
   try {
-    fs.appendFileSync(file, lines.map((l) => `${stamp(l.at)} ${l.level.toUpperCase()} longbox.shell: ${l.text}\n`).join(''))
+    fs.appendFileSync(file, all.map((l) => `${stamp(l.at)} [${run}] ${l.level.toUpperCase()} longbox.shell: ${l.text}\n`).join(''))
   } catch { /* a log that cannot be written never stops the app */ }
 }
 
 module.exports = {
+  run,
   info: (text) => say('info', text),
   warn: (text) => say('warning', text),
   error: (text, err) => say('error', err ? `${text} ${(err && err.stack) || err}` : text),
+  // the lines said so far, for the sidecar to write first as it starts
+  handOver() {
+    handed = held.splice(0, held.length).slice(-FIRST)
+    return handed
+  },
   // the sidecar answers: `fn(lines)` sends them, and says whether they were taken
-  to(fn) { send = fn; void flush() },
+  to(fn) { send = fn; handed = []; void flush() },
   // no sidecar to take them any more: the file itself
   alone(path) { send = null; file = path; void flush() },
   flush,

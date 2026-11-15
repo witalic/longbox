@@ -19,7 +19,8 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
   playable copies, moving an episode's index, tile previews, a check or conversion from
   Settings, an import, a download) with how long it took and what it did, requests that kept the
   window waiting, the browser's pages loaded right after a start, and the errors of the shell
-  and the window.
+  and the window. Each launch opens with its own line and every line of it names the launch; the
+  log keeps three files of a megabyte.
 
 ### Changed
 - **Import: a move onto the library's own drive reads nothing.** A file linked in place is no

@@ -123,3 +123,26 @@ def test_a_pass_says_how_far_it_got_and_whether_it_was_stopped(caplog):
     assert _said(caplog)[0] == "checking the library — started"
     assert _said(caplog)[1].endswith(": 4 of 10, stopped")
     stop.clear()
+
+
+def test_a_run_opens_with_its_line_and_every_line_names_it(tmp_path, monkeypatch):
+    import json
+    from logging.handlers import RotatingFileHandler
+
+    (tmp_path / ".longbox").mkdir()
+    at = time.time() * 1000 - 2000
+    monkeypatch.setenv("LONGBOX_RUN", "a1b2")
+    monkeypatch.setenv("LONGBOX_LOG_FIRST", json.dumps([{"at": at, "text": "longbox 9.9.9 starting"},
+                                                        {"at": at + 9, "text": "the vault: here"}]))
+    logs.to_file(tmp_path / ".longbox")
+    logging.getLogger("longbox").info("sidecar starting")
+    for h in logging.getLogger().handlers:
+        h.flush()
+    lines = (tmp_path / ".longbox" / "longbox.log").read_text(encoding="utf-8").splitlines()
+    assert [ln.split(": ", 1)[1] for ln in lines] == [
+        "----- run a1b2 -----", "longbox 9.9.9 starting", "the vault: here", "sidecar starting"]
+    assert all(" [a1b2] " in ln for ln in lines)
+    assert " longbox.shell: " in lines[1]
+    # three files of a megabyte: a run that said a lot leaves the one before it
+    [handler] = [h for h in logging.getLogger().handlers if isinstance(h, RotatingFileHandler)]
+    assert (handler.maxBytes, handler.backupCount) == (1_000_000, 2)

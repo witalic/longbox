@@ -118,6 +118,9 @@ function spawnSidecar(port, token, root) {
       LONGBOX_LIBRARY_PATH: root,
       // where the registered vaults are kept (and what an older build left there)
       LONGBOX_CONFIG_DIR: app.getPath('userData'),
+      // this run in the log: its id, and what the shell said before the sidecar existed
+      LONGBOX_RUN: log.run,
+      LONGBOX_LOG_FIRST: JSON.stringify(log.handOver()),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   }

@@ -40,7 +40,37 @@ test('lines the sidecar does not take are written to the file once it is gone', 
   log.alone(file)
   await log.flush()
   const written = fs.readFileSync(file, 'utf8')
-  assert.match(written, /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} ERROR longbox\.shell: the sidecar exited \(1\)\n$/)
+  assert.match(written, /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \[[0-9a-f]{4}\] ERROR longbox\.shell: the sidecar exited \(1\)\n$/)
+})
+
+test('the lines said before the sidecar existed go with it, and are not sent twice', async (t) => {
+  quiet(t)
+  const log = fresh()
+  log.info('starting')
+  log.info('the vault: here')
+  assert.deepEqual(log.handOver().map((l) => l.text), ['starting', 'the vault: here'])
+  log.info('the sidecar answered')
+  const got = []
+  log.to(async (lines) => { got.push(...lines); return true })
+  await log.flush()
+  assert.deepEqual(got.map((l) => l.text), ['the sidecar answered'])
+})
+
+test('a sidecar that dies before it answers leaves its first lines to the file, run and all', async (t) => {
+  quiet(t)
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-log-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const file = path.join(dir, 'longbox.log')
+  const log = fresh()
+  log.info('starting')
+  log.handOver()
+  log.error('the sidecar exited (1)')
+  log.alone(file)
+  await log.flush()
+  const lines = fs.readFileSync(file, 'utf8').trim().split('\n')
+  assert.equal(lines.length, 2)
+  assert.ok(lines.every((l) => l.includes(` [${log.run}] `)))
+  assert.match(log.run, /^[0-9a-f]{4}$/)
 })
 
 test('only the latest lines are held while nothing takes them', async (t) => {

@@ -80,7 +80,9 @@ library/
                              sidecar's, the shell's (sent to the sidecar, or appended once
                              there is none) and the window's errors — each launch step, why
                              a launch checked the whole vault and why a close left the session
-                             open, every background job with its time, slow requests
+                             open, every background job with its time, slow requests. A
+                             launch opens with `----- run <id> -----` and each of its lines
+                             names the run; three files of 1 MB (`.1`, `.2` the older)
     session.json             whether the last session settled (closed through `POST /api/close`
                              before the shell stops the sidecar); one that did not makes the
                              next launch verify the whole vault

@@ -361,7 +361,9 @@ ran, how long it took and what came of it, and the last report is kept in full.
 **The log** (`.longbox/longbox.log` in the vault) says what the app did, step by step: how long a
 launch took and why it checked the whole vault, when it did; every job it ran in the background,
 what it did and for how long; why a close left the next launch a full check; a request that kept
-the window waiting; and what went wrong. It is the file to send with a report of something slow
+the window waiting; and what went wrong. Each launch opens with a `----- run a1b2 -----` line and
+every line of it carries that `[a1b2]`; one with no `closed` line at its end did not close. The
+newest megabyte is `longbox.log`, two older ones beside it. It is the file to send with a report of something slow
 or broken — read it first: it names the vault's path, the sites the browser opened right after a
 start and the files you downloaded.
 
