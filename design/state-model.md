@@ -264,7 +264,11 @@ A launch opens the database and answers immediately. The index lives in the vaul
 write of longbox — from whichever computer opened it — updates it in the same breath, so what
 it can miss is only what happened outside the app: a title folder added or removed by hand.
 A background pass lists the shelves (one directory listing per shelf, no title opened), reads
-the new titles and drops the gone ones.
+the new titles and drops the gone ones — only the shelves whose folder moved since the last
+settled session: a folder's time moves when an entry is added to it, removed or renamed, and the
+session leaves each shelf's time in the index as it ends (`library/session.py`). On a network
+vault that listing is the whole cost of a quiet launch: 2,600 title folders took eight seconds on
+a cold NAS (owner, 2026-11-15), and the share answered nothing else meanwhile.
 
 The whole vault is verified — one listing per title folder, re-reading only the titles whose
 document, chapter directory or cover moved since they were indexed — when the index cannot

@@ -210,7 +210,7 @@ DOWNLOADS_DIR = "downloads"
 VAULT_FOLDERS = {DOWNLOADS_DIR}
 
 
-def _not_a_shelf(name: str) -> bool:
+def not_a_shelf(name: str) -> bool:
     """The vault's own folders: a dot name (safe_id strips it) or one of VAULT_FOLDERS."""
     return name.startswith(".") or name in VAULT_FOLDERS
 
@@ -472,7 +472,7 @@ class Vault:
         for shelf in shelves:
             # the vault's own folders (the value pages, the downloads) sit
             # beside the shelves and are never one
-            if not shelf.is_dir() or _not_a_shelf(shelf.name):
+            if not shelf.is_dir() or not_a_shelf(shelf.name):
                 continue
             legacy = self._scan_one(shelf.path)  # an unmigrated title dir on the root
             if legacy is not None:
@@ -497,7 +497,7 @@ class Vault:
         if shelf and (self.root / shelf / sid / "title.json").is_file():
             return self.root / shelf / sid
         for td in self.root.iterdir():
-            if td.is_dir() and not _not_a_shelf(td.name) and (td / sid / "title.json").is_file():
+            if td.is_dir() and not not_a_shelf(td.name) and (td / sid / "title.json").is_file():
                 self._loc[sid] = td.name
                 return td / sid
         if (self.root / sid / "title.json").is_file():
@@ -607,23 +607,36 @@ class Vault:
         except OSError:
             return 0
 
-    def title_dirs(self) -> tuple[set[str], bool]:
+    def title_dirs(self, unchanged: dict[str, int] | None = None,
+                   held: dict[str, str] | None = None) -> tuple[set[str], bool, int]:
         """Every title directory's name from ONE listing per shelf — no title
-        opened, no stat per title: what a quiet launch checks. `complete` is
-        False when a shelf could not be listed (a blink of the share is not a
-        shelf emptied)."""
+        opened, no stat per title: what a quiet launch checks — and how many
+        shelves it listed. A shelf whose folder is at the time `unchanged` holds
+        for it is not listed (library/session.py): its titles are the ones
+        `held` (title id → shelf) puts on it. `complete` is False when a shelf
+        could not be listed (a blink of the share is not a shelf emptied)."""
         ids: set[str] = set()
         try:
             shelves = list(os.scandir(self.root))
         except OSError:
-            return ids, False
-        complete = True
+            return ids, False, 0
+        complete, listed = True, 0
         for shelf in shelves:
-            if not shelf.is_dir() or _not_a_shelf(shelf.name):
+            if not shelf.is_dir() or not_a_shelf(shelf.name):
                 continue
             if os.path.isfile(os.path.join(shelf.path, "title.json")):
                 ids.add(shelf.name)  # an unmigrated title on the root, not a shelf
                 continue
+            try:  # asked of the folder itself: NTFS updates the copy a listing carries lazily
+                same = bool(unchanged) and unchanged.get(shelf.name) == os.stat(shelf.path).st_mtime_ns
+            except OSError:
+                same = False
+            if same:
+                kept = {tid: on for tid, on in (held or {}).items() if on == shelf.name}
+                ids.update(kept)
+                self._loc.update(kept)
+                continue
+            listed += 1
             try:
                 with os.scandir(shelf.path) as titles:
                     for t in titles:
@@ -636,24 +649,11 @@ class Vault:
                         ids.add(t.name)
             except OSError:
                 complete = False
-        return ids, complete
+        return ids, complete, listed
 
     def list_ids(self) -> list[str]:
-        """Scan the type shelves for title directories (holding a title.json)."""
-        if not self.root.is_dir():
-            return []
-        ids: set[str] = set()
-        for td in self.root.iterdir():
-            if not td.is_dir() or _not_a_shelf(td.name):
-                continue
-            if (td / "title.json").is_file():
-                ids.add(td.name)  # unmigrated legacy leftover
-                continue
-            for c in td.iterdir():
-                if c.is_dir() and (c / "title.json").is_file():
-                    ids.add(c.name)
-                    self._loc[c.name] = td.name
-        return sorted(ids)
+        """Every title on the shelves: a folder holding a title.json."""
+        return sorted(sid for sid in self.title_dirs()[0] if self._find(sid) is not None)
 
     def _save(self, title_id: str, doc: TitleDoc) -> None:
         self.make_dir(self._dir(title_id))

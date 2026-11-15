@@ -149,7 +149,7 @@ def test_a_shelf_that_cannot_be_listed_drops_nothing(tmp_path, monkeypatch):
     lib = _launch(root)
     lib.create(DraftIn(meta=TitleMeta(title="Still Here")))
     lib.close()
-    monkeypatch.setattr(Vault, "title_dirs", lambda self: ({"elsewhere"}, False))
+    monkeypatch.setattr(Vault, "title_dirs", lambda self, *_: ({"elsewhere"}, False, 1))
     lib = _launch(root)
     assert [t.title for t in listed(lib)] == ["Still Here"]
     lib.close()
@@ -223,9 +223,9 @@ def test_a_title_missing_from_one_listing_but_on_disk_is_kept(tmp_path):
     lib.close()
     real = Vault.title_dirs
 
-    def listed_without_it(self):
-        ids, complete = real(self)
-        return ids - {out.id}, complete
+    def listed_without_it(self, *args):
+        ids, complete, listed = real(self, *args)
+        return ids - {out.id}, complete, listed
 
     lib = Library(root, defer_sync=True)
     Vault.title_dirs = listed_without_it
@@ -246,8 +246,8 @@ def test_a_title_created_while_the_shelves_are_listed_is_kept(tmp_path, monkeypa
     lib = Library(root, defer_sync=True)
     real = Vault.title_dirs
 
-    def created_meanwhile(self):
-        listed = real(self)
+    def created_meanwhile(self, *args):
+        listed = real(self, *args)
         lib.create(DraftIn(meta=TitleMeta(title="Just Made")))
         return listed
 
@@ -318,3 +318,81 @@ def test_a_write_still_on_its_way_at_close_leaves_the_session_open(tmp_path, mon
         release.set()
         writer.join(10)
     assert _open(root) is True
+
+
+# ---- a quiet launch lists only the shelves that moved ------------------------
+
+def _settled_long_ago(root) -> None:
+    """Every shelf's folder last moved an hour ago — past the guard on a time
+    taken too close to the moment."""
+    import os
+    import time
+    then = time.time() - 3600
+    for shelf in root.iterdir():
+        if shelf.is_dir() and not shelf.name.startswith(".") and shelf.name not in ("downloads",):
+            os.utime(shelf, (then, then))
+
+
+@pytest.fixture
+def listings(monkeypatch):
+    """How many shelves each quiet launch listed."""
+    seen: list[int] = []
+    real = Vault.title_dirs
+
+    def counted(self, *args):
+        got = real(self, *args)
+        seen.append(got[2])
+        return got
+
+    monkeypatch.setattr(Vault, "title_dirs", counted)
+    return seen
+
+
+def test_a_quiet_launch_lists_no_shelf_nothing_was_added_to(tmp_path, listings):
+    """2,600 title folders took eight seconds to list on a cold NAS, and the
+    share answered nothing else meanwhile — the window's first requests
+    included. A shelf whose folder kept its time had no title added or removed."""
+    root = tmp_path / "v"
+    lib = _launch(root)
+    one = lib.create(DraftIn(meta=TitleMeta(title="One", type="manga")))
+    lib.create(DraftIn(meta=TitleMeta(title="Two", type="manhwa")))
+    _settled_long_ago(root)
+    lib.close()
+
+    lib = _launch(root)
+    assert listings[-1] == 0
+    assert sorted(t.title for t in listed(lib)) == ["One", "Two"]
+    assert lib.get(one.id).title == "One"  # found where its type puts it
+    lib.close()
+
+
+def test_a_title_added_or_removed_by_hand_is_seen_on_the_shelf_that_moved(tmp_path, listings):
+    import shutil
+
+    root = tmp_path / "v"
+    lib = _launch(root)
+    keep = lib.create(DraftIn(meta=TitleMeta(title="Kept", type="manga")))
+    drop = lib.create(DraftIn(meta=TitleMeta(title="Dropped", type="manga")))
+    lib.create(DraftIn(meta=TitleMeta(title="Elsewhere", type="manhwa")))
+    _settled_long_ago(root)
+    lib.close()
+
+    shelf = root / "manga"
+    shutil.copytree(shelf / keep.id, shelf / "copied-by-hand")
+    shutil.rmtree(shelf / drop.id)
+    lib = _launch(root)
+    assert listings[-1] == 1  # the manga shelf only
+    assert sorted(t.title for t in listed(lib)) == ["Elsewhere", "Kept", "Kept"]
+    lib.close()
+
+
+def test_a_shelf_that_moved_as_the_session_ended_is_listed_next_time(tmp_path, listings):
+    """A time read within a tick of a coarse clock may not be the last one."""
+    root = tmp_path / "v"
+    lib = _launch(root)
+    lib.create(DraftIn(meta=TitleMeta(title="Just Now", type="manga")))
+    lib.close()  # the shelf moved a moment ago: its time is not taken
+
+    lib = _launch(root)
+    assert listings[-1] == 1
+    lib.close()

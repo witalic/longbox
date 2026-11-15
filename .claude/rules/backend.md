@@ -52,7 +52,8 @@ content). Full model: `design/state-model.md`; layout: `ARCHITECTURE.md`.
   on every launch (that is what once made the sidecar miss the shell's health timeout). A launch
   serves from the index and checks on a BACKGROUND pass (`sync_in_background`); nothing
   user-facing waits for the disk. Every write updates the index, so a launch only lists the
-  shelves for titles added or removed by hand (`quick_sync`); the whole vault is verified
+  shelves for titles added or removed by hand (`quick_sync`) — and of those only the ones whose
+  folder time moved since the last settled session (`library/session.py`); the whole vault is verified
   (`sync`) only for an empty index or a session that never settled (`.longbox/session.json`).
   A write path that can leave the vault ahead of the index must fail loudly (a failed index
   write sets `LibraryIndex.missed`), never silently. The shell stops the sidecar with a kill,

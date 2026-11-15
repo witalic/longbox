@@ -320,7 +320,7 @@ class Library:
         The index lives in the vault and every write of longbox — on any
         computer — updates it, so a launch only checks what a write of its own
         cannot have told it: titles added or removed by hand (one listing per
-        shelf). The whole vault is verified — a listing of every title's
+        shelf that moved). The whole vault is verified — a listing of every title's
         folder, minutes on a network disk — only when the index is empty, or
         the last session never closed and may have missed a write. An edit
         made by hand inside a title's folder waits for Rebuild (Maintenance)."""
@@ -359,13 +359,13 @@ class Library:
 
     def quick_sync(self) -> bool:
         """Titles added or removed by hand while the app was closed: the shelves
-        listed, the new titles read, the gone ones dropped. Says whether every
-        shelf was seen."""
+        that moved listed (library/session.py), the new titles read, the gone
+        ones dropped. Says whether every shelf was seen."""
         started = time.perf_counter()
         # the index first: a title created while the shelves are listed is then
         # in neither, never "gone"
         indexed = self.index.ids()
-        on_disk, complete = self.vault.title_dirs()
+        on_disk, complete, listed = self.vault.title_dirs(*session.since(self.index))
         # a shelf that could not be listed is not a shelf emptied
         missing = indexed - on_disk if complete and on_disk else set()
         new = on_disk - indexed
@@ -389,8 +389,8 @@ class Library:
                     self._index(tid, doc)
                     added += 1
         self.sync_state["changed"] = added + gone
-        log.info("opened %s quietly: %d titles on the shelves, %d new, %d gone (%.1fs)",
-                 self.vault.root, len(on_disk), added, gone, time.perf_counter() - started)
+        log.info("opened %s quietly: %d titles on the shelves (%d shelves listed), %d new, %d gone (%.1fs)",
+                 self.vault.root, len(on_disk), listed, added, gone, time.perf_counter() - started)
         return complete
 
     def sync(self, progress=None) -> int:
@@ -519,14 +519,14 @@ class Library:
             return
         self._closed = True
         stopped = self._stop_work()
-        self.index.close()
-        # the session is marked closed only when the index holds every write
         why = next((said for left, said in (
             (not settled, "a write was still on its way"),
             (not stopped, "background work did not stop in time"),
             (not self._settled, "the launch's check of the vault did not finish"),
             (not self._session_marked, "the session was never marked open, or the vault stopped answering"),
             (self.index.missed, "a write did not reach the index")) if left), "")
+        session.leave(self.index, self.vault.root, settled=not why)
+        self.index.close()
         if why:
             log.warning("closed; the session is left open, so the next launch checks the whole vault: %s", why)
             return

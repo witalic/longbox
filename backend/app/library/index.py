@@ -94,6 +94,10 @@ CREATE TABLE IF NOT EXISTS rule_stats_v1 (
     fired INTEGER NOT NULL DEFAULT 0,
     last  TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS shelf_stamps_v1 (
+    shelf TEXT PRIMARY KEY,
+    mtime INTEGER NOT NULL
+);
 """
 JOURNAL_KEEP = 50
 
@@ -579,6 +583,22 @@ class LibraryIndex:
     def ids(self) -> set[str]:
         with self._lock:
             return {r["id"] for r in self._db.execute("SELECT id FROM titles")}
+
+    def types(self) -> dict[str, str]:
+        """Every title's type — which says the shelf it lives on."""
+        with self._lock:
+            return {r["id"]: r["type"] for r in self._db.execute("SELECT id, type FROM titles")}
+
+    def shelf_stamps(self) -> dict[str, int]:
+        """Each shelf's folder time as the last settled session left it
+        (library/session.py) — empty when none did."""
+        with self._lock:
+            return {r["shelf"]: r["mtime"] for r in self._db.execute("SELECT shelf, mtime FROM shelf_stamps_v1")}
+
+    def set_shelf_stamps(self, stamps: dict[str, int]) -> None:
+        with self._lock, self._db:
+            self._db.execute("DELETE FROM shelf_stamps_v1")
+            self._db.executemany("INSERT INTO shelf_stamps_v1 (shelf, mtime) VALUES (?, ?)", stamps.items())
 
     def stamps(self) -> dict[str, tuple[int, int, str]]:
         """Every indexed title's id with the (document mtime, chapter-dir mtime,

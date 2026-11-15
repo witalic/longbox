@@ -32,6 +32,11 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
   stops the rewrite at once; the next launch carries on.
 
 ### Fixed
+- **A launch no longer lists every title folder.** A quiet launch looked for titles added or
+  removed by hand by listing every shelf — on a network vault the whole cost of a start: 2,600
+  title folders took eight seconds on a cold NAS, and the library, its filters and its settings
+  waited behind them. It now lists only a shelf whose folder changed since the last session
+  closed.
 - **A download the library will not take is kept.** An armed download of a kind nothing here
   stores — a PDF, a damaged zip, a web page a site sent instead of the file — waited only to be
   deleted; it now lands in the library's downloads, and the panel says what the file is instead of
