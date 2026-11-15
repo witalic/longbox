@@ -211,8 +211,11 @@ function goToPage(index: number) {
   store.reader.page = index
   if (mode.value === 'strip') scrollStripToPage(index)
 }
-// the rail follows the reading position, whatever moved it
+// what the reading scrolls: declared before the watches below, which run at once
 const railEl = ref<HTMLElement | null>(null)
+const pagesEl = ref<HTMLElement | null>(null)
+const stripEl = ref<HTMLElement | null>(null)
+// the rail follows the reading position, whatever moved it
 watch([() => store.reader.page, thumbs, chapter], async () => {
   if (!thumbs.value) return
   await nextTick()
@@ -233,8 +236,6 @@ watch([() => store.reader.page, chapter], () => {
 }, { immediate: true })
 
 // ---- the stage ----
-const pagesEl = ref<HTMLElement | null>(null)
-const stripEl = ref<HTMLElement | null>(null)
 const stripPct = ref(0)
 
 const pageStyle = computed(() => {
