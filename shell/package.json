@@ -1,7 +1,7 @@
 {
   "name": "longbox-shell",
   "private": true,
-  "version": "3.6.4",
+  "version": "3.6.5",
   "description": "longbox media vault",
   "license": "GPL-3.0-or-later",
   "main": "main.js",

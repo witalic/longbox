@@ -6,6 +6,8 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
 
 ## [Unreleased]
 
+## [3.6.5] — 2026-11-17
+
 ### Added
 - **Import: every file a work of its own.** For a folder of loose clips, each video (or archive, or
   folder of images) becomes a title of its own, named after its file, its cover the image of the
@@ -394,7 +396,8 @@ for Windows, macOS and Linux on the [releases page](https://github.com/witalic/l
   recipes, an explicit draft with per-field provenance, armed downloads, a library with linked
   faceted filters, and a reader.
 
-[Unreleased]: https://github.com/witalic/longbox/compare/v3.6.4...HEAD
+[Unreleased]: https://github.com/witalic/longbox/compare/v3.6.5...HEAD
+[3.6.5]: https://github.com/witalic/longbox/compare/v3.6.4...v3.6.5
 [3.6.4]: https://github.com/witalic/longbox/compare/v3.6.3...v3.6.4
 [3.6.3]: https://github.com/witalic/longbox/compare/v3.6.2...v3.6.3
 [3.6.2]: https://github.com/witalic/longbox/compare/v3.6.1...v3.6.2
